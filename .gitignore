@@ -1,0 +1,10 @@
+__pycache__/                                                                                                                                                                 
+*.pyc
+*.nbc
+*.nbi
+*.bak
+*.dylib
+*.dylib.dSYM/
+WTMM_ultimate/
+LastWave_3/
+.ipynb_checkpoints/
