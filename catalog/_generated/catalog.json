@@ -1,0 +1,4562 @@
+{
+  "sources": [
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -120.5,
+          48.7,
+          -110.0,
+          60.0
+        ],
+        "name": "Alberta"
+      },
+      "data_types": [
+        "borehole",
+        "core-sample"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Daily-updated General Well Data report — basic drilling data for every oil, gas, oil sands and water well in Alberta (no production data); xlsx",
+          "url": "https://www.aer.ca/data-and-performance-reports/activity-and-data/lists-and-activities/general-well-data"
+        },
+        {
+          "method": "manual",
+          "notes": "Products and Services Catalogue — bulk All-Alberta well-data file; returned HTTP 403 to a bare curl request, loads in-browser",
+          "url": "https://www1.aer.ca/ProductCatalogue/index.html"
+        },
+        {
+          "method": "manual",
+          "notes": "Core Research Centre — physical core/cuttings repository; viewing by appointment, ordering procedure documented separately",
+          "url": "https://www.aer.ca/about-aer/research-facilities/core-research-centre"
+        }
+      ],
+      "formats": [
+        "xlsx",
+        "csv"
+      ],
+      "id": "aer-alberta-well-core-data",
+      "license": "Open Government Licence – Alberta for published open datasets; Core Research Centre physical-sample access follows separate AER procedures/fees",
+      "name": "AER Alberta — well data and Core Research Centre",
+      "operator": "[[Alberta Energy Regulator]]",
+      "path": "sources/aer-alberta-well-core-data.md",
+      "portal": "https://www.aer.ca/data-and-performance-reports/activity-and-data",
+      "regions": [
+        "north-america",
+        "canada",
+        "alberta"
+      ],
+      "resolution": "per-well drilling data; per-well core/sample inventory",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -25.0,
+          1.0,
+          180.0,
+          82.0
+        ],
+        "name": "Eurasia and adjacent seas"
+      },
+      "data_types": [
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "No single combined download. Distributed as 4x6-degree sheets on the 1:1,000,000 international map-sheet grid (nomenclature like F46, G39...), each sheet as raster JPG plus vector KMZ and SHP with full attribution (name, kinematics, slip rate rank, source citation). Site is HTTP-only — its HTTPS listener has a broken/self-signed cert, so use http:// explicitly.",
+          "url": "http://neotec.ginras.ru/index/database/sheets.html"
+        }
+      ],
+      "formats": [
+        "shp",
+        "kmz",
+        "jpg"
+      ],
+      "id": "afead-active-faults",
+      "license": "CC BY 4.0",
+      "name": "AFEAD — Active Faults of Eurasia Database",
+      "operator": "[[Geological Institute of the Russian Academy of Sciences]]",
+      "path": "sources/afead-active-faults.md",
+      "portal": "http://neotec.ginras.ru/index/english/database_eng.html",
+      "regions": [
+        "eurasia"
+      ],
+      "resolution": "1:500,000 working (compilation) scale; 1:1,000,000 demonstration/sheet scale",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          3.3,
+          50.7,
+          7.3,
+          53.6
+        ],
+        "name": "Netherlands"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "wcs",
+          "notes": "PDOK dataset page listing the AHN WMS/WCS service endpoints (0.5 m DTM + DSM rasters) — confirmed live",
+          "url": "https://www.pdok.nl/introductie/-/article/actueel-hoogtebestand-nederland-ahn"
+        },
+        {
+          "method": "http-download",
+          "notes": "ATOM download service, per-map-sheet GeoTIFF/LAZ — confirmed live",
+          "url": "https://www.pdok.nl/atom-downloadservices/-/article/actueel-hoogtebestand-nederland-ahn"
+        },
+        {
+          "method": "manual",
+          "notes": "AHN viewer, point-cloud viewer, and dataroom (incl. Caribbean Netherlands) — confirmed live",
+          "url": "https://www.ahn.nl/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz"
+      ],
+      "id": "ahn-netherlands",
+      "license": "Open data (Dutch public-sector open geodata policy; no reuse restrictions found on PDOK)",
+      "name": "AHN — Actueel Hoogtebestand Nederland",
+      "operator": "[[Kadaster]]",
+      "path": "sources/ahn-netherlands.md",
+      "portal": "https://www.ahn.nl/",
+      "regions": [
+        "europe",
+        "netherlands"
+      ],
+      "resolution": "0.5 m DTM/DSM grid; point cloud ~6-10 pts/m2 (AHN4, 2020-2022 acquisition; AHN5/6 rolling out)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -179.15,
+          51.2,
+          -129.9,
+          71.44
+        ],
+        "name": "Alaska"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "DGGS/USGS Geologic Map Index of Alaska — searchable footprints linking out to individual publications",
+          "url": "https://maps.dggs.alaska.gov/mapindex/"
+        },
+        {
+          "method": "http-download",
+          "notes": "USGS SIM 3340 (Wilson & others, 2015) statewide seamless geodatabase, shapefile export, ~710MB; feature classes include AKStategeolarc_generalized (major faults shown on published map) and AKStategeol_dike / _lineament",
+          "url": "https://pubs.usgs.gov/sim/3340/sim3340_shp.zip"
+        }
+      ],
+      "formats": [
+        "gdb",
+        "shp"
+      ],
+      "id": "alaska-dggs-geologic-map",
+      "license": "Public Domain (U.S. Government Work) for SIM 3340; individual DGGS-authored publications otherwise under State of Alaska terms",
+      "name": "Alaska DGGS — Geologic Map Index & Statewide Geologic Map of Alaska",
+      "operator": "[[Alaska Division of Geological & Geophysical Surveys]]",
+      "path": "sources/alaska-dggs-geologic-map.md",
+      "portal": "https://dggs.alaska.gov/maps-data/index.html",
+      "regions": [
+        "north-america",
+        "united-states",
+        "alaska"
+      ],
+      "resolution": "1:500,000 (detailed compilation); 1:1,584,000 (generalized); index covers 1:24,000-1:250,000 source sheets",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -83.0,
+          180.0,
+          83.0
+        ],
+        "name": "Global land, 83°S-83°N"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "auth": "free-registration",
+          "method": "manual",
+          "notes": "NASA Earthdata login required. Collection ASTGTM_003 (DOI 10.5067/ASTER/ASTGTM.003), 1x1 degree Cloud-Optimized GeoTIFF tiles via LP DAAC.",
+          "url": "https://search.earthdata.nasa.gov/search?q=ASTGTM"
+        },
+        {
+          "method": "api",
+          "notes": "CMR granule-search API for the collection; verified live JSON response (2026-08-11). Metadata access needs no auth, but granule download links do.",
+          "url": "https://cmr.earthdata.nasa.gov/search/granules.json?concept_id=C1711961296-LPCLOUD"
+        }
+      ],
+      "formats": [
+        "cog",
+        "netcdf4"
+      ],
+      "id": "aster-gdem-v3",
+      "license": "No-cost, no restriction (NASA/METI open data policy; joint US/Japan product)",
+      "name": "ASTER Global Digital Elevation Model V3 (ASTGTM)",
+      "native_metadata": [
+        {
+          "format": "json (CMR/ECHO collection record)",
+          "url": "https://cmr.earthdata.nasa.gov/search/collections.json?concept_id=C1711961296-LPCLOUD"
+        }
+      ],
+      "operator": "[[National Aeronautics and Space Administration]]",
+      "path": "sources/aster-gdem-v3.md",
+      "portal": "https://www.earthdata.nasa.gov/data/catalog/lpcloud-astgtm-003",
+      "regions": [
+        "global"
+      ],
+      "resolution": "30 m posting (1 arc-second)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          -60.0
+        ],
+        "name": "Antarctica (south of 60°S)"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Gridding-products release: bed elevation, ice-thickness, surface elevation, uncertainty and data-density grids at 500 m in EPSG:3031, plus a streamline-point shapefile. GeoTIFF (7 files, ~2.1 GB), single netCDF (~2.4 GB), or shapefile. Hosted on BAS's RAMADDA repository (ramadda.data.bas.ac.uk).",
+          "url": "https://doi.org/10.5285/2d0e4791-8e20-46a3-80e4-f5f6716025d2"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "netcdf",
+        "shp"
+      ],
+      "id": "bedmap3-bed-topography",
+      "license": "CC BY 4.0",
+      "name": "BEDMAP3 — Ice Thickness, Bed and Surface Elevation for Antarctica",
+      "operator": "[[British Antarctic Survey]]",
+      "path": "sources/bedmap3-bed-topography.md",
+      "portal": "https://www.bas.ac.uk/project/bedmap/",
+      "regions": [
+        "antarctica"
+      ],
+      "resolution": "500 m gridded products; ~50M source survey points at native line resolution",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          5.8,
+          47.2,
+          15.1,
+          55.1
+        ],
+        "name": "Germany"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "GetCapabilities confirmed live (200); compiled with the state geological services (SGD)",
+          "url": "https://services.bgr.de/wms/geologie/guek200/?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "manual",
+          "notes": "GÜK250 successor product; shapefile/GML download via BGR Produktcenter (produktcenter.bgr.de), INSPIRE-conformant version also served as WMS",
+          "url": "https://www.bgr.bund.de/DE/Themen/Sammlungen-Grundlagen/GG_geol_Info/Karten/Deutschland/deutschland_node.html"
+        }
+      ],
+      "id": "bgr-geologische-uebersichtskarten",
+      "license": "Data licence Germany – Attribution – Version 2.0 (dl-de/by-2-0), per GeoNutzV — free for commercial and non-commercial use, no licence agreement needed, source citation required",
+      "name": "BGR Geological Overview Maps of Germany (GÜK200/GÜK250)",
+      "operator": "[[Bundesanstalt für Geowissenschaften und Rohstoffe]]",
+      "path": "sources/bgr-geologische-uebersichtskarten.md",
+      "portal": "https://geoportal.bgr.de/",
+      "regions": [
+        "europe",
+        "germany"
+      ],
+      "resolution": "1:200,000 (GÜK200) / 1:250,000 (GÜK250)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -8.649,
+          49.823,
+          1.763,
+          60.845
+        ],
+        "name": "Great Britain (onshore)"
+      },
+      "data_types": [
+        "borehole",
+        "core-sample"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "OGC API-Features endpoint for the SOBI point dataset",
+          "url": "https://ogcapi.bgs.ac.uk/collections/onshoreboreholeindex"
+        },
+        {
+          "method": "http-download",
+          "notes": "bulk SOBI download (GIS point data, ESRI/MapInfo; other formats on request)",
+          "url": "https://www.bgs.ac.uk/download/single-onshore-borehole-index-sobi-dataset/"
+        },
+        {
+          "method": "manual",
+          "notes": "GeoIndex viewer — click-through to scanned borehole/core log images (PDF)",
+          "url": "https://mapapps2.bgs.ac.uk/geoindex/home.html?layer=BGSBoreholes"
+        }
+      ],
+      "id": "bgs-borehole-scans",
+      "license": "Open Government Licence",
+      "name": "BGS Single Onshore Borehole Index (SOBI) and Scanned Borehole Records",
+      "operator": "[[British Geological Survey]]",
+      "path": "sources/bgs-borehole-scans.md",
+      "portal": "https://www.bgs.ac.uk/information-hub/borehole-records/",
+      "regions": [
+        "europe",
+        "united-kingdom"
+      ],
+      "resolution": "point-located borehole/core records with scanned logs, depth-registered lithological descriptions",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -8.65,
+          49.8,
+          1.8,
+          60.9
+        ],
+        "name": "Great Britain (onshore)"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "GetCapabilities confirmed live; layers include BGS.50k.Bedrock, BGS.50k.Superficial.deposits, BGS.50k.Linear.features (faults/structural lines), BGS.50k.Mass.movement, BGS.50k.Artificial.ground",
+          "url": "https://map.bgs.ac.uk/arcgis/services/BGS_Detailed_Geology/MapServer/WMSServer?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "http-download",
+          "notes": "statewide 1:625k bedrock+superficial+linear-features as shp/GeoPackage, free under OGL",
+          "url": "https://www.bgs.ac.uk/datasets/bgs-geology-625k/"
+        },
+        {
+          "method": "wfs",
+          "notes": "GeoSciML v4.1 / INSPIRE-conformant download service; portal page listing WFS endpoints per product",
+          "url": "https://www.bgs.ac.uk/technologies/web-services/web-feature-services-wfs/"
+        }
+      ],
+      "id": "bgs-opengeoscience",
+      "license": "OGL v3 (BGS Geology 625k, free for commercial/research/public use with attribution); BGS Geology 50k (DiGMapGB) is free to view but carries a commercial licence fee (~£0.23/km²) for licensed use",
+      "name": "BGS OpenGeoscience — Digital Geological Map of Great Britain (DiGMapGB)",
+      "operator": "[[British Geological Survey]]",
+      "path": "sources/bgs-opengeoscience.md",
+      "portal": "https://www.bgs.ac.uk/geological-data/opengeoscience/",
+      "regions": [
+        "europe",
+        "united-kingdom"
+      ],
+      "resolution": "1:625,000 to 1:10,000 (DiGMapGB series)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -97.0,
+          26.0,
+          -86.0,
+          30.0
+        ],
+        "name": "Northern Gulf of Mexico deepwater"
+      },
+      "data_types": [
+        "bathymetry"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Product page hosts GeoTIFF grids as East/West-split zips, in feet or meters (e.g. BOEM_Bathymetry_East_meters_tiff.zip, ~490 MB) plus hillshade and contour zips. The generic mapping-and-data URL is live but is the general portal, not this product page; the older boem-northern-gulf-mexico... map-gallery slug 301-redirects here under a \"GoA\" (Gulf of America) slug.",
+          "url": "https://www.boem.gov/oil-gas-energy/mapping-and-data/map-gallery/northern-goa-deepwater-bathymetry-grid-3d-seismic"
+        }
+      ],
+      "formats": [
+        "geotiff"
+      ],
+      "id": "boem-gom-bathymetry",
+      "license": "public domain (US federal)",
+      "name": "BOEM Northern Gulf of Mexico Deepwater Bathymetry Grid",
+      "operator": "[[Bureau of Ocean Energy Management]]",
+      "path": "sources/boem-gom-bathymetry.md",
+      "portal": "https://www.boem.gov/oil-gas-energy/mapping-and-data",
+      "regions": [
+        "north-america",
+        "gulf-of-mexico"
+      ],
+      "resolution": "12.2 m posting (resolves ~25-50 m; seismic water-bottom pick, not multibeam)",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          19.9,
+          -26.9,
+          29.4,
+          -17.8
+        ],
+        "name": "Botswana"
+      },
+      "data_types": [
+        "geologic-map",
+        "magnetics",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Page confirmed live (HTTP 200 with a modern browser UA; default/no-UA requests get a 403 from the front-end WAF). Describes an interactive GIS web-map (\"Botswana Geoscience Portal\", link given as geos.bgi.org.bw/GDP/Search) plus BGI Drill Core Repositories and a paid Data/Information Price List. The GDP GIS subdomain itself timed out on repeated checks during this verification — treat it as gated/intermittent, not confirmed live.",
+          "url": "https://www.bgi.org.bw/botswana-geological-portal"
+        }
+      ],
+      "formats": [
+        "shp",
+        "gdb"
+      ],
+      "id": "botswana-geoscience-institute-portal",
+      "license": "fee-based (BGI Data/Information Price List); some releases (e.g. aeromagnetic survey announcements) noted as free",
+      "name": "Botswana Geoscience Institute — Geological Portal",
+      "operator": "[[Botswana Geoscience Institute]]",
+      "path": "sources/botswana-geoscience-institute-portal.md",
+      "portal": "https://www.bgi.org.bw/",
+      "regions": [
+        "africa",
+        "botswana"
+      ],
+      "resolution": "variable; national geological mapping, aeromagnetic survey grids, drill-core repository records",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -5.2,
+          41.3,
+          9.6,
+          51.1
+        ],
+        "name": "Metropolitan France"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "GetCapabilities confirmed live (380KB response); layers include SCAN_D_GEOL50, SCAN_F_GEOL250, SCAN_F_GEOL1M, GEOLOGIE_OUTRE_MER",
+          "url": "https://geoservices.brgm.fr/geologie?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "http-download",
+          "notes": "vectorized/harmonized 1:50,000 departmental sheets (BD Charm-50) as shapefile, incl. faults and contacts",
+          "url": "https://infoterre.brgm.fr/page/telechargement-cartes-geologiques"
+        },
+        {
+          "method": "wfs",
+          "notes": "OGC WFS 1.0 download service, INSPIRE geology theme; also boreholes (BSS) and BSSEAU groundwater layers",
+          "url": "https://infoterre.brgm.fr/page/geoservices-ogc"
+        }
+      ],
+      "id": "brgm-infoterre",
+      "license": "Licence Ouverte / Etalab 2.0 — free for commercial and non-commercial reuse, attribution to BRGM + last-update date required",
+      "name": "BRGM InfoTerre — BD Charm-50 harmonized geological maps",
+      "operator": "[[Bureau de Recherches Géologiques et Minières]]",
+      "path": "sources/brgm-infoterre.md",
+      "portal": "https://infoterre.brgm.fr/",
+      "regions": [
+        "europe",
+        "france"
+      ],
+      "resolution": "1:50,000 (BD Charm-50); 1:250,000; 1:1,000,000",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -124.5,
+          32.5,
+          -114.1,
+          42.1
+        ],
+        "name": "California"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "2010 Fault Activity Map — faults active in the Quaternary, digitized from original sources",
+          "url": "https://gis.conservation.ca.gov/server/rest/services/CGS/FaultActivityMapCA/MapServer"
+        },
+        {
+          "method": "arcgis-rest",
+          "url": "https://gis.conservation.ca.gov/server/rest/services/CGS/Geologic_Map_of_California/MapServer"
+        }
+      ],
+      "id": "california-cgs-fault-geology",
+      "license": "© California Dept. of Conservation — free public REST/export access; one service's iteminfo states \"All rights reserved\", redistribution terms otherwise unstated",
+      "name": "California Geological Survey — Fault Activity Map & Geologic Map of California",
+      "operator": "[[California Geological Survey]]",
+      "path": "sources/california-cgs-fault-geology.md",
+      "portal": "https://www.conservation.ca.gov/cgs",
+      "regions": [
+        "north-america",
+        "united-states",
+        "california"
+      ],
+      "resolution": "1:750,000",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "auth": "license-agreement",
+          "method": "manual",
+          "notes": "2017 GIS restructure of the 2014 3rd-edition map (geodatabase + ArcGIS 10.0/10.5 mxd, English and French). Not a self-serve download: the licence agreement must be downloaded, signed, and emailed to ccgm@sfr.fr before CGMW sends the file link.",
+          "url": "https://www.ccgm.org/en/product/geological-map-of-the-world-at-1-35-m-sig/"
+        }
+      ],
+      "formats": [
+        "fgdb",
+        "mxd"
+      ],
+      "id": "cgmw-world-geology-35m",
+      "license": "Free, by signed CGMW/CCGM licence agreement (non-open; contact ccgm@sfr.fr for terms)",
+      "name": "CGMW Geological Map of the World at 1:35,000,000 (GIS)",
+      "operator": "[[Commission for the Geological Map of the World]]",
+      "path": "sources/cgmw-world-geology-35m.md",
+      "portal": "https://www.ccgm.org/en/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "1:35,000,000",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          16.3,
+          -34.9,
+          32.9,
+          -22.1
+        ],
+        "name": "South Africa"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors",
+        "gravity",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "confirmed live ArcGIS Enterprise 11.5; public folders incl. 8_GEOPHYSICS_DATA, 5_SEISMICITY, ENGINEERING_GEOLOGY — some individual services return 'Token Required'",
+          "url": "https://maps.geoscience.org.za/server/rest/services?f=json"
+        },
+        {
+          "method": "manual",
+          "notes": "downloadable map/document library (Simplified Geological Map of South Africa, etc.)",
+          "url": "https://www.geoscience.org.za/cgs/systems/publications/downloadable-material/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "gdb",
+        "tiff"
+      ],
+      "id": "cgs-south-africa-geoscience-webmap",
+      "license": "Geoscience Act 100 of 1993 (as amended) — CGS data made available to stakeholders; some ArcGIS layers gated behind a token",
+      "name": "Council for Geoscience Interactive Web Map (South Africa)",
+      "operator": "[[Council for Geoscience]]",
+      "path": "sources/cgs-south-africa-geoscience-webmap.md",
+      "portal": "https://maps.geoscience.org.za/",
+      "regions": [
+        "africa",
+        "south-africa"
+      ],
+      "resolution": "variable; national map series at 1:250,000 and 1:1,000,000, geophysics grids at survey resolution",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "stac",
+          "notes": "Confirmed live: root catalog document returns real STAC JSON (id \"cdse-stac\"). /stac/collections lists 418 collections (confirmed 2026-08-11), including cop-dem-glo-30-dged-cog / cop-dem-glo-90-dged-cog (`dem`) alongside the full Sentinel-1/2/3/5P/6 archives (SAR/optical/atmospheric — outside this catalog's data-type enum but reachable through the same API).",
+          "url": "https://catalogue.dataspace.copernicus.eu/stac"
+        },
+        {
+          "method": "api",
+          "notes": "OData v1 product-metadata API — confirmed live, returns real JSON (Sentinel-3 product record in test query).",
+          "url": "https://catalogue.dataspace.copernicus.eu/odata/v1/Products?$top=1"
+        },
+        {
+          "method": "manual",
+          "notes": "Copernicus Data Space Ecosystem portal — confirmed live (HTTP 200); browser UI at browser.dataspace.copernicus.eu sits over the same STAC catalog.",
+          "url": "https://dataspace.copernicus.eu/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "jp2",
+        "safe",
+        "netcdf"
+      ],
+      "id": "copernicus-dataspace",
+      "license": "Copernicus free/open-access license (attribution); Copernicus DEM carries the ESA/Airbus free license",
+      "name": "Copernicus Data Space Ecosystem (STAC + OData)",
+      "operator": "[[European Space Agency]]",
+      "path": "sources/copernicus-dataspace.md",
+      "portal": "https://dataspace.copernicus.eu/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (land)"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "AWS Open Data mirror, tiled GeoTIFF, no auth",
+          "url": "https://copernicus-dem-30m.s3.amazonaws.com/"
+        },
+        {
+          "auth": "free-registration",
+          "method": "stac",
+          "url": "https://catalogue.dataspace.copernicus.eu/stac"
+        }
+      ],
+      "formats": [
+        "geotiff"
+      ],
+      "id": "copernicus-glo30",
+      "license": "ESA/Airbus free license (attribution)",
+      "name": "Copernicus DEM GLO-30",
+      "operator": "[[European Space Agency]]",
+      "path": "sources/copernicus-glo30.md",
+      "portal": "https://dataspace.copernicus.eu/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "30 m posting (GLO-30)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -74.0,
+          -33.8,
+          -34.7,
+          5.3
+        ],
+        "name": "Brazil"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors",
+        "gravity",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "confirmed live ArcGIS web app (redirects to /geosgb iframe); Downloads panel exports shapefile/KML, plus WMS and OneGeology (UNESCO) service links",
+          "url": "https://geosgb.sgb.gov.br/geosgb"
+        },
+        {
+          "method": "http-download",
+          "notes": "SGB open-data catalogue mirror of the same holdings",
+          "url": "https://opendata.sgb.gov.br/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "kml"
+      ],
+      "id": "cprm-geosgb-brazil",
+      "license": "Brazilian federal open-data policy (SGB/CPRM); no blanket CC license text found — attribution to SGB/CPRM customary",
+      "name": "GeoSGB — SGB/CPRM Geoscientific Information System (Brazil)",
+      "operator": "[[Serviço Geológico do Brasil]]",
+      "path": "sources/cprm-geosgb-brazil.md",
+      "portal": "https://geosgb.sgb.gov.br/geosgb",
+      "regions": [
+        "south-america",
+        "brazil"
+      ],
+      "resolution": "1:1,000,000 down to 1:100,000 depending on sheet",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          8.0,
+          54.5,
+          15.2,
+          57.8
+        ],
+        "name": "Denmark"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "auth": "api-key",
+          "method": "wcs",
+          "notes": "confirmed live (401 without key, i.e. real auth-gated service, not dead); free API key/OAuth via Datafordeler self-registration",
+          "url": "https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS?service=WCS&request=GetCapabilities"
+        },
+        {
+          "method": "manual",
+          "notes": "Datafordeler service documentation/overview for DHM WCS (Terrain + Overflade) — confirmed live",
+          "url": "https://datafordeler.dk/dataoversigt/danmarks-hoejdemodel-dhm/dhm-wcs/"
+        },
+        {
+          "method": "manual",
+          "notes": "Klimadatastyrelsen (formerly SDFI/SDFE) landing page for the height-model programme — confirmed live",
+          "url": "https://www.klimadatastyrelsen.dk/groen-omstilling-og-klimasikring/klimasikring/danmarks-hoejdemodel"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz"
+      ],
+      "id": "denmark-dhm",
+      "license": "Free reuse (Danish public-sector open data; free Datafordeler self-registration for the API key)",
+      "name": "Danmarks Højdemodel (DHM) — Denmark national LiDAR elevation model",
+      "operator": "[[Klimadatastyrelsen]]",
+      "path": "sources/denmark-dhm.md",
+      "portal": "https://www.klimadatastyrelsen.dk/groen-omstilling-og-klimasikring/klimasikring/danmarks-hoejdemodel",
+      "regions": [
+        "europe",
+        "denmark"
+      ],
+      "resolution": "0.4 m / 1 m / 5 m / 20 m DTM & DSM grids; ~4.5 pts/m2 LiDAR point cloud, ~5 cm vertical accuracy",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (discrete sites)"
+      },
+      "data_types": [
+        "microstructure",
+        "core-sample"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "rebrand of the Digital Rocks Portal (old DOI 10.17616/R3C64S superseded by 10.17612/FGMN-D889); browse/search published projects, each dataset carries a DOI and downloadable raw + derived imagery plus specimen metadata (porosity, permeability, NMR, elastic properties, etc.)\n",
+          "url": "https://digitalporousmedia.org/"
+        }
+      ],
+      "id": "digital-porous-media-portal",
+      "license": "per-dataset (contributor-assigned; CC licenses common)",
+      "name": "Digital Porous Media Portal (formerly Digital Rocks Portal)",
+      "operator": "[[Texas Advanced Computing Center]]",
+      "path": "sources/digital-porous-media-portal.md",
+      "portal": "https://digitalporousmedia.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "micro-CT / imaging volumes of porous media, ~sub-um to mm voxels depending on dataset",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -25.0,
+          34.0,
+          45.0,
+          72.0
+        ],
+        "name": "Europe"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Federation portal, not a single dataset: this page lists every layer in the EGDI Map Viewer with metadata/service-status flags, each backed by its own national survey's WMS/WFS. Discover a layer here, then hit its GetCapabilities directly.",
+          "url": "https://www.europe-geology.eu/data-tools/map-services-and-layers/"
+        },
+        {
+          "method": "wfs",
+          "notes": "One concrete example member service — BGS bedrock/surface geology WFS, indexed via EGDI's OneGeology-Europe layer.",
+          "url": "https://ogc2.bgs.ac.uk/cgi-bin/BGS_OGE_Bedrock_and_Surface_Geology/ows?service=WFS&request=GetCapabilities"
+        }
+      ],
+      "formats": [
+        "shp",
+        "wms",
+        "wfs"
+      ],
+      "id": "egdi-geology",
+      "license": "Varies by contributing national geological survey — check per-dataset metadata in the EGDI catalogue",
+      "name": "EGDI — European Geological Data Infrastructure (geology/structure layers)",
+      "operator": "[[EuroGeoSurveys]]",
+      "path": "sources/egdi-geology.md",
+      "portal": "https://www.europe-geology.eu/",
+      "regions": [
+        "europe"
+      ],
+      "resolution": "variable — federated national-survey layers, typically 1:50,000 to 1:1,000,000",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          112.9,
+          -43.7,
+          153.7,
+          -9.1
+        ],
+        "name": "Australia (LiDAR coverage concentrated coastal/urban/agricultural, sparse inland)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Menu > Order Data, draw an AOI; free, no login required for ordering, 15 GB/request cap; packaged download link is emailed once the extract is built.",
+          "url": "https://elevation.fsdf.org.au/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz"
+      ],
+      "id": "elvis-elevation",
+      "license": "CC BY 4.0 (varies by contributing state/territory agency)",
+      "name": "ELVIS — Elevation and Depth (Foundation Spatial Data Framework)",
+      "operator": "[[Geoscience Australia]]",
+      "path": "sources/elvis-elevation.md",
+      "portal": "https://elevation.fsdf.org.au/",
+      "regions": [
+        "australia"
+      ],
+      "resolution": "1-5 m DEM/DSM (LiDAR-derived, coverage patchy); raw point clouds in LAZ",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "4.5 GB zipped ASCII/CSV grid (lon, lat, upward-continued anomaly, sea-level anomaly, code). Landing page also links GeoTIFF, PNG and KMZ renderings and an Esri ArcGIS Hub image service.",
+          "url": "https://www.ngdc.noaa.gov/geomag/data/EMAG2/EMAG2_V3_20170530.zip"
+        },
+        {
+          "method": "http-download",
+          "notes": "primary download index page (all format links live from here)",
+          "url": "https://www.ngdc.noaa.gov/geomag/emag2_download.html"
+        }
+      ],
+      "formats": [
+        "csv",
+        "geotiff",
+        "kmz",
+        "png"
+      ],
+      "id": "emag2v3-magnetic-grid",
+      "license": "public domain (US federal); cite via DOI 10.7289/V5H70CVX",
+      "name": "EMAG2v3 — Earth Magnetic Anomaly Grid (2-arc-min)",
+      "native_metadata": [
+        {
+          "format": "iso-19115-xml",
+          "url": "https://www.ncei.noaa.gov/access/metadata/landing-page/bin/iso?id=gov.noaa.ngdc.mgg.geophysical_models%3AEMAG2_V3"
+        }
+      ],
+      "operator": "[[NOAA NCEI]]",
+      "path": "sources/emag2v3-magnetic-grid.md",
+      "portal": "https://www.ncei.noaa.gov/products/earth-magnetic-model-anomaly-grid-2",
+      "regions": [
+        "global"
+      ],
+      "resolution": "2 arc-min grid (upward-continued to 4 km, and sea-level compilation for ocean/coastal areas)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -44.0,
+          24.0,
+          45.0,
+          82.0
+        ],
+        "name": "European seas (North Sea, NE Atlantic, Baltic, Mediterranean, Black Sea, Arctic/Barents)"
+      },
+      "data_types": [
+        "bathymetry"
+      ],
+      "fetch": [
+        {
+          "method": "wcs",
+          "notes": "Verified live 2026-08-11 (200 OK GetCapabilities).",
+          "url": "https://ows.emodnet-bathymetry.eu/wcs?service=WCS&request=GetCapabilities"
+        },
+        {
+          "method": "wms",
+          "notes": "Verified live 2026-08-11.",
+          "url": "https://ows.emodnet-bathymetry.eu/wms?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "wms",
+          "notes": "EMODnet Bathymetry World Base Layer tile service (WMTS), verified live 2026-08-11.",
+          "url": "https://tiles.emodnet-bathymetry.eu/"
+        },
+        {
+          "method": "manual",
+          "notes": "Central map viewer with area-select download; DOI-cited release, 2024 DTM current as of this check.",
+          "url": "https://emodnet.ec.europa.eu/geoviewer/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "netcdf",
+        "esri-ascii",
+        "xyz",
+        "csv"
+      ],
+      "id": "emodnet-bathymetry",
+      "license": "Free reuse with attribution (EMODnet Bathymetry Consortium DOI citation)",
+      "name": "EMODnet Bathymetry — Digital Terrain Model",
+      "operator": "[[EMODnet]]",
+      "path": "sources/emodnet-bathymetry.md",
+      "portal": "https://emodnet.ec.europa.eu/en/bathymetry",
+      "regions": [
+        "europe"
+      ],
+      "resolution": "1/16 x 1/16 arc-minute DTM (~115 m at European latitudes); 200+ coastal high-resolution DTMs down to 1/512 arc-minute",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -44.0,
+          24.0,
+          45.0,
+          82.0
+        ],
+        "name": "European seas"
+      },
+      "data_types": [
+        "seismic-reflection",
+        "bathymetry"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "Verified live 2026-08-11 (200 OK GetCapabilities). Layers are organised per contributing national survey workspace (e.g. bgr, bgs, tno); see the geoviewer to browse which layer covers which area.",
+          "url": "https://drive.emodnet-geology.eu/geoserver/wms?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "manual",
+          "notes": "Central map viewer, \"Seismic and Multibeam Survey Data\" theme among others (seabed substrates, geology, hazards, minerals).",
+          "url": "https://emodnet.ec.europa.eu/geoviewer/"
+        },
+        {
+          "method": "manual",
+          "notes": "Metadata catalogue for discovering individual contributing datasets/services.",
+          "url": "https://emodnet.ec.europa.eu/geonetwork/srv/eng/catalog.search"
+        }
+      ],
+      "formats": [
+        "wms",
+        "shp",
+        "geotiff"
+      ],
+      "id": "emodnet-geology-seismic",
+      "license": "Varies by contributing national geological survey — check per-dataset metadata in the catalogue",
+      "name": "EMODnet Geology — Seismic and Multibeam Survey Data",
+      "operator": "[[EMODnet]]",
+      "path": "sources/emodnet-geology-seismic.md",
+      "portal": "https://emodnet.ec.europa.eu/en/geology",
+      "regions": [
+        "europe"
+      ],
+      "resolution": "survey-index/line-location metadata, federated from national geological surveys; underlying trace data resolution varies per contributor",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -25.0,
+          34.0,
+          45.0,
+          71.0
+        ],
+        "name": "Europe (network of laboratories)"
+      },
+      "data_types": [
+        "microstructure"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "MSL catalogue aggregates dataset metadata from partner repositories (chiefly GFZ Data Services) across four domains: analogue modelling, paleomagnetism, rock physics/HP-T, analytical labs (incl. electron microscopy/microstructure); no single bulk-download API, individual datasets are fetched from whichever repository holds them\n",
+          "url": "https://www.epos-eu.org/tcs/multi-scale-laboratories/data-services"
+        }
+      ],
+      "id": "epos-multiscale-laboratories",
+      "license": "varies per contributing repository/dataset",
+      "name": "EPOS Multi-Scale Laboratories (TCS-MSL)",
+      "operator": "[[Utrecht University]]",
+      "path": "sources/epos-multiscale-laboratories.md",
+      "portal": "https://www.epos-eu.org/tcs/multi-scale-laboratories",
+      "regions": [
+        "europe"
+      ],
+      "resolution": "lab-scale microscopy/microstructure and rock-physics measurements on hand samples and thin sections",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global — scattered virtual-outcrop and sample localities"
+      },
+      "data_types": [
+        "outcrop-model"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "~40 web-viewable 3D models (Sketchfab-embedded), browsable by geological theme (carbonates, clastics, crystalline, folding/fracturing, faults, unconformities) or by region (Pembrokeshire, NW Highlands, NE Scotland, etc.) with a map interface. Most models are downloadable under the model's own CC BY licence; contributors may opt a model out of downloading.",
+          "url": "https://www.e-rock.co.uk/"
+        }
+      ],
+      "formats": [
+        "obj",
+        "gltf"
+      ],
+      "id": "erock-virtual-outcrops",
+      "license": "CC BY (per-model; some models set non-downloadable)",
+      "name": "eRock — Open-Access Repository of Virtual Outcrops and Samples",
+      "operator": "[[University of Aberdeen]]",
+      "path": "sources/erock-virtual-outcrops.md",
+      "portal": "https://www.e-rock.co.uk/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "photogrammetric 3D virtual-outcrop and hand-sample models (sub-cm to decimeter mesh detail, model-dependent)",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (land + ocean)"
+      },
+      "data_types": [
+        "dem",
+        "bathymetry"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Directory tree by resolution (15s/30s/60s) then by layer (elevation, sourceID, geoid); Ice-Surface and Bedrock versions; GeoTIFF and NetCDF. No login; directory listing confirmed live 2026-08-11.",
+          "url": "https://www.ngdc.noaa.gov/mgg/global/relief/ETOPO2022/data/"
+        },
+        {
+          "method": "manual",
+          "notes": "Interactive Grid Extract tool for custom-bbox subsets.",
+          "url": "https://www.ncei.noaa.gov/maps/grid-extract/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "netcdf"
+      ],
+      "id": "etopo-2022",
+      "license": "Public domain (US Government work)",
+      "name": "ETOPO 2022 Global Relief Model",
+      "operator": "[[National Oceanic and Atmospheric Administration]]",
+      "path": "sources/etopo-2022.md",
+      "portal": "https://www.ncei.noaa.gov/products/etopo-global-relief-model",
+      "regions": [
+        "global"
+      ],
+      "resolution": "15/30/60 arc-second grids (~450 m / 900 m / 1.8 km at equator)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -60.0,
+          180.0,
+          84.0
+        ],
+        "name": "Global land, excluding Greenland and Antarctica"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Pure repository record (verified live 2026-08-11), DOI 10.5523/bris.s5hqmjcdj8yo2ibzi9b4ew3sn. The DOI 302-redirects to the data.bris.ac.uk CKAN file host (per-tile GeoTIFF zips + a GeoJSON tile index); that host reset every connection attempt during verification — confirm it is back up before relying on it. A commercial version with API/portal access is sold separately via Fathom (https://www.fathom.global/product/fabdem/, also verified live).",
+          "url": "https://research-information.bris.ac.uk/en/datasets/fabdem-v1-2/"
+        }
+      ],
+      "formats": [
+        "geotiff"
+      ],
+      "id": "fabdem-v1-2",
+      "license": "CC BY-NC-SA 4.0 (commercial use requires contacting the authors)",
+      "name": "FABDEM V1-2 (Forest And Buildings removed Copernicus DEM)",
+      "operator": "[[University of Bristol]]",
+      "path": "sources/fabdem-v1-2.md",
+      "portal": "https://research-information.bris.ac.uk/en/datasets/fabdem-v1-2/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "30 m posting (1 arc-second)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          108.0,
+          -48.0,
+          164.0,
+          -8.0
+        ],
+        "name": "Australia (onshore + continental margin)"
+      },
+      "data_types": [
+        "gravity",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "wcs",
+          "notes": "OWS endpoint (WMS/WCS) serving national gravity, magnetic, radiometric and elevation grids for QGIS/ArcGIS",
+          "url": "https://services.ga.gov.au/gis/geophysical-grids/ows"
+        },
+        {
+          "method": "http-download",
+          "notes": "NCI THREDDS catalogue — direct NetCDF/GeoTIFF grid files (e.g. Magmap2019 pseudogravity/RTP grids ~88 m, National Gravity Compilation 2019 400 m), plus NCSS and OPeNDAP subsetting. Sample file confirmed live (2.65 GB .nc, HTTP 200).",
+          "url": "https://thredds.nci.org.au/thredds/catalog/iv65/Geoscience_Australia_Geophysics_Reference_Data_Collection/national_geophysical_compilations/catalog.html"
+        },
+        {
+          "auth": "free-registration",
+          "method": "manual",
+          "notes": "GADDS2 — survey-level search and bulk order across 4000+ individual geophysical surveys",
+          "url": "https://portal.ga.gov.au/persona/gadds"
+        }
+      ],
+      "formats": [
+        "netcdf",
+        "geotiff",
+        "ers"
+      ],
+      "id": "ga-national-geophysics-grids",
+      "license": "CC BY 4.0",
+      "name": "Geoscience Australia National Geophysical Grids — Gravity & Magnetics",
+      "operator": "[[Geoscience Australia]]",
+      "path": "sources/ga-national-geophysics-grids.md",
+      "portal": "https://portal.ga.gov.au/persona/gadds",
+      "regions": [
+        "australia"
+      ],
+      "resolution": "magnetics ~88 m cell (7th ed., 2019/2020); gravity 400 m cell, station spacing ~1-11 km",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          114.2288,
+          -54.7732,
+          158.9361,
+          -10.6409
+        ],
+        "name": "Australia"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Faults layer (brittle/ductile structures, movement sense, dip, age) — sibling layers in the same MapServer carry geology units and contacts. Confirmed live and public via the ArcGIS item record (owner aus_digitalatlas).",
+          "url": "https://services.ga.gov.au/gis/rest/services/GA_Surface_Geology/MapServer/7"
+        },
+        {
+          "method": "http-download",
+          "notes": "packaged shapefile/file-geodatabase download of the full seamless 1:1M compilation",
+          "url": "https://data.gov.au/data/dataset/surface-geology-of-australia-1-1-million-scale-dataset-2012-edition"
+        }
+      ],
+      "formats": [
+        "shp",
+        "fgdb",
+        "esri-feature-service"
+      ],
+      "id": "ga-surface-geology-faults",
+      "license": "CC BY 4.0",
+      "name": "Geoscience Australia Surface Geology of Australia — Faults & Structure",
+      "operator": "[[Geoscience Australia]]",
+      "path": "sources/ga-surface-geology-faults.md",
+      "portal": "https://digital.atlas.gov.au/datasets/faults-surface-geology-11-million-scale/about",
+      "regions": [
+        "australia"
+      ],
+      "resolution": "1:1,000,000 (2012 edition); 1:2,500,000 edition also available",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (land + ocean)"
+      },
+      "data_types": [
+        "bathymetry",
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Full global grid, ice-surface version, GeoTIFF (multi-GB zip); netCDF and Esri ASCII siblings, plus a sub-ice topography/bathymetry version and a Type Identifier (TID) grid, at parallel paths under the same tree. No login; verified live 2026-08-11. The site's own \"user-selected area\" tool (download.gebco.net) does not currently resolve.",
+          "url": "https://dap.ceda.ac.uk/bodc/gebco/global/gebco_2026/ice_surface_elevation/geotiff/gebco_2026_geotiff.zip?download=1"
+        },
+        {
+          "method": "api",
+          "notes": "OPeNDAP endpoint for subsetting without pulling the whole grid.",
+          "url": "https://data.ceda.ac.uk/bodc/gebco/global/gebco_2026"
+        }
+      ],
+      "formats": [
+        "netcdf",
+        "geotiff",
+        "esri-ascii"
+      ],
+      "id": "gebco-2026-grid",
+      "license": "Public domain (attribution requested)",
+      "name": "GEBCO_2026 Grid",
+      "native_metadata": [
+        {
+          "format": "DOI landing page",
+          "url": "https://doi.org/10.5285/4f68d5c7-45eb-f999-e063-7086abc036fa"
+        }
+      ],
+      "operator": "[[General Bathymetric Chart of the Oceans]]",
+      "path": "sources/gebco-2026-grid.md",
+      "portal": "https://www.gebco.net/data_and_products/gridded_bathymetry_data/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "15 arc-second grid (~450 m at equator)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (deforming continental regions; excludes Canada, Madagascar, Malay Archipelago)"
+      },
+      "data_types": [
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "GitHub-hosted, version-controlled. Harmonized (attribute-cleaned) geojson shown; repo also has /geojson/gem_active_faults.geojson (raw), plus /geopackage, /shapefile, /kml, /gmt directories at the same path depth. Clone or raw-download individual files.",
+          "url": "https://raw.githubusercontent.com/GEMScienceTools/gem-global-active-faults/master/geojson/gem_active_faults_harmonized.geojson"
+        }
+      ],
+      "formats": [
+        "geojson",
+        "geopackage",
+        "shp",
+        "kml"
+      ],
+      "id": "gem-global-active-faults",
+      "license": "CC BY-SA 4.0",
+      "name": "GEM Global Active Faults Database (GAF)",
+      "operator": "[[GEM Foundation]]",
+      "path": "sources/gem-global-active-faults.md",
+      "portal": "https://github.com/GEMScienceTools/gem-global-active-faults",
+      "regions": [
+        "global"
+      ],
+      "resolution": "fault-trace vectors compiled from source maps at scales from ~1:100,000 to 1:1,000,000",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -73.0,
+          54.5,
+          15.5,
+          84.0
+        ],
+        "name": "Denmark and Greenland"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "gravity",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Denmark structural elements (faults/basin-margin lines) — confirmed live",
+          "url": "https://data.geus.dk/arcgis/rest/services/Denmark/Strukturelle_elementer/MapServer?f=json"
+        },
+        {
+          "method": "arcgis-rest",
+          "notes": "Denmark surficial/bedrock geology 1:200,000 — confirmed live",
+          "url": "https://data.geus.dk/arcgis/rest/services/Denmark/Jordartskort_200000/MapServer?f=json"
+        },
+        {
+          "method": "arcgis-rest",
+          "notes": "seamless Greenland geological map 1:500,000 — confirmed live",
+          "url": "https://data.geus.dk/arcgis/rest/services/Greenland/Geological_map_500k/MapServer?f=json"
+        },
+        {
+          "method": "arcgis-rest",
+          "notes": "Denmark gravity survey — confirmed live",
+          "url": "https://data.geus.dk/arcgis/rest/services/Denmark/Gravimetri/MapServer?f=json"
+        },
+        {
+          "method": "arcgis-rest",
+          "notes": "Greenland aeromagnetic compilation — confirmed live; service root https://data.geus.dk/arcgis/rest/services lists Denmark/DKModel2019/Europe/Greenland/Havvind folders",
+          "url": "https://data.geus.dk/arcgis/rest/services/Greenland/Magnetic_compilation/MapServer?f=json"
+        },
+        {
+          "method": "http-download",
+          "notes": "bulk geological-map downloads (ArcGIS .mpkx, shapefile) with per-dataset DOIs, 150+ Greenland map sheets",
+          "url": "https://dataverse.geus.dk/dataverse/geological_maps_greenland"
+        }
+      ],
+      "id": "geus-denmark-greenland",
+      "license": "Free reuse (GEUS open-data policy; Danish deep-subsurface data made freely accessible 2022); individual Dataverse datasets carry their own CC0/CC-BY-style terms",
+      "name": "GEUS Map Database — Denmark and Greenland geology, gravity, magnetics",
+      "operator": "[[Geological Survey of Denmark and Greenland]]",
+      "path": "sources/geus-denmark-greenland.md",
+      "portal": "https://eng.geus.dk/products-services-facilities/data-and-maps",
+      "regions": [
+        "europe",
+        "denmark",
+        "greenland"
+      ],
+      "resolution": "1:25,000-1:200,000 (Denmark); 1:100,000-1:2,500,000 (Greenland)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (emerged land surface)"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Vector geodatabase (LiMW_GIS 2015.gdb.zip), 3-level lithological classification, ~1.24M polygons from 92 regional source maps (Hartmann & Moosdorf, 2012). Link is a personal Dropbox mirror embedded on the official Univ. Hamburg page, not an institutional host — treat as fetch-and-cache, it can move without notice. A gridded 0.5-degree raster version plus documentation is archived at PANGAEA/AWI EPIC (hdl:10013/epic.39939), no shapefile there.",
+          "url": "https://www.dropbox.com/s/9vuowtebp9f1iud/LiMW_GIS%202015.gdb.zip?dl=1"
+        }
+      ],
+      "formats": [
+        "gdb"
+      ],
+      "id": "glim-lithological-map",
+      "license": "Free for scientific use (Hartmann & Moosdorf, 2012); no explicit open-data licence stated on the source page",
+      "name": "GLiM — Global Lithological Map database v1.0",
+      "operator": "[[University of Hamburg]]",
+      "path": "sources/glim-lithological-map.md",
+      "portal": "https://www.geo.uni-hamburg.de/en/geologie/forschung/aquatische-geochemie/glim.html",
+      "regions": [
+        "global"
+      ],
+      "resolution": "~1:3,750,000 average source-map scale (vector, 1.24M polygons); also released gridded at 0.5 degrees",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "earthquake-catalog"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Live-verified (HTTP 200, ~8.8 MB gzip): complete 1976-2025 catalog in NDK format. Monthly rolling updates at .../catalog/NEW_MONTHLY, quick (near-real-time) solutions at .../catalog/NEW_QUICK/.",
+          "url": "https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/jan76_dec25.ndk.gz"
+        },
+        {
+          "method": "manual",
+          "notes": "form-based search UI with 6 output formats (incl. CMTSOLUTION, GMT psmeca)",
+          "url": "https://www.globalcmt.org/CMTsearch.html"
+        }
+      ],
+      "formats": [
+        "ndk"
+      ],
+      "id": "global-cmt-catalog",
+      "license": "free use; citation requested (see project citation guidelines)",
+      "name": "Global CMT Catalog — Centroid Moment Tensors",
+      "operator": "[[Global CMT Project]]",
+      "path": "sources/global-cmt-catalog.md",
+      "portal": "https://www.globalcmt.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "event catalog, moment tensors for moderate-to-large earthquakes (~Mw>=5, smaller in well-recorded regions), 1976-present",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (land + ocean)"
+      },
+      "data_types": [
+        "bathymetry",
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "REST GridServer endpoint; verified live 2026-08-11 (sample bbox query north=-2.9928&west=-90&east=-69.2578&south=-19.4825 returned a working 1.1 MB GeoTIFF, no auth). Also serves netCDF (GMT3/COARDS) and Esri ASCII; up to ~20x20 deg at max (~100 m) resolution, 2 GB cap per request.",
+          "url": "https://www.gmrt.org/services/GridServer?north={maxlat}&south={minlat}&east={maxlon}&west={minlon}&layer=topo&format=geotiff"
+        },
+        {
+          "method": "manual",
+          "notes": "Interactive MapTool with standard, north-polar and south-polar projections.",
+          "url": "https://www.gmrt.org/GMRTMapTool/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "netcdf",
+        "esri-ascii"
+      ],
+      "id": "gmrt",
+      "license": "CC BY 4.0",
+      "name": "Global Multi-Resolution Topography (GMRT) Synthesis",
+      "operator": "[[Lamont-Doherty Earth Observatory]]",
+      "path": "sources/gmrt.md",
+      "portal": "https://www.gmrt.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "up to ~100 m grid-node spacing (multibeam-derived; coarser where source surveys are sparse)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          166.4,
+          -47.3,
+          178.6,
+          -34.4
+        ],
+        "name": "New Zealand"
+      },
+      "data_types": [
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "wfs",
+          "notes": "confirmed live (200, full capabilities doc); layer gns:af250_faults_pg = generalized active-fault traces",
+          "url": "https://maps.gns.cri.nz/gns/ows?request=GetCapabilities&service=wfs&version=1.0.0"
+        },
+        {
+          "method": "wms",
+          "notes": "ArcGIS MapServer backing the interactive webmap at data.gns.cri.nz/af/",
+          "url": "https://gis.gns.cri.nz/server/rest/services/Active_Faults/NZActiveFaultDatasets/MapServer"
+        }
+      ],
+      "formats": [
+        "shp",
+        "gml",
+        "kml"
+      ],
+      "id": "gns-nz-active-faults",
+      "license": "CC BY 3.0 NZ",
+      "name": "New Zealand Active Faults Database (NZAFD)",
+      "operator": "[[GNS Science]]",
+      "path": "sources/gns-nz-active-faults.md",
+      "portal": "https://www.gns.cri.nz/data-and-resources/new-zealand-active-faults-database/",
+      "regions": [
+        "oceania",
+        "new-zealand"
+      ],
+      "resolution": "1:250,000 (generalized AF250 traces); source mapping varies by fault",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          122.9,
+          24.0,
+          153.99,
+          45.6
+        ],
+        "name": "Japan"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "confirmed live web API — PNG map tiles (z/y/x), legend as JSON/CSV/HTML, map export as PNG/KMZ",
+          "url": "https://gbank.gsj.jp/seamless/v2/api/1.2.1/"
+        },
+        {
+          "method": "http-download",
+          "notes": "nationwide vector download (shapefile, KML) plus per-sheet 1:200,000 sections",
+          "url": "https://gbank.gsj.jp/seamless/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "kml",
+        "kmz",
+        "png"
+      ],
+      "id": "gsj-japan-seamless-geology",
+      "license": "Government Standard Terms of Use v2.0 (Japan) — free reuse with attribution",
+      "name": "Seamless Digital Geological Map of Japan V2 (1:200,000)",
+      "operator": "[[Geological Survey of Japan]]",
+      "path": "sources/gsj-japan-seamless-geology.md",
+      "portal": "https://gbank.gsj.jp/seamless/",
+      "regions": [
+        "asia",
+        "japan"
+      ],
+      "resolution": "1:200,000",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          112.9,
+          -35.2,
+          129.0,
+          -13.6
+        ],
+        "name": "Western Australia"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "auth": "free-registration",
+          "method": "http-download",
+          "notes": "packaged statewide layers (faults, structural lines, bedrock geology) as shp/fgdb",
+          "url": "https://dasc.dmirs.wa.gov.au/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "fgdb"
+      ],
+      "id": "gswa-500k-structures",
+      "license": "CC BY 4.0",
+      "name": "GSWA 1:500k Interpreted Bedrock Geology — faults/structures",
+      "operator": "[[Geological Survey of Western Australia]]",
+      "path": "sources/gswa-500k-structures.md",
+      "portal": "https://dasc.dmirs.wa.gov.au/",
+      "regions": [
+        "australia",
+        "western-australia"
+      ],
+      "resolution": "1:500,000",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (continental drilling project sites)"
+      },
+      "data_types": [
+        "borehole",
+        "core-sample"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Describes mDIS (mobile Drilling Information System), the open-source (GPL 2.0) tool ICDP projects use to capture core/log/lithology metadata during drilling",
+          "url": "https://www.icdp-online.org/support/data-samples/"
+        },
+        {
+          "method": "manual",
+          "notes": "GFZ Data Services portal search for ICDP holdings — confirmed live (HTTP 200); JS-rendered results list not fetchable statically. Direct /icdp/ subpath returns 403.",
+          "url": "https://dataservices.gfz-potsdam.de/portal/?q=icdp"
+        }
+      ],
+      "id": "icdp-continental-drilling",
+      "license": "Per-project: Operational Data Set restricted to science team during drilling/moratorium, then opens to the science community; no single blanket license found",
+      "name": "ICDP — International Continental Scientific Drilling Program",
+      "operator": "[[International Continental Scientific Drilling Program]]",
+      "path": "sources/icdp-continental-drilling.md",
+      "portal": "https://www.icdp-online.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "per-project core/log/lithology records",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (discrete sites)"
+      },
+      "data_types": [
+        "core-sample",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "per-project drilling data/samples managed in mDIS (mobile Drilling Information System, GPL-2.0, LAMP stack); hierarchical program->expedition->site->hole->core->section->sample records with auto-assigned IGSNs; physical cores held at MARUM Bremen (cold storage) and German Geological Survey Berlin-Spandau (room-temp storage)\n",
+          "url": "https://www.icdp-online.org/support/data-samples/"
+        }
+      ],
+      "id": "icdp-core-repositories",
+      "license": "accessible to science team during project + moratorium; open to community post-moratorium",
+      "name": "ICDP Core Repositories and Sample/Data Management (mDIS)",
+      "operator": "[[International Continental Scientific Drilling Program]]",
+      "path": "sources/icdp-core-repositories.md",
+      "portal": "https://www.icdp-online.org/support/data-samples/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "drill-core scale: core scans, lithological descriptions, IGSN-tagged sample records",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "gravity"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "Web calculation service: pick a model (e.g. EGM2008, EIGEN-6C4, GOCE products), functional (geoid height, gravity anomaly, etc.), area and grid step; returns a computed grid. Companion services exist for user-defined point calculations and a 3D model browser (G3-Browser).",
+          "url": "https://icgem.gfz.de/calcgrid"
+        },
+        {
+          "method": "http-download",
+          "notes": "archive/index of the raw spherical-harmonic coefficient model files themselves",
+          "url": "https://icgem.gfz.de/tom_longtime"
+        }
+      ],
+      "formats": [
+        "gfc",
+        "ascii-grid",
+        "netcdf"
+      ],
+      "id": "icgem-gravity-models",
+      "license": "model-dependent; ICGEM archive itself is free access (per-model terms shown on each model's page)",
+      "name": "ICGEM — International Centre for Global Earth Models",
+      "native_metadata": [
+        {
+          "format": "citation",
+          "url": "https://doi.org/10.5194/essd-11-647-2019"
+        }
+      ],
+      "operator": "[[GFZ German Research Centre for Geosciences]]",
+      "path": "sources/icgem-gravity-models.md",
+      "portal": "https://icgem.gfz.de/home",
+      "regions": [
+        "global"
+      ],
+      "resolution": "spherical-harmonic models to ~degree/order 2190 (~5 arc-min); user-selectable output grid spacing",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -18.2,
+          27.6,
+          4.3,
+          43.8
+        ],
+        "name": "Spain (peninsula, Balearics, Canary Islands)"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "GetCapabilities confirmed live (valid WMS_Capabilities XML, ~36KB)",
+          "url": "https://mapas.igme.es/gis/services/Cartografia_Geologica/IGME_Geode_50/MapServer/WmsServer?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "arcgis-rest",
+          "notes": "ArcGIS Server REST endpoint for the same GEODE 1:50,000 service",
+          "url": "https://mapas.igme.es/gis/rest/services/Cartografia_Geologica/IGME_Geode_50/MapServer"
+        },
+        {
+          "method": "manual",
+          "notes": "full-country vector shapefile is not an instant download — request via cartografiadigital@igme.es, priced by surface area covered; WMS/WmsServer above is the no-request path",
+          "url": "https://info.igme.es/cartografiadigital/geologica/Geode.aspx?language=en"
+        }
+      ],
+      "id": "igme-geode",
+      "license": "Free, general-purpose IGME data licence (commercial and non-commercial reuse permitted, attribution to IGME required); vector shapefile fulfilment is a priced/request process distinct from the licence itself",
+      "name": "IGME GEODE — continuous digital geological map of Spain",
+      "operator": "[[Instituto Geológico y Minero de España]]",
+      "path": "sources/igme-geode.md",
+      "portal": "https://info.igme.es/cartografiadigital/geologica/Geode.aspx?language=en",
+      "regions": [
+        "europe",
+        "spain"
+      ],
+      "resolution": "1:50,000 (peninsula); 1:25,000 (insular territories)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -81.4,
+          -18.4,
+          -68.7,
+          0.0
+        ],
+        "name": "Peru"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "confirmed live ArcGIS Server 10.91; folders incl. BDGEOCIENTIFICA, DGAR, GEOPROCESO; services incl. SERV_AEROMAGNETIICO (ImageServer), SERV_ANOMALIA_ESPECTRAL, SERV_ATLAS_GEOQUIMICO",
+          "url": "https://geocatmin.ingemmet.gob.pe/arcgis/rest/services?f=json"
+        }
+      ],
+      "formats": [
+        "shp",
+        "tiff"
+      ],
+      "id": "ingemmet-geocatmin-peru",
+      "license": "INGEMMET Licencia de Uso — reuse/derivative works permitted with mandatory 'CITE INGEMMET' attribution; no software redistribution",
+      "name": "GEOCATMIN — INGEMMET Geological & Mining Cadastral Information System (Peru)",
+      "operator": "[[INGEMMET]]",
+      "path": "sources/ingemmet-geocatmin-peru.md",
+      "portal": "https://geocatmin.ingemmet.gob.pe/geocatmin/",
+      "regions": [
+        "south-america",
+        "peru"
+      ],
+      "resolution": "1:50,000 to 1:1,000,000 (geologic map series); airborne magnetics at survey resolution",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (discrete sites)"
+      },
+      "data_types": [
+        "core-sample",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "LIMS Online Reports Explorer — core images/descriptions/sample data for IODP expeditions from 317 onward",
+          "url": "https://web.iodp.tamu.edu/LORE/"
+        },
+        {
+          "method": "manual",
+          "notes": "physical core repositories (Gulf Coast, Bremen, Kochi) and sample-request procedure; Janus DB covers ODP/DSDP legs through 312",
+          "url": "https://iodp.tamu.edu/curation/index.html"
+        }
+      ],
+      "id": "iodp-core-repositories",
+      "license": "IODP Sample, Data, and Obligations Policy (open post-moratorium)",
+      "name": "IODP Core Repositories and Curation (LORE/JANUS)",
+      "operator": "[[International Ocean Discovery Program]]",
+      "path": "sources/iodp-core-repositories.md",
+      "portal": "https://www.iodp.org/resources/access-data-and-samples",
+      "regions": [
+        "global"
+      ],
+      "resolution": "drill-core scale: line-scan core images, thin sections, closeup/handheld photos, per-section sample records",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "earthquake-catalog"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "Live-tested (COLLECTED bulletin, CATCSV output, 2020-01-01 to 2020-01-02, min_mag=6) — returned 4 real events in ISC's CATCSV text format. Query params (region/time/magnitude/depth/phases) documented at https://www.isc.ac.uk/iscbulletin/search/webservices/. QuakeML, CSV, ISF and IMS1.0 outputs also available via related endpoints.",
+          "url": "http://www.isc.ac.uk/cgi-bin/web-db-run"
+        },
+        {
+          "method": "manual",
+          "notes": "web-services documentation/URL builder",
+          "url": "https://www.isc.ac.uk/iscbulletin/search/webservices/"
+        }
+      ],
+      "formats": [
+        "csv",
+        "quakeml",
+        "isf"
+      ],
+      "id": "isc-bulletin",
+      "license": "free for scientific/educational use with citation; DOI 10.31905/D808B830",
+      "name": "ISC Bulletin — Reviewed Seismicity Catalog",
+      "native_metadata": [
+        {
+          "format": "html",
+          "url": "https://www.isc.ac.uk/citations/"
+        }
+      ],
+      "operator": "[[International Seismological Centre]]",
+      "path": "sources/isc-bulletin.md",
+      "portal": "https://www.isc.ac.uk/iscbulletin/search/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "event catalog, 1900-present, all magnitudes reported by contributing networks (finer completeness than ComCat pre-1960s)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          120.0,
+          10.0,
+          165.0,
+          55.0
+        ],
+        "name": "Japan margin and NW Pacific (Japan/Kuril Trench, Nankai-Boso, Izu-Bonin-Mariana, Ryukyu, Japan Sea, Western Pacific)"
+      },
+      "data_types": [
+        "seismic-reflection"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Verified live 2026-08-11. Browse by method (MCS/OBS), year, or named area (survey/list_mcs.html, list_obs.html, list_area.html?area=...).",
+          "url": "https://www.jamstec.go.jp/obsmcs_db/e/"
+        },
+        {
+          "method": "manual",
+          "notes": "Data request form — MCS/OBS data is not directly downloadable; access is granted per request for academic use.",
+          "url": "https://www.jamstec.go.jp/obsmcs_db/form/obsmcs_db_entry_e/index.html"
+        }
+      ],
+      "id": "jamstec-obsmcs-seismic",
+      "license": "Free for scientific/educational use per JAMSTEC's Basic Policy on the Handling of Data and Samples (jamstec.go.jp/e/database/data_policy.html); industrial use is chargeable and requires separate arrangement",
+      "name": "JAMSTEC Multi-Channel Seismic and OBS Database",
+      "native_metadata": [
+        {
+          "format": "DOI landing page",
+          "url": "https://www.jamstec.go.jp/datadoi/doi/10.17596/0002069.html"
+        }
+      ],
+      "operator": "[[JAMSTEC]]",
+      "path": "sources/jamstec-obsmcs-seismic.md",
+      "portal": "https://www.jamstec.go.jp/obsmcs_db/e/",
+      "regions": [
+        "asia",
+        "japan",
+        "northwest-pacific"
+      ],
+      "resolution": "survey-level multi-channel seismic (MCS) reflection lines and ocean-bottom-seismometer (OBS) deployments",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (map density concentrated in North America and Australia)"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "GeoJSON polygons by bbox/lat-lng-z (tile-style) query params; format=geojson. /geologic_units/map/legend returns unit metadata (lithology, age); no dedicated fault/structural-line endpoint — this feeds the geologic-map half of the cell only.",
+          "url": "https://macrostrat.org/api/v2/geologic_units/map"
+        }
+      ],
+      "formats": [
+        "geojson"
+      ],
+      "id": "macrostrat",
+      "license": "CC BY 4.0",
+      "name": "Macrostrat Geologic Map API",
+      "operator": "[[Macrostrat]]",
+      "path": "sources/macrostrat.md",
+      "portal": "https://macrostrat.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "variable — aggregated from ~225 source geologic maps at native scales (roughly 1:24,000 to 1:1,000,000+)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -60.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global land, 90°N-60°S"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "auth": "free-registration",
+          "method": "manual",
+          "notes": "Registration via Google Form (https://goo.gl/forms/f3AlXftlXyODDxj32) yields an emailed password gating a Dropbox-hosted download tree of 5°x5° GeoTIFF tiles bundled into 30°x30° packages. Current release v1.0.3 (2018). Lab page moved here from its old hydro.iis.u-tokyo.ac.jp address (redirect confirmed live 2026-08-11).",
+          "url": "https://global-hydrodynamics.github.io/MERIT_DEM/"
+        }
+      ],
+      "formats": [
+        "geotiff"
+      ],
+      "id": "merit-dem",
+      "license": "CC BY-NC 4.0 (non-commercial) or ODbL 1.0 (commercial, share-alike) - user's choice",
+      "name": "MERIT DEM",
+      "operator": "[[University of Tokyo]]",
+      "path": "sources/merit-dem.md",
+      "portal": "https://global-hydrodynamics.github.io/MERIT_DEM/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "90 m posting (3 arc-second)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -118.4,
+          14.5,
+          -86.7,
+          32.7
+        ],
+        "name": "Mexico"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "interactive GeoInfoMex viewer; supports on-demand SHP export of lithology/geochemistry/magnetics layers by area",
+          "url": "https://www.sgm.gob.mx/GeoInfoMexGobMx/"
+        },
+        {
+          "method": "http-download",
+          "notes": "static national KML mirror of the \"Continuo Nacional de Geología\" (1995/2005 series, SGM-INEGI agreement), ~515MB, verified live",
+          "url": "http://mapserver.sgm.gob.mx/DatosAbiertosSGM/InformacionGeologica/Geologia_SGM.kml"
+        }
+      ],
+      "id": "mexico-sgm-geologia-250k",
+      "license": "Datos Abiertos (Gobierno de México) — free/open use; no explicit per-resource license text found",
+      "name": "SGM — Cartografía Geológica de México, 1:250,000 (Continuo Nacional)",
+      "operator": "[[Servicio Geológico Mexicano]]",
+      "path": "sources/mexico-sgm-geologia-250k.md",
+      "portal": "https://www.sgm.gob.mx/GeoInfoMexGobMx/",
+      "regions": [
+        "north-america",
+        "mexico"
+      ],
+      "resolution": "1:250,000 (100% national coverage); 1:50,000 in priority mining districts",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global oceans (US academic research-vessel coverage)"
+      },
+      "data_types": [
+        "seismic-reflection",
+        "bathymetry"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "Dataset search API; sibling `/services/search/entries` for finer-grained entries.",
+          "url": "http://www.marine-geo.org/services/search/datasets"
+        },
+        {
+          "method": "api",
+          "notes": "Seismic-survey metadata as XML, e.g. ?id=EW0207. Documented via /tools/fileserverinfo.php, /tools/filedownloadserverinfo.php, /tools/archivedownloadserverinfo.php (FileServer/FileDownloadServer/ArchiveDownloadServer WADLs).",
+          "url": "http://www.marine-geo.org/services/seismicxml/xml?id={dataset_id}"
+        },
+        {
+          "method": "manual",
+          "notes": "Academic Seismic Portal map/collection browser (2D/3D MCS, single-channel, chirp, sonobuoy); GMRT compiled bathymetry grid is a separate MGDS-hosted product already catalogued under gmrt.md.",
+          "url": "https://www.marine-geo.org/collections/#!/collection/Seismic"
+        }
+      ],
+      "formats": [
+        "segy",
+        "netcdf",
+        "xml"
+      ],
+      "id": "mgds-academic-seismic-portal",
+      "license": "CC BY-NC-SA 3.0 (site-wide, per marine-geo.org/about/legal.php)",
+      "name": "MGDS — Marine Geoscience Data System (Academic Seismic Portal)",
+      "operator": "[[Lamont-Doherty Earth Observatory]]",
+      "path": "sources/mgds-academic-seismic-portal.md",
+      "portal": "https://www.marine-geo.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "survey-level: multi-channel, single-channel, chirp sub-bottom and sonobuoy seismic; raw swath bathymetry (e.g. EM122/EM302); opportunistic coverage wherever US academic vessels have surveyed, not continuous",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "dem",
+        "lidar",
+        "gravity"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "Confirmed live: CMR collection-search returns real JSON metadata (dataset_id, concept_id, boxes, time_start, etc.). Same endpoint family covers granule search at /search/granules.json. This is NASA's single metadata catalog fronting all 12 Earth-science DAACs (LP DAAC, PO.DAAC, NSIDC DAAC, ASF DAAC, etc.).",
+          "url": "https://cmr.earthdata.nasa.gov/search/collections.json?keyword=landsat&page_size=1"
+        },
+        {
+          "method": "manual",
+          "notes": "Earthdata Search — the point-and-click UI over the same CMR catalog; confirmed live (HTTP 200).",
+          "url": "https://search.earthdata.nasa.gov/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "hdf5",
+        "netcdf",
+        "csv",
+        "las"
+      ],
+      "id": "nasa-earthdata-cmr",
+      "license": "Mostly open/public-domain NASA data; some contributed/partner collections carry their own terms — check per-collection metadata",
+      "name": "NASA Earthdata Common Metadata Repository (CMR)",
+      "operator": "[[NASA]]",
+      "path": "sources/nasa-earthdata-cmr.md",
+      "portal": "https://search.earthdata.nasa.gov/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -24.6,
+          63.3,
+          -13.5,
+          66.6
+        ],
+        "name": "Iceland"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Geology of Iceland map viewer — confirmed live; bedrock geology 1:600,000 (2014), tectonics map 1:600,000 (2009, rift/fault zones), 1:250,000 nine-sheet series (7 of 9 published), regional 1:100,000 sheets",
+          "url": "https://natt.gis.is/mapview/?app=natt"
+        },
+        {
+          "method": "manual",
+          "notes": "metadata/download catalog (Lýsigagnagátt) — confirmed live; individual map records carry direct download links and full metadata",
+          "url": "https://gatt.gis.is/geonetwork/srv/ice/catalog.search"
+        }
+      ],
+      "id": "natt-is-geological-maps",
+      "license": "CC BY 4.0 — published under Iceland's public-sector information reuse law no. 45/2018; attribution to Náttúrufræðistofnun required",
+      "name": "Náttúrufræðistofnun — geological and tectonic maps of Iceland",
+      "operator": "[[Icelandic Institute of Natural History]]",
+      "path": "sources/natt-is-geological-maps.md",
+      "portal": "https://www.natt.is/en/resources/geospatial-data/geological-maps",
+      "regions": [
+        "europe",
+        "iceland"
+      ],
+      "resolution": "1:600,000 (bedrock/tectonics overview); 1:250,000 (9-sheet bedrock series); 1:100,000 (selected regional sheets)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -104.05,
+          45.9,
+          -96.55,
+          49.0
+        ],
+        "name": "North Dakota"
+      },
+      "data_types": [
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Well Search — filter by operator, field, section/township/range; hourly-updated well index",
+          "url": "https://www.dmr.nd.gov/oilgas/findwellsvw.asp"
+        },
+        {
+          "method": "manual",
+          "notes": "ND Oil & Gas GIS Viewer — pan/zoom map with a GIS Data Download option for the well-location layer",
+          "url": "https://gis.dmr.nd.gov/dmrpublicportal/apps/webappviewer/index.html?id=a2b071015113437aa8d5a842e32bb49f"
+        }
+      ],
+      "id": "nd-dmr-oil-gas-wells",
+      "license": "Public record; bulk/subscription tiers apply — Basic $100/yr, Premium $500/yr (rates as posted Jan 2026) for expanded data services beyond the free web tools",
+      "name": "North Dakota Oil & Gas Division — well data and GIS viewer",
+      "operator": "[[North Dakota Department of Mineral Resources]]",
+      "path": "sources/nd-dmr-oil-gas-wells.md",
+      "portal": "https://www.dmr.nd.gov/dmr/oilgas",
+      "regions": [
+        "north-america",
+        "united-states",
+        "north-dakota"
+      ],
+      "resolution": "per-well files; statewide GIS well-location layer",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -120.0,
+          35.0,
+          -114.0,
+          42.0
+        ],
+        "name": "Nevada"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Stewart & Carlson 1:500,000 Geologic Map of Nevada (OFR 03-66), units plus structure/contact data",
+          "url": "https://gisweb.unr.edu/nbmg/rest/services/Geology/NV_500k_Geology/MapServer"
+        },
+        {
+          "method": "arcgis-rest",
+          "notes": "\"Historical Ruptures\" and \"Quaternary Faults by Age\" polylines, adapted from NBMG Map 167 and USGS Qfaults",
+          "url": "https://gisweb.unr.edu/nbmg/rest/services/Geology/Faults/MapServer"
+        }
+      ],
+      "formats": [
+        "shp"
+      ],
+      "id": "nevada-nbmg-geology-faults",
+      "license": "NBMG (University of Nevada, Reno) — free public streaming/download; no separate open-data license statement found",
+      "name": "Nevada Bureau of Mines and Geology — Statewide Geology & Faults",
+      "operator": "[[Nevada Bureau of Mines and Geology]]",
+      "path": "sources/nevada-nbmg-geology-faults.md",
+      "portal": "https://nbmg.unr.edu/",
+      "regions": [
+        "north-america",
+        "united-states",
+        "nevada"
+      ],
+      "resolution": "1:500,000 (geology); compiled fault traces at source-map scale",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          4.5,
+          57.9,
+          31.2,
+          71.2
+        ],
+        "name": "Norway"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "confirmed live order page; select a dataset (bedrock maps N50/N250/N1350, weakness zones, groundwater boreholes, etc.) and UTM zone, download SOSI/Shape/FGDB",
+          "url": "https://geo.ngu.no/download/order?lang=en"
+        },
+        {
+          "method": "wms",
+          "notes": "index of NGU's WMS services (bedrock, airborne/ground geophysics, boreholes, petrophysics, gravimetry), served through the Norway Digital SDI",
+          "url": "https://www.ngu.no/en/taxonomy/term/36"
+        }
+      ],
+      "formats": [
+        "sosi",
+        "shp",
+        "fgdb"
+      ],
+      "id": "ngu-norway-bedrock-geology",
+      "license": "NLOD (Norwegian licence for open government data) — attribution required",
+      "name": "NGU Geological Datasets — bedrock, structural elements, boreholes (Norway)",
+      "operator": "[[Geological Survey of Norway]]",
+      "path": "sources/ngu-norway-bedrock-geology.md",
+      "portal": "https://www.ngu.no/en",
+      "regions": [
+        "europe",
+        "norway"
+      ],
+      "resolution": "1:50,000 (N50) to 1:1,350,000 (N1350)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "bathymetry",
+        "magnetics",
+        "dem"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Confirmed live: services-directory root returns real JSON listing dozens of MapServer/ ImageServer endpoints across folders (DEM_mosaics, multibeam_mosaics, antarctic, arctic_ps, IHO, NOS_MBAB, etc.), including bag_bathymetry / multibeam_mosaic (`bathymetry`), EMAG2v3 magnetic-anomaly ImageServer/MapServer (`magnetics`), and etopo1 plus the DEM_mosaics folder (`dem`). This is the actual machine-readable catalog-of-services behind NCEI's marine-geophysical holdings; NOAA's older CKAN-based data.noaa.gov API and NGDC's legacy CSW geoportal are both decommissioned (confirmed 404 on all tested paths, 2026-08-11) — this ArcGIS REST directory is what is actually live today.",
+          "url": "https://gis.ngdc.noaa.gov/arcgis/rest/services?f=json"
+        },
+        {
+          "method": "manual",
+          "notes": "NOAA's current catalog-browse UI (successor branding to \"OneStop\"); confirmed live (HTTP 200), though its own search backend (onestop-search) returned 404 on every path tested and appears retired — treat this UI as a portal, not as evidence of a live OneStop API.",
+          "url": "https://data.noaa.gov/onestop"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "esri-grid",
+        "png"
+      ],
+      "id": "noaa-ncei-arcgis-gateway",
+      "license": "Public domain (U.S. Government work)",
+      "name": "NOAA NCEI/NGDC ArcGIS REST Services Directory",
+      "operator": "[[NOAA NCEI]]",
+      "path": "sources/noaa-ncei-arcgis-gateway.md",
+      "portal": "https://www.ncei.noaa.gov/maps/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global oceans (survey-track coverage, not continuous)"
+      },
+      "data_types": [
+        "bathymetry"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Live directory tree, ship-name then cruise-ID folders (verified 2026-08-11: e.g. atlantis/, akademik_tryoshnikov/, baruna_jaya_iv/ — international contributions, not US-only). Raw/processed multibeam in native formats (.all, .mb58/.mb88 etc., MB-System-readable) plus per-cruise metadata; no bulk global download, one cruise at a time.",
+          "url": "https://data.ngdc.noaa.gov/platforms/ocean/ships/"
+        },
+        {
+          "method": "manual",
+          "notes": "Bathymetric Data Viewer — map search across multibeam, singlebeam, lidar and crowdsourced holdings; links out to per-survey download.",
+          "url": "https://www.ncei.noaa.gov/maps/bathymetry/"
+        }
+      ],
+      "formats": [
+        "mb-system",
+        "geotiff",
+        "xyz"
+      ],
+      "id": "noaa-ncei-multibeam-bathymetry",
+      "license": "Public domain (US federal); international contributor surveys generally open, check per-cruise metadata",
+      "name": "NOAA NCEI Multibeam Bathymetry Database",
+      "operator": "[[NOAA NCEI]]",
+      "path": "sources/noaa-ncei-multibeam-bathymetry.md",
+      "portal": "https://www.ncei.noaa.gov/products/seafloor-mapping",
+      "regions": [
+        "global"
+      ],
+      "resolution": "per-cruise raw swath (typically 1-100 m depending on platform/depth); archive of source surveys, not a merged grid",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global ship-track coverage"
+      },
+      "data_types": [
+        "bathymetry",
+        "seismic-reflection"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Interactive Trackline Geophysical Data Viewer (verified live 2026-08-11): filter by location/year/institution/platform/data-type, then export per-cruise.",
+          "url": "https://www.ncei.noaa.gov/maps/trackline-geophysics/"
+        }
+      ],
+      "formats": [
+        "mgd77t",
+        "segy",
+        "tiff"
+      ],
+      "id": "noaa-ncei-trackline-geophysical",
+      "license": "Public domain (US federal)",
+      "name": "NOAA NCEI Marine Trackline Geophysical Data",
+      "operator": "[[NOAA NCEI]]",
+      "path": "sources/noaa-ncei-trackline-geophysical.md",
+      "portal": "https://www.ncei.noaa.gov/products/marine-trackline-geophysical-data",
+      "regions": [
+        "global"
+      ],
+      "resolution": "single-beam soundings and single/analog-channel seismic along ship tracks, 1939-present; spacing set by cruise track spacing, not a grid",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          110.0,
+          -47.0,
+          156.0,
+          -8.0
+        ],
+        "name": "Australian offshore basins (Commonwealth waters)"
+      },
+      "data_types": [
+        "seismic-reflection",
+        "borehole",
+        "core-sample"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Primary data-discovery/delivery system for offshore well data, geophysical survey data, and physical samples (core, cuttings, fluids)",
+          "url": "https://public.neats.nopta.gov.au/nopims"
+        },
+        {
+          "method": "manual",
+          "notes": "Program overview and contacts (ausgeodata@ga.gov.au general; ausgeosamples@ga.gov.au for physical samples); redeveloped jointly by NOPTA, WA DMIRS and Geoscience Australia",
+          "url": "https://www.ga.gov.au/nopims"
+        }
+      ],
+      "id": "nopims-offshore-wells-seismic",
+      "license": "Described as openly accessible to industry, research organisations and the public for most holdings; no single blanket license statement found on the overview page",
+      "name": "NOPIMS — National Offshore Petroleum Information Management System",
+      "operator": "[[National Offshore Petroleum Titles Administrator]]",
+      "path": "sources/nopims-offshore-wells-seismic.md",
+      "portal": "https://www.ga.gov.au/nopims",
+      "regions": [
+        "australia"
+      ],
+      "resolution": "per-well and per-survey records; 2D/3D SEG-Y seismic volumes",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          4.5,
+          57.9,
+          31.5,
+          71.2
+        ],
+        "name": "Norway (mainland; excludes Svalbard)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "LaserInnsyn 2 viewer — confirmed live; AOI-based browse/order for point cloud and DTM/DSM tiles",
+          "url": "https://hoydedata.no/LaserInnsyn2/"
+        },
+        {
+          "method": "wcs",
+          "notes": "Geonorge WCS for the national DTM (Nasjonal høydemodell), EPSG:25833 — GetCapabilities confirmed live",
+          "url": "https://wms.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833?service=WCS&request=GetCapabilities"
+        },
+        {
+          "method": "api",
+          "notes": "confirmed live; REST endpoint used by LaserInnsyn's own AOI point-cloud export",
+          "url": "https://hoydedata.no/LaserServices/rest/DownloadFile.ashx"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz"
+      ],
+      "id": "norway-hoydedata",
+      "license": "NLOD 2.0 (Norwegian Licence for Open Government Data — CC BY-equivalent, attribution to Kartverket)",
+      "name": "Høydedata / Nasjonal detaljert høydemodell — Norway national LiDAR elevation",
+      "operator": "[[Kartverket]]",
+      "path": "sources/norway-hoydedata.md",
+      "portal": "https://hoydedata.no/LaserInnsyn2/",
+      "regions": [
+        "europe",
+        "norway"
+      ],
+      "resolution": "1 m DTM/DSM grid, seamless nationwide (completed 2022); source LiDAR point cloud up to 10 pts/m2, classified (ground/vegetation/building/water)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -141.0,
+          41.7,
+          -52.6,
+          83.1
+        ],
+        "name": "Canada"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "layers are \"Map index\" (footprints of published Bedrock/CGM sheets) and \"Bedrock geology\" (generalized polygon)",
+          "url": "https://maps-cartes.services.geo.ca/server_serveur/rest/services/NRCan/gsc_bedrock_geology_en/MapServer"
+        },
+        {
+          "method": "http-download",
+          "notes": "file geodatabase backing the service above, updated 2024-07-26",
+          "url": "https://ftp.maps.canada.ca/pub/nrcan_rncan/Geology_Geologie/bedrock_geology-geologie_socle_rocheux/gsc_bedrock_geology.gdb.zip"
+        }
+      ],
+      "id": "nrcan-bedrock-geology-index",
+      "license": "Open Government Licence - Canada",
+      "name": "NRCan/GSC — Bedrock Geology (national index & generalized compilation)",
+      "operator": "[[Geological Survey of Canada]]",
+      "path": "sources/nrcan-bedrock-geology-index.md",
+      "portal": "https://open.canada.ca/data/en/dataset/5887347a-f64d-c5e6-b983-8cace169313b",
+      "regions": [
+        "north-america",
+        "canada"
+      ],
+      "resolution": "generalized national polygon; index of CGM/A-series/preliminary sheets at native scales (1:20,000-1:1,000,000)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          140.9,
+          -37.6,
+          153.7,
+          -28.1
+        ],
+        "name": "New South Wales"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "wfs",
+          "notes": "Per-lithotectonic-province and statewide layers, incl. geology:faults_*, geology-simplified:faults_and_shear_zones, and fold_axes_* — GetCapabilities confirmed live (155 KB response, real layer list).",
+          "url": "https://gs-seamless.geoscience.nsw.gov.au/geoserver/ows?service=WFS&acceptversions=2.0.0&request=GetCapabilities"
+        },
+        {
+          "method": "http-download",
+          "notes": "Packaged shp/gdb download plus WMS/WFS links and the MinView deep-link. The seed.nsw.gov.au mirror of this same listing sits behind an AWS WAF bot-challenge for scripted fetches (returns empty 202); this data.nsw.gov.au mirror does not.",
+          "url": "https://data.nsw.gov.au/data/dataset/nsw-seamless-geology"
+        },
+        {
+          "auth": "free-registration",
+          "method": "manual",
+          "notes": "DIGS — borehole logs and the historical exploration/geological report archive",
+          "url": "https://digs.geoscience.nsw.gov.au/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "fgdb"
+      ],
+      "id": "nsw-seamless-geology",
+      "license": "CC BY 4.0",
+      "name": "NSW Seamless Geology (MinView / SEED / DIGS)",
+      "operator": "[[Geological Survey of New South Wales]]",
+      "path": "sources/nsw-seamless-geology.md",
+      "portal": "https://minview.geoscience.nsw.gov.au/",
+      "regions": [
+        "australia",
+        "new-south-wales"
+      ],
+      "resolution": "1:100,000 seamless compilation (source maps 1:25,000-1:250,000)",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          128.9,
+          -26.1,
+          138.1,
+          -10.9
+        ],
+        "name": "Northern Territory"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Direct NT-wide zips: NT_Geology_shp.zip, GEO_FAULTS_2500K_shp.zip, GEO_INTERP_2500K_shp.zip, GEOLOGY_PROVINCES_2.5M_shp.zip, plus drilling/geochem/geophysics/titles. Links are wrapped through a strike.nt.gov.au/link/ redirector but land on real geoscience.nt.gov.au zips — a fault-layer zip was confirmed downloadable (HTTP 200, real Content-Length).",
+          "url": "https://geoscience.nt.gov.au/downloads/NTWideDownloads.html"
+        },
+        {
+          "method": "manual",
+          "notes": "interactive viewer for AOI query/download of the same layers",
+          "url": "https://strike.nt.gov.au/wss.html"
+        }
+      ],
+      "formats": [
+        "shp",
+        "tab",
+        "kml",
+        "csv"
+      ],
+      "id": "nt-strike",
+      "license": "CC BY",
+      "name": "NT STRIKE — Northern Territory Geoscience Data System",
+      "operator": "[[Northern Territory Geological Survey]]",
+      "path": "sources/nt-strike.md",
+      "portal": "https://strike.nt.gov.au/wss.html",
+      "regions": [
+        "australia",
+        "northern-territory"
+      ],
+      "resolution": "1:2,500,000 statewide geology/faults compilation; local mapping to 1:100,000-1:250,000",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          166.3,
+          -47.5,
+          178.6,
+          -34.0
+        ],
+        "name": "New Zealand (North and South Islands; LiDAR coverage patchy pre-2015, near-complete since)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "LINZ Data Service — confirmed live; national-elevation group indexes every regional 1 m DEM/DSM/point-cloud survey layer plus the 8 m national DEM",
+          "url": "https://data.linz.govt.nz/group/national-elevation/layers/"
+        },
+        {
+          "method": "http-download",
+          "notes": "confirmed live; same data mirrored as an AWS Open Data bucket (Cloud-Optimized GeoTIFF), no LINZ account needed",
+          "url": "https://registry.opendata.aws/nz-elevation/"
+        },
+        {
+          "method": "http-download",
+          "notes": "confirmed live; the coarser seamless national DEM used where 1 m LiDAR coverage doesn't yet exist",
+          "url": "https://data.linz.govt.nz/layer/51768-nz-8m-digital-elevation-model-2012/"
+        }
+      ],
+      "formats": [
+        "geotiff"
+      ],
+      "id": "nz-linz-elevation",
+      "license": "CC BY 4.0",
+      "name": "LINZ National Elevation — New Zealand DEM + LiDAR",
+      "operator": "[[Land Information New Zealand]]",
+      "path": "sources/nz-linz-elevation.md",
+      "portal": "https://data.linz.govt.nz/group/national-elevation/layers/",
+      "regions": [
+        "oceania",
+        "new-zealand"
+      ],
+      "resolution": "1 m DEM/DSM (LiDAR-derived, ~90% of mainland covered); national 8 m DEM fills gaps; source point clouds also published",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -95.2,
+          41.7,
+          -74.3,
+          56.9
+        ],
+        "name": "Ontario"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "ESRI shapefile resource resolves through the GeologyOntario persistent-linking viewer (publication MRD126-REV1), no static zip URL exposed",
+          "url": "https://data.ontario.ca/dataset/1250-000-scale-bedrock-geology-of-ontario"
+        },
+        {
+          "method": "http-download",
+          "notes": "same compilation as KML, direct download, verified live",
+          "url": "https://www.geologyontario.mndm.gov.on.ca/mines/data/google/mrd126/doc.kml"
+        }
+      ],
+      "id": "ontario-ogs-bedrock-geology",
+      "license": "Ministry Terms of Use (open, attribution + Crown copyright notice required; see geologyontario.mndm.gov.on.ca/terms_of_use.html)",
+      "name": "Ontario Geological Survey — 1:250,000 Bedrock Geology of Ontario",
+      "operator": "[[Ontario Geological Survey]]",
+      "path": "sources/ontario-ogs-bedrock-geology.md",
+      "portal": "https://data.ontario.ca/dataset/1250-000-scale-bedrock-geology-of-ontario",
+      "regions": [
+        "north-america",
+        "canada",
+        "ontario"
+      ],
+      "resolution": "1:250,000",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global — continental DEM mosaics plus a discrete-site lidar point-cloud catalog"
+      },
+      "data_types": [
+        "lidar",
+        "dem"
+      ],
+      "fetch": [
+        {
+          "auth": "api-key",
+          "method": "api",
+          "notes": "Confirmed live: an unauthenticated request returns \"Error: API Key required for access\" rather than a connection failure. Params: demtype, south/north/east/west, outputFormat. Free registration for the key. Separate point-cloud API covers the hundreds of catalogued lidar/SfM datasets (500,000+ km² combined).",
+          "url": "https://portal.opentopography.org/API/globaldem"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz",
+        "las"
+      ],
+      "id": "opentopography",
+      "license": "mostly CC0/public-domain source data; some contributed lidar datasets carry their own attribution terms",
+      "name": "OpenTopography",
+      "operator": "[[San Diego Supercomputer Center]]",
+      "path": "sources/opentopography.md",
+      "portal": "https://opentopography.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "variable — global 30-90 m DEM mosaics (SRTM, Copernicus GLO-30/90, ALOS, NASADEM) down to sub-meter lidar/SfM point clouds at individual sites",
+      "scale_tier": "local",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "stac",
+          "notes": "Confirmed live: root catalog document returns real STAC JSON (id \"microsoft-pc\"). /collections lists 135 collections (confirmed 2026-08-11), including cop-dem-glo-30, cop-dem-glo-90, alos-dem, nasadem (`dem`), and the full 3dep-lidar-* family (3dep-seamless, 3dep-lidar-dsm/dtm/hag/intensity/classification/returns/copc — `lidar`). cop-dem-glo-30 assets confirmed to resolve to a public Azure blob URL with no SAS token required; other collections (e.g. Sentinel-2) require a free short-lived SAS token from the Planetary Computer Hub for full-resolution asset access.",
+          "url": "https://planetarycomputer.microsoft.com/api/stac/v1"
+        },
+        {
+          "method": "manual",
+          "notes": "Planetary Computer portal/Explorer — confirmed live (HTTP 200); browse and preview UI over the same STAC catalog.",
+          "url": "https://planetarycomputer.microsoft.com/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "cog",
+        "zarr",
+        "parquet"
+      ],
+      "id": "planetary-computer-stac",
+      "license": "Varies per collection — Copernicus DEM under the ESA/Airbus free license; USGS 3DEP products public domain; check per-collection license field",
+      "name": "Microsoft Planetary Computer STAC API",
+      "operator": "[[Microsoft]]",
+      "path": "sources/planetary-computer-stac.md",
+      "portal": "https://planetarycomputer.microsoft.com/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          137.9,
+          -29.2,
+          153.6,
+          -9.1
+        ],
+        "name": "Queensland"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Basins/provinces/orogens structural framework (100+ named layers). Sibling services in the same GeoscientificInformation folder (GeologyDetailed, GeologyRegional, GeologyObservations, Boreholes) carry map units and point data; all confirmed reachable without login.",
+          "url": "https://spatial-gis.information.qld.gov.au/arcgis/rest/services/GeoscientificInformation/StructuralFramework/MapServer"
+        },
+        {
+          "method": "manual",
+          "notes": "interactive viewer; splash screen offers several login providers but most layers are public underneath",
+          "url": "https://georesglobe.information.qld.gov.au/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "tab",
+        "fgdb",
+        "kml",
+        "gpkg"
+      ],
+      "id": "qld-georesglobe",
+      "license": "CC BY 4.0",
+      "name": "Queensland GeoResGlobe / Geoscientific Information Services",
+      "operator": "[[Geological Survey of Queensland]]",
+      "path": "sources/qld-georesglobe.md",
+      "portal": "https://georesglobe.information.qld.gov.au/",
+      "regions": [
+        "australia",
+        "queensland"
+      ],
+      "resolution": "basin/province scale (StructuralFramework) to ~1:100,000 (GeologyDetailed)",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          129.0,
+          -38.1,
+          141.0,
+          -25.9
+        ],
+        "name": "South Australia"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Free, no login. Right-click a map layer name for its download/WMS/WFS prompt (per SARIG's own documentation). The catalog.sarig.sa.gov.au metadata catalogue and energymining.sa.gov.au documentation pages returned HTTP 403 to every scripted fetch attempted here (bot wall), even though the map application itself is open — could not verify a stable per-layer service URL directly.",
+          "url": "https://map.sarig.sa.gov.au/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "mif/mid",
+        "kml",
+        "csv"
+      ],
+      "id": "sa-sarig",
+      "license": "CC BY",
+      "name": "SARIG — South Australian Resources Information Gateway",
+      "operator": "[[Geological Survey of South Australia]]",
+      "path": "sources/sa-sarig.md",
+      "portal": "https://map.sarig.sa.gov.au/",
+      "regions": [
+        "australia",
+        "south-australia"
+      ],
+      "resolution": "statewide compilation ~1:250,000; detailed areas to 1:25,000-1:100,000",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          -60.0
+        ],
+        "name": "Antarctica (south of 60°S)"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Eight vector themes at two resolutions: coastline (ice/rock/grounding-line/ice-shelf front), rock outcrop (Landsat-8-derived + manual), 100/500 m contours, lakes, moraine, streams (Byers Peninsula, Transantarctic Mtns only — incomplete), seamask, and the 60°S data-limit line. Viewer at add.scar.org links out to this BAS Data Catalogue item.",
+          "url": "https://data.bas.ac.uk/items/e74543c0-4c4e-4b41-aa33-5bb2f67df389/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "gpkg"
+      ],
+      "id": "scar-antarctic-digital-database",
+      "license": "CC BY-ND 4.0 (SCAR/BAS)",
+      "name": "SCAR Antarctic Digital Database (ADD)",
+      "operator": "[[British Antarctic Survey]]",
+      "path": "sources/scar-antarctic-digital-database.md",
+      "portal": "https://add.scar.org/",
+      "regions": [
+        "antarctica"
+      ],
+      "resolution": "high-resolution (1:250,000-class) and medium-resolution (1:1,000,000-class) vector themes",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          -60.0
+        ],
+        "name": "Antarctica (exposed bedrock and surficial geology)"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Confirmed live ArcGIS Server 11.5, EPSG:3031. 19 layers incl. mapped faults (polyline), chrono/lithostratigraphic units at >500k and <500k scale, simple geology/lithology polygons, source-map index, and a data-quality-assessment layer.",
+          "url": "https://gis.gns.cri.nz/server/rest/services/SCAR_GeoMAP/ATA_SCAR_GeoMAP_Geology/MapServer?f=json"
+        },
+        {
+          "method": "http-download",
+          "notes": "v.2022-08 release — 99,080 polygons as fgdb (115 MB), gpkg (187 MB), or KMZ (298 MB).",
+          "url": "https://doi.pangaea.de/10.1594/PANGAEA.951482"
+        }
+      ],
+      "formats": [
+        "fgdb",
+        "gpkg",
+        "kmz"
+      ],
+      "id": "scar-geomap-antarctica-geology",
+      "license": "CC BY 4.0",
+      "name": "GeoMAP — Continent-Wide Geological Dataset of Antarctica",
+      "operator": "[[GNS Science]]",
+      "path": "sources/scar-geomap-antarctica-geology.md",
+      "portal": "https://www.gns.cri.nz/data-and-resources/geomap-geological-mapping-of-antarctica/",
+      "regions": [
+        "antarctica"
+      ],
+      "resolution": "1:250,000-class unified compilation (locally finer where source maps allow)",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -73.6,
+          -55.1,
+          -53.6,
+          -21.8
+        ],
+        "name": "Argentina"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors",
+        "gravity",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "confirmed live viewer + catalogue (geologic, geophysical, geochemical, geo-environmental, hazard charts); portal documents WMS/WFS/CSW interoperability but a direct GeoServer ows probe (geoserver/ows) 404'd — use the portal's own service links rather than guessing a base path",
+          "url": "https://sigam.segemar.gov.ar/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "kml"
+      ],
+      "id": "segemar-sigam-argentina",
+      "license": "CC BY 4.0",
+      "name": "SIGAM — SEGEMAR Geological-Mining-Environmental Information System (Argentina)",
+      "operator": "[[SEGEMAR]]",
+      "path": "sources/segemar-sigam-argentina.md",
+      "portal": "https://sigam.segemar.gov.ar/",
+      "regions": [
+        "south-america",
+        "argentina"
+      ],
+      "resolution": "1:250,000 to 1:1,000,000 (geologic map series); variable for geophysical charts",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (discrete sites)"
+      },
+      "data_types": [
+        "core-sample"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "REST API for registering/querying IGSN sample metadata records",
+          "url": "https://geosamples.github.io/sesar-doc/"
+        },
+        {
+          "method": "manual",
+          "notes": "web catalog search over registered samples",
+          "url": "https://www.geosamples.org/"
+        }
+      ],
+      "id": "sesar-sample-registry",
+      "license": "CC BY-NC-SA 3.0",
+      "name": "SESAR — System for Earth and Extraterrestrial Sample Registration",
+      "operator": "[[Lamont-Doherty Earth Observatory]]",
+      "path": "sources/sesar-sample-registry.md",
+      "portal": "https://www.geosamples.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "per-specimen registry records (hand sample to core/thin-section, IGSN-identified)",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -79.0,
+          -4.3,
+          -66.8,
+          13.5
+        ],
+        "name": "Colombia"
+      },
+      "data_types": [
+        "geologic-map",
+        "structural-vectors",
+        "gravity",
+        "magnetics",
+        "earthquake-catalog"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "confirmed live ArcGIS Server 10.91; folders incl. Geologia, Geological_Map_Colombia_2015, Geofisica, catalogo_sismos, Mapa_Metalogenico_2022",
+          "url": "https://srvags.sgc.gov.co/arcgis/rest/services?f=json"
+        },
+        {
+          "method": "http-download",
+          "notes": "confirmed live Open Data portal (ArcGIS Hub); CSV/KML/Zip/GeoJSON/GeoTIFF downloads plus WMS/WFS API links",
+          "url": "https://datos.sgc.gov.co/"
+        }
+      ],
+      "formats": [
+        "shp",
+        "geojson",
+        "kml",
+        "geotiff",
+        "csv"
+      ],
+      "id": "sgc-colombia-geoportal",
+      "license": "Colombian open-government data (datos.gov.co framework) — no blanket CC statement found on the SGC portal itself; attribution to SGC customary",
+      "name": "Servicio Geológico Colombiano — Geoportal & Open Data Portal",
+      "operator": "[[Servicio Geológico Colombiano]]",
+      "path": "sources/sgc-colombia-geoportal.md",
+      "portal": "https://www2.sgc.gov.co/sgc/mapas/Paginas/geoportal.aspx",
+      "regions": [
+        "south-america",
+        "colombia"
+      ],
+      "resolution": "1:100,000 to 1:1,000,000 (geologic map series); variable for geophysics/geochemistry/seismic catalogues",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          10.9,
+          55.3,
+          24.2,
+          69.1
+        ],
+        "name": "Sweden"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "GetCapabilities confirmed live; layers SE.GOV.SGU.BERGGRUND_NA10 (bedrock), BERGGRUND_NA10_DFZ (deformation zones/faults), BERGGRUND_NA10_LINJER (structural lines)",
+          "url": "https://resource.sgu.se/service/wms/130/berggrund_1M?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "wms",
+          "notes": "detailed 1:50,000-1:250,000 bedrock WMS",
+          "url": "https://resource.sgu.se/service/wms/130/berggrund-50-250-tusen?service=WMS&request=GetCapabilities"
+        },
+        {
+          "method": "http-download",
+          "notes": "GeoPackage/API downloads; OGC API - Features supersedes the older WFS interface",
+          "url": "https://www.sgu.se/en/products/geological-data/berggrund--geologisk-data/bedrock/"
+        }
+      ],
+      "id": "sgu-berggrund",
+      "license": "CC0 — SGU made all geological data open and free of charge from June 2024 (Sweden's first agency to do so under the EU open-data directive)",
+      "name": "SGU Berggrund — Swedish bedrock geology and deformation zones",
+      "operator": "[[Geological Survey of Sweden]]",
+      "path": "sources/sgu-berggrund.md",
+      "portal": "https://www.sgu.se/en/products/geological-data/berggrund--geologisk-data/bedrock/",
+      "regions": [
+        "europe",
+        "sweden"
+      ],
+      "resolution": "1:50,000-1:250,000; 1:1,000,000 (bedrock overview)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -18.2,
+          27.6,
+          4.4,
+          43.8
+        ],
+        "name": "Spain (mainland, Balearic and Canary Islands)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "CNIG Centro de Descargas — confirmed live; catalogue/AOI search for PNOA-LiDAR point clouds and DTM tiles",
+          "url": "https://centrodedescargas.cnig.es/CentroDescargas/index.jsp"
+        },
+        {
+          "method": "manual",
+          "notes": "programme presentation page — confirmed live; describes coverage cycles and 3rd-cycle AI-based point classification",
+          "url": "https://pnoa.ign.es/web/portal/pnoa-lidar/presentacion"
+        }
+      ],
+      "formats": [
+        "laz",
+        "asc",
+        "geotiff"
+      ],
+      "id": "spain-pnoa-lidar",
+      "license": "CC BY 4.0 (attribution to IGN/CNIG)",
+      "name": "PNOA-LiDAR — Spain national airborne LiDAR programme",
+      "operator": "[[Instituto Geográfico Nacional (Spain)]]",
+      "path": "sources/spain-pnoa-lidar.md",
+      "portal": "https://pnoa.ign.es/web/portal/pnoa-lidar/presentacion",
+      "regions": [
+        "europe",
+        "spain"
+      ],
+      "resolution": "Point cloud density by coverage cycle: 0.5 pts/m2 (1st cycle, 2009-2015) to 5 pts/m2 (3rd cycle, 2022-2025); vertical RMSE improved from ~40 cm to ~10 cm; DTM/DSM derivatives",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -56.0,
+          180.0,
+          60.0
+        ],
+        "name": "Global land, 56°S-60°N"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "auth": "free-registration",
+          "method": "manual",
+          "notes": "Search dataset category \"Digital Elevation\" > \"SRTM 1 Arc-Second Global\"; free USGS EROS login required before download of GeoTIFF/BIL/DTED tiles (confirmed: unauthenticated session shows \"must be logged in to download\").",
+          "url": "https://earthexplorer.usgs.gov/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "bil",
+        "dted"
+      ],
+      "id": "srtm-1arc-global",
+      "license": "Public domain (US Government work; NASA/USGS)",
+      "name": "SRTM 1 Arc-Second Global",
+      "operator": "[[United States Geological Survey]]",
+      "path": "sources/srtm-1arc-global.md",
+      "portal": "https://earthexplorer.usgs.gov/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "30 m posting (1 arc-second); 2x1 arc-second above 50°N / below 50°S",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          10.0,
+          76.0,
+          35.0,
+          81.0
+        ],
+        "name": "Svalbard"
+      },
+      "data_types": [
+        "outcrop-model"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "interactive map of digitized outcrops; each site links to a direct download of its published digital outcrop model dataset\n",
+          "url": "https://svalbox.no/"
+        }
+      ],
+      "id": "svalbox",
+      "license": "free unrestricted access, cite data and source; some contributed models may carry additional restrictions",
+      "name": "Svalbox — Interactive 3D Geoscience Database of Svalbard",
+      "operator": "[[University Centre in Svalbard]]",
+      "path": "sources/svalbox.md",
+      "portal": "https://svalbox.no/",
+      "regions": [
+        "europe",
+        "norway",
+        "svalbard"
+      ],
+      "resolution": "cm-scale digital outcrop models",
+      "scale_tier": "local",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          5.9,
+          45.8,
+          10.5,
+          47.9
+        ],
+        "name": "Switzerland"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map",
+        "dem",
+        "gravity",
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "method": "wms",
+          "notes": "GetCapabilities confirmed live (2.7MB); relevant layers: ch.swisstopo.geologie-geocover, ch.swisstopo.geologie-tektonische_karte, ch.swisstopo.geologie-gravimetrischer_atlas, ch.swisstopo.geologie-geophysik-aeromagnetische_karte_schweiz, ch.swisstopo.swissalti3d-reliefschattierung",
+          "url": "https://wms.geo.admin.ch/?service=WMS&version=1.3.0&request=GetCapabilities&layers=ch.swisstopo.geologie-geocover"
+        },
+        {
+          "method": "http-download",
+          "notes": "swissGEOCOVER2D as File Geodatabase (with ArcMap/QGIS project styling) or GeoPackage; whole-country vector geology at 1:25,000",
+          "url": "https://www.swisstopo.admin.ch/en/geological-model-2d-geocover"
+        },
+        {
+          "method": "manual",
+          "notes": "federal map.geo.admin.ch viewer exposes 100+ geology-relevant layers for browse/query/download",
+          "url": "https://map.geo.admin.ch"
+        }
+      ],
+      "id": "swisstopo-geocover",
+      "license": "Free geodata (swisstopo terms of use for free geodata and geoservices)",
+      "name": "swisstopo GeoCover — Swiss geology, tectonics, gravity, aeromagnetics, DEM",
+      "operator": "[[Federal Office of Topography (swisstopo)]]",
+      "path": "sources/swisstopo-geocover.md",
+      "portal": "https://www.swisstopo.admin.ch/en/geological-model-2d-geocover",
+      "regions": [
+        "europe",
+        "switzerland"
+      ],
+      "resolution": "1:25,000 (GeoCover)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          5.9,
+          45.8,
+          10.5,
+          47.9
+        ],
+        "name": "Switzerland and Liechtenstein"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "stac",
+          "notes": "STAC collection for swissALTI3D — confirmed live; ground sampling 0.5/2.0 m, native EPSG:2056",
+          "url": "https://data.geo.admin.ch/api/stac/v0.9/collections/ch.swisstopo.swissalti3d"
+        },
+        {
+          "method": "manual",
+          "notes": "swissSURFACE3D classified LiDAR point cloud, LAZ 1.4/COPC (2024+) or LAS 1.2 (pre-2024), via the geo.admin.ch download portal — confirmed live",
+          "url": "https://www.swisstopo.admin.ch/en/height-model-swisssurface3d"
+        },
+        {
+          "method": "manual",
+          "notes": "product page: sample data, Cloud-Optimized GeoTIFF / XYZ ASCII / ESRI ASCII-on-request — confirmed live",
+          "url": "https://www.swisstopo.admin.ch/en/height-model-swissalti3d"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz",
+        "asc"
+      ],
+      "id": "swisstopo-swissalti3d",
+      "license": "Free geodata (swisstopo terms of use for free geodata and geoservices)",
+      "name": "swisstopo swissALTI3D + swissSURFACE3D — Swiss DEM and LiDAR point cloud",
+      "operator": "[[Federal Office of Topography (swisstopo)]]",
+      "path": "sources/swisstopo-swissalti3d.md",
+      "portal": "https://www.swisstopo.admin.ch/en/height-model-swissalti3d",
+      "regions": [
+        "europe",
+        "switzerland"
+      ],
+      "resolution": "0.5 m / 2 m DEM grid (swissALTI3D); LiDAR point cloud 5-40 pts/m2 depending on region/acquisition cycle (swissSURFACE3D)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global land, pole to pole"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "auth": "free-registration",
+          "method": "http-download",
+          "notes": "Confirmed login-gated: an unauthenticated request to this path redirects to the DLR EOC \"TDM Login\" page (verified 2026-08-11). Self-register at https://sso.eoc.dlr.de/tdm90/selfservice/, then browse or script (wget/cURL/aria2) the file tree of per-tile ZIPs. A map-based selector is also at https://download.geoservice.dlr.de/TDM90/. (Note: a generic-looking geoservice.dlr.de WCS endpoint at /eoc/land/wcs/tdm90 exists but serves unrelated German land-cover layers, not this DEM — checked and ruled out.)",
+          "url": "https://download.geoservice.dlr.de/TDM90/files/"
+        }
+      ],
+      "formats": [
+        "geotiff"
+      ],
+      "id": "tandem-x-90m-dem",
+      "license": "DLR scientific-use license (free, non-exclusive, non-commercial; commercial licensing via Airbus Defence and Space)",
+      "name": "TanDEM-X 90m Digital Elevation Model (TDM90)",
+      "operator": "[[German Aerospace Center]]",
+      "path": "sources/tandem-x-90m-dem.md",
+      "portal": "https://geoservice.dlr.de/web/dataguide/tdm90/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "90 m posting (3 arc-second in latitude)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          143.8,
+          -43.7,
+          148.5,
+          -39.5
+        ],
+        "name": "Tasmania"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "arcgis-rest",
+          "notes": "Geology units, alteration, faults, contacts, linears, structure readings and outcrops layers across all three compiled scales. Confirmed live (HTTP 200, valid ArcGIS Server JSON).",
+          "url": "https://data.stategrowth.tas.gov.au/ags/rest/services/MRT/Geology_Tasmania/MapServer"
+        }
+      ],
+      "formats": [
+        "shp",
+        "fgdb",
+        "esri-mapservice"
+      ],
+      "id": "tas-mrt-geology",
+      "license": "CC BY 3.0 AU",
+      "name": "Mineral Resources Tasmania — Digital Geology",
+      "operator": "[[Mineral Resources Tasmania]]",
+      "path": "sources/tas-mrt-geology.md",
+      "portal": "https://www.thelist.tas.gov.au/app/content/home",
+      "regions": [
+        "australia",
+        "tasmania"
+      ],
+      "resolution": "1:25,000 (~50% coverage), 1:250,000, 1:500,000",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -106.6,
+          25.8,
+          -93.5,
+          36.5
+        ],
+        "name": "Texas"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "per-quadrangle shapefile zips (Austin, Del Rio, Georgetown, New Braunfels, Galveston Island), most along the Balcones Fault Zone",
+          "url": "https://www.beg.utexas.edu/research/areas/geologic-mapping"
+        },
+        {
+          "method": "http-download",
+          "notes": "verified example quadrangle download, ArcView shapefile format",
+          "url": "https://www.beg.utexas.edu/files/content/beg/1956/Austin.zip"
+        }
+      ],
+      "formats": [
+        "shp"
+      ],
+      "id": "texas-beg-statemap",
+      "license": "not explicitly stated; free download from BEG",
+      "name": "Texas BEG — STATEMAP Geologic Quadrangle GIS Data",
+      "operator": "[[Bureau of Economic Geology]]",
+      "path": "sources/texas-beg-statemap.md",
+      "portal": "https://www.beg.utexas.edu/research/areas/geologic-mapping",
+      "regions": [
+        "north-america",
+        "united-states",
+        "texas"
+      ],
+      "resolution": "1:24,000 (STATEMAP quadrangles)",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -106.6,
+          25.8,
+          -93.5,
+          36.5
+        ],
+        "name": "Texas"
+      },
+      "data_types": [
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Public GIS Map Viewer for oil, gas and pipeline data — no registration required; wells, leases, injection/disposal points",
+          "url": "https://www.rrc.texas.gov/resource-center/research/gis-viewer/"
+        },
+        {
+          "method": "manual",
+          "notes": "Scanned well logs (TIFF) served through the GIS viewer, plus monthly xlsx/xls inventory indices by district back to 2006",
+          "url": "https://www.rrc.texas.gov/oil-and-gas/research-and-statistics/obtaining-commission-records/oil-gas-well-records-gis-well-logs/"
+        },
+        {
+          "method": "api",
+          "notes": "EWA Wellbore Query — statewide well/API-number lookup; sibling EWA query tools cover proration, UIC injection wells, inactive and orphan wells",
+          "url": "http://webapps2.rrc.state.tx.us/EWA/wellboreQueryAction.do"
+        }
+      ],
+      "formats": [
+        "tiff",
+        "xlsx"
+      ],
+      "id": "texas-rrc-well-logs",
+      "license": "Public record (Texas Public Information Act / Natural Resources Code) — no open-data license statement; records retrieval requests may carry statutory fees",
+      "name": "Texas RRC Oil & Gas Well Records — GIS Well Logs",
+      "operator": "[[Railroad Commission of Texas]]",
+      "path": "sources/texas-rrc-well-logs.md",
+      "portal": "https://www.rrc.texas.gov/oil-and-gas/research-and-statistics/well-information/",
+      "regions": [
+        "north-america",
+        "united-states",
+        "texas"
+      ],
+      "resolution": "per-well logs and files",
+      "scale_tier": "regional",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -6.5,
+          49.9,
+          1.8,
+          55.8
+        ],
+        "name": "England (~99% coverage)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Defra Survey Data Download — AOI/tile picker for the raw National LiDAR Programme survey tiles (DTM, DSM, point cloud, intensity); confirmed live",
+          "url": "https://environment.data.gov.uk/survey"
+        },
+        {
+          "method": "http-download",
+          "notes": "seamless composite DTM, 1 m, GeoTIFF, 5 km tiles on the OS National Grid — confirmed live",
+          "url": "https://www.data.gov.uk/dataset/01b3ee39-da3f-47b6-83da-dc98e73a461f/lidar-composite-digital-terrain-model-dtm-1m"
+        },
+        {
+          "method": "manual",
+          "notes": "National LiDAR Programme parent record, linking out to the DTM/DSM/point-cloud/intensity composite products — confirmed live",
+          "url": "https://www.data.gov.uk/dataset/f0db0249-f17b-4036-9e65-309148c97ce4/national-lidar-programme"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz",
+        "asc"
+      ],
+      "id": "uk-ea-lidar",
+      "license": "Open Government Licence v3.0",
+      "name": "Environment Agency National LIDAR Programme — England DTM/DSM + point cloud",
+      "operator": "[[Environment Agency]]",
+      "path": "sources/uk-ea-lidar.md",
+      "portal": "https://environment.data.gov.uk/survey",
+      "regions": [
+        "europe",
+        "united-kingdom",
+        "england"
+      ],
+      "resolution": "Composite DTM at 1 m / 2 m / 10 m; composite DSM at 2 m; underlying yearly survey tiles (point cloud + raster) at finer native resolution by project, vertical accuracy ±15 cm RMSE",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -9.5,
+          49.5,
+          3.5,
+          61.5
+        ],
+        "name": "UK Continental Shelf"
+      },
+      "data_types": [
+        "seismic-reflection",
+        "borehole"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Data Discovery map + project-table interface; projects typed Well/Seis/Mhaz/Rems/Inpt under CCCCYYYYtypeNNNN IDs",
+          "url": "https://ndr.nstauthority.co.uk/"
+        },
+        {
+          "method": "api",
+          "notes": "Microsoft Graph API for programmatic Project ID / File ID metadata access",
+          "url": "https://www.uk-ndr.co.uk/spapidoc"
+        },
+        {
+          "auth": "registration",
+          "method": "manual",
+          "notes": "New Company Request Form — download access requires an org account via a company administrator",
+          "url": "https://ndr.nstauthority.co.uk/newcompanyform"
+        }
+      ],
+      "id": "uk-nsta-national-data-repository",
+      "license": "Governed by the NDR User Agreement and Terms of Sale; downloads count against per-company monthly quotas, up to 24hr package prep, physical media delivery also offered",
+      "name": "UK National Data Repository (NDR) — wells and seismic",
+      "operator": "[[North Sea Transition Authority]]",
+      "path": "sources/uk-nsta-national-data-repository.md",
+      "portal": "https://ndr.nstauthority.co.uk/",
+      "regions": [
+        "europe",
+        "united-kingdom"
+      ],
+      "resolution": "per-well records; 2D/3D SEG-Y seismic volumes",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -179.9,
+          18.0,
+          -66.9,
+          71.5
+        ],
+        "name": "United States (CONUS, Alaska, Hawaii, territories — LiDAR coverage tiers vary by project)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "TNM Access API — confirmed live (JSON); query by bbox/dataset/format for direct product URLs",
+          "url": "https://tnmaccess.nationalmap.gov/api/v1/products?prodFormats=LAS,LAZ&max=1"
+        },
+        {
+          "method": "manual",
+          "notes": "The National Map Downloader — confirmed live; AOI + layer picker (1m DEM, 3DEP LiDAR Point Cloud, 1/3 arc-second DEM, etc.)",
+          "url": "https://apps.nationalmap.gov/downloader/"
+        },
+        {
+          "method": "http-download",
+          "notes": "public AWS bucket — confirmed live; per-project Entwine Point Tile (EPT) LiDAR, no auth",
+          "url": "https://s3-us-west-2.amazonaws.com/usgs-lidar-public/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "laz",
+        "img"
+      ],
+      "id": "usgs-3dep",
+      "license": "Public domain (U.S. Government work)",
+      "name": "USGS 3D Elevation Program (3DEP) — seamless DEMs + LiDAR point clouds",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-3dep.md",
+      "portal": "https://www.usgs.gov/3d-elevation-program",
+      "regions": [
+        "north-america",
+        "united-states"
+      ],
+      "resolution": "Seamless 1 m DEM (growing CONUS coverage) and 1/3 arc-second (~10 m) national seamless DEM; raw LiDAR point clouds 2-20+ pts/m2, project-dependent",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -22.41,
+          -38.57,
+          64.54,
+          40.14
+        ],
+        "name": "Africa (continent, incl. Madagascar and Arabian Peninsula fringe)"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Surficial geology (geo7_2ag) shapefile — direct .shp download confirmed live, no auth.",
+          "url": "https://www.sciencebase.gov/catalog/file/get/60d0ff26d34e86b938aab404?f=__disk__7d%2F56%2Ff0%2F7d56f05682703babd743ee26112957e4ca83b5de"
+        },
+        {
+          "method": "http-download",
+          "notes": "Companion Geologic Provinces of Africa (prv7_2ag) item — same series, arcs+polygons+labels, shapefile set.",
+          "url": "https://www.sciencebase.gov/catalog/item/60d0ff40d34e86b938aab435"
+        }
+      ],
+      "formats": [
+        "shp"
+      ],
+      "id": "usgs-africa-geology-provinces",
+      "license": "public domain (US federal)",
+      "name": "USGS Surficial Geology and Geologic Provinces of Africa (2000 World Energy Project)",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-africa-geology-provinces.md",
+      "portal": "https://www.sciencebase.gov/catalog/item/60d0ff26d34e86b938aab404",
+      "regions": [
+        "africa"
+      ],
+      "resolution": "reconnaissance-scale province/unit polygons; no fixed map scale (2000 World Energy Project compilation)",
+      "scale_tier": "continental",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "earthquake-catalog"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "FDSN event web service; live-tested with \"?format=geojson&limit=1\" — returns real-time event JSON. Supports geojson, csv, quakeml, text formats and full spatial/temporal/magnitude filtering.",
+          "url": "https://earthquake.usgs.gov/fdsnws/event/1/query"
+        }
+      ],
+      "formats": [
+        "geojson",
+        "csv",
+        "quakeml",
+        "text"
+      ],
+      "id": "usgs-anss-comcat",
+      "license": "public domain (US federal); contributing networks may apply their own attribution norms",
+      "name": "USGS ANSS ComCat — Earthquake Catalog",
+      "native_metadata": [
+        {
+          "format": "html",
+          "url": "https://earthquake.usgs.gov/data/comcat/data-eventterms.php"
+        }
+      ],
+      "operator": "[[USGS]]",
+      "path": "sources/usgs-anss-comcat.md",
+      "portal": "https://earthquake.usgs.gov/data/comcat/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "event catalog; global M>=4.5 essentially complete since 1990s, denser/lower-magnitude coverage in well-instrumented regions and recent years",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "dem"
+      ],
+      "fetch": [
+        {
+          "auth": "ers-account",
+          "method": "api",
+          "notes": "Confirmed live: an unauthenticated POST returns structured JSON ({\"errorCode\":\"INPUT_PARAMETER_REQUIRED\",\"errorMessage\":\"...username is required...\"}) rather than a connection failure — the M2M JSON-RPC-style API is reachable. Full API docs themselves sit behind a USGS ERS login wall (m2m.cr.usgs.gov/api/docs/... redirects to ers.cr.usgs.gov/login) — this is real friction, not just a login-to-download step: the reference material is gated too, and M2M access is a separate grant on top of a basic ERS account.",
+          "url": "https://m2m.cr.usgs.gov/api/api/json/stable/login-token"
+        },
+        {
+          "method": "manual",
+          "notes": "EarthExplorer UI — confirmed live (HTTP 200). Digital Elevation category (SRTM, GTOPO30, etc.) confirmed via USGS EROS documentation.",
+          "url": "https://earthexplorer.usgs.gov/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "hdf",
+        "tar"
+      ],
+      "id": "usgs-earthexplorer-m2m",
+      "license": "Public domain (U.S. Government work); some partner/commercial collections carry separate terms",
+      "name": "USGS EarthExplorer + M2M API",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-earthexplorer-m2m.md",
+      "portal": "https://earthexplorer.usgs.gov/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          15.0,
+          -60.0,
+          72.0
+        ],
+        "name": "US Outer Continental Shelf margins (Pacific, Gulf of Mexico, Atlantic, Alaska)"
+      },
+      "data_types": [
+        "seismic-reflection"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "Interactive map/filter search (survey ID, year, data type, geographic click); verified live 2026-08-11. Data type filter distinguishes 2D/3D multichannel vs single-channel seismic.",
+          "url": "https://walrus.wr.usgs.gov/namss/"
+        },
+        {
+          "method": "wms",
+          "notes": "Verified live 2026-08-11 (survey-footprint WMS layer).",
+          "url": "https://walrus.wr.usgs.gov/namss/wms?request=GetCapabilities&service=WMS&version=1.1.1"
+        }
+      ],
+      "formats": [
+        "segy",
+        "tiff"
+      ],
+      "id": "usgs-namss",
+      "license": "Public domain (US federal) — non-exclusive-use G&G permit data, no restrictions on usage or publication once archived",
+      "name": "USGS National Archive of Marine Seismic Surveys (NAMSS)",
+      "operator": "[[USGS]]",
+      "path": "sources/usgs-namss.md",
+      "portal": "https://walrus.wr.usgs.gov/namss/",
+      "regions": [
+        "north-america",
+        "united-states"
+      ],
+      "resolution": "survey-level 2D/3D multichannel and single-channel seismic reflection, mostly SEG-Y; some pre-digital surveys are scanned profile images only",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -179.15,
+          18.91,
+          -66.87,
+          71.44
+        ],
+        "name": "United States (incl. Alaska, Hawaii, territories)"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "interactive search/browse of 90,000+ published geologic maps; many entries link to GeMS GIS downloads, others to scanned sheets only",
+          "url": "https://ngmdb.usgs.gov/mapview/"
+        }
+      ],
+      "formats": [
+        "pdf",
+        "gdb",
+        "shp",
+        "tiff"
+      ],
+      "id": "usgs-ngmdb-map-catalog",
+      "license": "Public domain (USGS); maps contributed by ~630 state/university/private agencies may carry separate terms",
+      "name": "USGS National Geologic Map Database — Map Catalog & Mapview",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-ngmdb-map-catalog.md",
+      "portal": "https://ngmdb.usgs.gov/ngmdb/ngmdb_home.html",
+      "regions": [
+        "north-america",
+        "united-states"
+      ],
+      "resolution": "varies by contributing map, 1:12,000-1:1,000,000",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -179.15,
+          17.9,
+          -65.2,
+          71.44
+        ],
+        "name": "United States (incl. Alaska, Hawaii, Puerto Rico)"
+      },
+      "data_types": [
+        "structural-vectors"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "statewide-seamless fault/fold traces, shapefile, ~32MB",
+          "url": "https://earthquake.usgs.gov/static/lfs/nshm/qfaults/Qfaults_GIS.zip"
+        },
+        {
+          "method": "manual",
+          "notes": "interactive fault map; the old text-search \"Database Search\" tool was retired Feb 26 2026 in favor of this map",
+          "url": "https://doi.org/10.5066/F7S75FJM"
+        }
+      ],
+      "formats": [
+        "shp",
+        "kmz"
+      ],
+      "id": "usgs-quaternary-faults",
+      "license": "Public Domain (U.S. Government Work)",
+      "name": "USGS Quaternary Fault and Fold Database of the United States",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-quaternary-faults.md",
+      "portal": "https://www.usgs.gov/programs/earthquake-hazards/faults",
+      "regions": [
+        "north-america",
+        "united-states"
+      ],
+      "resolution": "compiled from source mapping at 1:24,000-1:250,000",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "geologic-map",
+        "borehole",
+        "core-sample",
+        "structural-vectors",
+        "outcrop-model"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "Confirmed live: full-text item search returns real JSON hits (505 items for \"basalt\", 1374 for \"fault\", 53 for \"core sample\", 5 for \"structural geology shapefile\", 1 for \"outcrop model\" — spot-checked 2026-08-11). No auth needed for public-item search; no API key required.",
+          "url": "https://www.sciencebase.gov/catalog/items?format=json&q=basalt&max=1"
+        },
+        {
+          "method": "manual",
+          "notes": "ScienceBase catalog browse UI — confirmed live (HTTP 200).",
+          "url": "https://www.sciencebase.gov/catalog/"
+        }
+      ],
+      "formats": [
+        "shapefile",
+        "geotiff",
+        "csv",
+        "pdf",
+        "zip"
+      ],
+      "id": "usgs-sciencebase",
+      "license": "Mostly public domain (U.S. Government work); some contributed/partner items carry their own terms — check per-item metadata",
+      "name": "USGS ScienceBase Catalog API",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-sciencebase.md",
+      "portal": "https://www.sciencebase.gov/catalog/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -125.0,
+          24.5,
+          -66.9,
+          49.4
+        ],
+        "name": "Conterminous United States"
+      },
+      "data_types": [
+        "structural-vectors",
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "2026 GeMS-schema data release (Horton, DOI 10.5066/P1A3DQZK), ~1.8GB file geodatabase",
+          "url": "https://ngmdb.usgs.gov/ngm-bin/gems_download.pl?id=4742&pid=119417"
+        },
+        {
+          "method": "manual",
+          "notes": "legacy v1.1 (2017) ScienceBase item, kept live alongside the GeMS update",
+          "url": "https://www.sciencebase.gov/catalog/item/5888bf4fe4b05ccb964bab9d"
+        }
+      ],
+      "formats": [
+        "gdb"
+      ],
+      "id": "usgs-sgmc-gems-geodatabase",
+      "license": "Public Domain (U.S. Government Work)",
+      "name": "USGS State Geologic Map Compilation (SGMC) — GeMS geodatabase",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-sgmc-gems-geodatabase.md",
+      "portal": "https://ngmdb.usgs.gov/Prodesc/proddesc_119417.htm",
+      "regions": [
+        "north-america",
+        "united-states"
+      ],
+      "resolution": "1:1,000,000 (source state maps 1:24,000-1:500,000)",
+      "scale_tier": "national",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (gateway)"
+      },
+      "data_types": [
+        "dem",
+        "lidar"
+      ],
+      "fetch": [
+        {
+          "method": "api",
+          "notes": "Confirmed live: bbox product query returns real JSON (26,397 total matches for this test bbox, e.g. 3DHP FileGDB products). Sibling endpoint /api/v1/datasets lists the full dataset catalog fronted by this API (confirmed 2026-08-11): NED/3DEP DEM tiers (1m, 1/3 arc-sec, 1 arc-sec, Alaska IFSAR), 3DEP LiDAR Point Cloud (LPC) and OPR/IFSAR DEM, 3D Hydrography Program, NHD, WBD, US Topo, NAIP, GNIS, and small-scale datasets.",
+          "url": "https://tnmaccess.nationalmap.gov/api/v1/products?bbox=-105,39,-104,40&max=1"
+        },
+        {
+          "method": "manual",
+          "notes": "The National Map Downloader — confirmed live (HTTP 200); AOI + layer-picker UI over the same product catalog.",
+          "url": "https://apps.nationalmap.gov/downloader/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "img",
+        "las",
+        "laz",
+        "shapefile",
+        "geopackage"
+      ],
+      "id": "usgs-tnm-access",
+      "license": "Public domain (U.S. Government work)",
+      "name": "USGS The National Map (TNM) Access API",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-tnm-access.md",
+      "portal": "https://apps.nationalmap.gov/downloader/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "gateway — resolution per dataset",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (assessed petroleum geologic provinces)"
+      },
+      "data_types": [
+        "geologic-map"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "Downloads GeologicProvinc.zip → WEP_PRVA shapefile (arcs + polygons) plus FGDC XML metadata. Assessed provinces only (Priority + Boutique); no auth.",
+          "url": "https://www.sciencebase.gov/catalog/file/get/60ad2fa1d34e4043c850ed98"
+        }
+      ],
+      "formats": [
+        "shp"
+      ],
+      "id": "usgs-world-geologic-provinces",
+      "license": "public domain (US federal)",
+      "name": "USGS Geologic Provinces of the World (2000 World Petroleum Assessment)",
+      "operator": "[[U.S. Geological Survey]]",
+      "path": "sources/usgs-world-geologic-provinces.md",
+      "portal": "https://www.sciencebase.gov/catalog/item/60ad2fa1d34e4043c850ed98",
+      "regions": [
+        "global"
+      ],
+      "resolution": "reconnaissance-scale province polygons; no fixed map scale (compiled for the 2000 World Petroleum Assessment, roughly 1:5,000,000-class generalization)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (discrete sites)"
+      },
+      "data_types": [
+        "outcrop-model"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "cloud-based web viewer streams tiled 3D meshes (photogrammetry/laser-scan derived); browse/search by site, view interactively with measurement tools; per-model download terms set by contributor, no bulk API\n",
+          "url": "https://v3geo.com/"
+        }
+      ],
+      "id": "v3geo",
+      "license": "varies per model (contributor-assigned Creative Commons; check each entry)",
+      "name": "V3Geo — Virtual 3D Outcrop Model Repository",
+      "operator": "[[University of Aberdeen]]",
+      "path": "sources/v3geo.md",
+      "portal": "https://v3geo.com/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "cm-scale textured meshes (photogrammetry/lidar-derived virtual outcrops)",
+      "scale_tier": "local",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global — museum and university thin-section/sample collections"
+      },
+      "data_types": [
+        "microstructure"
+      ],
+      "fetch": [
+        {
+          "method": "manual",
+          "notes": "OER partnership between the Open University and museums/universities/planetary-material archivists. Confirmed live. Holdings include a JISC-funded UK rock thin-section set (100+), Darwin's Beagle-voyage specimens, and NASA-collected meteorite/lunar samples, browsed as interactive thin-section/specimen viewers rather than bulk downloads.",
+          "url": "https://virtualmicroscope.org/"
+        }
+      ],
+      "formats": [
+        "jpg"
+      ],
+      "id": "virtual-microscope",
+      "license": "CC BY-NC-SA 2.0 (third-party materials may carry different terms)",
+      "name": "Virtual Microscope",
+      "operator": "[[The Open University]]",
+      "path": "sources/virtual-microscope.md",
+      "portal": "https://virtualmicroscope.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "petrographic thin sections (~30 micron slices) under polarizing-microscope magnification",
+      "scale_tier": "sample",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global (continental and oceanic)"
+      },
+      "data_types": [
+        "magnetics"
+      ],
+      "fetch": [
+        {
+          "auth": "free-registration",
+          "method": "manual",
+          "notes": "Interactive Leaflet map (wdmam.org, React SPA) for browsing and extracting the grid/anomaly layers; site infrastructure (CSP references AWS Cognito cognito-idp.eu-west-3.amazonaws.com) indicates an account is used for data export, distinct from the free public map view. Provisional map also offered as JPEG; full ASCII grid distributed on request per the site's stated policy.",
+          "url": "https://www.wdmam.org/"
+        }
+      ],
+      "formats": [
+        "ascii-grid",
+        "jpeg"
+      ],
+      "id": "wdmam-magnetic-anomaly",
+      "license": "free for scientific/public use with citation (Dyment et al. 2016; Choi et al. for v2.2); no SPDX-style license stated",
+      "name": "WDMAM — World Digital Magnetic Anomaly Map v2.2",
+      "operator": "[[IAGA / CGMW]]",
+      "path": "sources/wdmam-magnetic-anomaly.md",
+      "portal": "https://www.wdmam.org/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "3 arc-min grid",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    },
+    {
+      "added": "2026-08-11",
+      "coverage": {
+        "bbox": [
+          -180.0,
+          -90.0,
+          180.0,
+          90.0
+        ],
+        "name": "Global"
+      },
+      "data_types": [
+        "gravity"
+      ],
+      "fetch": [
+        {
+          "method": "http-download",
+          "notes": "DOI resolves to the BGI catalogue record (bgi.obs-mip.fr/catalogue) for direct download of the complete Bouguer, isostatic (Airy-Heiskanen Tc=30km) and surface free-air grids plus ETOPO1-derived gravity disturbance/topography.",
+          "url": "https://doi.org/10.18168/bgi.23"
+        },
+        {
+          "method": "manual",
+          "notes": "web-based visualization/extraction tool for sub-area grid pulls",
+          "url": "https://bgi.obs-mip.fr/data-products/outils/wgm2012-visualization-extraction/"
+        }
+      ],
+      "formats": [
+        "geotiff",
+        "netcdf"
+      ],
+      "id": "wgm2012-gravity",
+      "license": "academic/research use; BGI disclaims warranty on accuracy and accepts no responsibility for consequences of use (per WGM2012 terms of use)",
+      "name": "WGM2012 — World Gravity Map",
+      "operator": "[[Bureau Gravimétrique International]]",
+      "path": "sources/wgm2012-gravity.md",
+      "portal": "https://bgi.obs-mip.fr/grids-and-models-2/grids-and-models-2-2/",
+      "regions": [
+        "global"
+      ],
+      "resolution": "2 arc-min grid (terrain corrections from 1 arc-min ETOPO1)",
+      "scale_tier": "global",
+      "verified": "2026-08-11"
+    }
+  ]
+}

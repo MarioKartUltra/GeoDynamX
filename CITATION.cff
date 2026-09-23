@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "GeoDynamix (beta)"
+type: software
+authors:
+  - given-names: "Abraham Joseph"
+    family-names: "Okayli Masaryk"
+    email: "ajokaylimasaryk@uh.edu"
+    affiliation: "University of Houston"
+version: "0.1.0-beta"
+date-released: "2026-09-22"
+license: GPL-2.0-or-later
+abstract: >-
+  An instrument for interrogating structure across scales in rasters of any provenance
+  (bathymetry, DEMs, satellite imagery, EBSD maps): wavelet-transform modulus-maxima (WTMM)
+  and microcanonical multifractal analysis, multiscale edge detection and diffusion filters,
+  run on saved regions of interest of arbitrarily large rasters.
+keywords:
+  - wavelets
+  - WTMM
+  - multifractal analysis
+  - edge detection
+  - structural geology
+  - bathymetry

@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DynamiX data-source catalog record",
+  "type": "object",
+  "required": [
+    "id", "name", "operator", "portal", "scale_tier", "resolution",
+    "data_types", "regions", "coverage", "fetch", "license", "added", "verified"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "name": {"type": "string"},
+    "operator": {"type": "string"},
+    "portal": {"type": "string"},
+    "scale_tier": {"enum": ["global", "continental", "national", "regional", "local", "sample"]},
+    "resolution": {"type": "string"},
+    "data_types": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "enum": [
+          "structural-vectors", "geologic-map", "dem", "lidar", "bathymetry",
+          "gravity", "magnetics", "seismic-reflection", "earthquake-catalog",
+          "borehole", "outcrop-model", "microstructure", "core-sample"
+        ]
+      }
+    },
+    "regions": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "coverage": {
+      "type": "object",
+      "required": ["name", "bbox"],
+      "properties": {
+        "name": {"type": "string"},
+        "bbox": {"type": "array", "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+        "footprint": {"type": "object"}
+      }
+    },
+    "fetch": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["method", "url"],
+        "properties": {
+          "method": {"enum": ["http-download", "wfs", "wcs", "wms", "arcgis-rest", "stac", "api", "manual"]},
+          "url": {"type": "string"},
+          "auth": {"type": "string"},
+          "notes": {"type": "string"}
+        }
+      }
+    },
+    "formats": {"type": "array", "items": {"type": "string"}},
+    "native_metadata": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["format", "url"],
+        "properties": {
+          "format": {"type": "string"},
+          "url": {"type": "string"},
+          "cached": {"type": "string"}
+        }
+      }
+    },
+    "license": {"type": "string"},
+    "added": {"type": "string"},
+    "verified": {"type": "string"}
+  }
+}

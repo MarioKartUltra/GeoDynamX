@@ -1,0 +1,64 @@
+GeoDynamix (beta)
+Copyright (C) 2026 Abraham Joseph Okayli Masaryk <ajokaylimasaryk@uh.edu>
+
+GeoDynamix is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation (see LICENSE). The
+author's own code is licensed GPL-2.0-or-later. The files that contain code translated from
+xsmurf (listed below) are GPL-2.0-only, as xsmurf's license requires, so the project as a whole
+is distributed under the terms of GPL version 2. This program is distributed in the hope that it
+will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE.
+
+
+Code derived from other software
+--------------------------------
+
+xsmurf -- Copyright (C) 1999 Centre de Recherche Paul Pascal, Bordeaux, France.
+  Authors: Nicolas Decoster, Pierre Kestener, Stephane Roux, Alain Arneodo. License: GPL-2.0.
+  Translated to Python (line-for-line ports) in:
+    src/dynamix/core/xsmurf_follow.py   the "follow" edge-following pipeline
+    src/dynamix/core/follow2d.py        gkapa / gkapap (the kappa fields)
+    src/dynamix/core/wtmm_backend.py    vert_chain (wt2d/chain2.c), _is_single_max_
+                                        (single_max.c), smooth_chains
+
+LastWave -- Copyright (C) 1998-2002 Emmanuel Bacry, Stephane Mallat. License: GPL-2.0-or-later.
+  The 1-D WTMM code of the vendored `wtmm` package (src/dynamix/_vendor/wtmm) is based on
+  LastWave.
+
+Per-file headers: first-party source files carry an SPDX license line and a copyright line. Five
+modules are byte-identical copies of the author's earlier work and carry no header, so that their
+copy guards (tests/test_no_silent_drift.py, tests/test_mzlib_port.py) can keep proving them
+verbatim: src/dynamix/core/selection.py, partition.py, modality.py (from EQSelect) and
+fftbackend.py, mzlib.py (from the author's reconstruction research scripts). They are covered by
+LICENSE and this notice (GPL-2.0-or-later).
+
+The author's own packages, included here by their author:
+  EQSelect -- the analysis core in src/dynamix/core started as a copy of it.
+  wtmm, wtmm_ebsd -- vendored under src/dynamix/_vendor (the EBSD modules of wtmm_ebsd are not
+  included in this release).
+
+
+Principal methods (scientific references)
+-----------------------------------------
+Further references are cited in the module docstrings where each method is implemented.
+
+  Mallat, S. & Hwang, W. L. (1992). Singularity detection and processing with wavelets.
+    IEEE Trans. Information Theory 38(2), 617-643.
+  Mallat, S. & Zhong, S. (1992). Characterization of signals from multiscale edges.
+    IEEE Trans. Pattern Analysis and Machine Intelligence 14(7), 710-732.
+  Muzy, J. F., Bacry, E. & Arneodo, A. (1991). Wavelets and multifractal formalism for singular
+    signals: application to turbulence data. Physical Review Letters 67, 3515-3518.
+  Muzy, J. F., Bacry, E. & Arneodo, A. (1993). Multifractal formalism for fractal signals: the
+    structure-function approach versus the wavelet-transform modulus-maxima method.
+    Physical Review E 47, 875-884.
+  Arneodo, A., Decoster, N. & Roux, S. G. (2000). A wavelet-based method for multifractal image
+    analysis. I. Methodology and test applications on isotropic and anisotropic random rough
+    surfaces. European Physical Journal B 15, 567-600.
+  Turiel, A., Yahia, H. & Perez-Vicente, C. J. (2008). Microcanonical multifractal formalism --
+    a geometrical approach to multifractal systems: Part I. Singularity analysis.
+    Journal of Physics A 41, 015501.
+  Unser, M. & Blu, T. (2000). Fractional splines and wavelets. SIAM Review 42(1), 43-67.
+  Perona, P. & Malik, J. (1990). Scale-space and edge detection using anisotropic diffusion.
+    IEEE Trans. Pattern Analysis and Machine Intelligence 12(7), 629-639.
+  Gilboa, G., Sochen, N. & Zeevi, Y. Y. (2004). Image enhancement and denoising by complex
+    diffusion processes. IEEE Trans. Pattern Analysis and Machine Intelligence 26(8), 1020-1036.

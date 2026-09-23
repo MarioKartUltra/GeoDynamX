@@ -1,0 +1,665 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""LayerPanel: the layer list, grouped by source, with per-layer hide/lock/freeze/remove/rename.
+
+Replaces the flat ``QListWidget`` + ``_CHILD_PREFIX`` indentation hack in ``main_window.py`` with a
+real ``QTreeWidget`` of THREE levels: one source-header row per open raster (its file stem, expand
+state round-tripped both ways with ``SourceRef.collapsed`` -- see :meth:`LayerPanel.set_project`),
+one row per layer under its source, and (for a grouped ROI layer) one row per child nested under
+its own parent LAYER row -- an ROI is a child of the layer it was drawn on, not of the source
+directly, exactly as ``main_window.roi_chain``'s grouping already implies.
+
+Each layer row carries a small widget (:class:`_LayerRow`) of three checkable ``QToolButton``s --
+text glyphs ``"H"``/``"L"``/``"F"``, icon art being explicitly out of scope for this slice -- and
+the panel re-emits their toggles as ``hideToggled``/``lockToggled``/``freezeToggled(layer_id,
+bool)``. It stores no flag state of its own: ``layer.visible`` and ``layer.tags["ui.lock"]``/
+``["ui.freeze"]`` are the single source of truth, read once at row construction and otherwise owned
+by ``main_window`` (the enforcement lives there, not here).
+
+**Hide is v1-scoped.** This panel only ever toggles ONE layer's flag and tells the window; it has
+no idea whether that layer is the one currently on screen, and it draws nothing itself. Composing
+several simultaneously-VISIBLE layers into one picture is the geographic-views slice's business --
+today ``main_window`` reads ``layer.visible`` for the ACTIVE layer only, clearing its canvas
+overlays the moment its own row is hidden (see ``MainWindow._on_hide_toggled``).
+
+A SOURCE HEADER row carries a widget of its own (:class:`_SourceRow`): the per-source inspector
+toggle, re-emitted as ``inspectorToggled(source_id, bool)``. It is the ONE signal here that carries
+a ``str`` rather than an ``int`` layer id, because spec 5d makes the inspector per SOURCE dataset
+("the layer list becomes a tree rooted at sources; ``inspectorToggled`` carries a ``source_id``,
+not a ``layer_id``") -- and this tree was already rooted at sources, so what 5d asks for here is a
+button on the header, not a second tree. The panel stores no open/closed state of its own either:
+``main_window`` owns the window registry and pushes the truth back through
+:meth:`LayerPanel.set_inspector_open` when a window closes itself.
+
+Context menu (right-click a layer row): Rename (opens the same inline ``QLineEdit`` editor a
+double-click on the name column does -- ``QTreeWidget``'s own edit machinery, not a custom one),
+Remove (``removeRequested``), New refined run (``refinedRunRequested``). A source-header row gets no context menu: it names a raster, not a layer, and
+``removeRequested``'s signature (``int`` layer id) has nothing to carry for one.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+from PySide6 import QtCore, QtGui, QtWidgets
+
+#: Item-data roles on column 0. A LAYER row carries its ``layer_id`` under ``_LAYER_ID_ROLE``; a
+#: SOURCE HEADER row carries its ``source_id`` under ``_SOURCE_ID_ROLE`` instead -- never both on
+#: the same item, which is how every handler below tells a header apart from a layer row.
+_LAYER_ID_ROLE = QtCore.Qt.UserRole
+_SOURCE_ID_ROLE = QtCore.Qt.UserRole + 1
+
+#: The chip-hover feedback:
+#: "chip hover emits chipHovered(parent_layer_id) -> LayerPanel.flash_row(layer_id) (temporary
+#: selection-color property, 1 s timer)". The hover gesture elsewhere calls :meth:`LayerPanel.flash_row`; this module only has to make the flash
+#: itself (set the property, clear it after one second) correct and independently testable.
+_FLASH_MS = 1000
+
+
+class _LayerRow(QtWidgets.QWidget):
+    """One layer row's trailing widget: the three H/L/F tool buttons, nothing else.
+
+    Initial checked state is read from ``layer`` ONCE, at construction, before any signal is
+    connected -- the same order ``chain_strip.DeviceStrip``'s and ``workflow_zone.DeviceBox``'s own
+    bypass button already use for exactly this reason: seeding ``setChecked`` before ``toggled`` is
+    wired can never itself fire a spurious toggle.
+    """
+
+    hideToggled = QtCore.Signal(bool)
+    lockToggled = QtCore.Signal(bool)
+    freezeToggled = QtCore.Signal(bool)
+
+    def __init__(self, layer, parent=None):
+        super().__init__(parent)
+        row = QtWidgets.QHBoxLayout(self)
+        row.setContentsMargins(2, 0, 2, 0)
+
+        self.hide_button = self._make_button("H", "Hide this layer's products (extrema, chains)", not layer.visible)
+        self.lock_button = self._make_button(
+            "L", "Lock (params read-only)", layer.tags.get("ui.lock") == "1")
+        self.freeze_button = self._make_button(
+            "F", "Freeze (lock + pin cached results)", layer.tags.get("ui.freeze") == "1")
+        for button in (self.hide_button, self.lock_button, self.freeze_button):
+            row.addWidget(button)
+
+        self.hide_button.toggled.connect(self.hideToggled.emit)
+        self.lock_button.toggled.connect(self.lockToggled.emit)
+        self.freeze_button.toggled.connect(self.freezeToggled.emit)
+
+    @staticmethod
+    def _make_button(text: str, tooltip: str, checked: bool) -> QtWidgets.QToolButton:
+        button = QtWidgets.QToolButton()
+        button.setCheckable(True)
+        button.setChecked(checked)
+        button.setText(text)
+        button.setToolTip(tooltip)
+        return button
+
+
+class _SourceRow(QtWidgets.QWidget):
+    """One SOURCE header row's trailing widget: the inspector toggle, nothing else.
+
+    Same construction order as :class:`_LayerRow`, for the same reason its docstring gives:
+    ``setChecked`` is seeded BEFORE ``toggled`` is connected, so seeding an already-open
+    inspector's button can never itself fire a spurious toggle back at the window that opened it.
+
+    The glyph is the text ``"I"``, matching the H/L/F rows -- icon art is explicitly out of scope
+    until the mockups land (spec 5c is PENDING).
+
+    The leading stretch is the one pixel decision here, and it is load-bearing for the render
+    criterion: ``QHBoxLayout`` spreads its surplus space around a lone non-expanding widget, which
+    would leave the toggle floating in the middle of the column rather than at the row's RIGHT
+    EDGE where the acceptance criterion (and a rack-style layer list) puts it.
+    """
+
+    inspectorToggled = QtCore.Signal(bool)
+    hideToggled = QtCore.Signal(bool)          # the DATASET's own hide (2026-08-29)
+
+    def __init__(self, open_: bool = False, hidden: bool = False, parent=None):
+        super().__init__(parent)
+        row = QtWidgets.QHBoxLayout(self)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.addStretch(1)
+
+        # The dataset's hide: the raster itself, everywhere it is drawn -- the layer rows' own H
+        # under this header hide their PRODUCTS (extrema, chains) and never the raster, which is
+        # what "hide the dataset and show only extrema" needs (2026-08-29).
+        self.hide_button = QtWidgets.QToolButton()
+        self.hide_button.setCheckable(True)
+        self.hide_button.setChecked(hidden)
+        self.hide_button.setText("H")
+        self.hide_button.setToolTip("Hide dataset (the raster; its layers' products stay)")
+        row.addWidget(self.hide_button)
+        self.hide_button.toggled.connect(self.hideToggled.emit)
+
+        self.inspector_button = QtWidgets.QToolButton()
+        self.inspector_button.setCheckable(True)
+        self.inspector_button.setChecked(open_)
+        self.inspector_button.setText("I")
+        self.inspector_button.setToolTip("Inspector (floating window for this source)")
+        row.addWidget(self.inspector_button)
+
+        self.inspector_button.toggled.connect(self.inspectorToggled.emit)
+
+
+class LayerPanel(QtWidgets.QTreeWidget):
+    """The layer list. See the module docstring for the three-level grouping and the hide v1 scope.
+
+    ``project`` is optional (default ``None``): a bare panel still renders headers and rows, just
+    with no model-backed collapse memory (the header falls back to always-expanded) -- a test can
+    build one without a ``Project`` at all. ``main_window`` always has a ``Project`` ready before it
+    builds this panel and passes it straight in; :meth:`set_project` exists for a caller that does
+    not.
+    """
+
+    layerSelected = QtCore.Signal(int)
+    hideToggled = QtCore.Signal(int, bool)
+    lockToggled = QtCore.Signal(int, bool)
+    freezeToggled = QtCore.Signal(int, bool)
+    removeRequested = QtCore.Signal(int)
+    #: Header-row "Remove dataset" (2026-09-19): carries the SOURCE id -- the shell
+    #: owns the confirmation and the family cascade.
+    removeSourceRequested = QtCore.Signal(str)
+    renameRequested = QtCore.Signal(int, str)
+    refinedRunRequested = QtCore.Signal(int)
+    #: ``(source_id, open)`` -- the per-SOURCE inspector toggle (spec 5d). A ``str`` id, unlike
+    #: every signal above it: an inspector opens on a SOURCE, never on a layer.
+    inspectorToggled = QtCore.Signal(str, bool)
+    sourceHideToggled = QtCore.Signal(str, bool)   # (source_id, hidden): the dataset's own hide
+
+    def __init__(self, project=None, parent=None):
+        super().__init__(parent)
+        self.setColumnCount(2)
+        # Column 0 (the NAME column) takes the surplus; column 1 (the button widgets) takes only
+        # what its buttons need. Why: with no resize mode set at all,
+        # column 0 sits at ``QHeaderView``'s fixed 100 px default while the LAST section stretches
+        # -- harmless while every header was ``setFirstColumnSpanned(True)`` (a spanned row ignores
+        # the columns entirely), but the moment un-spanning made the header respect column 0, a
+        # real file stem painted as ``gebco_20...``. ``header.text(0)`` is item DATA and cannot see
+        # that; ``test_a_long_source_stem_is_not_elided_in_the_header`` can.
+        # ``setStretchLastSection`` defaults to True and OVERRIDES the resize mode of the last
+        # section, so without turning it off first the two modes below fight and settle on a 50/50
+        # split -- better than 100 px, but it still elides the stem at panel widths the render
+        # criterion uses, and it hands half the panel to a button column that needs ~150 px.
+        self.header().setStretchLastSection(False)
+        self.header().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        self.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        self.setHeaderHidden(True)
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+
+        self._project = None
+        self._source_headers: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._layer_items: dict[int, QtWidgets.QTreeWidgetItem] = {}
+        self._row_widgets: dict[int, _LayerRow] = {}
+        self._source_rows: dict[str, _SourceRow] = {}
+
+        self.currentItemChanged.connect(self._on_current_item_changed)
+        self.itemChanged.connect(self._on_item_changed)
+        self.itemExpanded.connect(self._on_item_expanded)
+        self.itemCollapsed.connect(self._on_item_collapsed)
+        self.customContextMenuRequested.connect(self._on_context_menu)
+
+        self.set_project(project)
+
+    # -- project wiring ----------------------------------------------------------------------
+    def set_project(self, project) -> None:
+        """The ``Project`` a header's expand state reads/writes ``SourceRef.collapsed`` on. Kept
+        separate from ``add_layer_row`` (which must keep its exact today's-method signature so
+        ``load_field``/ROI-create call sites are untouched) rather than folded into it."""
+        self._project = project
+
+    def reset_project(self, project) -> None:
+        """Empty the tree and rebind to ``project`` — the open-project path's clean slate.
+
+        Signals are blocked for the duration: tearing down rows must not fire selection or
+        item-changed handlers against a window whose own registries are mid-rebuild (the same
+        hazard :meth:`remove_rows` guards against, for the whole tree at once)."""
+        self.blockSignals(True)
+        try:
+            self.clear()
+            self._source_headers.clear()
+            self._layer_items.clear()
+            self._row_widgets.clear()
+            self._source_rows.clear()
+            self.set_project(project)
+        finally:
+            self.blockSignals(False)
+
+    # -- building the tree ---------------------------------------------------------------------
+    def add_layer_row(self, layer, field) -> None:
+        """Add one row for ``layer``, grouped under its source's header (creating the header the
+        first time that source is seen) and, for a grouped ROI layer (``layer.parent_id`` set),
+        nested under its OWN parent's row instead -- two levels under the header, matching
+        ``main_window.roi_chain``'s "an ROI is a child of the layer it was drawn on".
+
+        SAME name and signature as the method ``load_field`` and ROI-create already call on
+        ``main_window`` -- see ``main_window.MainWindow.add_layer_row``, which now delegates its
+        own tree-row bookkeeping here after doing its OWN ``_row_layers``/``_fields`` bookkeeping,
+        unchanged.
+        """
+        header = self._ensure_source_header(layer.source_id, field)
+        parent_item = (self._layer_items.get(layer.parent_id)
+                       if layer.parent_id is not None else None)
+        if parent_item is None:
+            parent_item = header
+
+        # Built DETACHED (no tree/parent argument) and given its flags and _LAYER_ID_ROLE data
+        # BEFORE ``addChild`` puts it in the tree -- ``setData`` on an item that
+        # is ALREADY in the tree fires ``itemChanged`` immediately, and ``_on_item_changed`` reads
+        # that exact role to decide "this is a rename": constructing the item already-parented (as
+        # this used to) meant every single ``add_layer_row`` call emitted a spurious
+        # ``renameRequested(layer_id, layer.name)`` for a name nobody edited.
+        item = QtWidgets.QTreeWidgetItem([layer.name])
+        item.setFlags(item.flags() | QtCore.Qt.ItemIsEditable)
+        item.setData(0, _LAYER_ID_ROLE, layer.layer_id)
+        parent_item.addChild(item)
+        item.setExpanded(True)
+        self._layer_items[layer.layer_id] = item
+
+        row = _LayerRow(layer)
+        lid = layer.layer_id
+        row.hideToggled.connect(lambda checked, lid=lid: self.hideToggled.emit(lid, checked))
+        row.lockToggled.connect(lambda checked, lid=lid: self.lockToggled.emit(lid, checked))
+        row.freezeToggled.connect(lambda checked, lid=lid: self.freezeToggled.emit(lid, checked))
+        self.setItemWidget(item, 1, row)
+        self._row_widgets[lid] = row
+
+        self.refresh_master_rows()
+
+    def _ensure_source_header(self, source_id: str, field) -> QtWidgets.QTreeWidgetItem:
+        """The header row for ``source_id``, creating it (once) from the SOURCE's own file stem --
+        not the layer's name, which for anything but the first layer opened over a source (a
+        second layer, an ROI) is not the file's name at all. Falls back to ``field.name`` (what
+        ``RasterField.from_file``/``open_field`` stamps from the SAME path) when no ``Project`` is
+        set, and to the bare ``source_id`` if even that is unavailable -- a header always renders
+        something, never raises."""
+        item = self._source_headers.get(source_id)
+        if item is not None:
+            return item
+        source = self._project.sources.get(source_id) if self._project is not None else None
+        stem = Path(source.path).stem if (source is not None and source.path) else ""
+        if not stem:
+            stem = getattr(field, "name", None) or source_id
+        item = QtWidgets.QTreeWidgetItem(self, [stem])
+        # NOT spanned (this argument used to be ``True``): a header whose column 0
+        # spans the whole row covers column 1, and an item widget put there would never be shown.
+        # Un-spanning is what makes the inspector toggle below visible at all; the label in column
+        # 0 is unchanged, which ``test_header_text_still_reads_the_file_stem`` guards.
+        item.setFirstColumnSpanned(False)
+        item.setData(0, _SOURCE_ID_ROLE, source_id)
+        collapsed = bool(source.collapsed) if source is not None else False
+        item.setExpanded(not collapsed)
+        self._source_headers[source_id] = item
+
+        row = _SourceRow(hidden=bool(getattr(source, "hidden", False)))
+        row.inspectorToggled.connect(
+            lambda checked, sid=source_id: self.inspectorToggled.emit(sid, checked))
+        row.hideToggled.connect(
+            lambda checked, sid=source_id: self.sourceHideToggled.emit(sid, checked))
+        self.setItemWidget(item, 1, row)
+        self._source_rows[source_id] = row
+        return item
+
+    def remove_rows(self, layer_ids) -> None:
+        """Remove every row named in ``layer_ids`` (the ``Project.remove_layer`` return:
+        children-first, then the parent -- order does not matter here, since each removal is
+        independent). A source header left with zero children afterward is pruned too: an empty
+        header naming a file with nothing under it is worse than no header at all.
+
+        Signals are blocked for the whole operation. Removing the CURRENT item makes Qt promote
+        some other row to current on its own -- a sibling, a parent, whatever the view's own
+        removal heuristic lands on -- and without this guard that promotion fires a real
+        ``currentItemChanged`` -> ``layerSelected`` for a row nobody asked to select (a caller mid-cascade-removal saw ``layerSelected`` for a row about to be removed
+        two lines later, or for an unrelated survivor Qt merely happened to land on). The caller
+        picks the actual survivor explicitly, through :meth:`select_layer`, once this call
+        returns -- that is the ONE selection this operation is allowed to produce.
+
+        The current item is explicitly cleared (to ``None``) ONLY when it was itself one of the
+        removed rows -- never unconditionally (an earlier version cleared it every
+        time, which silently dropped the panel's selection highlight when removing a row that
+        WASN'T current at all; Qt's own default -- leave an unrelated current item alone -- was
+        already correct there and needed no help). Clearing when it WAS removed exists for a
+        subtler reason than the blocked signal alone covers: Qt's own silent promotion (still
+        blocked, but still REAL as far as its internal current-index is concerned) can land on the
+        exact survivor the caller is about to pass to ``select_layer`` -- e.g. the only layer left
+        under a source, after its one sibling was removed. ``setCurrentItem`` on an item that is
+        ALREADY current is not a transition, so it would not re-fire the signal either, and the
+        caller's explicit reselect would silently do nothing. Clearing first guarantees the
+        caller's own ``select_layer`` is always a genuine None -> survivor transition.
+
+        ``blockSignals`` is a flag, not a counter -- this pair does not nest. No current caller
+        calls ``remove_rows`` from inside another blocked region, but a future one that did would
+        have the INNER call's ``finally`` unblock signals early, for the OUTER call's remaining
+        work. Fine today; worth remembering if that ever changes.
+        """
+        self.blockSignals(True)
+        try:
+            current = self.currentItem()
+            current_removed = False
+            touched_headers: set[QtWidgets.QTreeWidgetItem] = set()
+            for layer_id in layer_ids:
+                item = self._layer_items.pop(layer_id, None)
+                self._row_widgets.pop(layer_id, None)
+                if item is None:
+                    continue
+                if item is current:
+                    current_removed = True
+                parent = item.parent()
+                if parent is None:
+                    self.takeTopLevelItem(self.indexOfTopLevelItem(item))
+                    continue
+                parent.removeChild(item)
+                touched_headers.add(parent)
+            for source_id, header in list(self._source_headers.items()):
+                if header in touched_headers and header.childCount() == 0:
+                    idx = self.indexOfTopLevelItem(header)
+                    if idx >= 0:
+                        self.takeTopLevelItem(idx)
+                    del self._source_headers[source_id]
+                    self._source_rows.pop(source_id, None)   # never leak a pruned header's row
+            if current_removed:
+                self.setCurrentItem(None)
+        finally:
+            self.blockSignals(False)
+
+    # -- selection -------------------------------------------------------------------------------
+        self.refresh_master_rows()
+
+    def select_layer(self, layer_id: int) -> None:
+        """Make ``layer_id``'s row current, expanding every ancestor first -- a layer nested under
+        a collapsed header (or a collapsed parent layer) must still become selectable, and
+        selecting it is as good a reason as any to reveal it."""
+        item = self._layer_items.get(layer_id)
+        if item is None:
+            return
+        ancestor = item.parent()
+        while ancestor is not None:
+            ancestor.setExpanded(True)
+            ancestor = ancestor.parent()
+        self.setCurrentItem(item)
+
+    def current_layer_id(self) -> int | None:
+        item = self.currentItem()
+        if item is None:
+            return None
+        layer_id = item.data(0, _LAYER_ID_ROLE)
+        return None if layer_id is None else int(layer_id)
+
+    def layer_text(self, layer_id: int) -> str | None:
+        item = self._layer_items.get(layer_id)
+        return None if item is None else item.text(0)
+
+    def count(self) -> int:
+        """Number of LAYER rows tracked (source headers excluded) -- the tree equivalent of the
+        old flat ``QListWidget.count()`` call sites already use."""
+        return len(self._layer_items)
+
+    def remove_source_row(self, source_id: str) -> None:
+        """Drop a source HEADER row (the dataset-removal tail): the shell removes the layer
+        rows through :meth:`remove_rows` first, so this only takes the emptied group item."""
+        for i in range(self.topLevelItemCount()):
+            item = self.topLevelItem(i)
+            if item is not None and item.data(0, _SOURCE_ID_ROLE) == source_id:
+                self.takeTopLevelItem(i)
+                return
+
+    def refresh_master_rows(self) -> None:
+        """Hide each source's MASTER row while it is the source's only layer AND its chain is
+        empty (a fresh open showing header + identically-named row read as
+        "it automatically forks a copy of itself" -- three reports of the same confusion).
+        One row until there is something to distinguish: the master row appears the moment
+        its chain gains a step or a child forks. A hidden master still works through the
+        header (header clicks already promote onto it -- selection, rack, Delete all reach
+        it), so nothing is lost while it is collapsed.
+
+        Called after every add/remove and after chain edits (``main_window`` pokes it) --
+        a cheap full scan over the handful of headers."""
+        if self._project is None:
+            return
+        layers_by_id = {l.layer_id: l for l in self._project.layers}
+        for i in range(self.topLevelItemCount()):
+            header = self.topLevelItem(i)
+            if header.data(0, _LAYER_ID_ROLE) is not None:
+                continue
+            rows = [header.child(j) for j in range(header.childCount())]
+            rows = [r for r in rows if r.data(0, _LAYER_ID_ROLE) is not None]
+            for row in rows:
+                layer = layers_by_id.get(int(row.data(0, _LAYER_ID_ROLE)))
+                # Forked/ROI children nest UNDER the master row, so "only layer" means: sole
+                # direct row AND no nested children of its own.
+                collapse = (len(rows) == 1 and row.childCount() == 0 and layer is not None
+                            and layer.parent_id is None and not layer.chain.steps)
+                row.setHidden(bool(collapse))
+
+    def set_layer_name(self, layer_id: int, name: str) -> None:
+        """Push a rename INTO the row's displayed text. Signals are blocked for the call: this is
+        ``main_window`` writing its OWN (possibly sanitised) ``layer.name`` back after a
+        ``renameRequested`` it just handled, and without the guard that ``setText`` would re-fire
+        ``itemChanged`` -> a second, redundant ``renameRequested`` for the very edit that is
+        already being applied."""
+        item = self._layer_items.get(layer_id)
+        if item is None:
+            return
+        self.blockSignals(True)
+        try:
+            item.setText(0, name)
+        finally:
+            self.blockSignals(False)
+
+    def set_inspector_open(self, source_id: str, open_: bool) -> None:
+        """Push an inspector's OWN open/closed state back into its header toggle -- the other half
+        of ``InspectorWindow.closed``: a window the user closed on the window itself and the
+        button that opened it are ONE state (spec 5b).
+
+        Signals are blocked for the call, the same guard :meth:`set_layer_name` uses and for the
+        same reason: without it ``setChecked`` would re-fire ``inspectorToggled`` for the very
+        transition already being applied, telling ``main_window`` to close a window that just
+        closed itself (or to reopen it).
+
+        This is the SECOND blocked region in the file, so :meth:`remove_rows`'s closing note now
+        has a second way to bite: ``blockSignals`` is a flag, not a counter. If anything ever routes
+        ``InspectorWindow.closed`` -> here from inside a ``remove_rows`` cascade (a pruned header
+        closing the window it owned), this call's ``finally`` unblocks signals for the OUTER call's
+        remaining work. Not reachable today -- no caller does -- but it is the reason to close a
+        pruned header's window AFTER ``remove_rows`` returns, not from inside it."""
+        row = self._source_rows.get(source_id)
+        if row is None:
+            return
+        self.blockSignals(True)
+        try:
+            row.inspector_button.setChecked(bool(open_))
+        finally:
+            self.blockSignals(False)
+
+    def flash_row(self, layer_id: int) -> None:
+        """The chip-hover feedback, stubbed: mark the row's button widget ``flash="true"``
+        and clear it one second later. No QSS rule keys off ``flash`` yet (icon/chrome art is not
+        this slice); the property and its timed clear are the part the wiring needs to exist
+        and be correct today.
+
+        The timer is a REAL ``QTimer`` parented to ``self`` (the panel), not the static
+        ``QTimer.singleShot(ms, callable)`` form -- that form owns nothing, so a panel (or row)
+        torn down before the second elapses leaves it firing anyway, into a widget whose
+        underlying C++ object is already gone (``RuntimeError: ... already deleted``, caught only
+        by a later, unrelated test running right as the stray timer landed). Parenting to ``self``
+        makes Qt's own ownership tree cancel the pending shot the moment the panel is destroyed.
+        """
+        widget = self._row_widgets.get(layer_id)
+        if widget is None:
+            return
+        widget.setProperty("flash", "true")
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+        timer = QtCore.QTimer(self)
+        timer.setSingleShot(True)
+        timer.timeout.connect(lambda: self._clear_flash(layer_id))
+        timer.start(_FLASH_MS)
+
+    def _clear_flash(self, layer_id: int) -> None:
+        widget = self._row_widgets.get(layer_id)
+        if widget is None:
+            return
+        widget.setProperty("flash", "false")
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    # -- tree signals ------------------------------------------------------------------------
+    def _on_current_item_changed(self, current, previous) -> None:
+        if current is None:
+            return
+        layer_id = current.data(0, _LAYER_ID_ROLE)
+        if layer_id is not None:
+            self.layerSelected.emit(int(layer_id))
+            return
+        # A source HEADER became current: promote
+        # the click onto the source's first layer row -- the master, root-protected to stay
+        # the raw dataset -- so the header is a real selection target instead of a no-op that
+        # strands whatever rack was up. setCurrentItem re-enters this handler with a real
+        # layer row, which emits normally.
+        for i in range(current.childCount()):
+            child = current.child(i)
+            if child.data(0, _LAYER_ID_ROLE) is not None:
+                self.setCurrentItem(child)
+                return
+
+    def _on_item_changed(self, item, column: int) -> None:
+        """A layer row's name column was edited (the built-in inline ``QLineEdit`` editor, from a
+        double-click or the context menu's Rename). Header rows never carry ``_LAYER_ID_ROLE`` and
+        are never made editable in the first place, so this only ever fires for a real rename."""
+        if column != 0:
+            return
+        layer_id = item.data(0, _LAYER_ID_ROLE)
+        if layer_id is not None:
+            self.renameRequested.emit(int(layer_id), item.text(0))
+
+    def _on_item_expanded(self, item) -> None:
+        self._sync_collapsed(item, False)
+
+    def _on_item_collapsed(self, item) -> None:
+        self._sync_collapsed(item, True)
+
+    def _sync_collapsed(self, item, collapsed: bool) -> None:
+        """The OTHER direction of the header <-> ``SourceRef.collapsed`` sync: a user's own
+        expand/collapse click (or a ``select_layer`` auto-reveal) writes straight back into the
+        model, same as ``_ensure_source_header`` reads it out. A no-op for anything that is not a
+        source header (``_SOURCE_ID_ROLE`` unset) -- a layer row can also be expanded/collapsed
+        (it may have ROI children), but that has no ``SourceRef`` counterpart to write into."""
+        if self._project is None:
+            return
+        source_id = item.data(0, _SOURCE_ID_ROLE)
+        if source_id is None:
+            return
+        source = self._project.sources.get(source_id)
+        if source is not None:
+            source.collapsed = collapsed
+
+    # -- context menu --------------------------------------------------------------------------
+    def _build_context_menu(self, item, layer_id: int) -> QtWidgets.QMenu:
+        """Split out from :meth:`_on_context_menu` so a test can drive the three actions directly
+        (``.trigger()``) without going through the real, blocking ``QMenu.exec`` popup loop --
+        the same reason none of ``knob_widgets.py``'s own ``contextMenuEvent`` gestures are driven
+        end-to-end in that module's tests either."""
+        menu = QtWidgets.QMenu(self)
+        rename_action = menu.addAction("Rename")
+        rename_action.triggered.connect(lambda: self.editItem(item, 0))
+        remove_action = menu.addAction("Remove")
+        remove_action.triggered.connect(lambda: self.removeRequested.emit(layer_id))
+        refined_action = menu.addAction("New refined run")
+        refined_action.triggered.connect(lambda: self.refinedRunRequested.emit(layer_id))
+        return menu
+
+    def _on_context_menu(self, pos: QtCore.QPoint) -> None:
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        layer_id = item.data(0, _LAYER_ID_ROLE)
+        if layer_id is None:
+            # A source header names a raster, not a layer -- so it gets the DATASET action:
+            # one entry,
+            # the whole family; the shell handler owns the confirmation and cascade.
+            source_id = item.data(0, _SOURCE_ID_ROLE)
+            if source_id is None:
+                return
+            menu = QtWidgets.QMenu(self)
+            remove_src = menu.addAction("Remove dataset")
+            remove_src.triggered.connect(
+                lambda: self.removeSourceRequested.emit(str(source_id)))
+            menu.exec(self.viewport().mapToGlobal(pos))
+            return
+        menu = self._build_context_menu(item, int(layer_id))
+        menu.exec(self.viewport().mapToGlobal(pos))
+
+    # -- keyboard ------------------------------------------------------------------------------
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
+        """Spec 4.4's Delete-key remove: Delete OR Backspace -- this app is macOS-only,
+        and Backspace is the physical key labeled "delete" on a Mac keyboard; there is no separate
+        forward-delete key to also bind. Emits the exact same ``removeRequested`` the context
+        menu's Remove action does, so ``main_window`` owns one confirm/refuse flow (locked layer,
+        cascade confirm) for both gestures rather than a second implementation of it here.
+
+        A source-header row current (``current_layer_id()`` is ``None``: it names no layer) or any
+        other key defers to Qt's own handling -- consistent with every other current-item read in
+        this class (``_on_context_menu``, ``_on_current_item_changed``).
+        """
+        if event.key() in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
+            layer_id = self.current_layer_id()
+            if layer_id is not None:
+                self.removeRequested.emit(layer_id)
+                return
+        super().keyPressEvent(event)
+
+
+class ReferencePanel(QtWidgets.QListWidget):
+    """The reference layers (GIS vector files drawn OVER the data, 2026-08-29): one checkable
+    row per layer with its colour square. Sits under the layer list; a checkbox toggles
+    visibility everywhere (canvas + world). Lives in this module so devloop's reload registry
+    needs no new entry. ``visibilityToggled(ref_id, visible)`` is the only outward wire."""
+
+    visibilityToggled = QtCore.Signal(str, bool)
+    zoomRequested = QtCore.Signal(str)        # double-click: fit the view to this layer's extent
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        # ExtendedSelection (a shp package opens many layers and each had to
+        # be unchecked one at a time): shift/ctrl-click selects a range or individual multiples,
+        # and toggling ONE selected row's checkbox propagates to every selected row.
+        self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self._propagating = False
+        self.setToolTip("Reference layers — interpretation drawn over the data; tick to show, "
+                        "double-click to zoom. Shift/⌘-click to select several, then tick one "
+                        "to toggle them all")
+        self.itemChanged.connect(self._on_item_changed)
+        self.itemDoubleClicked.connect(
+            lambda item: self.zoomRequested.emit(str(item.data(QtCore.Qt.UserRole))))
+
+    def set_records(self, records) -> None:
+        """Mirror the project's ReferenceLayerRecords (non-emitting)."""
+        self.blockSignals(True)
+        self.clear()
+        for r in records:
+            item = QtWidgets.QListWidgetItem(r.name)
+            item.setData(QtCore.Qt.UserRole, r.ref_id)
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.Checked if r.visible else QtCore.Qt.Unchecked)
+            pix = QtGui.QPixmap(12, 12)
+            pix.fill(QtGui.QColor(r.color))
+            item.setIcon(QtGui.QIcon(pix))
+            self.addItem(item)
+        self.blockSignals(False)
+        self.setVisible(self.count() > 0)
+
+    def _on_item_changed(self, item) -> None:
+        state = item.checkState()
+        checked = state == QtCore.Qt.Checked
+        # When the toggled row is part of a multi-selection, apply the new state to every
+        # selected row -- the classic "select several, tick one, toggle all".
+        selected = self.selectedItems()
+        if not self._propagating and item in selected and len(selected) > 1:
+            self._propagating = True
+            try:
+                for other in selected:
+                    if other is not item and other.checkState() != state:
+                        other.setCheckState(state)      # re-enters here, propagating guard on
+                        self.visibilityToggled.emit(str(other.data(QtCore.Qt.UserRole)), checked)
+            finally:
+                self._propagating = False
+        self.visibilityToggled.emit(str(item.data(QtCore.Qt.UserRole)), checked)

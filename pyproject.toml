@@ -1,0 +1,85 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "geodynamix-beta"          # GeoDynamix_Beta: its own distribution (the import package stays `dynamix`)
+version = "0.1.0.dev0"
+description = "A multiscale structure instrument: WTMM analysis over rasters, layers as device chains, results on a WGS84 globe"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "GPL-2.0-or-later AND GPL-2.0-only" }   # see NOTICE: xsmurf-derived files are GPL-2.0-only
+authors = [{ name = "Abraham Joseph Okayli Masaryk", email = "ajokaylimasaryk@uh.edu" }]
+classifiers = [
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+
+# numpy is the ONLY hard dependency. Every other third-party import in dynamix/core is lazy or
+# guarded, so the analysis core installs and imports with numpy alone — verified by
+# tests/test_manifest_matches_imports.py, which derives this list from the AST rather than trusting
+# it. (EQSelect's requirements.txt drifted out of sync with its own imports; that is the failure
+# this test exists to prevent.)
+dependencies = [
+    "numpy>=2.0",
+    # GeoDynamix_Beta (2026-09-22): the FFT engines ARE the install-time switch
+    # (dynamix.core.fft_policy) -- FFTW3 on every platform, mlx ONLY on Apple Silicon, so a
+    # Windows/Linux/Intel-Mac install never tries to install mlx and runs every FFT on FFTW3.
+    "pyfftw>=0.14",
+    "mlx>=0.20; sys_platform == 'darwin' and platform_machine == 'arm64'",
+]
+
+[project.optional-dependencies]
+# CPU acceleration. numba JIT-compiles the maxima-line walk kernels lazily with cache=True; without
+# it they run as pure Python and are far slower, so this is "optional" only in the import sense.
+fast = ["numba>=0.60", "scipy>=1.11"]
+
+# FFTW3 CPU backend — the portable fast path in the CWT cascade.
+fftw = ["pyfftw>=0.14"]
+
+# Apple Silicon GPU backend (Metal). The primary path on the only platform currently targeted.
+mac = ["mlx>=0.20"]
+
+# Raster and image loading: GeoTIFF windowing/tiling, plain images for lab-frame maps.
+io = ["rasterio>=1.4", "Pillow>=10"]
+
+# The arrangement (session/arrangement Tab-flip) view: a VTK surface via pyvista/pyvistaqt.
+# Lazily imported behind dynamix.shell.arrangement.view._import_pyvista -- absent, the Tab flip
+# degrades to a notice instead of failing to import.
+viz = ["pyvista>=0.44", "pyvistaqt>=0.11"]
+
+# The shell. Declared now that `dynamix/shell/` exists and imports these; it did not before, and
+# an extra that installs nothing is worse than an honest absence. matplotlib is already on disk as
+# a transitive pyvista dependency, but right_panel.py's colormap-ramp icons import it directly, so it earns its own explicit declaration rather than riding pyvista's
+# coattails undeclared.
+gui = ["PySide6>=6.5", "pyqtgraph>=0.13", "matplotlib>=3.8"]
+
+# pytest-qt for the shell test suite; ipython for `python -m dynamix.devloop --ipython`
+# (%gui qt + %autoreload 2, guarded — devloop.py prints a clear message and exits if it's absent).
+dev = ["pytest>=8", "pytest-qt", "ipython"]
+
+# No [cuda] extra: CUDA is deferred, and declaring one that installs nothing would be a lie in the
+# packaging metadata.
+
+# Data-source catalog tooling (catalog/tools/build.py). Not imported by dynamix itself.
+catalog = ["pyyaml>=6.0"]
+
+# GeoDynamix_Beta: everything the app needs, in one extra -- `pip install -e ".[app]"`.
+app = ["numba>=0.60", "scipy>=1.11", "rasterio>=1.4", "Pillow>=10", "PySide6>=6.5",
+       "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11"]
+
+# The vendored `wtmm` package's own optional features (its NN and dataset helpers), lazily
+# imported and never used by the app -- declared honestly, installed only on request.
+wtmm-extras = ["torch", "pandas", "joblib"]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
