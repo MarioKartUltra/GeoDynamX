@@ -5,11 +5,16 @@
 \usepackage[colorlinks=true, linkcolor=blue!50!black, urlcolor=blue!50!black]{hyperref}
 \usepackage{parskip}
 \usepackage{graphicx}
+\usepackage[section]{placeins}   % every figure stays inside its own section
 \graphicspath{{figures/}}
 \setlength{\parindent}{0pt}
 \newcommand{\dev}[1]{\texttt{#1}}
 \newcolumntype{L}{>{\raggedright\arraybackslash}p{0.30\textwidth}}
 \newcolumntype{M}{>{\raggedright\arraybackslash}p{0.42\textwidth}}
+% Tables whose choice lists are long: a narrower name column and a wrapping range column.
+\newcolumntype{P}{>{\raggedright\arraybackslash}p{0.25\textwidth}}
+\newcolumntype{R}{>{\raggedright\arraybackslash}p{0.17\textwidth}}
+\newcolumntype{N}{>{\raggedright\arraybackslash}p{0.33\textwidth}}
 
 \title{\textbf{DynamiX Device Reference}\\[2mm]
 \large Every device, every knob, what it means}
@@ -33,7 +38,12 @@ Conventions that hold everywhere:
         knob: each tool's menu lists only the kernel class its method admits, under the
         method's own names.
   \item \textbf{Inert knobs}: a parameter that binds only under one choice of another
-        parameter (e.g.\ $q$ only for q-family wavelets) is simply ignored otherwise.
+        parameter (e.g.\ $q$ only for q-family wavelets) is ignored otherwise; where the device
+        declares it, the knob is \emph{greyed out} in the device box while it does not apply
+        (its value is kept).
+  \item \textbf{View-only knobs} (marked \emph{view} in the tables) choose what is shown from
+        a result that is already computed and cached --- Show, Component, Group, Orientation,
+        Show PC. Switching one redraws at once; it never recomputes.
   \item \textbf{Orientations are $(\text{angle},\text{frame})$} with
         $\text{NorthRef}\in\{\text{grid},\text{true},\text{magnetic}\}$ --- never a bare
         float.
@@ -77,6 +87,85 @@ $\alpha=0.5$), which holds for $L^1$ scaling, not for the $a^{-1/2}$ of their eq
 \end{itemize}
 
 \tableofcontents
+
+%======================================================================
+\section{The workspace: datasets, layers, ROIs, derivatives}\label{sec:workspace}
+
+\textbf{Datasets.} Every opened file is a \emph{dataset}: one row in the layer tree, and
+that row \emph{is} its raw layer (its H hides the raster; right-click $\to$ Remove dataset
+takes the dataset and everything on it). A plain image (PNG/JPEG) opens as one luminance band;
+a multiband GeoTIFF / netCDF / HDF stack opens as $(n_y,n_x,n_c)$.
+
+\textbf{Children.} A tool dropped on a dataset never replaces the data: it spawns a
+\emph{child} layer holding that tool, nested under the dataset. A child re-runs its chain on
+its parent's data whenever that changes. Right-click on a result row: \emph{Delete layer}
+(its children move up to its parent) or \emph{Delete layer and children}; shift-click or Cmd-click (Ctrl on Windows)
+selects several rows for one Delete. \textbf{H never cascades}: each row hides only its own
+drawing (the dataset's H hides the dataset raster, not the results over it).
+
+\textbf{ROIs.} A saved region of interest is stored in whole \emph{file} pixels and shown as
+a row \texttt{dataset @A} under its dataset. Selecting the ROI row makes it the region the
+next tool runs on; results (\texttt{tool @A}) nest under it. The ROI row's H hides only its
+outline. An ROI cannot be deleted while results use it (delete them first). Analyzers read
+their own declared margin around the ROI; decompositions (\dev{pca},
+\dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}) analyse the ROI itself (margin $0$: a margin would mix
+outside data into the statistic).
+
+\textbf{Progress} is live: every compute reports one increasing fraction from inside its own
+loops.
+
+\subsection*{Derivative datasets (Fork)}
+A \emph{child} keeps re-processing its parent. A \textbf{derivative} is forked once from what a
+result shows and from then on is an \emph{original raw dataset}: nothing links it back, and a
+tool dropped on it spawns a child that analyses the derivative's own pixels.
+
+\begin{longtable}{L M}
+\toprule
+Where & result row $\to$ right-click $\to$ \emph{Fork derivative dataset\ldots}; or the
+        \emph{Fork derivative\ldots} button of the Components window \\
+Raster & a checklist of every raster the result holds: the one on screen first (after its
+         view knobs --- e.g.\ Group ``1'', Show residual $=$ data $-$ C1), then the
+         components / PCs, recon and residual per input band of a multiband field, filtered,
+         h(x)\ldots; every checked raster becomes a band ($n$ checked $\to$ an $n$-band
+         dataset) \\
+Vector & the extrema and maxima lines the result shows (after its filters) \\
+Both & raster and vector go in one file \\
+Placement & a dataset row of its own, or nested inside the dataset it came from (removing that
+            dataset lifts the derivative to the top) \\
+Keep & \emph{Save to a file\ldots} (a Save-As dialog; permanent), or \emph{Temporary}: a
+       file in this session's scratch folder, left out of a saved project (a notice names it)
+       until \emph{Save derivative as\ldots} on its row writes it where you choose \\
+Grid & the result's own grid, never resampled: the whole field, or the ROI window for an ROI
+       result \\
+Georeference & the parent's CRS rides over (with the grid's axes); the parent file's layout
+               (its source path, window, full size) does not \\
+File & a RasterField \texttt{.npz} (values, axes, frame, units, provenance) --- it opens like
+       any \texttt{.npz}; vectors ride under \texttt{vec\_*} keys \\
+History & \texttt{provenance["derived"]}: parent path and SHA-256, the layer, its whole chain
+          with every parameter (view knobs included), the ROI window, the date;
+          \texttt{provenance["bands"]} names the bands \\
+\bottomrule
+\end{longtable}
+
+A derivative that carries vectors gets \dev{derived\_vectors} (a loader the shell places, in the
+browser's Dev group) as its first step: its frozen extrema and maxima lines draw like any
+result's, and the extrema and chain filters can be dropped after it.
+
+\subsection*{The Components window}
+Right panel $\to$ Decomposition $\to$ \emph{Components\ldots}, on a \dev{ssa2d} or
+\dev{tucker\_HOOI\_HOSVD} result:
+\begin{itemize}\itemsep2pt
+  \item \textbf{thumbnails} --- the eigenarrays (\dev{ssa2d}: the $L_r\times L_c$ window
+        patterns) or the component images, each labelled with its share;
+  \item \textbf{the shares} on a log scale (group members in amber) --- a slowly decaying
+        floor is noise;
+  \item \textbf{the w-correlation matrix} (\dev{ssa2d}; black $0$ to white $1$) ---
+        separable components are nearly w-orthogonal, so groups show as blocks on the diagonal;
+        hovering reads $w(C_i,C_j)$.
+\end{itemize}
+Clicking thumbnails picks the \textbf{group}: click one, Cmd-click (Ctrl) to add or remove,
+shift-click for a range, \emph{All} for every one. The pick is written into the tool's Group
+knob (and the window follows the knob), so the canvas redraws from the cache.
 
 %======================================================================
 \section{Field preparation}
@@ -229,15 +318,18 @@ of edge detector''). The nonlinear variant modulates diffusivity by the Im chann
 (\texttt{edge\_channel}) rasters ride the result. Scales are effective Gaussian
 $\sigma$ in px.
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{n\_levels} (Levels $J$) & 4 & $[1,8]$ & dyadic sigmas $1,2,\dots,2^{J-1}$ px; cost is quadratic in the top $\sigma$ \\
 \texttt{variant} & linear & linear / nonlinear & LCDF, or NCDF with edge-stopping \\
-\texttt{k\_edge} ($k$) & 1.0 & $[0.05,100]$ & Perona--Malik edge threshold, image units (nonlinear only) \\
-\texttt{theta} ($\theta$) & 0.1047 & $[0.02,0.5]$ rad & complex-diffusion angle (small-$\theta$ regime; $\pi/30$ default) \\
-\texttt{dt} & 0.2 & $[0.05,0.24]$ & explicit-Euler step (stability-capped) \\
+\texttt{k\_edge} ($k$) & 1.0 & $[0.001,1000]$ & Perona--Malik edge threshold, image units (nonlinear only) \\
+\texttt{theta} ($\theta$) & 0.1047 & $[0.001,0.5]$ rad & complex-diffusion angle (small-$\theta$ regime; $\pi/30$ default) \\
+\texttt{dt} & 0.2 & $[0.001,0.24]$ & explicit-Euler step (stability-capped) \\
 \texttt{edge\_mode} (Edges) & mz & mz / marr & Canny/M--Z maxima of Re, or Marr zero crossings of Im \\
-\texttt{floor} & 0.05 & $[0.01,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
+\texttt{detector} & nms & nms / follow & maxima detector \\
+\texttt{show} (\emph{view}) & edges & edges / filtered / edge\_channel & the edge stack, the final Re, or the final Im \\
+\texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
+\texttt{floor} & 0.05 & $[0,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
 \bottomrule
 \end{longtable}
 
@@ -257,7 +349,7 @@ rides the result.
 \texttt{k\_edge} ($K$) & 1.0 & $[0.001,1000]$ & edge threshold in image units: contrasts above $K$ sharpen, below it blur \\
 \texttt{g} & exp & exp / frac & conduction function (the paper's two) \\
 \texttt{lam} ($\lambda$) & 0.2 & $[0.001,0.25]$ & explicit step (stability needs $\lambda\le\tfrac14$) \\
-\texttt{show} & edges & edges / filtered & canvas shows the edge stack, or the diffused raster \\
+\texttt{show} (\emph{view}) & edges & edges / filtered & canvas shows the edge stack, or the diffused raster \\
 \texttt{detector} & nms & nms / follow & maxima detector \\
 \texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
 \texttt{floor} & 0.05 & $[0,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
@@ -267,7 +359,17 @@ rides the result.
 %======================================================================
 \section{Decompositions}
 Standalone transforms heading their own chain, displaying through the ordinary raster
-path.
+path. Every output is computed once and cached; which one is on screen is a \emph{view}
+choice. To keep an output as data of its own, fork it (\S\ref{sec:workspace}).
+
+\textbf{Group} (\dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}; \emph{view}): which components form the
+reconstruction --- \texttt{all} (the whole kept reconstruction, exactly), or a list such as
+\texttt{1-3, 5}. \textbf{recon} shows the sum of the group; \textbf{residual} shows the data
+minus that sum (data $=$ recon $+$ residual of the whole kept reconstruction). So removing
+just the first component is Group \texttt{1} with Show $=$ residual. The layer row names it:
+\texttt{recon [1-3, 5] (88\%)}, \texttt{data $-$ [1] (42\%)} (the group's share). An
+unreadable group shows the whole reconstruction and says so. The Components window picks the
+group by clicking thumbnails.
 
 \subsection{\dev{pca} --- principal components of a multi-band field}
 Principal component analysis over the bands of a multi-component field
@@ -276,26 +378,90 @@ $(n_y,n_x,n_c\ge2)$ (covariance-trick PCA); shows one component as a raster.
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{n\_components} (Components) & 6 & $[1,64]$ & components computed \\
-\texttt{component} (Show PC) & 1 & $[1,64]$ & the component shown \\
-\texttt{standardize} & off & bool & scale each band to unit variance first \\
+\texttt{component} (Show PC; \emph{view}) & 1 & $[1,64]$ & the component shown \\
+\texttt{standardize} & off & bool & scale each band to unit variance first (correlation PCA) \\
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{tucker\_havok} --- Tucker (HOSVD) decomposition, optionally delay-embedded}
-A Tucker decomposition of the field, either of its own modes (rows, columns[, band]) or of
-a HAVOK-style time-delay (Hankel) embedding along one axis --- built as a stride view,
-never materialized. Shows the rank-truncated reconstruction or its residual.
+\subsection{\dev{tucker\_HOOI\_HOSVD} --- delay-embedded Tucker decomposition (Tucker-SSA)}
+A Tucker decomposition of a delay embedding of the field --- Broomhead--King singular-spectrum
+analysis carried to 2-D and multiband data by a Tucker decomposition instead of one SVD. (It was
+first named \dev{tucker\_havok}; HAVOK's regression on the delay coordinates was never part of
+it.) Nothing is ever materialized: bases come from Grams of contiguous window slabs, and the
+reconstruction averages each pixel over the windows covering it.
 
-\begin{longtable}{L l l M}
+\begin{itemize}\itemsep2pt
+  \item \textbf{Embedding.} \texttt{delay\_2d} (default): \emph{both} axes delayed ---
+        every $L\times L$ patch ($L=$ Delays), tensor (delay$_y$, delay$_x$, $y'$, $x'$
+        [, band]), so no image axis plays ``time''.
+        \texttt{delay}: a 1-D Hankel embedding along one axis (Tape axis) --- for data where
+        one axis really is time (e.g.\ a reconstructed tape); on an ordinary 2-D field it
+        biases the result toward that axis. \texttt{none}: the array's own modes (rows,
+        columns[, band]).
+  \item \textbf{Method} --- a two-state button. \textbf{HOSVD}: one pass, each mode's leading
+        singular vectors. \textbf{HOOI}: that HOSVD refined by \emph{HOOI sweeps} alternating
+        passes, each mode re-derived with the others fixed (monotone in the kept core
+        energy; the fast path equals a materialized HOOI to $10^{-8}$).
+  \item \textbf{Components} (at most 32, largest core-energy share first): under
+        \texttt{delay\_2d} one per kept (vertical, horizontal) delay-pattern pair $(a,b)$;
+        \emph{Orientation} \texttt{combined} adds each pair to its twin $(b,a)$
+        ($r(r+1)/2$ components for delay rank $r$). Tape: one per delay pattern; none: one per
+        rows-mode vector. They sum to the reconstruction.
+  \item Separable by construction: a pattern is a vertical pattern $\otimes$ a horizontal one,
+        so an oblique structure spreads over several pairs. \dev{ssa2d} is the
+        rotation-invariant alternative.
+\end{itemize}
+
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
-\texttt{embed} (Embedding) & delay & delay / none & Hankel delay embedding, or the array's own modes \\
-\texttt{axis} (Tape axis) & rows & rows / cols & the axis the delay embedding runs along \\
-\texttt{n\_delays} (Delays) & 32 & $[2,512]$ & delay-embedding depth \\
-\texttt{rank\_delay} & 4 & $[0,512]$ & Tucker rank of the delay mode ($0$ = full) \\
-\texttt{rank\_time}, \texttt{rank\_space} & 0 & $[0,10^5]$ & ranks of the rows/cols modes ($0$ = full) \\
-\texttt{rank\_band} & 0 & $[0,64]$ & rank of the band mode ($0$ = full) \\
-\texttt{sweeps} (HOOI sweeps) & 0 & $[0,16]$ & HOOI refinement sweeps after the HOSVD \\
-\texttt{show} & recon & recon / residual & what the canvas shows \\
+\texttt{embed} (Embedding) & delay\_2d & delay\_2d / delay / none & see above \\
+\texttt{axis} (Tape axis) & rows & rows / cols & the time axis of the 1-D tape (greyed out unless \texttt{delay}) \\
+\texttt{n\_delays} (Delays) & 32 & $[2,512]$ & embedding dimension $L$ (patch $L\times L$ under delay\_2d); the lag between delays is 1 px \\
+\texttt{rank\_delay} (Rank: delay) & 4 & $[0,512]$ & delay patterns kept (both delay modes under delay\_2d); $0$ = full \\
+\texttt{rank\_time}, \texttt{rank\_space} & 0 & $[0,10^5]$ & ranks of the rows/cols ($y'$/$x'$) modes; $0$ = full \\
+\texttt{rank\_band} (Rank: band) & 0 & $[0,64]$ & rank of the band mode (multiband only); $0$ = full \\
+\texttt{method} (Method) & HOSVD & HOSVD / HOOI & the algorithm (a toggle button) \\
+\texttt{sweeps} (HOOI sweeps) & 2 & $[1,16]$ & HOOI refinement passes (greyed out under HOSVD) \\
+\texttt{show} (\emph{view}) & recon & recon / residual / component & what the canvas shows \\
+\texttt{component} (\emph{view}) & 1 & $[1,64]$ & the component shown (Show $=$ component) \\
+\texttt{pairs} (Orientation; \emph{view}) & separate & separate / combined & component numbering under delay\_2d; also what a Group refers to \\
+\texttt{group} (Group; \emph{view}) & all & text & the components the recon sums (above) \\
+\bottomrule
+\end{longtable}
+
+\emph{Superseded:} \dev{tucker\_havok} stays registered (browser Dev group) so saved projects
+open and resolve exactly as before; its single \emph{HOOI sweeps} knob chose the algorithm
+($0$ = HOSVD).
+
+\subsection{\dev{ssa2d} --- 2D singular-spectrum analysis}
+Golyandina \& Usevich (2010). Every $L_r\times L_c$ window of the image is one column of the
+Hankel-block-Hankel matrix $\mathbf W$ ($L_rL_c\times K_rK_c$, $K=N-L+1$); \emph{one} SVD
+$\mathbf W=\sum_i\sqrt{\lambda_i}\,U_iV_i^{\mathsf T}$ gives the eigentriples. Reshaped, $U_i$
+is an \textbf{eigenarray} --- an $L_r\times L_c$ pattern of any shape, not restricted to
+separable products, which makes 2D-SSA invariant to rotations of the image axes --- and $V_i$ a
+\textbf{factor array} ($K_r\times K_c$). Each rank-1 term, averaged back onto the image (every
+pixel over the windows covering it), is an \textbf{elementary component}; all of them sum to
+the image. Ranks (the paper's \S4, pinned by tests): an oblique cosine
+$\cos 2\pi(\omega_xk+\omega_yl)$ is rank 2, a product of cosines rank 4, a sum of $m$ 2-D
+exponentials rank $m$.
+
+Computed without forming $\mathbf W$: the lag covariance $\mathbf W\mathbf W^{\mathsf T}$
+($(L_rL_c)^2$) accumulated from blocks of window rows, its eigenbasis, then
+$\mathbf W^{\mathsf T}U$ in the same blocks; float64 BLAS, no FFT; equal to an explicit SVD of
+$\mathbf W$ to $10^{-9}$. Windows are limited to 1600 entries ($40\times40$, about 4\,s on a
+$256^2$ field; larger ones would need Lanczos with an FFT matvec). Single-band fields only.
+NaN pixels are filled with the finite mean for the decomposition and re-masked in every
+output. Also returned: the eigenvalue shares $\lambda_i/\sum\lambda$ and the
+\textbf{w-correlation} matrix (the paper's Def.~3.18) of the kept components --- the grouping
+aid shown in the Components window.
+
+\begin{longtable}{P l R N}
+\toprule Parameter & Default & Range & Meaning \\ \midrule
+\texttt{rows\_window}, \texttt{cols\_window} & 16 & $[2,512]$ & window $L_r\times L_c$ ($L_rL_c\le1600$) \\
+\texttt{n\_components} (Components kept) & 16 & $[1,64]$ & leading eigentriples kept \\
+\texttt{show} (\emph{view}) & recon & recon / residual / component & what the canvas shows \\
+\texttt{component} (\emph{view}) & 1 & $[1,64]$ & the elementary component shown \\
+\texttt{group} (Group; \emph{view}) & all & text & the components the recon sums (above) \\
 \bottomrule
 \end{longtable}
 
@@ -488,6 +654,10 @@ transaction --- \dev{group\_paint} stamps committed group tags onto chain copies
 \texttt{\_target\_*} params are the resolved grid geometry, written by the shell ---
 not hand-edited.
 
+\textbf{\dev{derived\_vectors}}: a derivative dataset's frozen extrema and maxima lines, read
+from its own file (\S\ref{sec:workspace}). Placed by the shell (browser Dev group); its one
+parameter (the file) is hidden.
+
 \textbf{\dev{stub\_wavelet} / \dev{stub\_holder} / \dev{stub\_wedge}}: parameter-schema
 test fixtures (the browser's Dev group); no analysis role.
 
@@ -528,6 +698,15 @@ wavelet or the sinc function.''
         \emph{IEEE Trans.\ PAMI} 14, 710--732.
   \item P.~Perona and J.~Malik (1990), Scale-space and edge detection using anisotropic
         diffusion, \emph{IEEE Trans.\ PAMI} 12, 629--639.
+  \item N.~Golyandina and K.~Usevich (2010), 2D-extension of singular spectrum analysis:
+        algorithm and elements of theory, in \emph{Matrix Methods: Theory, Algorithms and
+        Applications} (V.~Olshevsky, E.~Tyrtyshnikov, eds.), World Scientific, 449--473.
+  \item D.~S.~Broomhead and G.~P.~King (1986), Extracting qualitative dynamics from
+        experimental data, \emph{Physica D} 20, 217--236.
+  \item L.~De~Lathauwer, B.~De~Moor and J.~Vandewalle (2000), A multilinear singular value
+        decomposition, \emph{SIAM J.\ Matrix Anal.\ Appl.}\ 21, 1253--1278; and On the best
+        rank-1 and rank-$(R_1,\dots,R_N)$ approximation of higher-order tensors, \emph{ibid.},
+        1324--1342 (HOSVD and HOOI).
 \end{itemize}
 
 %======================================================================
@@ -544,6 +723,21 @@ wavelet or the sinc function.''
         (final Im) rasters.
   \item The vector (3-D) view draws the \emph{finest} extrema layer only ---
         put \dev{scale\_select} in the chain to choose which.
+  \item \sloppy\textbf{Decomposition extras}: \dev{ssa2d} --- \texttt{ssa\_recon},
+        \texttt{ssa\_residual}, \texttt{ssa\_components} $(n,n_y,n_x)$,
+        \texttt{ssa\_eigen\_share}, \texttt{ssa\_eigenarrays} $(n,L_r,L_c)$,
+        \texttt{ssa\_factor\_arrays} $(n,K_r,K_c)$, \texttt{ssa\_w\_correlation} $(n,n)$.
+        \dev{tucker\_HOOI\_HOSVD} --- \texttt{tucker\_recon}, \texttt{tucker\_residual},
+        \texttt{tucker\_components} / \texttt{tucker\_combined\_components} with their
+        energies, core, factors, energy per mode; on a multiband field also
+        \texttt{tucker\_recon\_bands} / \texttt{tucker\_residual\_bands} $(n_y,n_x,n_c)$ (the
+        display shows band 1). A view step writes \texttt{raster\_out} and, for a named view,
+        \texttt{\_view\_note} (what the layer row appends).
+  \item \textbf{Derivative file}: the RasterField npz keys (\texttt{schema}, \texttt{name},
+        \texttt{values}, \texttt{x\_axis}, \texttt{y\_axis}, \texttt{units},
+        \texttt{frame\_meta}, \texttt{provenance}) plus, when it carries vectors,
+        \texttt{vec\_e\_*} (extrema, CSR-packed), \texttt{vec\_c\_*} (maxima lines) and
+        \texttt{vec\_scales}. A vector-only derivative's raster is all-NaN on the same grid.
 \end{itemize}
 
 \end{document}
