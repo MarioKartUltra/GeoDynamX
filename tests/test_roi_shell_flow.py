@@ -732,3 +732,59 @@ def test_stepping_tucker_components_relabels_the_row_and_never_recomputes(plain_
     assert "· C2 (" in text and text.endswith("%)")
     np.testing.assert_array_equal(win.canvas._field.values,
                                   win._active_result["tucker_components"][1])
+
+
+def test_ssa2d_on_the_dataset_labels_its_row_from_the_tool(plain_window, qtbot):
+    win = plain_window
+    child = _whole_field_child(win, qtbot, "ssa2d")
+    i = win._names.index("ssa2d")
+    win._on_param_changed(i, "show", "component")
+    win._on_param_changed(i, "component", 2)
+    assert "· C2 (" in win.layer_list.layer_text(child.layer_id)
+    win._on_param_changed(i, "show", "residual")
+    win._on_param_changed(i, "group", "1")
+    assert "· data − [1] (" in win.layer_list.layer_text(child.layer_id)
+
+
+def test_the_components_window_and_the_group_knob_drive_each_other(plain_window, qtbot):
+    """"Components…" opens the grouping aids on the active decomposition. Picking C1 writes
+    Group = "1" into the knob, and with Show = residual the canvas shows the data minus C1
+    from the cache (no worker). Typing into the knob moves the window's picks."""
+    win = plain_window
+    assert not win._components_button.isEnabled()
+    child = _whole_field_child(win, qtbot, "ssa2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win._components_button.isEnabled()
+    i = win._names.index("ssa2d")
+    win._on_param_changed(i, "show", "residual")
+    win._components_button.click()
+    cw = win._components_window
+    comps = win._active_result["ssa_components"]
+    assert cw is not None and cw._list.count() == len(comps)
+    assert cw._wplot.isVisible()
+    misses = win.cache.misses
+    cw._list.clearSelection()
+    cw._list.item(0).setSelected(True)
+    assert win._params[i]["group"] == "1"
+    assert win.strips.strip(i)._params["group"] == "1"
+    assert win._thread is None and win.cache.misses == misses
+    assert "· data − [1] (" in win.layer_list.layer_text(child.layer_id)
+    data = win._active_result["ssa_recon"] + win._active_result["ssa_residual"]
+    np.testing.assert_allclose(win._active_result["raster_out"], data - comps[0])
+    win.strips.strip(i)._on_control_changed("group", "2-3")
+    assert cw._selected() == [1, 2]
+    win._on_param_changed(i, "show", "component")
+    assert "'component'" in cw._hint.text()
+
+
+def test_the_components_window_follows_tucker_orientation(plain_window, qtbot):
+    win = plain_window
+    _whole_field_child(win, qtbot, "tucker_havok")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    i = win._names.index("tucker_havok")
+    win._components_button.click()
+    cw = win._components_window
+    assert cw.components is win._active_result["tucker_components"]
+    assert not cw._wplot.isVisible() and cw._kind_combo.isHidden()
+    win._on_param_changed(i, "pairs", "combined")
+    assert cw.components is win._active_result["tucker_combined_components"]

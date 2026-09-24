@@ -84,6 +84,7 @@ from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, POINTS_COLOR, VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
+from dynamix.shell.components_window import ComponentsWindow
 # Module-level, like every other pure-Qt shell widget above (the lazy-import discipline in this
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
 # existing Transport, both of which this module already imports eagerly anyway.
@@ -756,6 +757,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # sibling -- same lifecycle. When both are open the fitter's scale window drives this one
         # (the workbook's cell-49-inherits-cell-47 coupling).
         self._spectrum_construction_window: SpectrumWindow | None = None
+        # The decomposition grouping aids (ComponentsWindow), same lifecycle; unlike the windows
+        # above it stays live -- every landing result re-syncs it (``_refresh_components_button``).
+        self._components_window: ComponentsWindow | None = None
         # The rows list last pushed into ``self._topology_panel`` via
         # ``set_rows`` -- ``_refresh_topology_panel`` skips the call entirely when a freshly
         # computed rows list compares equal to this, so an UNRELATED ``_apply`` (a filter knob
@@ -1165,6 +1169,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel.add_section("Spectrum", spectrum_box)
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+
+        # The grouping aids of a decomposition (ssa2d / tucker_havok): thumbnails, shares and
+        # w-correlations in a floating window; picking thumbnails sets the tool's Group knob.
+        self._components_button = QtWidgets.QPushButton("Components…")
+        self._components_button.clicked.connect(self._on_components_button_clicked)
+        self.right_panel.add_section("Decomposition", self._components_button)
+        self._refresh_components_button()
 
         # The transect list -- NOT view-scoped (a drawn
         # transect is project-level state, meaningful to review/delete/plot regardless of which
@@ -2691,6 +2702,88 @@ both ``Canvas`` signals report the
         window.raise_()
         window.activateWindow()
 
+    # -- decomposition grouping aids (2026-09-23) ----------------------------------------------
+    def _decomposition_of(self, result) -> "dict | None":
+        """The result's decomposition as the grouping window takes it -- ssa2d's eigentriples and
+        w-correlations, or tucker's components in the numbering its Orientation knob picks -- or
+        None when the result is not a decomposition."""
+        if not result:
+            return None
+        pp = result.get("params") or {}
+        view = {"group": str(pp.get("group", "all")), "show": str(pp.get("show", "recon"))}
+        if result.get("ssa_components") is not None:
+            return {"components": result["ssa_components"], "shares": result["ssa_eigen_share"],
+                    "eigenarrays": result.get("ssa_eigenarrays"),
+                    "w_correlation": result.get("ssa_w_correlation"),
+                    "share_label": "eigenvalue share", **view}
+        if result.get("tucker_components") is not None:
+            combined = pp.get("pairs") == "combined"
+            return {"components": result["tucker_combined_components" if combined
+                                          else "tucker_components"],
+                    "shares": result["tucker_combined_energy" if combined
+                                      else "tucker_component_energy"],
+                    "eigenarrays": None, "w_correlation": None,
+                    "share_label": "core-energy share" + (", combined" if combined else ""),
+                    **view}
+        return None
+
+    def _refresh_components_button(self) -> None:
+        """Enable "Components…" on a decomposition result, and keep an open window on the
+        active one: reloaded when its component stack changed (a recompute, another
+        decomposition layer, tucker's Orientation), its picks following the Group knob;
+        disabled while the active result is not a decomposition."""
+        deco = self._decomposition_of(self._active_result)
+        self._components_button.setEnabled(deco is not None)
+        self._components_button.setToolTip(
+            "Thumbnails, shares and w-correlations of the decomposition -- pick the group the "
+            "reconstruction sums (the residual is the data minus it)"
+            if deco is not None else
+            "Needs a decomposition (ssa2d or tucker_havok) on the active layer")
+        win = self._components_window
+        if win is None or not win.isVisible():
+            return
+        win.setEnabled(deco is not None)
+        if deco is None:
+            return
+        if win.components is not deco["components"]:
+            win.set_decomposition(deco["components"], deco["shares"],
+                                  eigenarrays=deco["eigenarrays"],
+                                  w_correlation=deco["w_correlation"],
+                                  share_label=deco["share_label"])
+            win.setWindowTitle(self._components_title())
+        win.set_group(deco["group"])
+        win.set_show(deco["show"])
+
+    def _components_title(self) -> str:
+        return f"Components — {self.layer.name}" if self.layer is not None else "Components"
+
+    def _on_components_button_clicked(self) -> None:
+        """"Components…" clicked -- a fresh :class:`ComponentsWindow` on the active
+        decomposition, previous one closed first (the SkeletonDialog lifecycle)."""
+        deco = self._decomposition_of(self._active_result)
+        if deco is None:
+            return          # the button is disabled in this state -- a defensive no-op
+        if self._components_window is not None:
+            self._components_window.close()
+        window = ComponentsWindow(
+            deco["components"], deco["shares"], eigenarrays=deco["eigenarrays"],
+            w_correlation=deco["w_correlation"], group=deco["group"], show=deco["show"],
+            share_label=deco["share_label"], title=self._components_title(), parent=self)
+        window.groupChanged.connect(self._on_components_group_changed)
+        self._components_window = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _on_components_group_changed(self, text: str) -> None:
+        """The grouping window picked a group: write it into the tool's Group knob through the
+        knob's own edit path -- the control shows it, and the ordinary param change redraws
+        from the cache (Group is view-only)."""
+        for i, name in enumerate(self._names):
+            if name in ("ssa2d", "tucker_havok") and not self._bypassed[i]:
+                self.strips.strip(i)._on_control_changed("group", text)
+                return
+
     # -- holder_map raster display (2026-09-16) ------------------------------------------------
     def _sync_holder_raster(self, result: dict) -> None:
         """When the ACTIVE layer's result carries ``"h_map"`` (the holder_map transform's own
@@ -2735,7 +2828,9 @@ both ``Canvas`` signals report the
                     # 2026-09-20 census wrinkle: this used to read "recon[0,0)" for any
                     # non-band producer).
                     pp = result.get("params", {})
-                    if "h_lo" in pp:
+                    if result.get("_view_note"):
+                        note = str(result["_view_note"])        # the tool's own label
+                    elif "h_lo" in pp:
                         note = f"recon[{pp.get('h_lo', 0):g},{pp.get('h_hi', 0):g})"
                     elif pp.get("show") == "component":
                         # A decomposition component: its index (clipped as the view clips it)
@@ -2980,6 +3075,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_components_button()
 
     def _on_auto_run_toggled(self, checked: bool) -> None:
         update_settings(auto_run_wtmm=checked)
@@ -3538,6 +3634,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()      # no active result left -- back to disabled
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_components_button()
         self._set_recipe([], [])
         self._build_strips()
         self.strips.setEnabled(False)
@@ -5046,6 +5143,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_components_button()
         self._sync_holder_raster(result)
         # A landing while the Vector/Globe tab is up must reach the scene (forked wtmm computed with the Vector tab showing -- extrema absent until a manual
         # flip-out/in; before the fork feature every compute started from the raster tab, so

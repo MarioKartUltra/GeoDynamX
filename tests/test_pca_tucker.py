@@ -564,3 +564,45 @@ def test_the_tucker_device_toggles_separate_and_combined_without_recomputing(cle
     np.testing.assert_array_equal(comb.result["raster_out"],
                                   comb.result["tucker_combined_components"][1])
     assert not np.array_equal(sep.result["raster_out"], comb.result["raster_out"])
+
+
+def test_the_tucker_residual_is_the_data_minus_the_chosen_group(clean_registry):
+    """Group = the components summed into the reconstruction; the residual is the data minus
+    that sum ("all" keeps the whole truncated reconstruction). Separate or combined numbering
+    follows the Orientation knob. Every flip is a cache hit."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    register_builtin_devices()
+    rng = np.random.default_rng(7)
+    field = RasterField(name="f", values=rng.standard_normal((30, 34)).cumsum(0),
+                        frame=LocalFrame(), x_axis=np.arange(34.0), y_axis=np.arange(30.0))
+    cache = Cache()
+
+    def show(**p):
+        params = {"n_delays": 5, "rank_delay": 3, **p}
+        layer = Layer(layer_id=1, name="L", source_id="s",
+                      chain=Chain((DeviceRef("tucker_havok", params),)).materialized())
+        return resolve(layer, field, cache)
+
+    whole = show(show="residual")
+    np.testing.assert_array_equal(whole.result["raster_out"], whole.result["tucker_residual"])
+    minus_c1 = show(show="residual", group="1")
+    minus_comb = show(show="residual", group="1", pairs="combined")
+    recon_12 = show(show="recon", group="1-2")
+    assert minus_c1.cache_misses == minus_comb.cache_misses == recon_12.cache_misses == 0
+    sep_c = whole.result["tucker_components"]
+    comb_c = whole.result["tucker_combined_components"]
+    np.testing.assert_allclose(minus_c1.result["raster_out"], field.values - sep_c[0],
+                               atol=1e-9)
+    np.testing.assert_allclose(minus_comb.result["raster_out"], field.values - comb_c[0],
+                               atol=1e-9)
+    np.testing.assert_allclose(recon_12.result["raster_out"], sep_c[0] + sep_c[1])
+    energy = whole.result["tucker_component_energy"]
+    assert minus_c1.result["_view_note"] == f"data − [1] ({100 * energy[0]:.0f}%)"
+    assert "_view_note" not in whole.result          # the ungrouped labels are unchanged

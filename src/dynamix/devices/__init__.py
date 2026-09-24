@@ -17,6 +17,7 @@ from __future__ import annotations
 from dynamix.devices.backproject import Backproject
 from dynamix.devices.band_recon import BandRecon, BandReconMeasure, BandReconMultiaffine
 from dynamix.devices.decompose import PCADevice, TuckerHavok
+from dynamix.devices.ssa2d import SSA2D
 from dynamix.devices.chain_classify import ChainClassify
 from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
                                            ChainModulusFilter)
@@ -81,6 +82,7 @@ BUILTIN_DEVICES = (
     BandReconMultiaffine,
     PCADevice,
     TuckerHavok,
+    SSA2D,
     ChainTopology,
     MinVChains,
     ScaleSelect,

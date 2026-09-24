@@ -54,6 +54,58 @@ def _result(field, raster, extras: dict, params: dict) -> dict:
     }
 
 
+def parse_group(text: str, n: int) -> list:
+    """``"1-3, 5"`` -> ``[0, 1, 2, 4]`` (0-based), clipped to the ``n`` components kept;
+    ``"all"`` (or blank) -> every one. Unreadable tokens are skipped."""
+    if str(text).strip().lower() in ("", "all"):
+        return list(range(n))
+    picked = []
+    for token in str(text).replace(";", ",").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        try:
+            if "-" in token:
+                lo, hi = (int(t) for t in token.split("-", 1))
+                picked.extend(range(min(lo, hi), max(lo, hi) + 1))
+            else:
+                picked.append(int(token))
+        except ValueError:
+            continue
+    return sorted({k - 1 for k in picked if 1 <= k <= n})
+
+
+def format_group(indices) -> str:
+    """``[0, 1, 2, 4]`` (0-based) -> ``"1-3, 5"``: the compact 1-based form ``parse_group``
+    reads back."""
+    runs, ks = [], sorted(int(i) + 1 for i in indices)
+    for k in ks:
+        if runs and k == runs[-1][1] + 1:
+            runs[-1][1] = k
+        else:
+            runs.append([k, k])
+    return ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in runs)
+
+
+def group_view(recon, residual, comps, shares, show: str, group: str):
+    """The grouping step shared by the decompositions: ``recon`` shows the SUM of the group's
+    components, ``residual`` the data minus that sum (``data = recon + residual`` of the whole
+    kept reconstruction). ``"all"`` keeps the whole reconstruction exactly. Returns
+    ``(shown, note)`` -- ``note`` is None for the ungrouped views (the caller labels those)."""
+    import numpy as np
+
+    if str(group).strip().lower() in ("", "all"):
+        return (recon if show == "recon" else residual), None
+    idx = parse_group(group, len(comps))
+    if not idx:
+        return (recon if show == "recon" else residual), "no valid group"
+    part = np.asarray(comps)[idx].sum(axis=0)
+    pct = f"{100.0 * float(np.asarray(shares)[idx].sum()):.0f}%"
+    if show == "recon":
+        return part, f"recon [{format_group(idx)}] ({pct})"
+    return recon + residual - part, f"data − [{format_group(idx)}] ({pct})"
+
+
 class PCADevice:
     """Principal component analysis across a stack's bands; shows one component raster."""
 
@@ -155,9 +207,14 @@ class TuckerHavok:
               label="Component", view=True, active_when=("show", ("component",))),
         # Under delay_2d a component is one (vertical, horizontal) delay-pattern pair (a, b);
         # "combined" adds each to its orientation twin (b, a) -- r(r+1)/2 components. The 1-D
-        # embeddings have no pairs, so both read the same list there. A view choice.
+        # embeddings have no pairs, so both read the same list there. A view choice; it also
+        # sets the numbering a Group refers to, so it applies to every Show.
         Param("pairs", ParamKind.CHOICE, default="separate", choices=("separate", "combined"),
-              label="Orientation", view=True, active_when=("show", ("component",))),
+              label="Orientation", view=True),
+        # Which components form the reconstruction ("1-3, 5"; "all" = the whole truncated
+        # reconstruction); the residual is the data minus that sum -- a view choice.
+        Param("group", ParamKind.TEXT, default="all", label="Group", editable=True, view=True,
+              active_when=("show", ("recon", "residual"))),
     )
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
@@ -210,19 +267,29 @@ class TuckerHavok:
 
     def view(self, result: dict, params: dict) -> dict:
         """Show the reconstruction, the residual, or one component (1-based, clipped to the
-        components kept) -- a cache hit, never a re-decomposition."""
+        components kept) -- a cache hit, never a re-decomposition. A Group narrows the
+        reconstruction to those components (the residual becomes the data minus them)."""
         show = params["show"]
         combined = params.get("pairs") == "combined"
+        comps = result["tucker_combined_components" if combined else "tucker_components"]
+        note = None
         if show == "component":
-            comps = result["tucker_combined_components" if combined else "tucker_components"]
             k = min(max(int(params["component"]), 1), len(comps))
             shown = comps[k - 1]
         else:
-            shown = result["tucker_recon"] if show == "recon" else result["tucker_residual"]
-        return {**result, "raster_out": shown,
-                "params": {**result.get("params", {}), "show": show,
-                           "component": params["component"],
-                           "pairs": params.get("pairs", "separate")}}
+            shares = result["tucker_combined_energy" if combined else "tucker_component_energy"]
+            shown, note = group_view(result["tucker_recon"], result["tucker_residual"], comps,
+                                     shares, show, params.get("group", "all"))
+            if note == "no valid group":
+                note = f"{show} (no valid group)"
+        out = {**result, "raster_out": shown,
+               "params": {**result.get("params", {}), "show": show,
+                          "component": params["component"],
+                          "pairs": params.get("pairs", "separate"),
+                          "group": params.get("group", "all")}}
+        if note is not None:
+            out["_view_note"] = note
+        return out
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
