@@ -450,7 +450,8 @@ def test_context_menu_has_rename_remove_and_refined_run(panel, project):
     menu = panel._build_context_menu(item, layer.layer_id)
     titles = [a.text() for a in menu.actions()]
     # "Remove" became the two deletes (2026-09-23).
-    assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run"]
+    assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run",
+                      "Fork derivative dataset…"]
 
 
 def test_context_menu_remove_action_emits_removeRequested(panel, project, qtbot):
@@ -1354,7 +1355,8 @@ def test_a_result_rows_menu_offers_delete_layer_and_delete_layer_and_children(pa
     layer = _row_layer(panel, project, source)
     menu = panel._build_context_menu(panel._layer_items[layer.layer_id], layer.layer_id)
     titles = [a.text() for a in menu.actions()]
-    assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run"]
+    assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run",
+                      "Fork derivative dataset…"]
     only = next(a for a in menu.actions() if a.text() == "Delete layer")
     with qtbot.waitSignal(panel.removeLayerOnlyRequested, timeout=1000) as sig:
         only.trigger()
@@ -1399,3 +1401,80 @@ def test_delete_with_several_rows_selected_emits_one_batch(panel, project, qtbot
     layer_ids, roi_ids, source_ids = sig.args
     assert sorted(layer_ids) == sorted([r1.layer_id, r2.layer_id])
     assert roi_ids == [roi.roi_id] and source_ids == [] and singles == []
+
+
+# ------------------------------------------- derivative datasets (2026-09-23)
+
+def test_a_labelled_source_names_its_dataset_row(panel, project):
+    """A derivative dataset is named at the fork; its file name is only storage."""
+    source = project.add_source("/tmp/derived-1a2b.npz", label="dem · ssa2d @A · data − [1]")
+    panel.add_layer_row(_layer(project, "dem · ssa2d @A · data − [1]", source.source_id), None)
+    assert panel.topLevelItem(0).text(0) == "dem · ssa2d @A · data − [1]"
+
+
+def _derivative(panel, project, *, nest):
+    parent = project.add_source("/data/dem.tif")
+    parent_master = _layer(project, "dem", parent.source_id)
+    panel.add_layer_row(parent_master, None)
+    derived = project.add_source("/data/dem_residual.npz", label="dem residual")
+    derived.nest_under = parent.source_id if nest else None
+    master = _layer(project, "dem residual", derived.source_id)
+    panel.add_layer_row(master, None)
+    return parent, derived, master
+
+
+def test_a_derivative_can_nest_inside_the_dataset_it_came_from(panel, project):
+    parent, derived, master = _derivative(panel, project, nest=True)
+    header = panel._source_headers[derived.source_id]
+    assert header.parent() is panel._source_headers[parent.source_id]
+    assert panel.topLevelItemCount() == 1
+    panel.select_layer(master.layer_id)
+    assert panel.current_layer_id() == master.layer_id
+
+
+def test_a_derivative_of_its_own_is_a_top_level_dataset_row(panel, project):
+    _parent, derived, _master = _derivative(panel, project, nest=False)
+    assert panel._source_headers[derived.source_id].parent() is None
+    assert panel.topLevelItemCount() == 2
+
+
+def test_removing_a_nested_derivative_takes_only_its_row(panel, project):
+    parent, derived, master = _derivative(panel, project, nest=True)
+    panel.remove_rows([master.layer_id])
+    panel.remove_source_row(derived.source_id)
+    assert derived.source_id not in panel._source_headers
+    parent_header = panel._source_headers[parent.source_id]
+    assert parent_header.childCount() == 0 and panel.topLevelItemCount() == 1
+
+
+def test_removing_the_parent_dataset_lifts_its_nested_derivative_to_the_top(panel, project):
+    parent, derived, master = _derivative(panel, project, nest=True)
+    parent_master = panel._masters[parent.source_id]
+    panel.remove_rows([parent_master])
+    panel.remove_source_row(parent.source_id)
+    header = panel._source_headers[derived.source_id]
+    assert header.parent() is None and panel.indexOfTopLevelItem(header) >= 0
+    assert panel._layer_items[master.layer_id] is header
+
+
+def test_a_result_row_offers_fork_derivative_dataset(panel, project, qtbot):
+    source = project.add_source("/data/dataset.tif")
+    layer = _row_layer(panel, project, source)
+    menu = panel._build_context_menu(panel._layer_items[layer.layer_id], layer.layer_id)
+    fork = next(a for a in menu.actions() if a.text() == "Fork derivative dataset…")
+    with qtbot.waitSignal(panel.forkDerivativeRequested) as blocker:
+        fork.trigger()
+    assert blocker.args == [layer.layer_id]
+
+
+def test_a_temporary_derivative_row_offers_save_as(panel, project, qtbot):
+    source = project.add_source("/data/dataset.tif")
+    _layer(project, "dataset", source.source_id)
+    assert [a.text() for a in panel._build_source_context_menu(source.source_id).actions()] \
+        == ["Remove dataset"]
+    source.temporary = True
+    menu = panel._build_source_context_menu(source.source_id)
+    assert [a.text() for a in menu.actions()] == ["Save derivative as…", "Remove dataset"]
+    with qtbot.waitSignal(panel.saveDerivativeRequested) as blocker:
+        menu.actions()[0].trigger()
+    assert blocker.args == [source.source_id]

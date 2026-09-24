@@ -69,18 +69,27 @@ class SourceRef:
     #: shown -- the source header row's own H (2026-08-29, the design: "the toggle sits on the
     #: source"). Additive: ``.get`` on load, so older projects open with it False.
     hidden: bool = False
+    #: A TEMPORARY derivative dataset (2026-09-23): its file lives in this session's scratch
+    #: folder, and a saved project leaves it out (``Project.to_payload``) until it is saved as a
+    #: file of its own. Additive (``.get`` on load).
+    temporary: bool = False
+    #: Show this dataset's row nested INSIDE the row of source ``nest_under`` (a derivative
+    #: placed under the dataset it came from). Display only; additive (``.get`` on load).
+    nest_under: str | None = None
 
     def to_payload(self) -> dict:
         return {"source_id": self.source_id, "path": self.path,
                 "sha256": self.sha256, "label": self.label, "collapsed": self.collapsed,
-                "kind": self.kind, "hidden": self.hidden}
+                "kind": self.kind, "hidden": self.hidden, "temporary": self.temporary,
+                "nest_under": self.nest_under}
 
     @classmethod
     def from_payload(cls, d: dict) -> "SourceRef":
         return cls(source_id=d["source_id"], path=d["path"],
                    sha256=d.get("sha256"), label=d.get("label", ""),
                    collapsed=d.get("collapsed", False), kind=d.get("kind", "raster"),
-                   hidden=bool(d.get("hidden", False)))
+                   hidden=bool(d.get("hidden", False)),
+                   temporary=bool(d.get("temporary", False)), nest_under=d.get("nest_under"))
 
 
 @dataclasses.dataclass
@@ -471,7 +480,14 @@ Passing neither raises -- see :class:`AnnotationRecord`. Ids are monotonic and
                 raise type(exc)(f"layer {layer.layer_id} {layer.name!r}: {detail}") from exc
         return self
 
+    def temporary_sources(self) -> list:
+        """The temporary derivative datasets -- what a save leaves out."""
+        return [s for s in self.sources.values() if s.temporary]
+
     def to_payload(self) -> dict:
+        # Temporary derivative datasets (their files are this session's scratch) stay out of
+        # a saved project, with their layers and ROIs; the live project keeps them.
+        temporary = {s.source_id for s in self.temporary_sources()}
         return {
             "format": FORMAT,
             "schema": SCHEMA,
@@ -480,12 +496,12 @@ Passing neither raises -- see :class:`AnnotationRecord`. Ids are monotonic and
             "modified": self.modified,
             "title": self.title,
             "description": self.description,
-            "sources": [s.to_payload() for s in self.sources.values()],
-            "layers": [l.to_payload() for l in self.layers],
+            "sources": [s.to_payload() for s in self.sources.values() if not s.temporary],
+            "layers": [l.to_payload() for l in self.layers if l.source_id not in temporary],
             "topologies": [t.to_payload() for t in self.topologies],
             "user_links": self.user_links.to_payload(),
             "transects": [t.to_payload() for t in self.transects],
-            "rois": [r.to_payload() for r in self.rois],
+            "rois": [r.to_payload() for r in self.rois if r.source_id not in temporary],
             "cameras": {k: _camera_to_payload(v) for k, v in self.cameras.items()},
             "annotations": [a.to_payload() for a in self.annotations],
             "reference_layers": [r.to_payload() for r in self.reference_layers],

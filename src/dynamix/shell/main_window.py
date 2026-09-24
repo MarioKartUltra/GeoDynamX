@@ -76,7 +76,7 @@ from dynamix.model.param import Param, ParamKind
 from dynamix.model.presets import PRESETS
 from dynamix.model.project import Project
 from dynamix.model.projectfile import (changed_sources, missing_sources, open_project,
-                                       resolve_source, save_project)
+                                       resolve_source, save_project, sha256_of)
 from dynamix.model.provenance import provenance_tree
 from dynamix.roi.halo import _EDGES, MIN_A_MIN
 from dynamix.shell.arrangement.group_palette import GroupPalette
@@ -85,6 +85,7 @@ from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, POINTS_COLOR, VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
+from dynamix.shell.fork_dialog import ForkDialog
 # Module-level, like every other pure-Qt shell widget above (the lazy-import discipline in this
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
 # existing Transport, both of which this module already imports eagerly anyway.
@@ -422,6 +423,25 @@ def _roi_spawn(old_names, descriptors) -> "tuple | None":
                 and not getattr(dev, "reads_source", False)):
             return sibling, []
     return None
+
+
+#: This session's folder for TEMPORARY derivative datasets (created on the first one).
+_DERIVATIVE_SCRATCH: "str | None" = None
+
+
+def _derivative_scratch() -> str:
+    """The session's scratch folder for temporary derivatives, removed when the app exits: a
+    temporary derivative is left out of a saved project, so nothing saved points into it, and
+    "Save derivative as…" copies one out before then."""
+    global _DERIVATIVE_SCRATCH
+    if _DERIVATIVE_SCRATCH is None:
+        import atexit
+        import shutil
+        import tempfile
+
+        _DERIVATIVE_SCRATCH = tempfile.mkdtemp(prefix="geodynamix-derived-")
+        atexit.register(shutil.rmtree, _DERIVATIVE_SCRATCH, True)
+    return _DERIVATIVE_SCRATCH
 
 
 def _inherited_window(parent, **extra) -> dict:
@@ -973,6 +993,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.layer_list.removeLayerOnlyRequested.connect(self._on_remove_layer_only_requested)
         self.layer_list.removeRoiRequested.connect(self._on_remove_roi_requested)
         self.layer_list.removeManyRequested.connect(self._on_remove_many_requested)
+        # Derivative datasets: fork what a result shows; keep a temporary one as a file.
+        self.layer_list.forkDerivativeRequested.connect(self._on_fork_derivative)
+        self.layer_list.saveDerivativeRequested.connect(self._on_save_derivative)
         self.resolved.connect(self._fan_out_to_inspectors)
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self._left_split.addWidget(self.browser)
@@ -1170,7 +1193,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_spectrum_button()
         self._refresh_dh_button()
 
-        # The grouping aids of a decomposition (ssa2d / tucker_havok): thumbnails, shares and
+        # The grouping aids of a decomposition (ssa2d / tucker): thumbnails, shares and
         # w-correlations in a floating window; picking thumbnails sets the tool's Group knob.
         self._components_button = QtWidgets.QPushButton("Components…")
         self._components_button.clicked.connect(self._on_components_button_clicked)
@@ -1773,8 +1796,12 @@ class MainWindow(QtWidgets.QMainWindow):
                                    max_pixels=settings.open_max_pixels,
                                    subdataset=subdataset), path)
 
-    def load_field(self, field, path: str) -> None:
+    def load_field(self, field, path: str, *, inert: bool = False) -> None:
         """Take ``field`` (a ``RasterField`` or a bare array) as a new layer and resolve it.
+
+        ``inert`` forces the inert open whatever the auto-run setting says (a derivative
+        dataset: raw data the user decides what to run on -- with auto-run the new layer would
+        otherwise take the window's CURRENT recipe as its own chain).
 
         ``path`` is the source IDENTITY, not necessarily a file: it keys the project's source
         registry and, through it, every cached transform result.
@@ -1823,7 +1850,7 @@ class MainWindow(QtWidgets.QMainWindow):
         _existing = [l for l in self.project.layers if l.source_id == source.source_id]
         _adopt = bool(_existing) and not any(
             l.layer_id in self._layer_by_id for l in _existing)
-        auto_run = load_settings().auto_run_wtmm
+        auto_run = load_settings().auto_run_wtmm and not inert
         if _adopt:
             for _l in _existing:
                 self.add_layer_row(_l, field)
@@ -2738,7 +2765,7 @@ both ``Canvas`` signals report the
             "Thumbnails, shares and w-correlations of the decomposition -- pick the group the "
             "reconstruction sums (the residual is the data minus it)"
             if deco is not None else
-            "Needs a decomposition (ssa2d or tucker_havok) on the active layer")
+            "Needs a decomposition (ssa2d or tucker_HOOI_HOSVD) on the active layer")
         win = self._components_window
         if win is None or not win.isVisible():
             return
@@ -2770,6 +2797,8 @@ both ``Canvas`` signals report the
             w_correlation=deco["w_correlation"], group=deco["group"], show=deco["show"],
             share_label=deco["share_label"], title=self._components_title(), parent=self)
         window.groupChanged.connect(self._on_components_group_changed)
+        window.forkRequested.connect(
+            lambda: self._on_fork_derivative(self.layer.layer_id) if self.layer else None)
         self._components_window = window
         window.show()
         window.raise_()
@@ -2780,9 +2809,144 @@ both ``Canvas`` signals report the
         knob's own edit path -- the control shows it, and the ordinary param change redraws
         from the cache (Group is view-only)."""
         for i, name in enumerate(self._names):
-            if name in ("ssa2d", "tucker_havok") and not self._bypassed[i]:
+            if (name in ("ssa2d", "tucker_HOOI_HOSVD", "tucker_havok")
+                    and not self._bypassed[i]):
                 self.strips.strip(i)._on_control_changed("group", text)
                 return
+
+    # -- derivative datasets (2026-09-23) ------------------------------------------------------
+    def _on_fork_derivative(self, layer_id: int) -> None:
+        """"Fork derivative dataset…": what a result holds -- the rasters picked as bands and/or
+        the extrema and maxima lines it shows -- written ONCE as a dataset of its own and opened
+        like any raw one (:mod:`dynamix.core.derivative`). Unlike a child it never re-processes;
+        its provenance records where it came from, as history only. The fork takes the result
+        ON SCREEN, so the row is selected first; a result that is computing or pending (its
+        knobs moved, not yet run) is refused."""
+        from datetime import datetime
+
+        from dynamix.core.derivative import (raster_choices, result_grid, vector_counts,
+                                             write_derivative)
+
+        if self.layer is None or self.layer.layer_id != layer_id:
+            self.layer_list.select_layer(layer_id)
+        layer, result = self.layer, self._active_result
+        if (layer is None or layer.layer_id != layer_id or not result or self.is_computing
+                or layer_id in self._pending_layers):
+            self._notify("fork a derivative from a result that is on screen — run it first",
+                         "status")
+            return
+        src = self.project.sources.get(layer.source_id)
+        dataset = (src.label or Path(src.path).stem) if src is not None else layer.name
+        row = self.layer_list.layer_text(layer_id) or layer.name
+        prefix = f"{layer.name} · "              # the row reads "<layer name> · <view note>"
+        note = row[len(prefix):] if row.startswith(prefix) else "shown"
+        rasters = raster_choices(result, shown_label=f"as shown ({note})")
+        dialog = ForkDialog(name=f"{dataset} · {row}", raster_labels=[l for l, _a in rasters],
+                            vector_counts=vector_counts(result), parent_name=dataset,
+                            parent=self)
+        if not dialog.exec():
+            return
+        choice = dialog.choices()
+        path = self._derivative_path(choice["name"], temporary=choice["temporary"])
+        if path is None:
+            return
+        field = self._fields.get(layer_id, self.field)
+        frame, x_axis, y_axis = result_grid(result, field)
+        derived = {"from_dataset": src.path if src is not None else None,
+                   "from_sha256": src.sha256 if src is not None else None,
+                   "from_layer": layer.name,
+                   "chain": [{"device": r.device, "params": dict(r.params)}
+                             for r in layer.chain.steps],
+                   "roi_window": layer.tags.get("roi.window"),
+                   "forked": datetime.now().isoformat(timespec="seconds")}
+        # The georeference rides over (geo.mapping, the units, backproject read provenance
+        # "crs" with the grid's axes). Nothing else of the parent's provenance does: its
+        # source / window / full_dims describe the PARENT file, and a native read through
+        # them would fetch the parent's pixels instead of the derivative's.
+        provenance = {"derived": derived}
+        crs = (getattr(field, "provenance", None) or {}).get("crs")
+        if crs:
+            provenance["crs"] = crs
+        try:
+            write_derivative(path, bands=[rasters[i] for i in choice["bands"]], frame=frame,
+                             x_axis=x_axis, y_axis=y_axis, name=choice["name"],
+                             units=str(getattr(field, "units", "") or ""),
+                             provenance=provenance,
+                             vectors=result if choice["vectors"] else None)
+        except ValueError as exc:
+            self._notify(f"fork refused: {exc}", "status")
+            return
+        self._open_derivative(path, name=choice["name"], temporary=choice["temporary"],
+                              nest_under=layer.source_id if choice["nest"] else None,
+                              vectors=choice["vectors"])
+
+    def _derivative_path(self, name: str, *, temporary: bool) -> "str | None":
+        """Where a derivative is written: this session's scratch folder (temporary), or wherever
+        the Save-As dialog says (None when cancelled)."""
+        import uuid
+
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_") or "derivative"
+        if temporary:
+            return str(Path(_derivative_scratch()) / f"{slug}-{uuid.uuid4().hex[:8]}.npz")
+        folder = self._project_path.parent if self._project_path is not None else Path.home()
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save derivative dataset", str(folder / f"{slug}.npz"),
+            "Derivative dataset (*.npz)")
+        if not path:
+            return None
+        return path if path.lower().endswith(".npz") else path + ".npz"
+
+    def _open_derivative(self, path: str, *, name: str, temporary: bool,
+                         nest_under: "str | None", vectors: bool) -> None:
+        """Register and open a derivative file as a dataset (the ordinary ``load_field`` path).
+        The source is registered FIRST with its name and placement, so the dataset row is built
+        with them; a derivative carrying vectors gets its loader as its first step."""
+        from dynamix.core.rasterfield import RasterField
+
+        source = self.project.add_source(path, label=name, sha256=sha256_of(path))
+        source.temporary = temporary
+        source.nest_under = nest_under
+        self.load_field(RasterField.from_file(path), path, inert=True)
+        self.layer.name = name                  # load_field names a layer by its file's stem
+        self.layer_list.set_layer_name(self.layer.layer_id, name)
+        if vectors:
+            self._set_recipe(["derived_vectors"], [{"_path": str(path)}])
+            self.layer.chain = self._chain()
+            self._snapshot_recipe()
+            self._build_strips()
+            self._start_worker()
+
+    def _on_save_derivative(self, source_id: str) -> None:
+        """"Save derivative as…" on a TEMPORARY derivative: its file is copied where the user
+        says, and from then on it is permanent (a saved project keeps it)."""
+        import shutil
+
+        source = self.project.sources.get(source_id)
+        if source is None or not source.temporary:
+            return
+        folder = self._project_path.parent if self._project_path is not None else Path.home()
+        slug = re.sub(r"[^A-Za-z0-9._-]+", "_", source.label or "derivative").strip("_")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Save derivative dataset", str(folder / f"{slug or 'derivative'}.npz"),
+            "Derivative dataset (*.npz)")
+        if not path:
+            return
+        if not path.lower().endswith(".npz"):
+            path += ".npz"
+        shutil.copy2(source.path, path)
+        source.path, source.temporary, source.sha256 = path, False, sha256_of(path)
+        for layer in self.project.layers:
+            if layer.source_id == source_id:
+                layer.chain = Chain(tuple(
+                    DeviceRef(r.device, {**r.params, "_path": path})
+                    if r.device == "derived_vectors" else r
+                    for r in layer.chain.steps)).materialized()
+        if self.layer is not None and self.layer.source_id == source_id \
+                and "derived_vectors" in self._names:
+            self._params = [{**p, "_path": path} if n == "derived_vectors" else p
+                            for n, p in zip(self._names, self._params)]
+            self.layer.chain = self._chain()
+            self._start_worker()
 
     # -- holder_map raster display (2026-09-16) ------------------------------------------------
     def _sync_holder_raster(self, result: dict) -> None:
@@ -2963,6 +3127,11 @@ both ``Canvas`` signals report the
         written = save_project(self.project, path)
         self._project_path = written
         self.setWindowTitle(f"{TITLE} — {written.stem}")
+        temporary = self.project.temporary_sources()
+        if temporary:
+            names = ", ".join(s.label or Path(s.path).stem for s in temporary)
+            self._notify(f"left out of the saved project (temporary derivatives): {names} — "
+                         "“Save derivative as…” on its row keeps one", "status")
         return written
 
     def _on_save_project(self) -> None:
@@ -3242,8 +3411,10 @@ both ``Canvas`` signals report the
         projects) commit edits as before."""
         if self.layer is None or self._is_point_layer(self.layer):
             return False
-        return not any(is_transform(get_device(n)) and not getattr(get_device(n), "field_stage",
-                                                                   False)
+        # A derivative dataset's vector loader (``vector_source``) is part of the dataset.
+        return not any(is_transform(get_device(n))
+                       and not getattr(get_device(n), "field_stage", False)
+                       and not getattr(get_device(n), "vector_source", False)
                        for n, b in zip(self._names, self._bypassed) if not b)
 
     def _is_point_layer(self, layer) -> bool:

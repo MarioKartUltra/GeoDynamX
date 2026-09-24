@@ -606,3 +606,65 @@ def test_the_tucker_residual_is_the_data_minus_the_chosen_group(clean_registry):
     energy = whole.result["tucker_component_energy"]
     assert minus_c1.result["_view_note"] == f"data − [1] ({100 * energy[0]:.0f}%)"
     assert "_view_note" not in whole.result          # the ungrouped labels are unchanged
+
+
+def test_tucker_on_a_multiband_field_keeps_every_band_of_its_recon_and_residual(clean_registry):
+    """A derivative can take any input band: the display shows band 1, the full stacks ride."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    register_builtin_devices()
+    rng = np.random.default_rng(8)
+    vals = rng.standard_normal((20, 22, 3)).cumsum(0)
+    field = RasterField(name="f", values=vals, frame=LocalFrame(), x_axis=np.arange(22.0),
+                        y_axis=np.arange(20.0))
+    layer = Layer(layer_id=1, name="L", source_id="s", chain=Chain((DeviceRef(
+        "tucker_havok", {"n_delays": 4, "rank_delay": 2}),)).materialized())
+    out = resolve(layer, field, Cache()).result
+    assert out["tucker_recon_bands"].shape == (20, 22, 3)
+    np.testing.assert_array_equal(out["tucker_recon_bands"][..., 0], out["tucker_recon"])
+    np.testing.assert_allclose(out["tucker_recon_bands"] + out["tucker_residual_bands"], vals,
+                               atol=1e-9)
+
+
+def test_tucker_hooi_hosvd_toggles_the_algorithm_and_matches_the_old_tool(clean_registry):
+    """``tucker_havok`` renamed ``tucker_HOOI_HOSVD`` with the algorithm as a two-state toggle:
+    HOSVD (one pass) or HOOI (the HOSVD refined by ``sweeps`` alternating passes). The old name
+    stays registered with its old behaviour (its sweeps knob alone chose: 0 = HOSVD), so a saved
+    project resolves exactly as before."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.model.layer import Layer
+
+    register_builtin_devices()
+    new = get_device("tucker_HOOI_HOSVD")
+    params = {p.name: p for p in new.params}
+    assert defaults_for(new)["method"] == "HOSVD"
+    assert params["method"].choices == ("HOSVD", "HOOI")
+    assert params["sweeps"].active_when == ("method", ("HOOI",))
+    assert defaults_for(new)["sweeps"] >= 1
+    rng = np.random.default_rng(12)
+    field = RasterField(name="f", values=rng.standard_normal((26, 30)).cumsum(0),
+                        frame=LocalFrame(), x_axis=np.arange(30.0), y_axis=np.arange(26.0))
+
+    def run(device, **p):
+        layer = Layer(layer_id=1, name="L", source_id="s", chain=Chain((DeviceRef(
+            device, {"n_delays": 5, "rank_delay": 2, **p}),)).materialized())
+        return resolve(layer, field, Cache()).result["raster_out"]
+
+    np.testing.assert_array_equal(run("tucker_HOOI_HOSVD", method="HOSVD", sweeps=3),
+                                  run("tucker_havok", sweeps=0))
+    np.testing.assert_array_equal(run("tucker_HOOI_HOSVD", method="HOOI", sweeps=2),
+                                  run("tucker_havok", sweeps=2))
+    assert not np.array_equal(run("tucker_HOOI_HOSVD", method="HOOI", sweeps=2),
+                              run("tucker_HOOI_HOSVD", method="HOSVD"))

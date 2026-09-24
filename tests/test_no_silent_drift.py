@@ -129,11 +129,14 @@ EXTRACTED = {
 #: (the corpus paper golyandina_usevich_2010_2d_ssa: Hankel-block-Hankel SVD, elementary
 #: reconstructed components, w-correlations), never a copy of anything; pinned against an
 #: explicit SVD of that matrix and the paper's rank results in tests/test_ssa2d.py.
+#: derivative: derivative datasets -- a result's rasters and/or extrema and maxima lines written
+#: once as a RasterField npz (vectors under vec_* keys, packed by wtmm_backend's own stage-cache
+#: codecs); the app's own module, pinned in tests/test_derivative.py.
 NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
-              "fft_policy", "ssa2d"]
+              "fft_policy", "ssa2d", "derivative"]
 
 
 def _normalised(path: pathlib.Path) -> str:

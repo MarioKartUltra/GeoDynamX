@@ -777,14 +777,182 @@ def test_the_components_window_and_the_group_knob_drive_each_other(plain_window,
     assert "'component'" in cw._hint.text()
 
 
-def test_the_components_window_follows_tucker_orientation(plain_window, qtbot):
+@pytest.mark.parametrize("tool", ["tucker_HOOI_HOSVD", "tucker_havok"])
+def test_the_components_window_follows_tucker_orientation(plain_window, qtbot, tool):
     win = plain_window
-    _whole_field_child(win, qtbot, "tucker_havok")
+    _whole_field_child(win, qtbot, tool)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
-    i = win._names.index("tucker_havok")
+    i = win._names.index(tool)
     win._components_button.click()
     cw = win._components_window
     assert cw.components is win._active_result["tucker_components"]
     assert not cw._wplot.isVisible() and cw._kind_combo.isHidden()
     win._on_param_changed(i, "pairs", "combined")
     assert cw.components is win._active_result["tucker_combined_components"]
+
+
+# ------------------------------------------- Derivative datasets (2026-09-23)
+
+class _Fork:
+    """Stands in for ForkDialog: accepts at once with fixed choices; records what it offered."""
+    offered = {}
+
+    def __init__(self, choices):
+        self._choices = choices
+
+    def __call__(self, **kw):
+        _Fork.offered = kw
+        return self
+
+    def exec(self):
+        return 1
+
+    def choices(self):
+        return dict(self._choices)
+
+
+def _fork(win, monkeypatch, layer_id, **choices):
+    import dynamix.shell.main_window as mw
+
+    base = {"name": "derived", "bands": [0], "vectors": False, "nest": False,
+            "temporary": True}
+    monkeypatch.setattr(mw, "ForkDialog", _Fork({**base, **choices}))
+    before = set(win.project.sources)
+    win._on_fork_derivative(layer_id)
+    (new,) = set(win.project.sources) - before
+    return win.project.sources[new]
+
+
+def test_a_forked_residual_is_a_raw_dataset_that_tools_run_on(plain_window, qtbot,
+                                                               monkeypatch):
+    """Group "1", Show = residual, forked: a new dataset holding the data minus C1. Changing the
+    parent afterwards does not touch it (no link back), and a tool dropped on it spawns a child
+    that analyses the derivative's own pixels."""
+    from dynamix.core.rasterfield import RasterField
+
+    win = plain_window
+    child = _whole_field_child(win, qtbot, "ssa2d")
+    i = win._names.index("ssa2d")
+    win._on_param_changed(i, "show", "residual")
+    win._on_param_changed(i, "group", "1")
+    expected = np.array(win._active_result["raster_out"])
+    source = _fork(win, monkeypatch, child.layer_id, name="plain · minus C1")
+    assert _Fork.offered["raster_labels"][0].startswith("as shown (data − [1]")
+    assert source.temporary and source.label == "plain · minus C1"
+    master = win.layer
+    assert master.source_id == source.source_id and master.parent_id is None
+    np.testing.assert_array_equal(win.field.values, expected)
+    assert win.layer_list.layer_text(master.layer_id) == "plain · minus C1"
+    assert win.layer_list._source_headers[source.source_id].parent() is None
+    prov = RasterField.from_file(source.path).provenance
+    assert prov["derived"]["from_layer"] == child.name
+    assert {"device": "ssa2d"}.items() <= prov["derived"]["chain"][0].items()
+    assert prov["derived"]["chain"][0]["params"]["group"] == "1"
+    # no link back: the parent moves, the derivative does not
+    win.layer_list.select_layer(child.layer_id)
+    win._on_param_changed(win._names.index("ssa2d"), "group", "2")
+    np.testing.assert_array_equal(RasterField.from_file(source.path).values, expected)
+    # a tool on the derivative spawns a child over the derivative's pixels
+    win.layer_list.select_layer(master.layer_id)
+    assert win._is_raw_raster_dataset()
+    spawned = _roi_child(win, qtbot, "cdf_edges")
+    assert spawned.parent_id == master.layer_id and spawned.source_id == source.source_id
+    np.testing.assert_array_equal(win._fields[spawned.layer_id].values, expected)
+
+
+def test_forked_vectors_sit_nested_inside_their_dataset_and_keep_their_extrema(
+        plain_window, qtbot, monkeypatch):
+    win = plain_window
+    dataset = win.project.layers[0].source_id
+    child = _whole_field_child(win, qtbot, "cdf_edges")
+    shown = sum(len(e["x"]) for e in win._active_result["extrema"])
+    assert shown > 0
+    source = _fork(win, monkeypatch, child.layer_id, bands=[], vectors=True, nest=True)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win._names == ["derived_vectors"]
+    assert win._is_raw_raster_dataset()                  # the loader is the dataset, not a tool
+    assert sum(len(e["x"]) for e in win._active_result["extrema"]) == shown
+    assert np.isnan(win.field.values).all()
+    header = win.layer_list._source_headers[source.source_id]
+    assert header.parent() is win.layer_list._source_headers[dataset]
+
+
+def test_a_permanent_derivative_goes_where_save_as_says(plain_window, qtbot, monkeypatch,
+                                                         tmp_path):
+    from PySide6 import QtWidgets
+
+    win = plain_window
+    child = _whole_field_child(win, qtbot, "cdf_edges")
+    target = tmp_path / "kept.npz"
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "")))
+    source = _fork(win, monkeypatch, child.layer_id, bands=[0], temporary=False)
+    assert source.path == str(target) and target.exists() and not source.temporary
+    assert source.sha256
+
+
+def test_a_fork_refuses_a_result_that_is_not_on_screen(plain_window, qtbot, monkeypatch):
+    win = plain_window
+    notes = []
+    win._notify = lambda msg, *a, **k: notes.append(msg)
+    child = _whole_field_child(win, qtbot, "cdf_edges")
+    win._pending_layers.add(child.layer_id)
+    n = len(win.project.sources)
+    win._on_fork_derivative(child.layer_id)
+    assert len(win.project.sources) == n and any("fork" in m for m in notes)
+
+
+def test_saving_a_project_leaves_temporary_derivatives_out_until_saved_as(
+        plain_window, qtbot, monkeypatch, tmp_path):
+    import json
+
+    from PySide6 import QtWidgets
+
+    win = plain_window
+    notes = []
+    win._notify = lambda msg, *a, **k: notes.append(msg)
+    child = _whole_field_child(win, qtbot, "cdf_edges")
+    source = _fork(win, monkeypatch, child.layer_id, name="scratch look")
+    written = win._save_project_to(tmp_path / "p.dynamix")
+    saved = json.loads(written.read_text()) if written.suffix != ".zip" else None
+    if saved is not None:
+        assert source.source_id not in {s["source_id"] for s in saved["sources"]}
+    assert any("scratch look" in m and "temporary" in m for m in notes)
+    target = tmp_path / "kept.npz"
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName",
+                        staticmethod(lambda *a, **k: (str(target), "")))
+    win._on_save_derivative(source.source_id)
+    assert not source.temporary and source.path == str(target) and target.exists()
+
+
+def test_the_components_window_forks_what_the_decomposition_shows(plain_window, qtbot):
+    win = plain_window
+    child = _whole_field_child(win, qtbot, "ssa2d")
+    win._components_button.click()
+    asked = []
+    win._on_fork_derivative = asked.append
+    win._components_window._fork_button.click()
+    assert asked == [child.layer_id]
+
+
+def test_a_derivative_keeps_its_parents_georeference_but_not_its_file_layout(
+        plain_window, qtbot, monkeypatch):
+    """The globe, the metre units and point back-projection read ``provenance["crs"]``: a fork
+    carries the CRS over (with the grid's own axes). It never carries the PARENT file's layout
+    keys (``source``/``window``/``full_dims``) -- those would send a native read to the parent's
+    pixels instead of the derivative's."""
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.geo.mapping import has_georeference
+
+    win = plain_window
+    prov = win._fields[win.project.layers[0].layer_id].provenance
+    prov.update({"crs": "EPSG:32615", "source": "/nonexistent/plain.tif",
+                 "window": {"row_off": 0, "col_off": 0}, "full_dims": (40, 50)})
+    child = _whole_field_child(win, qtbot, "cdf_edges")
+    source = _fork(win, monkeypatch, child.layer_id)
+    back = RasterField.from_file(source.path)
+    assert back.provenance["crs"] == "EPSG:32615" and has_georeference(win.field)
+    assert not {"source", "window", "full_dims"} & set(back.provenance)
+    parent = win._fields[child.layer_id] if child.layer_id in win._fields else None
+    np.testing.assert_array_equal(back.x_axis, np.arange(50.0))
+    assert parent is None or np.array_equal(back.y_axis, np.asarray(parent.y_axis))

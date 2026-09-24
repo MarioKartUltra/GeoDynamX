@@ -40,7 +40,7 @@ def test_top_level_items_are_the_four_categories(qtbot, registered_builtins):
 
 def test_every_registered_device_appears_exactly_once_under_the_right_category(
         qtbot, registered_builtins):
-    from dynamix.shell.browser import DeviceBrowser, _DEV_PREFIX, _SUPERSEDED
+    from dynamix.shell.browser import DeviceBrowser, _DEV_PREFIX, _SHELL_PLACED, _SUPERSEDED
 
     browser = DeviceBrowser()
     qtbot.addWidget(browser)
@@ -50,10 +50,11 @@ def test_every_registered_device_appears_exactly_once_under_the_right_category(
     seen_transforms = [transforms.child(i).text(0) for i in range(transforms.childCount())]
     seen_filters = [filters.child(i).text(0) for i in range(filters.childCount())]
 
-    # Exclude stub AND superseded devices from the expected lists (both go to Dev category)
+    # Exclude stub, superseded and shell-placed devices from the expected lists (all go to Dev)
     expected_transforms = sorted(
         name for name, d in DEVICES.items()
         if is_transform(d) and not name.startswith(_DEV_PREFIX) and name not in _SUPERSEDED
+        and name not in _SHELL_PLACED
     )
     expected_filters = sorted(
         name for name, d in DEVICES.items()
@@ -153,8 +154,9 @@ def test_drag_is_enabled(qtbot, registered_builtins):
 
 def test_dev_group_contains_stub_and_superseded_devices(qtbot, registered_builtins):
     """Test (a): Dev holds exactly the stubs plus the superseded devices (2026-09-19 split:
-    registered for saved projects, out of the palette)."""
-    from dynamix.shell.browser import DeviceBrowser, _DEV_PREFIX, _SUPERSEDED
+    registered for saved projects, out of the palette) plus the devices only the shell places
+    (a derivative dataset's vector loader, 2026-09-23)."""
+    from dynamix.shell.browser import DeviceBrowser, _DEV_PREFIX, _SHELL_PLACED, _SUPERSEDED
 
     browser = DeviceBrowser()
     qtbot.addWidget(browser)
@@ -162,10 +164,12 @@ def test_dev_group_contains_stub_and_superseded_devices(qtbot, registered_builti
 
     seen = [dev.child(i).text(0) for i in range(dev.childCount())]
     expected = sorted(name for name in DEVICES.keys()
-                      if name.startswith(_DEV_PREFIX) or name in _SUPERSEDED)
+                      if name.startswith(_DEV_PREFIX) or name in _SUPERSEDED
+                      or name in _SHELL_PLACED)
 
     assert sorted(seen) == expected
-    assert set(seen) == {"stub_wavelet", "stub_holder", "stub_wedge"} | set(_SUPERSEDED)
+    assert set(seen) == ({"stub_wavelet", "stub_holder", "stub_wedge"} | set(_SUPERSEDED)
+                         | set(_SHELL_PLACED))
 
 
 def test_dev_group_not_in_transforms_or_filters(qtbot, registered_builtins):

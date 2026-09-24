@@ -16,7 +16,9 @@ from dynamix.core.rasterfield import RasterField
 #: Transforms that never read a field's pixels: chain_topology consumes a WTMM RESULT,
 #: backproject a point layer, stub_wavelet is a schema stub, and wtmm2d_roi reads its own
 #: halos off the file (reads_source).
-_NOT_FIELD_READERS = {"chain_topology", "backproject", "stub_wavelet", "wtmm2d_roi"}
+#: derived_vectors reads its derivative FILE (the frozen vectors), never the field's pixels.
+_NOT_FIELD_READERS = {"chain_topology", "backproject", "stub_wavelet", "wtmm2d_roi",
+                      "derived_vectors"}
 
 
 @pytest.fixture
@@ -44,7 +46,7 @@ def test_noise_is_a_field_stage_with_no_margin_of_its_own(builtins):
     assert noise.roi_margin(defaults_for(noise)) == 0
 
 
-@pytest.mark.parametrize("name", ["pca", "tucker_havok"])
+@pytest.mark.parametrize("name", ["pca", "tucker_havok", "tucker_HOOI_HOSVD", "ssa2d"])
 def test_global_statistics_tools_analyse_the_roi_itself(builtins, name):
     """PCA's covariance / the HOSVD are statistics OF the analysed region -- margin pixels
     would mix outside data into them, so they declare 0 (the ROI is what is decomposed)."""

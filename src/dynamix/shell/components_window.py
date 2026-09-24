@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""ComponentsWindow: the grouping aids for a decomposition (``ssa2d``, ``tucker_havok``).
+"""ComponentsWindow: the grouping aids for a decomposition (``ssa2d``, ``tucker_HOOI_HOSVD``).
 
 Golyandina & Usevich 2010 group the elementary components by looking at three things, all shown
 here from what the decomposition already cached (nothing recomputes):
@@ -58,6 +58,8 @@ class ComponentsWindow(QtWidgets.QDialog):
 
     #: The group as the device's Group knob reads it ("1-3, 5" or "all").
     groupChanged = QtCore.Signal(str)
+    #: "Fork derivative…": fork what the decomposition row shows (main_window asks what to take).
+    forkRequested = QtCore.Signal()
 
     def __init__(self, components, shares, *, eigenarrays=None, w_correlation=None,
                  group: str = "all", show: str = "recon", share_label: str = "share",
@@ -88,6 +90,12 @@ class ComponentsWindow(QtWidgets.QDialog):
         self._all_button.setToolTip("Group = every component (the whole reconstruction)")
         self._all_button.clicked.connect(self._on_all_clicked)
         top.addWidget(self._all_button)
+        self._fork_button = QtWidgets.QPushButton("Fork derivative…")
+        self._fork_button.setToolTip("Write what the layer shows (this group, the residual, a "
+                                     "component — or any of them as bands) as a dataset of its "
+                                     "own")
+        self._fork_button.clicked.connect(self.forkRequested)
+        top.addWidget(self._fork_button)
         layout.addLayout(top)
 
         self._hint = QtWidgets.QLabel()

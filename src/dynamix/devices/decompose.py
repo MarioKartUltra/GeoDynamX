@@ -250,7 +250,11 @@ class TuckerHavok:
         recon, residual, comps = out["recon"], out["residual"], out["components"]
         comb = out.get("combined_components", comps)
         comb_energy = out.get("combined_energy", out["component_energy"])
+        bands = {}
         if recon.ndim == 3:
+            # Every band of the recon / residual rides too, so a derivative can take any of them.
+            bands = {"tucker_recon_bands": np.asarray(recon, dtype=np.float64),
+                     "tucker_residual_bands": np.asarray(residual, dtype=np.float64)}
             recon, residual, comps = recon[..., 0], residual[..., 0], comps[..., 0]
             comb = comb[..., 0]
         recon = np.asarray(recon, dtype=np.float64)
@@ -262,7 +266,7 @@ class TuckerHavok:
             "tucker_components": np.asarray(comps, dtype=np.float64),
             "tucker_component_energy": np.asarray(out["component_energy"], dtype=np.float64),
             "tucker_combined_components": np.asarray(comb, dtype=np.float64),
-            "tucker_combined_energy": np.asarray(comb_energy, dtype=np.float64),
+            "tucker_combined_energy": np.asarray(comb_energy, dtype=np.float64), **bands,
         }, params)
 
     def view(self, result: dict, params: dict) -> dict:
@@ -296,3 +300,33 @@ class TuckerHavok:
         from dynamix.model.device import keyed_params
 
         return _k(self.name, source_id, keyed_params(self, params))
+
+
+#: tucker_havok's params by name -- the renamed tool reuses every one but the algorithm choice.
+_TUCKER_PARAMS = {p.name: p for p in TuckerHavok.params}
+
+
+class TuckerHOOIHOSVD(TuckerHavok):
+    """``tucker_havok`` renamed for what it computes (2026-09-23), with the algorithm as a
+    two-state toggle instead of a sweep count that meant HOSVD at 0: **HOSVD** -- one pass, each
+    mode's leading singular vectors -- or **HOOI** -- that HOSVD refined by ``sweeps``
+    alternating passes (monotone in the kept core energy). The delay embeddings make it a
+    Broomhead-King SSA (Tucker-SSA) in 2-D; HAVOK's regression on the delay coordinates was never
+    part of it. ``tucker_havok`` stays registered, unchanged, so saved projects resolve exactly
+    as before."""
+
+    name = "tucker_HOOI_HOSVD"
+    param_groups = {**TuckerHavok.param_groups, "METHOD": ("method", "sweeps")}
+    params = (
+        *(_TUCKER_PARAMS[n] for n in ("embed", "axis", "n_delays", "rank_delay", "rank_time",
+                                      "rank_space", "rank_band")),
+        Param("method", ParamKind.CHOICE, default="HOSVD", choices=("HOSVD", "HOOI"),
+              label="Method"),
+        Param("sweeps", ParamKind.INT, default=2, min=1, max=16, soft_min=1, soft_max=4,
+              label="HOOI sweeps", active_when=("method", ("HOOI",))),
+        *(_TUCKER_PARAMS[n] for n in ("show", "component", "pairs", "group")),
+    )
+
+    def compute(self, field, params: dict, *, progress=None) -> dict:
+        sweeps = int(params["sweeps"]) if params.get("method") == "HOOI" else 0
+        return super().compute(field, {**params, "sweeps": sweeps}, progress=progress)

@@ -26,8 +26,13 @@ _DEV_PREFIX = "stub_"
 
 #: Superseded devices (2026-09-19 split): still registered — saved projects name them and the
 #: never-delete rule holds — but the palette shows their per-method successors instead, so
-#: these join the stubs in the collapsed "Dev" category.
-_SUPERSEDED = ("holder_map", "band_recon")
+#: these join the stubs in the collapsed "Dev" category. tucker_havok (2026-09-23) is shown as
+#: tucker_HOOI_HOSVD, its algorithm a toggle.
+_SUPERSEDED = ("holder_map", "band_recon", "tucker_havok")
+
+#: Devices only the shell places (a derivative dataset's vector loader): never dropped by hand,
+#: so they sit in "Dev" too.
+_SHELL_PLACED = ("derived_vectors",)
 
 #: Item-data role holding the mime type a row's ``mimeData()`` should encode under. Unset (``None``)
 #: on the category headers -- that absence is what makes a header undraggable.
@@ -51,7 +56,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         self._categories = {name: QtWidgets.QTreeWidgetItem(self, [name])
                             for name in _CATEGORIES}
         for name, device in DEVICES.items():
-            if name.startswith(_DEV_PREFIX) or name in _SUPERSEDED:
+            if name.startswith(_DEV_PREFIX) or name in _SUPERSEDED or name in _SHELL_PLACED:
                 category = "Dev"
             else:
                 category = "Transforms" if is_transform(device) else "Filters"

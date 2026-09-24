@@ -1609,3 +1609,24 @@ def test_tuckers_component_stepper_only_applies_when_showing_a_component(qtbot):
     assert not box.controls["component"].isEnabled()
     box._on_control_changed("show", "component")
     assert box.controls["component"].isEnabled()
+
+
+def test_tucker_hooi_hosvds_method_is_a_toggle_button_and_sweeps_follow_it(qtbot):
+    """The algorithm is a two-state button that reads what it does (HOSVD / HOOI); the sweep
+    count only applies under HOOI."""
+    from PySide6 import QtCore
+
+    from dynamix.devices.decompose import TuckerHOOIHOSVD
+    from dynamix.model.device import defaults_for
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    dev = TuckerHOOIHOSVD()
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    method = box.controls["method"]
+    assert method.text() == "HOSVD" and not box.controls["sweeps"].isEnabled()
+    qtbot.mouseClick(method, QtCore.Qt.LeftButton)
+    assert box._params["method"] == "HOOI" and method.text() == "HOOI"
+    assert box.controls["sweeps"].isEnabled()
+    qtbot.mouseClick(method, QtCore.Qt.LeftButton)
+    assert box._params["method"] == "HOSVD" and not box.controls["sweeps"].isEnabled()

@@ -2,9 +2,10 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """ssa2d -- 2D singular-spectrum analysis (Golyandina & Usevich 2010) as a tool.
 
-The rotation-invariant sibling of ``tucker_havok``'s 2-D delay embedding: the same windows, but
-ONE SVD of the Hankel-block-Hankel matrix, so an eigenarray can be any ``L_r x L_c`` pattern
-(an oblique wave is one pair of components here, several separable pairs there). Displays the
+The rotation-invariant sibling of ``tucker_HOOI_HOSVD``'s 2-D delay embedding: the same
+windows, but ONE SVD of the Hankel-block-Hankel matrix, so an eigenarray can be any
+``L_r x L_c`` pattern (an oblique wave is one pair of components here, several separable pairs
+there). Displays the
 reconstruction, the residual or one elementary component. The Group knob is the paper's grouping
 step: the reconstruction is the sum of the chosen components (those the w-correlations show
 belong together), and the residual is the data minus that sum -- so removing just the first
@@ -62,8 +63,8 @@ class SSA2D:
 
         vals = _field_values(field, self.name)
         if vals.ndim != 2:
-            raise ValueError("ssa2d takes a single-band field -- use tucker_havok (band mode) "
-                             "or pca for a multi-band stack")
+            raise ValueError("ssa2d takes a single-band field -- use tucker_HOOI_HOSVD (band "
+                             "mode) or pca for a multi-band stack")
         out = ssa2d(vals, rows_window=int(params["rows_window"]),
                     cols_window=int(params["cols_window"]),
                     n_components=int(params["n_components"]), progress=progress)

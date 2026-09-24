@@ -223,6 +223,10 @@ class LayerPanel(QtWidgets.QTreeWidget):
     removeRoiRequested = QtCore.Signal(str)
     #: Delete with several rows selected: ``(layer_ids, roi_ids, source_ids)``, one confirmation.
     removeManyRequested = QtCore.Signal(list, list, list)
+    #: "Fork derivative dataset…" on a result row: the shell asks what to fork, then writes it.
+    forkDerivativeRequested = QtCore.Signal(int)
+    #: "Save derivative as…" on a TEMPORARY derivative's dataset row.
+    saveDerivativeRequested = QtCore.Signal(str)
 
     def __init__(self, project=None, parent=None):
         super().__init__(parent)
@@ -356,7 +360,11 @@ class LayerPanel(QtWidgets.QTreeWidget):
         stem = Path(source.path).stem if (source is not None and source.path) else ""
         if not stem:
             stem = getattr(field, "name", None) or source_id
-        item = QtWidgets.QTreeWidgetItem(self, [stem])
+        # A derivative dataset is named at the fork (its file name is only storage), and may
+        # nest inside the row of the dataset it came from (2026-09-23).
+        text = (getattr(source, "label", "") or stem) if source is not None else stem
+        nest = self._source_headers.get(getattr(source, "nest_under", None) or "")
+        item = QtWidgets.QTreeWidgetItem(nest if nest is not None else self, [text])
         # NOT spanned (this argument used to be ``True``): a header whose column 0
         # spans the whole row covers column 1, and an item widget put there would never be shown.
         # Un-spanning is what makes the inspector toggle below visible at all; the label in column
@@ -535,9 +543,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
                 # A dataset row still carrying its master is not empty -- it IS a layer row.
                 if (header in touched_headers and header.childCount() == 0
                         and header.data(0, _LAYER_ID_ROLE) is None):
-                    idx = self.indexOfTopLevelItem(header)
-                    if idx >= 0:
-                        self.takeTopLevelItem(idx)
+                    self._take_header(header)
                     del self._source_headers[source_id]
                     self._source_rows.pop(source_id, None)   # never leak a pruned header's row
                     self._masters.pop(source_id, None)
@@ -581,16 +587,55 @@ class LayerPanel(QtWidgets.QTreeWidget):
 
     def remove_source_row(self, source_id: str) -> None:
         """Drop a source HEADER row (the dataset-removal tail): the shell removes the layer
-        rows through :meth:`remove_rows` first, so this only takes the emptied group item."""
-        for i in range(self.topLevelItemCount()):
-            item = self.topLevelItem(i)
-            if item is not None and item.data(0, _SOURCE_ID_ROLE) == source_id:
-                self.takeTopLevelItem(i)
-                self._source_headers.pop(source_id, None)
-                self._source_rows.pop(source_id, None)
-                self._masters.pop(source_id, None)
-                self._forget_roi_rows_of(item)
-                return
+        rows through :meth:`remove_rows` first, so this only takes the emptied group item.
+        A derivative dataset nested inside it is lifted to the top level first -- it is a
+        dataset of its own and outlives the one it came from."""
+        item = self._source_headers.get(source_id)
+        if item is None:
+            return
+        nested = [str(c.data(0, _SOURCE_ID_ROLE))
+                  for c in (item.child(i) for i in range(item.childCount()))
+                  if c.data(0, _SOURCE_ID_ROLE) is not None]
+        for nested_id in nested:
+            self._lift_dataset(nested_id)
+        self._take_header(item)
+        self._source_headers.pop(source_id, None)
+        self._source_rows.pop(source_id, None)
+        self._masters.pop(source_id, None)
+        self._forget_roi_rows_of(item)
+
+    def _take_header(self, header) -> None:
+        """Take a dataset row out of the tree, top-level or nested."""
+        parent = header.parent()
+        if parent is not None:
+            parent.removeChild(header)
+        else:
+            idx = self.indexOfTopLevelItem(header)
+            if idx >= 0:
+                self.takeTopLevelItem(idx)
+
+    def _lift_dataset(self, source_id: str) -> None:
+        """A nested dataset row moves to the top level: its dataset outlives the one it sat in.
+        ``nest_under`` is display state (like ``collapsed``), cleared here. The rows are
+        REBUILT, never moved -- Qt deletes an item's row widgets when it leaves the tree -- the
+        way "Delete layer" re-nests rows."""
+        source = self._project.sources.get(source_id) if self._project is not None else None
+        if source is not None:
+            source.nest_under = None
+        layers = ([l for l in self._project.layers if l.source_id == source_id]
+                  if self._project is not None else [])
+        current = self.current_layer_id()
+        self.blockSignals(True)
+        try:
+            self.remove_rows([l.layer_id for l in layers])
+            self.remove_source_row(source_id)
+            for layer in layers:
+                self.add_layer_row(layer, None)
+            self.sync_roi_rows()
+            if current is not None and current in self._layer_items:
+                self.select_layer(current)
+        finally:
+            self.blockSignals(False)
 
     def _forget_roi_rows_of(self, header) -> None:
         for roi_id in [rid for rid, it in self._roi_items.items() if it.parent() is header]:
@@ -774,6 +819,22 @@ class LayerPanel(QtWidgets.QTreeWidget):
         remove_action.triggered.connect(lambda: self.removeRequested.emit(layer_id))
         refined_action = menu.addAction("New refined run")
         refined_action.triggered.connect(lambda: self.refinedRunRequested.emit(layer_id))
+        # A DERIVATIVE dataset (2026-09-23): what this result shows, written once as a dataset of
+        # its own -- unlike a child, it never re-processes.
+        fork_action = menu.addAction("Fork derivative dataset…")
+        fork_action.triggered.connect(lambda: self.forkDerivativeRequested.emit(layer_id))
+        return menu
+
+    def _build_source_context_menu(self, source_id: str) -> QtWidgets.QMenu:
+        """A dataset row's menu: "Remove dataset" (the shell owns the confirmation and cascade),
+        preceded by "Save derivative as…" on a TEMPORARY derivative."""
+        menu = QtWidgets.QMenu(self)
+        source = self._project.sources.get(source_id) if self._project is not None else None
+        if source is not None and source.temporary:
+            save_action = menu.addAction("Save derivative as…")
+            save_action.triggered.connect(lambda: self.saveDerivativeRequested.emit(source_id))
+        remove_src = menu.addAction("Remove dataset")
+        remove_src.triggered.connect(lambda: self.removeSourceRequested.emit(source_id))
         return menu
 
     def _build_roi_context_menu(self, roi_id: str) -> QtWidgets.QMenu:
@@ -799,11 +860,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
             source_id = item.data(0, _SOURCE_ID_ROLE)
             if source_id is None:
                 return
-            menu = QtWidgets.QMenu(self)
-            remove_src = menu.addAction("Remove dataset")
-            remove_src.triggered.connect(
-                lambda: self.removeSourceRequested.emit(str(source_id)))
-            menu.exec(self.viewport().mapToGlobal(pos))
+            self._build_source_context_menu(str(source_id)).exec(
+                self.viewport().mapToGlobal(pos))
             return
         menu = self._build_context_menu(item, int(layer_id))
         menu.exec(self.viewport().mapToGlobal(pos))

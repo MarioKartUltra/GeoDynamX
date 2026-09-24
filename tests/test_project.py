@@ -450,3 +450,33 @@ def test_a_saved_roi_names_its_source_and_old_payloads_load_without_one(_registr
     legacy = r.to_payload()
     del legacy["source_id"]
     assert RoiRecord.from_payload(legacy).source_id is None
+
+
+def test_derivative_flags_round_trip_and_default_off():
+    """A derivative dataset may be TEMPORARY (this session only) and may show nested inside the
+    dataset it came from; both additive, so older payloads load with neither."""
+    from dynamix.model.project import SourceRef
+
+    s = SourceRef(source_id="s0", path="/d.npz", temporary=True, nest_under="s9")
+    back = SourceRef.from_payload(s.to_payload())
+    assert back.temporary is True and back.nest_under == "s9"
+    old = SourceRef.from_payload({"source_id": "s0", "path": "/x.tif"})
+    assert old.temporary is False and old.nest_under is None
+
+
+def test_a_saved_project_leaves_temporary_datasets_out(_registry):
+    p = Project()
+    keep = p.add_source("/data/a.tif")
+    temp = p.add_source("/tmp/derived.npz")
+    temp.temporary = True
+    p.add_layer("a", keep.source_id)
+    d = p.add_layer("derived", temp.source_id)
+    p.add_layer("derived child", temp.source_id, parent_id=d.layer_id)
+    p.add_roi(0, 0, 4, 4, source_id=temp.source_id)
+    p.add_roi(1, 1, 4, 4, source_id=keep.source_id)
+    payload = p.to_payload()
+    assert [s["source_id"] for s in payload["sources"]] == [keep.source_id]
+    assert [l["name"] for l in payload["layers"]] == ["a"]
+    assert [r["source_id"] for r in payload["rois"]] == [keep.source_id]
+    assert temp.source_id in p.sources and len(p.layers) == 3      # the live project is intact
+    assert p.temporary_sources() == [temp]
