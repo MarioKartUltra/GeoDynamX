@@ -1630,3 +1630,26 @@ def test_tucker_hooi_hosvds_method_is_a_toggle_button_and_sweeps_follow_it(qtbot
     assert box.controls["sweeps"].isEnabled()
     qtbot.mouseClick(method, QtCore.Qt.LeftButton)
     assert box._params["method"] == "HOSVD" and not box.controls["sweeps"].isEnabled()
+
+
+def test_the_q_width_knobs_follow_the_wavelet_and_the_pairing(qtbot):
+    """active_when with SEVERAL conditions (all must hold): the width value applies only to the
+    tool's q-kernel AND only while the width is fixed; the fixed / q-paired button only to the
+    q-kernel."""
+    from PySide6 import QtCore
+
+    from dynamix.devices.holder_methods import HolderMeasure
+    from dynamix.model.device import defaults_for
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    dev = HolderMeasure()
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    assert not box.controls["q_pairing"].isEnabled() and not box.controls["q_beta"].isEnabled()
+    box._on_control_changed("wavelet", "q_gaussian")
+    assert box.controls["q_pairing"].isEnabled() and box.controls["q_beta"].isEnabled()
+    assert box.controls["q_pairing"].text() == "fixed"
+    qtbot.mouseClick(box.controls["q_pairing"], QtCore.Qt.LeftButton)
+    assert box._params["q_pairing"] == "q-paired" and not box.controls["q_beta"].isEnabled()
+    box._on_control_changed("wavelet", "gaussian")
+    assert not box.controls["q_pairing"].isEnabled()

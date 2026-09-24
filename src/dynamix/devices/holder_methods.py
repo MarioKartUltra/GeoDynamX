@@ -55,7 +55,8 @@ def method_arrays(vals, method: str, params: dict, progress=None):
     scales = np.geomspace(params["r_min"], params["r_min"] * params["kappa"],
                           int(params["n_scales"]))
     kw = dict(wavelet=params["wavelet"], beta=params["beta"],
-              q_tsallis=params["q_tsallis"], frac_n=params["frac_n"])
+              q_tsallis=params["q_tsallis"], frac_n=params["frac_n"],
+              q_beta=q_width(method, params))
     if progress is not None:
         progress("holder projections", 0.0)
     # Projections are the slow part: reported per scale, over 0..70 %.
@@ -91,6 +92,30 @@ def method_arrays(vals, method: str, params: dict, progress=None):
     return h_map, r2_map, scales
 
 
+def q_width(method: str, params: dict) -> "float | None":
+    """The width beta the q-family kernel runs with (None for every other kernel): the knob's
+    value when fixed, ``microcanonical.paired_q_beta(q)`` when q-paired."""
+    q_family = {"measure": "q_gaussian", "multiaffine": "q_mexican"}[method]
+    if params.get("wavelet") != q_family:
+        return None
+    if params.get("q_pairing", "fixed") == "q-paired":
+        from dynamix.core.microcanonical import paired_q_beta
+
+        return paired_q_beta(float(params["q_tsallis"]))
+    return float(params.get("q_beta", 0.5))
+
+
+def q_width_check(method: str, params: dict) -> None:
+    """A q-paired width needs q < 2 (the 2-D escort variance it holds at one is infinite from
+    q = 2); the q-Mexican hat's own knob already stops at 1.95."""
+    q_family = {"measure": "q_gaussian", "multiaffine": "q_mexican"}[method]
+    if (params.get("wavelet") == q_family and params.get("q_pairing") == "q-paired"
+            and float(params.get("q_tsallis", 1.5)) >= 2.0):
+        raise ValueError(f"a q-paired width needs q < 2 (got q = {params['q_tsallis']}): the "
+                         "escort variance it holds at one is infinite from q = 2 -- use a fixed "
+                         "width there")
+
+
 #: The margin a Hölder estimate needs around an ROI is the
 #: reach of its LARGEST kernel -- the radius holding all but ``_REACH_TOL`` of the kernel's 2-D
 #: |mass| (the convolution error an ROI pixel can pick up from outside the margin), capped at
@@ -104,7 +129,7 @@ _REACH_CAP = 32
 
 @functools.lru_cache(maxsize=128)
 def _kernel_reach(method: str, wavelet: str, r: float, beta: float, q_tsallis: float,
-                  frac_n: float) -> int:
+                  frac_n: float, q_beta: "float | None" = None) -> int:
     import numpy as np
 
     from dynamix.core import microcanonical as mc
@@ -113,7 +138,8 @@ def _kernel_reach(method: str, wavelet: str, r: float, beta: float, q_tsallis: f
     n = 2 * L + 1
     delta = np.zeros((n, n))
     delta[L, L] = 1.0
-    kw = dict(wavelet=wavelet, beta=beta, q_tsallis=q_tsallis, frac_n=frac_n, pad=0)
+    kw = dict(wavelet=wavelet, beta=beta, q_tsallis=q_tsallis, frac_n=frac_n, pad=0,
+              q_beta=q_beta)
     if method == "measure":
         K = np.abs(mc.measure_projections(delta, [r], **kw)[0])
     else:
@@ -132,7 +158,8 @@ def holder_roi_margin(method: str, params: dict) -> int:
     (r_max = r_min * kappa) plus the 1-px gradient stencil of the measure route."""
     r_max = float(params["r_min"]) * float(params["kappa"])
     reach = _kernel_reach(method, str(params["wavelet"]), r_max, float(params["beta"]),
-                          float(params["q_tsallis"]), float(params.get("frac_n", 2.0)))
+                          float(params["q_tsallis"]), float(params.get("frac_n", 2.0)),
+                          q_width(method, params))
     return reach + (1 if method == "measure" else 0)
 
 
@@ -178,6 +205,22 @@ _MULTIAFFINE_KNOBS = (dataclasses.replace(_FAMILY_KNOBS[0], max=1.95, soft_max=1
     + _FAMILY_KNOBS[1:]
 
 
+def _width_knobs(q_wavelet: str) -> tuple:
+    """The q-family width beta of Borges et al. 2004's ``e_q^(-beta x^2)``: FIXED (default 1/2 --
+    sigma = r at q = 1 for the q-Gaussian, the zero crossing at r at q = 1 for the q-Mexican
+    hat) or Q-PAIRED, ``beta(q) = 1/(2(2 - q))``: the escort (q-)variance held at one per
+    component, the 2-D form of the paper's ``1/(3 - q)``, which also pins the q-Mexican hat's
+    zero crossing at r for every q (its classic calibration). Both agree at q = 1. Greyed out
+    unless the tool's q-kernel is chosen; the value knob also while paired."""
+    return (
+        Param("q_pairing", ParamKind.CHOICE, default="fixed", choices=("fixed", "q-paired"),
+              label="q width", active_when=("wavelet", (q_wavelet,))),
+        Param("q_beta", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1,
+              soft_max=2.0, units="", label="q β",
+              active_when=(("wavelet", (q_wavelet,)), ("q_pairing", ("fixed",)))),
+    )
+
+
 def q_warning(method: str, name: str, value, params: "dict | None") -> "str | None":
     """The q knob's live line (the ``derived_reading`` hook): empty while q is inside the chosen
     kernel's clean range -- empty, not None, so the label exists and can light up later -- and a
@@ -215,7 +258,10 @@ class HolderMeasure:
         Param("wavelet", ParamKind.CHOICE, default="gaussian",
               choices=("gaussian", "q_gaussian", "lorentzian", "frac_gaussian"),
               label="Wavelet"),
-    ) + _FAMILY_KNOBS
+    ) + _FAMILY_KNOBS + _width_knobs("q_gaussian")
+
+    def check(self, params: dict) -> None:
+        q_width_check("measure", params)
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "measure", field, params, progress)
@@ -245,7 +291,10 @@ class HolderMultiaffine:
         Param("wavelet", ParamKind.CHOICE, default="g2",
               choices=("g1", "g2", "g3", "q_mexican", "lorentzian_marr", "frac_gaussian"),
               label="Wavelet"),
-    ) + _MULTIAFFINE_KNOBS
+    ) + _MULTIAFFINE_KNOBS + _width_knobs("q_mexican")
+
+    def check(self, params: dict) -> None:
+        q_width_check("multiaffine", params)
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "multiaffine", field, params, progress)

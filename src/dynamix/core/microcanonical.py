@@ -87,6 +87,29 @@ def _borges_q(q: float) -> float:
                          "vanishes identically; above 2 it never changes sign)")
     return 1.0 / (2.0 - q)
 
+
+def paired_q_beta(q: float) -> float:
+    """The q-paired width of the q-family in 2-D: ``beta(q) = 1/(2(2 - q))``.
+
+    Borges et al. 2004's ``beta = 1/(3 - q)`` (end of their section 2) holds the escort
+    (q-)variance of ``e_q^(-beta x^2)`` at one: in d dimensions that variance is
+    ``1/(beta(d + 2 - d q))`` per component, so the pairing is ``1/(d + 2 - d q)`` --
+    ``1/(3 - q)`` in 1-D, ``1/(2(2 - q))`` in 2-D. It also pins the q-Mexican hat's zero
+    crossing (which sits at the escort RMS radius), equals the fixed default 1/2 at q = 1, and
+    exists exactly where the 2-D q-Mexican hat is admissible (q < 2)."""
+    if q >= 2.0:
+        raise ValueError(f"q_tsallis={q}: the q-paired width needs q < 2 (the 2-D escort "
+                         "variance is infinite from q = 2)")
+    return 1.0 / (2.0 * (2.0 - q))
+
+
+def _q_mexican_stretch(q: float, q_beta: "float | None") -> float:
+    """The q-Mexican hat's radial stretch for width ``q_beta`` in the scale convention where r
+    is the zero crossing at q = 1, beta = 1/2: ``u -> 2 beta (2 - q) u``. 1 (today's kernel,
+    zero crossing at r for every q) when ``q_beta`` is None or the paired width."""
+    return 1.0 if q_beta is None else 2.0 * float(q_beta) * (2.0 - float(q))
+
+
 _FRAC_U0_CACHE: dict = {}
 
 
@@ -159,10 +182,13 @@ def gradient_measure(signal: np.ndarray) -> np.ndarray:
 
 
 def _radial_kernel(shape: tuple, r: float, wavelet: str, beta: float,
-                   q_tsallis: float, frac_n: float = 2.0) -> np.ndarray:
+                   q_tsallis: float, frac_n: float = 2.0,
+                   q_beta: "float | None" = None) -> np.ndarray:
     """Positive unit-mass radial kernel at scale ``r`` px, wrap-centered for FFT convolution.
     Unit DISCRETE mass, so the projection is a local average of the measure and
-    ``T ~ r^h(x)`` directly (the 1/r^d normalization is absorbed, as in the prototype)."""
+    ``T ~ r^h(x)`` directly (the 1/r^d normalization is absorbed, as in the prototype).
+    ``q_beta`` is the q-Gaussian's width ``e_q^(-q_beta rho^2/r^2)``; None is 1/2 (sigma = r
+    at q = 1), the kernel as it always was."""
     ny, nx = shape
     y = np.arange(ny, dtype=np.float64) - ny // 2
     x = np.arange(nx, dtype=np.float64) - nx // 2
@@ -172,12 +198,13 @@ def _radial_kernel(shape: tuple, r: float, wavelet: str, beta: float,
     elif wavelet == "lorentzian":
         k = (1.0 + rho2) ** (-beta)
     elif wavelet == "q_gaussian":
+        b = 0.5 if q_beta is None else float(q_beta)
         if q_tsallis == 1.0:
-            k = np.exp(-0.5 * rho2)
+            k = np.exp(-b * rho2)
         else:
             # Tsallis's [.]_+: below q = 1 the kernel is compactly supported, radius
-            # r sqrt(2/(1-q)) -- q = 0 the Epanechnikov paraboloid, q = -1 a half-dome.
-            base = np.clip(1.0 + 0.5 * (q_tsallis - 1.0) * rho2, 0.0, None)
+            # r / sqrt(b (1-q)) -- q = 0 the Epanechnikov paraboloid, q = -1 a half-dome.
+            base = np.clip(1.0 + b * (q_tsallis - 1.0) * rho2, 0.0, None)
             k = base ** (-1.0 / (q_tsallis - 1.0))
     elif wavelet == "frac_gaussian":
         # 2026-09-19 split: the measure route's fractional Gaussian fractionalizes the
@@ -205,15 +232,18 @@ _SUPPORT_CAP = 32                       # heavy tails never converge: reach <= 3
 
 @functools.lru_cache(maxsize=256)
 def _support_reach(route: str, wavelet: str, r: float, beta: float, q_tsallis: float,
-                   frac_n: float) -> float:
+                   frac_n: float, q_beta: "float | None" = None) -> float:
     L = int(min(np.ceil(_SUPPORT_CAP * r) + 4, 1024))
     n = 2 * L + 1
     y = np.arange(n, dtype=np.float64) - L
     rho2 = y[:, None] ** 2 + y[None, :] ** 2
     if route == "measure":
-        k = np.fft.fftshift(_radial_kernel((n, n), r, wavelet, beta, q_tsallis, frac_n))
+        k = np.fft.fftshift(_radial_kernel((n, n), r, wavelet, beta, q_tsallis, frac_n,
+                                           q_beta=q_beta))
     else:
+        stretch = 1.0
         if wavelet == "q_mexican":
+            stretch = _q_mexican_stretch(q_tsallis, q_beta)
             wavelet, q_tsallis = "q_gaussian", _borges_q(q_tsallis)
         alias = _MARR_ALIASES.get(wavelet)
         fn = frac_n
@@ -222,7 +252,7 @@ def _support_reach(route: str, wavelet: str, r: float, beta: float, q_tsallis: f
         elif alias is not None:
             wavelet = alias
         u0 = _frac_u0(fn) if wavelet == "frac_gaussian" else None
-        k = _marr_kernel(rho2, r, wavelet, beta, q_tsallis, fn, u0)
+        k = _marr_kernel(rho2, r, wavelet, beta, q_tsallis, fn, u0, stretch=stretch)
     mass = np.abs(k).ravel()
     rho = np.sqrt(rho2).ravel()
     order = np.argsort(rho)
@@ -231,7 +261,8 @@ def _support_reach(route: str, wavelet: str, r: float, beta: float, q_tsallis: f
     return float(rho[order][min(idx, rho.size - 1)])
 
 
-def _zero_unsupported(T, supported, scales, route, wavelet, beta, q_tsallis, frac_n):
+def _zero_unsupported(T, supported, scales, route, wavelet, beta, q_tsallis, frac_n,
+                      q_beta=None):
     """Set T to exactly 0 wherever no supported pixel lies within the scale's reach."""
     from scipy.ndimage import distance_transform_edt
 
@@ -243,14 +274,15 @@ def _zero_unsupported(T, supported, scales, route, wavelet, beta, q_tsallis, fra
     d = distance_transform_edt(~supported)
     for i, r in enumerate(np.asarray(scales, dtype=np.float64)):
         reach = _support_reach(route, str(wavelet), float(r), float(beta), float(q_tsallis),
-                               float(frac_n))
+                               float(frac_n), None if q_beta is None else float(q_beta))
         T[i][d > reach] = 0.0
     return T
 
 
 def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian",
                         beta: float = 1.0, q_tsallis: float = 1.5, frac_n: float = 2.0,
-                        pad: "int | None" = None, progress=None) -> np.ndarray:
+                        pad: "int | None" = None, progress=None,
+                        q_beta: "float | None" = None) -> np.ndarray:
     """``T(x, r)`` -- the measure convolved with the positive kernel at each scale (px).
 
     Returns ``(n_scales, ny, nx)`` float64. ``pad`` defaults to twice the largest scale
@@ -266,26 +298,29 @@ def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian
     F = _fft().fft2(mup)
     T = np.empty((len(scales), ny, nx), dtype=np.float64)
     for i, r in enumerate(scales):
-        Kf = _fft().fft2(_radial_kernel(mup.shape, r, wavelet, beta, q_tsallis, frac_n))
+        Kf = _fft().fft2(_radial_kernel(mup.shape, r, wavelet, beta, q_tsallis, frac_n,
+                                        q_beta=q_beta))
         conv = np.real(_fft().ifft2(F * Kf))
         T[i] = conv[pad:pad + ny, pad:pad + nx]
         if progress is not None:
             progress("holder projections", (i + 1) / len(scales))
-    return _zero_unsupported(T, mu > 0, scales, "measure", wavelet, beta, q_tsallis, frac_n)
+    return _zero_unsupported(T, mu > 0, scales, "measure", wavelet, beta, q_tsallis, frac_n,
+                             q_beta)
 
 
-def _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0):
+def _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0, stretch=1.0):
     """The multiaffine route's zero-crossing-at-r kernel on the squared-radius grid ``rho2``
     (before the zero-mean / L1 normalisation) -- extracted verbatim from
     :func:`ricker_projections` (2026-09-22) so :func:`_support_reach` measures the SAME
-    kernel the projections use."""
+    kernel the projections use. ``stretch`` scales the q-Gaussian branch's ``u`` (the
+    q-Mexican hat's width, :func:`_q_mexican_stretch`); 1 is the kernel as it always was."""
     if wavelet == "gaussian":
         sigma2 = float(r) ** 2 / 2.0                 # zero crossing at rho = r
         k = (1.0 - rho2 / (2.0 * sigma2)) * np.exp(-rho2 / (2.0 * sigma2))
     elif wavelet == "q_gaussian":
         q = float(q_tsallis)
         sigma2 = float(r) ** 2 / 2.0                 # same crossing: the a*m = 1/2 identity
-        u = rho2 / (2.0 * sigma2)
+        u = rho2 / (2.0 * sigma2) * float(stretch)
         if q == 1.0:
             k = (1.0 - u) * np.exp(-u)
         else:
@@ -315,7 +350,8 @@ def _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0):
 
 def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
                        beta: float = 1.0, q_tsallis: float = 1.5, frac_n: float = 2.0,
-                       pad: "int | None" = None, progress=None) -> np.ndarray:
+                       pad: "int | None" = None, progress=None,
+                       q_beta: "float | None" = None) -> np.ndarray:
     """``|T_psi s(x, r)|`` -- the MULTIAFFINE functional (Turiel 2008 SS4.2.1): the signal
     convolved with a zero-mean 2D 2nd-order ("Mexican-hat") wavelet, absolute value taken.
     The per-pixel log-log slope of the result is the multiaffine Holder exponent gamma(x)
@@ -368,9 +404,16 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
     crossings) reads simply ``r_min = 1``. The reference's typical fit range is
     ``r_1 = 1, kappa = r_2/r_1 = 10``. Kernels are exactly zero-mean on the discrete grid and
     L1-normalized, so prefactors are scale-consistent and slopes untouched.
+
+    ``q_beta`` (``"q_mexican"`` only) is the Borges width: None -- or the paired
+    :func:`paired_q_beta` -- is the kernel as it always was, the zero crossing at r for every q;
+    a fixed width keeps r the zero crossing at q = 1, beta = 1/2 and lets it drift with q
+    (``r / sqrt(2 beta (2 - q))``).
     """
     wavelet_arg, frac_n_arg, q_arg = wavelet, frac_n, q_tsallis
+    stretch = 1.0
     if wavelet == "q_mexican":
+        stretch = _q_mexican_stretch(q_tsallis, q_beta)
         wavelet, q_tsallis = "q_gaussian", _borges_q(q_tsallis)
     alias = _MARR_ALIASES.get(wavelet)
     if isinstance(alias, tuple):
@@ -392,7 +435,7 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
     rho2 = y[:, None] ** 2 + x[None, :] ** 2
     T = np.empty((len(scales), ny, nx), dtype=np.float64)
     for i, r in enumerate(scales):
-        k = _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0)
+        k = _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0, stretch=stretch)
         k -= k.mean()                                    # exactly zero-mean on the grid
         k /= np.abs(k).sum()
         Kf = _fft().fft2(np.fft.ifftshift(k))
@@ -402,7 +445,7 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
             progress("holder projections", (i + 1) / len(scales))
     gy, gx = np.gradient(s)
     return _zero_unsupported(T, np.hypot(gx, gy) > 0, scales, "marr", wavelet_arg, beta,
-                             q_arg, frac_n_arg)
+                             q_arg, frac_n_arg, q_beta)
 
 
 def relative_scale(r_px: float, shape: tuple) -> float:

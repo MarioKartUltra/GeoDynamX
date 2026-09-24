@@ -59,7 +59,8 @@ class Param:
     view: bool = False
     #: ``(other_param, allowed_values)``: this knob only APPLIES while ``other_param`` holds one of
     #: ``allowed_values`` -- the knob panel greys it out otherwise (it is still validated, stored
-    #: and keyed as before). ``None`` = always applies.
+    #: and keyed as before). ``None`` = always applies. Several conditions that must ALL hold
+    #: are a tuple of such pairs: ``(("wavelet", ("q_gaussian",)), ("q_pairing", ("fixed",)))``.
     active_when: tuple | None = None
 
     def __post_init__(self):

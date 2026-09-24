@@ -499,8 +499,9 @@ class DeviceBox(QtWidgets.QFrame):
             control = self.controls.get(p.name)
             if cond is None or control is None:
                 continue
-            other, allowed = cond
-            control.setEnabled(self._params.get(other) in allowed)
+            conds = (cond,) if isinstance(cond[0], str) else cond     # one pair, or several
+            control.setEnabled(all(self._params.get(other) in allowed
+                                   for other, allowed in conds))
 
     @property
     def step_index(self) -> int:

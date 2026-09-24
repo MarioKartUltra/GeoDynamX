@@ -536,6 +536,31 @@ the family of Laplacians of q-Gaussians under a relabelled index: \texttt{q\_mex
 equals \texttt{lorentzian\_marr} at $\beta=(2-q)/(q-1)$ for $1<q<2$ (e.g.\ $q=1.5\equiv\beta=1$),
 with tail $\rho^{-2/(q-1)}$ and truncation $\gamma\ge2(2-q)/(q-1)$.
 
+\textbf{The q width $\beta$} (both q-kernels) is the $\beta$ of $e_q^{-\beta x^2}$, a toggle away
+from the paper's two choices.
+\begin{itemize}\itemsep2pt
+  \item \textbf{Fixed} (default $\beta=\tfrac12$): the unit-variance Gaussian per component at
+        $q=1$, in any dimension. The scale $r$ keeps its meaning at $q=1$: $\sigma=r$ for the
+        q-Gaussian, the zero crossing at $r$ for the q-Mexican hat. At other $q$ the q-Mexican
+        hat's zero crossing drifts to $r/\sqrt{2\beta(2-q)}$.
+  \item \textbf{q-paired}: Borges et al.'s $\beta=1/(3-q)$ holds the q-Gaussian's
+        \emph{escort} (q-)variance $\int x^2[e_q]^q/\int[e_q]^q$ at one. In $d$ dimensions that
+        variance is $1/(\beta(d+2-dq))$ per component, so the pairing is $\beta=1/(d+2-dq)$:
+        $1/(3-q)$ in 1-D and $\beta(q)=1/(2(2-q))$ here.
+  \item The q-Mexican hat's zero crossing sits exactly at that escort RMS radius, so the
+        pairing also pins it (at $r$, for every $q$: the tool's classic calibration). The two
+        settings agree at $q=1$.
+  \item The pairing exists exactly where the 2-D q-Mexican hat is admissible, $q<2$: the
+        escort variance and the zero mean both need $d+2-dq>0$. A q-paired q-Gaussian
+        therefore refuses $q\ge2$.
+  \item The normalisation is still done numerically at every scale, so the paper's
+        closed-form constants are not used. (In 2-D they happen to be elementary:
+        $A_q=\sqrt{\beta(3-q)(1+q)/\pi}$ for the q-Mexican hat,
+        $B_q=\sqrt{\beta(3-q)/\pi}$ for the modulated q-Gaussian. The flat Jacobian
+        $\rho\,d\rho=du/2\beta$ turns every integral into a Beta function with integer
+        arguments, where 1-D keeps $\Gamma(\tfrac12)$-type ratios.)
+\end{itemize}
+
 \begin{figure}[h]
 \centering\includegraphics[width=\textwidth]{q_family.pdf}
 \caption{The q family. Left: \dev{holder\_measure}'s positive q-Gaussian, $-1\le q\le3$
@@ -564,6 +589,8 @@ across the two tools, and $\gamma$ values are not comparable across wavelets.}
 \texttt{q\_tsallis} (Tsallis $q$, $q_T$) & 1.5 & $[-1,3]$ / $[-1,1.95]$ & q-family shape, measure / multiaffine (q\_gaussian / q\_mexican only); warns at measure $q\ge2$, multiaffine $q<0$ \\
 \texttt{beta} ($\beta$) & 1.0 & $[0.1,8]$ & Lorentzian tail exponent (Lorentzian family only) \\
 \texttt{frac\_n} ($n$) & 2.0 & $[0.05,8]$ & fractional order (frac\_gaussian only) \\
+\texttt{q\_pairing} (q width) & fixed & fixed / q-paired & the q-kernel's width $\beta$: fixed, or $\beta(q)=1/(2(2-q))$ (below); greyed out unless q\_gaussian / q\_mexican \\
+\texttt{q\_beta} (q $\beta$) & 0.5 & $[0.05,5]$ & the fixed width of $e_q^{-\beta\rho^2/r^2}$ (greyed out while q-paired) \\
 \bottomrule
 \end{longtable}
 
@@ -682,7 +709,10 @@ wavelet or the sinc function.''
         ($\psi=\partial\theta$), so that maxima mark edges: the q versions are
         $\partial\theta_q$ with $\theta_q$ a q-Gaussian (\texttt{g1}) or its Mexican-hat
         (\texttt{g3}) --- the same power-$(2-q)$ recipe keeps closed forms, and the $L^1$
-        normalization is unchanged ($\hat\theta_q(0)=1$).
+        normalization is unchanged ($\hat\theta_q(0)=1$). The filters are built in the Fourier
+        domain, so they need the \emph{2-D} transform of the q-Gaussian (a Hankel transform:
+        $K_\mu$ for $1<q<2$, $J$ below $q=1$, with the Bessel order $1/(q-1)-d/2$ one half lower
+        than the paper's 1-D order), and they exist only for $q<2$.
   \item \textbf{q-Morlet} and the \textbf{q-trigonometric} pair (oriented/directional
         analysis).
   \item \textbf{q-Meyer} and \textbf{q-sinc}, as the paper suggests.
