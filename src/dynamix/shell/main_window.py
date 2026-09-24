@@ -68,7 +68,8 @@ from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overvi
 from dynamix.geo.mapping import has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
-from dynamix.model.device import defaults_for, get_device, is_transform, validate_params
+from dynamix.model.device import (defaults_for, get_device, is_transform, keyed_params,
+                                  validate_params)
 from dynamix.model.inspector_state import (InspectorState, SubLayerState,
                                            inspectors_from_payload, inspectors_to_payload)
 from dynamix.model.param import Param, ParamKind
@@ -960,6 +961,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # resolve, no polling.
         self.layer_list.inspectorToggled.connect(self._on_inspector_toggled)
         self.layer_list.sourceHideToggled.connect(self._on_source_hide_toggled)
+        # Saved ROIs are rows of their dataset (2026-09-23): selecting one makes it the region
+        # the next tool runs on; its H hides only its outline.
+        self.layer_list.roiSelected.connect(self._on_roi_row_selected)
+        self.layer_list.roiHideToggled.connect(self._on_roi_hide_toggled)
+        # The two deletes, ROI delete and several rows at once.
+        self.layer_list.removeLayerOnlyRequested.connect(self._on_remove_layer_only_requested)
+        self.layer_list.removeRoiRequested.connect(self._on_remove_roi_requested)
+        self.layer_list.removeManyRequested.connect(self._on_remove_many_requested)
         self.resolved.connect(self._fan_out_to_inspectors)
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self._left_split.addWidget(self.browser)
@@ -975,11 +984,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Saved ROIs; the active one is what a tool drop runs on.
         self._active_roi_id = None
         self._roi_scene_memo: dict = {}      # layer_id -> (result, roi field, scene result)
+        # Canvas overlay deferred while the Vector view was up (_apply / flip-back). Set here
+        # too: a fresh window flipping back before any landing used to raise AttributeError.
+        self._canvas_overlay_dirty = False
         self.roi_panel.saveRequested.connect(self._on_roi_save)
         self.roi_panel.roiActivated.connect(self._on_roi_activated)
         self.roi_panel.childRequested.connect(self._on_roi_child_create)
         self.roi_panel.placeRequested.connect(self._on_roi_place_arm)
         self.roi_panel.valuesEdited.connect(self._on_roi_values_edited)
+        self.roi_panel.closeRequested.connect(self._on_roi_panel_closed)
         # The per-layer display controls (EQSelect matrix: "layer display controls —
         # cheap table stakes") that used to live here as ``display_row`` moved into the right
         # panel's Display section -- see ``self.right_panel`` below. The left column is now Open,
@@ -2136,7 +2149,7 @@ off / z from this layer's own values / z from another loaded
             y_axis=np.asarray(self.field.y_axis)[::s],
             name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})")
         self.canvas.set_field(derived)
-        self._apply_raster_visibility()
+        self._apply_raster_visibility(showing_product=True)
         self._holder_raster_ref = None
         # Vector view live too (center_view="vector" is a persisted
         # default, and the raster canvas is HIDDEN behind that tab):
@@ -2711,7 +2724,7 @@ both ``Canvas`` signals report the
                         name=f"{self.layer.name}")
                 self._derived_fields[self.layer.layer_id] = derived
                 self.canvas.set_field(derived)
-                self._apply_raster_visibility()
+                self._apply_raster_visibility(showing_product=True)
                 self.canvas.clear_overlays()
                 self.canvas.set_pick_chains(None)
                 self._holder_raster_ref = (id(h_map), h_map)
@@ -2724,10 +2737,21 @@ both ``Canvas`` signals report the
                     pp = result.get("params", {})
                     if "h_lo" in pp:
                         note = f"recon[{pp.get('h_lo', 0):g},{pp.get('h_hi', 0):g})"
-                    elif "component" in pp:
-                        note = f"PC{int(pp.get('component', 1))}"
+                    elif pp.get("show") == "component":
+                        # A decomposition component: its index (clipped as the view clips it)
+                        # and its share of the core energy.
+                        combined = pp.get("pairs") == "combined"
+                        shares = result.get("tucker_combined_energy" if combined
+                                            else "tucker_component_energy")
+                        n = len(shares) if shares is not None else 1
+                        k = min(max(int(pp.get("component", 1)), 1), max(n, 1))
+                        tail = ", combined" if combined else ""
+                        note = (f"C{k} ({100.0 * float(shares[k - 1]):.0f}%{tail})"
+                                if shares is not None and n else f"C{k}")
                     elif "show" in pp:
                         note = str(pp.get("show"))
+                    elif "component" in pp:
+                        note = f"PC{int(pp.get('component', 1))}"
                     else:
                         note = "derived"
                 else:
@@ -2742,7 +2766,7 @@ both ``Canvas`` signals report the
         elif self._holder_raster_ref is not None:
             if self.field is not None:
                 self.canvas.set_field(self.field)
-                self._apply_raster_visibility()
+                self._apply_raster_visibility(showing_product=False)
             if self.layer is not None:
                 self.layer_list.set_layer_name(self.layer.layer_id, self.layer.name)
             self._holder_raster_ref = None
@@ -3017,6 +3041,12 @@ both ``Canvas`` signals report the
 
     def _on_layer_selected(self, layer_id: int) -> None:
         layer = self._layer_by_id.get(layer_id)
+        if layer is not None and layer.parent_id is None and self._active_roi_id is not None:
+            # The dataset row means the WHOLE field (2026-09-23): selecting it deactivates
+            # the ROI a previous ROI-row selection made active -- it replaces the panel's Deselect.
+            self._active_roi_id = None
+            if layer is self.layer:
+                self._refresh_saved_rois()
         if layer is not None and layer is not self.layer:
             self._select_layer(layer)
             if self._center_stack.currentIndex() == 1:
@@ -3107,6 +3137,18 @@ both ``Canvas`` signals report the
         # ``field is None`` bail-out (:meth:`_start_worker_for`) no result ever lands at all.
         # A no-op while nothing is open.
         self._refresh_inspector_statuses()
+
+    def _is_raw_raster_dataset(self) -> bool:
+        """The active layer is a RAW raster dataset: a raster master whose enabled chain holds no
+        analyzing transform (field stages such as noise may sit on it). A tool dropped on it
+        spawns a child instead of replacing the data. A point catalogue (its own mapping
+        transforms, e.g. backproject) and a master that already carries an analyzer (older
+        projects) commit edits as before."""
+        if self.layer is None or self._is_point_layer(self.layer):
+            return False
+        return not any(is_transform(get_device(n)) and not getattr(get_device(n), "field_stage",
+                                                                   False)
+                       for n, b in zip(self._names, self._bypassed) if not b)
 
     def _is_point_layer(self, layer) -> bool:
         """``True`` when ``layer``'s source was imported as a CSV point catalogue (``SourceRef.
@@ -3290,7 +3332,7 @@ both ``Canvas`` signals report the
             if not is_transform(device):
                 continue
             params = validate_params(device, ref.params)
-            key = cache_key(device.name, sid, params, upstream=upstream)
+            key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream)
             keys.append(key)
             upstream = key
         return keys
@@ -3304,7 +3346,7 @@ both ``Canvas`` signals report the
         keys = self._cache_keys_for(layer)
         return keys[-1] if keys else None
 
-    def _on_remove_requested(self, layer_id: int) -> None:
+    def _on_remove_requested(self, layer_id: int, *, confirm: bool = True) -> None:
         """Locked refuses outright (a notice in the zone's reading label, nothing removed). A
         layer with children needs ONE confirmation before the cascade -- ``Project.remove_layer``
         will happily take out every descendant in one call, and that is exactly the action a
@@ -3328,7 +3370,7 @@ both ``Canvas`` signals report the
                 self.strips._show_warning("locked — unlock in the layer panel to remove")
             return
         has_children = any(l.parent_id == layer_id for l in self.project.layers)
-        if has_children:
+        if has_children and confirm:
             reply = QtWidgets.QMessageBox.question(
                 self, "Remove layer",
                 f"Remove {layer.name!r} and its grouped layers?",
@@ -3357,7 +3399,79 @@ both ``Canvas`` signals report the
         elif active_removed:
             self._reset_to_empty()
 
-    def _on_remove_source_requested(self, source_id: str) -> None:
+    def _on_remove_layer_only_requested(self, layer_id: int) -> None:
+        """"Delete layer": remove this ONE layer; its children move up to its
+        parent (rows re-nested there), then the ordinary removal runs with nothing left to
+        cascade. A dataset's own layer has no parent to hand its children to -- that is the
+        dataset row's "Remove dataset"."""
+        layer = self._layer_by_id.get(layer_id)
+        if layer is None:
+            return
+        if layer.parent_id is None:
+            self._notify("a dataset's results need it — remove the dataset instead", "status")
+            return
+        if _is_locked(layer):
+            if self.strips is not None:
+                self.strips._show_warning("locked — unlock in the layer panel to remove")
+            return
+        children = [l for l in self.project.layers if l.parent_id == layer_id]
+        subtree, stack = [], list(reversed(children))
+        while stack:
+            node = stack.pop()
+            subtree.append(node)
+            stack.extend(reversed([l for l in self.project.layers
+                                   if l.parent_id == node.layer_id]))
+        for child in children:
+            child.parent_id = layer.parent_id
+        self.layer_list.remove_rows([l.layer_id for l in subtree])
+        for node in subtree:                         # parents before their own children
+            self.layer_list.add_layer_row(node, self._fields.get(node.layer_id, self.field))
+        self._on_remove_requested(layer_id)
+
+    def _on_remove_roi_requested(self, roi_id: str) -> bool:
+        """"Delete ROI": refused while any result was computed on it -- the notice names them; otherwise the record and its row go. Returns
+        whether it was deleted."""
+        roi = next((r for r in self.project.rois if r.roi_id == roi_id), None)
+        if roi is None:
+            return False
+        users = [l for l in self.project.layers if l.roi_id == roi_id]
+        if users:
+            self._notify(f"ROI {roi.label} still has results ({', '.join(l.name for l in users)})"
+                         " — delete them first", "status")
+            return False
+        self.project.rois.remove(roi)
+        if self._active_roi_id == roi_id:
+            self._active_roi_id = None
+        self._refresh_saved_rois()
+        if self.layer is not None and self.layer.parent_id is None \
+                and self.layer_list.currentItem() is None:
+            self.layer_list.select_layer(self.layer.layer_id)
+        return True
+
+    def _on_remove_many_requested(self, layer_ids, roi_ids, source_ids) -> None:
+        """Delete with several rows selected: ONE confirmation for all of
+        them, then datasets, then layers (with their children), then ROIs -- so an ROI selected
+        together with its results goes too. Refusals (a locked layer, an ROI whose results
+        were not selected) are listed once."""
+        n = len(layer_ids) + len(roi_ids) + len(source_ids)
+        if n == 0:
+            return
+        reply = QtWidgets.QMessageBox.question(
+            self, "Delete", f"Delete the {n} selected row(s) and everything under them?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        for source_id in source_ids:
+            self._on_remove_source_requested(source_id, confirm=False)
+        for layer_id in layer_ids:
+            if layer_id in self._layer_by_id:
+                self._on_remove_requested(layer_id, confirm=False)
+        refused = [r.label for r in list(self.project.rois)       # a snapshot: rois shrinks
+                   if r.roi_id in roi_ids and not self._on_remove_roi_requested(r.roi_id)]
+        if refused:
+            self._notify(f"kept ROI {', '.join(refused)} — results still use it", "status")
+
+    def _on_remove_source_requested(self, source_id: str, *, confirm: bool = True) -> None:
         """Header-row "Remove dataset": the whole family under ONE
         confirmation -- every root layer of the source cascaded through
         ``Project.remove_layer`` with the same bookkeeping prune as
@@ -3377,7 +3491,7 @@ both ``Canvas`` signals report the
             return
         src = self.project.sources.get(source_id)
         label = (src.label or Path(src.path).name) if src is not None else source_id
-        reply = QtWidgets.QMessageBox.question(
+        reply = QtWidgets.QMessageBox.Yes if not confirm else QtWidgets.QMessageBox.question(
             self, "Remove dataset",
             f"Remove {label!r} and its {len(family)} layer(s)?",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
@@ -3643,13 +3757,21 @@ both ``Canvas`` signals report the
         except (TypeError, ValueError):
             return self._fields.get(s)
 
-    def _apply_raster_visibility(self) -> None:
+    def _apply_raster_visibility(self, showing_product: "bool | None" = None) -> None:
         """Canvas image follows the ACTIVE layer's source ``hidden`` flag -- except a child
         dataset: a layer carrying ``roi.window`` shows its OWN crop, which is a product of
-        the ROI gesture, not "the dataset" the header's H names."""
+        the ROI gesture, not "the dataset" the header's H names.
+
+        And except a result's OWN raster (tucker's reconstruction, a filtered field, h(x), a
+        band reconstruction -- ``showing_product``): the dataset's H hides the DATASET, never a
+        result computed from it; that raster follows the result's own H (hiding a result
+        restores the raw raster, :meth:`_sync_holder_raster`). ``None`` = whatever the canvas
+        is showing now (``_holder_raster_ref``); callers that just swapped the image say which."""
+        if showing_product is None:
+            showing_product = self._holder_raster_ref is not None
         source = self.project.sources.get(self.layer.source_id) if self.layer is not None else None
         exempt = self.layer is not None and bool(self.layer.tags.get("roi.window"))
-        self.canvas.image_item.setVisible(exempt or
+        self.canvas.image_item.setVisible(showing_product or exempt or
                                           not (source is not None and source.hidden))
 
     def _on_inspector_toggled(self, source_id: str, checked: bool) -> None:
@@ -3846,6 +3968,12 @@ both ``Canvas`` signals report the
         self.roi_panel.setVisible(False)
         self.canvas.clear_roi_band()
 
+    def _on_roi_panel_closed(self) -> None:
+        """The panel's ×: close it, drop the unsaved drawn box and any pending Place box. Saved
+        ROIs and the active one are not the panel's to change."""
+        self.canvas.disarm_roi_placement()
+        self._reset_roi_selection()
+
     def _roi_blocked_reason(self) -> str:
         """Why the selected layer cannot take an ROI, or ``""``.
 
@@ -4012,14 +4140,16 @@ both ``Canvas`` signals report the
                      if r.roi_id == self._active_roi_id and r.source_id == source_id), None)
 
     def _refresh_saved_rois(self) -> None:
-        """Panel list + canvas outlines for the displayed layer's dataset."""
+        """Layer-list ROI rows, panel list + canvas outlines for the displayed layer's
+        dataset. A hidden ROI (its row's H, ``RoiRecord.visible``) draws no outline."""
+        self.layer_list.sync_roi_rows()
         source = self.layer.source_id if self.layer is not None else None
         rois = [r for r in self.project.rois if r.source_id == source and source is not None]
         self.roi_panel.set_saved([(r.roi_id, r.label) for r in rois],
                                  active=self._active_roi_id)
         self.canvas.set_saved_rois([{"label": r.label, "row": r.row, "col": r.col, "h": r.h,
                                      "w": r.w, "active": r.roi_id == self._active_roi_id}
-                                    for r in rois])
+                                    for r in rois if r.visible])
 
     def _on_roi_save(self, spec: dict) -> None:
         """Save ROI: the box becomes a ``RoiRecord`` on
@@ -4036,10 +4166,39 @@ both ``Canvas`` signals report the
                                    label=self._next_roi_label(self.layer.source_id))
         self._active_roi_id = roi.roi_id
         self._refresh_saved_rois()
+        self.layer_list.select_roi(roi.roi_id)           # its row is the selection now
         self._notify(f"ROI {roi.label} saved — drop a tool to run it on this region", "status")
 
     def _on_roi_activated(self, roi_id: str) -> None:
         self._active_roi_id = roi_id or None
+        self._refresh_saved_rois()
+        # Keep the layer list's highlight on what is active: the ROI's row, or the dataset row.
+        if roi_id:
+            self.layer_list.select_roi(roi_id)
+        elif self.layer is not None and self.layer.parent_id is None:
+            self.layer_list.select_layer(self.layer.layer_id)
+
+    def _on_roi_row_selected(self, roi_id: str) -> None:
+        """A saved-ROI row became current (2026-09-23): show its dataset and make the ROI
+        active, so the next tool dropped runs on it (the drop path itself is unchanged)."""
+        roi = next((r for r in self.project.rois if r.roi_id == roi_id), None)
+        if roi is None:
+            return
+        master = next((l for l in self.project.layers
+                       if l.source_id == roi.source_id and l.parent_id is None), None)
+        if master is not None and master is not self.layer:
+            self._select_layer(master)
+            if self._center_stack.currentIndex() == 1:
+                self._sync_arrangement()
+        self._active_roi_id = roi.roi_id
+        self._refresh_saved_rois()
+
+    def _on_roi_hide_toggled(self, roi_id: str, hidden: bool) -> None:
+        """An ROI row's H: its outline only -- never the results computed on it."""
+        roi = next((r for r in self.project.rois if r.roi_id == roi_id), None)
+        if roi is None:
+            return
+        roi.visible = not hidden
         self._refresh_saved_rois()
 
     def _on_roi_child_create(self, spec: dict) -> None:
@@ -4413,7 +4572,8 @@ both ``Canvas`` signals report the
         pure rendering, invisible to the computed chain, which is what keeps the zero-cache-miss
         law true across rack flattening)."""
         return (self.layer.source_id if self.layer is not None else None,
-                tuple((self._names[i], tuple(sorted(self._params[i].items())))
+                tuple((self._names[i], tuple(sorted(
+                    keyed_params(get_device(self._names[i]), self._params[i]).items())))
                       for i in self._transform_indices()))
 
     def _snapshot_recipe(self) -> None:
@@ -4455,7 +4615,9 @@ both ``Canvas`` signals report the
             # ``sync_to`` is silent by design, so the master's second connection never fires on
             # this path and a follower would be left behind by an ordinary knob turn.
             self._drive_follower_inspectors(int(value))
-        if not self._bypassed[step_index] and is_transform(get_device(self._names[step_index])):
+        device = get_device(self._names[step_index])
+        view_only = any(p.name == name and p.view for p in device.params)
+        if not self._bypassed[step_index] and is_transform(device) and not view_only:
             if self._auto_run_action.isChecked():
                 self._pending_layers.discard(self.layer.layer_id)
                 self._start_worker()
@@ -4565,7 +4727,12 @@ both ``Canvas`` signals report the
                                     root=self.layer.parent_id is None))
         if (fork is None and self.layer.parent_id is None
                 and not self.layer.tags.get("roi.window")
-                and self._active_roi_for(self.layer.source_id) is not None):
+                and (self._active_roi_for(self.layer.source_id) is not None
+                     or self._is_raw_raster_dataset())):
+            # The master is the raw dataset and never takes an analyzer directly: ANY analyzing
+            # transform (pca/tucker included, which the primary-analyzer fork never knew) spawns
+            # a child -- on the active ROI when there is one, else on the whole field. This used
+            # to run only with an ROI active, so tucker without one replaced the dataset.
             fork = _roi_spawn(self._names, descriptors)
         if (fork is None and display_stride(self.field) > 1
                 and not self.layer.tags.get("roi.window")
@@ -4954,6 +5121,14 @@ both ``Canvas`` signals report the
                 if chains and (row_off or col_off):
                     chains = _shift_chains(chains, row_off, col_off)
                 self.canvas.set_pick_chains(chains)
+            elif self._center_stack.currentIndex() == 0:
+                # Nothing to draw -- so nothing may stay drawn. The canvas otherwise keeps the
+                # PREVIOUS result's overlay: removing a result selects its parent, whose empty
+                # chain carries no extrema, and the removed layer's extrema stayed up over it.
+                self.canvas.clear_overlays()
+                self.canvas.set_pick_chains(None)
+            else:
+                self._canvas_overlay_dirty = True
         self._sync_controls()
         self._update_readings(renderable)
         self._update_scale_bar()
@@ -5036,7 +5211,8 @@ both ``Canvas`` signals report the
         is what wrote ``layer.chain`` in the first place); this is the form a background
         arrangement-queue layer -- one nobody is live-editing -- needs instead."""
         return (layer.source_id,
-                tuple((ref.device, tuple(sorted(ref.params.items())))
+                tuple((ref.device, tuple(sorted(
+                    keyed_params(get_device(ref.device), ref.params).items())))
                       for ref in layer.chain.steps if is_transform(get_device(ref.device))))
 
     def _start_worker_for(self, layer) -> None:
@@ -5662,7 +5838,7 @@ both ``Canvas`` signals report the
                     drape = _display_raster_of(res)
                     entries.append({"layer": layer, "field": field, "result": res,
                                     "status": "ok", "signature": signature,
-                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster,
+                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster or drape is not None,
                                     "surface_field": surface_field,
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "drape": drape,
@@ -5916,7 +6092,8 @@ both ``Canvas`` signals report the
     def _redraw_canvas_overlay_if_dirty(self) -> None:
         """Draw the ACTIVE result's overlay onto the (now-visible) raster canvas if a landing
         deferred it while the canvas was hidden (double-update guard). A no-op when nothing was
-        deferred or the active result carries no per-scale extrema (a point/field-tail result)."""
+        deferred; a deferred result with no per-scale extrema clears whatever an earlier result
+        left drawn."""
         if not self._canvas_overlay_dirty:
             return
         self._canvas_overlay_dirty = False
@@ -5927,6 +6104,9 @@ both ``Canvas`` signals report the
             self.canvas.set_result(result, min(idx, len(layers) - 1))
             if self.canvas.cap_note:
                 self._notify(self.canvas.cap_note, "status")
+        else:
+            self.canvas.clear_overlays()
+            self.canvas.set_pick_chains(None)
 
     def _set_center_view(self, view: str) -> None:
         """Switch the center zone to ``view`` -- ``"raster"`` (the session canvas, index 0),

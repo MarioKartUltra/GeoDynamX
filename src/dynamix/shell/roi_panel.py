@@ -82,6 +82,9 @@ class RoiPanel(QtWidgets.QFrame):
     #: A saved ROI was picked in the list: its ``roi_id`` (the ACTIVE ROI a tool drop runs on).
     roiActivated = QtCore.Signal(str)
 
+    #: The header's × was pressed: the window closes the panel and clears the drawn box.
+    closeRequested = QtCore.Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setProperty("strip", "true")
@@ -93,6 +96,17 @@ class RoiPanel(QtWidgets.QFrame):
         self._dims: tuple[int, int] | None = None    # the drawn-on field's (h, w), when known
 
         column = QtWidgets.QVBoxLayout(self)
+        header = QtWidgets.QHBoxLayout()
+        title = QtWidgets.QLabel("ROI")
+        title.setProperty("muted", "true")
+        header.addWidget(title)
+        header.addStretch(1)
+        self.close_button = QtWidgets.QToolButton()
+        self.close_button.setText("×")
+        self.close_button.setToolTip("Close the ROI panel (saved ROIs stay)")
+        self.close_button.clicked.connect(self.closeRequested.emit)
+        header.addWidget(self.close_button)
+        column.addLayout(header)
         grid = QtWidgets.QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         for row, name in enumerate(_ROI_FIELDS):
@@ -176,6 +190,9 @@ class RoiPanel(QtWidgets.QFrame):
         self.deselect_button = QtWidgets.QPushButton("Deselect")
         self.deselect_button.clicked.connect(self._on_deselect_clicked)
         column.addWidget(self.deselect_button)
+        # Superseded 2026-09-23: selecting the DATASET row in the layer list means the whole
+        # field (and an ROI row, that ROI). Hidden, handler kept.
+        self.deselect_button.setVisible(False)
         self._saved_ids: list[str] = []
         self._setting_saved = False
 

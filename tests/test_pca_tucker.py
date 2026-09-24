@@ -203,7 +203,7 @@ def test_pca_device_shows_the_chosen_component(clean_registry):
     dev = get_device("pca")
     field = _field3()
     params = dict(defaults_for(dev), n_components=3, component=2)
-    res = dev.compute(field, params)
+    res = dev.view(dev.compute(field, params), params)      # ``component`` is view-only
     np.testing.assert_array_equal(res["raster_out"], res["pca_images"][1])
     assert res["raster_out"].shape == (24, 20)
     assert res["_shape"] == (24, 20) and res["chains"] == []
@@ -228,20 +228,24 @@ def test_pca_device_refuses_single_band_and_result_dicts(clean_registry):
         dev.compute({"raster_out": 1}, dict(defaults_for(dev)))
 
 
-def test_tucker_device_recon_and_residual_key_the_cache_apart(clean_registry):
+def test_tucker_device_recon_and_residual_share_one_cache_entry(clean_registry):
+    """``show`` is view-only: recon and residual come from ONE cached
+    decomposition, so they share a key -- switching never re-decomposes. (This test used to pin
+    the opposite: the two keyed the cache apart.)"""
     from dynamix.devices import register_builtin_devices
     from dynamix.model.device import defaults_for, get_device
 
     register_builtin_devices()
     dev = get_device("tucker_havok")
     field = _field3(nc=3)
-    base = dict(defaults_for(dev), n_delays=6, rank_delay=3)
-    recon = dev.compute(field, dict(base, show="recon"))
-    resid = dev.compute(field, dict(base, show="residual"))
+    base = dict(defaults_for(dev), embed="delay", n_delays=6, rank_delay=3)   # the 1-D tape
+    res = dev.compute(field, base)
+    recon = dev.view(res, dict(base, show="recon"))
+    resid = dev.view(res, dict(base, show="residual"))
     assert recon["raster_out"].shape == (24, 20)
     np.testing.assert_allclose(recon["raster_out"] + resid["raster_out"],
                                field.values[..., 0], atol=1e-8)
-    assert dev.cache_key("s", dict(base, show="recon")) != \
+    assert dev.cache_key("s", dict(base, show="recon")) == \
         dev.cache_key("s", dict(base, show="residual"))
     assert res_energy_ok(recon)
 
@@ -262,7 +266,9 @@ def test_tucker_device_works_on_scalar_fields_too(clean_registry):
     rng = np.random.default_rng(4)
     flat = RasterField(name="flat", values=rng.normal(size=(40, 12)), frame=LocalFrame(),
                        x_axis=np.arange(12.0), y_axis=np.arange(40.0))
-    res = dev.compute(flat, dict(defaults_for(dev), n_delays=8, rank_delay=0))
+    # The 1-D tape (no longer the default since the symmetric 2-D delay, 2026-09-23).
+    res = dev.compute(flat, dict(defaults_for(dev), embed="delay", n_delays=8,
+                                 rank_delay=0))
     np.testing.assert_allclose(res["raster_out"], flat.values, atol=1e-8)  # full rank = identity
     assert len(res["tucker_energy"]) == 3
 
@@ -303,3 +309,258 @@ def test_device_embed_none_ignores_delay_knobs(clean_registry):
     np.testing.assert_allclose(a["raster_out"], b["raster_out"], atol=1e-10)
     assert a["shape_embedded"] == (24, 20, 3)            # the OG dataset's own modes
     assert len(a["tucker_energy"]) == 3
+
+
+# ------------------------------------------- the symmetric 2-D delay embedding (2026-09-23)
+# Both axes delayed: Ly x Lx patches, a (delay_y, delay_x, rows', cols'[, band]) tensor. On a 2-D
+# field neither axis is "time", so the 1-D tape's rows/cols choice biased the result.
+
+def _brute_2d(a, L, ranks):
+    """Reference: MATERIALIZE the 2-D Hankel tensor, run the existing HOSVD, rebuild the
+    tensor, average every pixel over the patches that cover it."""
+    from dynamix.core.tucker_havok import hosvd_tucker
+
+    A = a if a.ndim == 3 else a[..., None]
+    X = np.lib.stride_tricks.sliding_window_view(A, (L, L), axis=(0, 1))
+    X = np.moveaxis(X, (-2, -1), (0, 1)).copy()           # (L, L, ny', nx', nc)
+    dec = hosvd_tucker(X, [ranks[0], ranks[0], ranks[1], ranks[2], ranks[3]])
+    H = dec["core"]
+    for n, U in enumerate(dec["factors"]):
+        H = np.moveaxis(np.tensordot(U, H, axes=([1], [n])), 0, n)
+    ny, nx = A.shape[:2]
+    out = np.zeros(A.shape)
+    cnt = np.zeros(A.shape[:2] + (1,))
+    for dy in range(L):
+        for dx in range(L):
+            out[dy:dy + ny - L + 1, dx:dx + nx - L + 1] += H[dy, dx]
+            cnt[dy:dy + ny - L + 1, dx:dx + nx - L + 1] += 1.0
+    out /= cnt
+    return out if a.ndim == 3 else out[..., 0]
+
+
+@pytest.mark.parametrize("ranks", [(2, 0, 0, 0), (3, 5, 4, 0), (2, 0, 6, 0)])
+def test_the_2d_delay_equals_the_materialized_reference(ranks):
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(11)
+    a = rng.standard_normal((19, 23)).cumsum(0).cumsum(1)
+    L = 4
+    full = [L, 19 - L + 1, 23 - L + 1, 1]
+    ref = _brute_2d(a, L, [r or f for r, f in zip(ranks, full)])
+    out = tucker_havok_2d(a, n_delays=L, ranks=ranks)
+    np.testing.assert_allclose(out["recon"], ref, atol=1e-9)
+    np.testing.assert_allclose(out["recon"] + out["residual"], a, atol=1e-12)
+
+
+def test_the_2d_delay_has_no_preferred_axis():
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(3)
+    a = rng.standard_normal((21, 27)).cumsum(1)
+    out = tucker_havok_2d(a, n_delays=5, ranks=(2, 6, 6, 0))
+    flipped = tucker_havok_2d(a.T, n_delays=5, ranks=(2, 6, 6, 0))
+    np.testing.assert_allclose(flipped["recon"], out["recon"].T, atol=1e-9)
+
+
+def test_the_2d_delay_at_full_rank_gives_the_field_back_and_remasks_nans():
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(5)
+    a = rng.standard_normal((12, 14))
+    a[3, 4] = np.nan
+    out = tucker_havok_2d(a, n_delays=3, ranks=(0, 0, 0, 0))
+    finite = np.isfinite(a)
+    np.testing.assert_allclose(out["recon"][finite], a[finite], atol=1e-10)
+    assert np.isnan(out["recon"][3, 4]) and np.isnan(out["residual"][3, 4])
+
+
+def test_the_2d_delay_takes_a_band_mode():
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(8)
+    a = rng.standard_normal((16, 18, 3)).cumsum(0)
+    ref = _brute_2d(a, 4, [2, 13, 15, 2])
+    out = tucker_havok_2d(a, n_delays=4, ranks=(2, 0, 0, 2))
+    np.testing.assert_allclose(out["recon"], ref, atol=1e-9)
+
+
+def test_the_tucker_device_defaults_to_the_symmetric_2d_delay(clean_registry):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+
+    register_builtin_devices()
+    dev = get_device("tucker_havok")
+    params = {p.name: p for p in dev.params}
+    assert params["embed"].choices == ("delay_2d", "delay", "none")
+    assert params["embed"].default == "delay_2d"
+    assert params["axis"].active_when == ("embed", ("delay",))
+    rng = np.random.default_rng(2)
+    field = RasterField(name="f", values=rng.standard_normal((24, 20)).cumsum(0),
+                        frame=LocalFrame(), x_axis=np.arange(20.0), y_axis=np.arange(24.0))
+    res = dev.view(dev.compute(field, dict(defaults_for(dev), n_delays=5, rank_delay=2)),
+                   dict(defaults_for(dev)))
+    assert res["shape_embedded"] == (5, 5, 20, 16)
+    np.testing.assert_allclose(res["tucker_recon"] + res["tucker_residual"], field.values,
+                               atol=1e-10)
+
+
+# ------------------------------------------- components you can click through (2026-09-23)
+# The rank-truncated reconstruction is a SUM of components (SSA's elementary reconstructions):
+# per kept (delay_y, delay_x) pattern pair in 2-D, per delay pattern on the 1-D tape, per rows
+# mode with no embedding. Kept once with the result, top-32 by core energy, largest first.
+
+@pytest.mark.parametrize("embed", ["delay_2d", "delay", "none"])
+def test_the_components_sum_to_the_reconstruction(embed):
+    from dynamix.core.tucker_havok import tucker_havok, tucker_havok_2d, tucker_plain
+
+    rng = np.random.default_rng(21)
+    a = rng.standard_normal((22, 26)).cumsum(0).cumsum(1)
+    if embed == "delay_2d":
+        out = tucker_havok_2d(a, n_delays=5, ranks=(3, 0, 0))
+    elif embed == "delay":
+        out = tucker_havok(a, n_delays=6, ranks=(4, 0, 0))
+    else:
+        out = tucker_plain(a, ranks=(5, 0))
+    comps, energy = out["components"], out["component_energy"]
+    assert comps.shape[1:] == a.shape and len(energy) == len(comps)
+    np.testing.assert_allclose(comps.sum(axis=0), out["recon"], atol=1e-8)
+    assert np.all(np.diff(energy) <= 1e-12)                      # largest first
+    assert 0.0 < energy.sum() <= 1.0 + 1e-9
+
+
+def test_components_are_capped_at_32_by_energy():
+    from dynamix.core.tucker_havok import tucker_plain
+
+    a = np.random.default_rng(1).standard_normal((40, 36))
+    out = tucker_plain(a, ranks=(0, 0))                          # 40 rows modes kept
+    assert len(out["components"]) == 32
+
+
+def test_the_tucker_device_steps_through_its_components_without_recomputing(clean_registry):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    register_builtin_devices()
+    rng = np.random.default_rng(6)
+    field = RasterField(name="f", values=rng.standard_normal((30, 34)).cumsum(0),
+                        frame=LocalFrame(), x_axis=np.arange(34.0), y_axis=np.arange(30.0))
+    cache = Cache()
+
+    def show(**p):
+        params = {"n_delays": 5, "rank_delay": 2, **p}
+        layer = Layer(layer_id=1, name="L", source_id="s",
+                      chain=Chain((DeviceRef("tucker_havok", params),)).materialized())
+        return resolve(layer, field, cache)
+
+    first = show(show="recon")
+    c1 = show(show="component", component=1)
+    c3 = show(show="component", component=3)
+    c99 = show(show="component", component=64)                  # clipped to the last one
+    assert first.cache_misses == 1
+    assert c1.cache_misses == c3.cache_misses == c99.cache_misses == 0
+    comps = c1.result["tucker_components"]
+    np.testing.assert_array_equal(c1.result["raster_out"], comps[0])
+    np.testing.assert_array_equal(c3.result["raster_out"], comps[2])
+    np.testing.assert_array_equal(c99.result["raster_out"], comps[-1])
+
+
+# ------------------------------------------- HOOI sweeps + combined orientation pairs (2026-09-23)
+
+def _brute_2d_hooi(a, L, ranks, sweeps):
+    from dynamix.core.tucker_havok import hosvd_tucker
+
+    A = a if a.ndim == 3 else a[..., None]
+    X = np.moveaxis(np.lib.stride_tricks.sliding_window_view(A, (L, L), axis=(0, 1)),
+                    (-2, -1), (0, 1)).copy()
+    dec = hosvd_tucker(X, [ranks[0], ranks[0], ranks[1], ranks[2], ranks[3]], sweeps=sweeps)
+    H = dec["core"]
+    for n, U in enumerate(dec["factors"]):
+        H = np.moveaxis(np.tensordot(U, H, axes=([1], [n])), 0, n)
+    ny, nx = A.shape[:2]
+    out, cnt = np.zeros(A.shape), np.zeros(A.shape[:2] + (1,))
+    for dy in range(L):
+        for dx in range(L):
+            out[dy:dy + ny - L + 1, dx:dx + nx - L + 1] += H[dy, dx]
+            cnt[dy:dy + ny - L + 1, dx:dx + nx - L + 1] += 1.0
+    out /= cnt
+    return out if a.ndim == 3 else out[..., 0]
+
+
+@pytest.mark.parametrize("ranks,sweeps", [((2, 0, 0), 2), ((3, 5, 4), 1), ((2, 0, 6), 3)])
+def test_2d_hooi_sweeps_equal_the_materialized_reference(ranks, sweeps):
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(31)
+    a = rng.standard_normal((19, 23)).cumsum(0).cumsum(1) + rng.standard_normal((19, 23))
+    L = 4
+    full = [L, 19 - L + 1, 23 - L + 1, 1]
+    ref = _brute_2d_hooi(a, L, [r or f for r, f in zip(ranks + (0,), full)], sweeps)
+    out = tucker_havok_2d(a, n_delays=L, ranks=ranks, sweeps=sweeps)
+    np.testing.assert_allclose(out["recon"], ref, atol=1e-8)
+
+
+def test_2d_hooi_never_keeps_less_core_energy_than_hosvd():
+    """HOOI maximizes the energy the kept bases capture in the DELAY TENSOR (||core||^2) --
+    monotone over sweeps. The IMAGE residual is not guaranteed monotone (it goes through the
+    patch averaging, which is not that projection), so it is not what this pins."""
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(9)
+    a = rng.standard_normal((30, 34)).cumsum(1) + 0.5 * rng.standard_normal((30, 34))
+    kept = [np.linalg.norm(tucker_havok_2d(a, n_delays=6, ranks=(2, 0, 0),
+                                           sweeps=s)["core"]) for s in (0, 1, 3)]
+    assert kept[1] >= kept[0] - 1e-9 and kept[2] >= kept[1] - 1e-9
+
+
+def test_combined_components_pair_each_vertical_with_its_horizontal_twin():
+    """(a, b) and (b, a) combined: r(r+1)/2 groups, each the SUM of its two separate
+    components; together they still sum to the reconstruction."""
+    from dynamix.core.tucker_havok import tucker_havok_2d
+
+    rng = np.random.default_rng(13)
+    a = rng.standard_normal((24, 28)).cumsum(0).cumsum(1)
+    out = tucker_havok_2d(a, n_delays=5, ranks=(3, 0, 0))
+    comb, pairs = out["combined_components"], out["combined_pairs"]
+    assert len(comb) == 6 and len(out["combined_energy"]) == 6
+    np.testing.assert_allclose(comb.sum(axis=0), out["recon"], atol=1e-8)
+    assert np.all(np.diff(out["combined_energy"]) <= 1e-12)
+    sep = {tuple(p): c for p, c in zip(out["component_pairs"], out["components"])}
+    for group, c in zip(pairs, comb):
+        members = [sep[(i, j)] for i, j in {tuple(group), tuple(group[::-1])}]
+        np.testing.assert_allclose(c, np.sum(members, axis=0), atol=1e-10)
+
+
+def test_the_tucker_device_toggles_separate_and_combined_without_recomputing(clean_registry):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    register_builtin_devices()
+    rng = np.random.default_rng(6)
+    field = RasterField(name="f", values=rng.standard_normal((30, 34)).cumsum(0),
+                        frame=LocalFrame(), x_axis=np.arange(34.0), y_axis=np.arange(30.0))
+    cache = Cache()
+
+    def show(**p):
+        params = {"n_delays": 5, "rank_delay": 3, "show": "component", **p}
+        layer = Layer(layer_id=1, name="L", source_id="s",
+                      chain=Chain((DeviceRef("tucker_havok", params),)).materialized())
+        return resolve(layer, field, cache)
+
+    sep = show(pairs="separate", component=2)
+    comb = show(pairs="combined", component=2)
+    assert comb.cache_misses == 0
+    np.testing.assert_array_equal(comb.result["raster_out"],
+                                  comb.result["tucker_combined_components"][1])
+    assert not np.array_equal(sep.result["raster_out"], comb.result["raster_out"])

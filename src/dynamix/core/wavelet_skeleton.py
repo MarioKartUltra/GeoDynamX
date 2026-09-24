@@ -264,7 +264,7 @@ def modulus_minima(W1: np.ndarray, W2: np.ndarray, *, reach: int = 6,
 def skeletonize(signal: np.ndarray, *, s1: float = 6.0, s2: float = 6.0,
                 t_frac: float = 0.5, edge_frac: float = 0.1,
                 n_stages: int = 2, kernel: str = "tang_you",
-                pair_dom: float = 0.5) -> dict:
+                pair_dom: float = 0.5, progress=None) -> dict:
     """Algorithm 1 (You et al. 2006), general-raster edition -- see the module docstring's
     deviations. Stage 1: the ridge-pair-gated modulus minima of the first WT at ``s1``
     (:func:`modulus_minima` -- reach s1, valley contrast ``t_frac``, significance
@@ -299,8 +299,13 @@ def skeletonize(signal: np.ndarray, *, s1: float = 6.0, s2: float = 6.0,
                              edge_frac=edge_frac, pair_dom=pair_dom)
     from scipy.ndimage import binary_dilation
 
+    n_total = max(1, int(n_stages))
+    if progress is not None:
+        progress("wavelet skeleton", 1.0 / n_total)
     skel = initial
-    for _ in range(1, int(n_stages)):
+    for stage in range(1, int(n_stages)):
+        if progress is not None and stage > 1:
+            progress("wavelet skeleton", stage / n_total)
         if not skel.any():
             break
         V1, V2 = gradient_wt(skel.astype(np.float64), s2, kernel=kernel)
@@ -322,4 +327,6 @@ def skeletonize(signal: np.ndarray, *, s1: float = 6.0, s2: float = 6.0,
         trust &= ~binary_dilation(nonfinite, iterations=border)
     skel = skel & trust
     initial = initial & trust
+    if progress is not None:
+        progress("wavelet skeleton", 1.0)
     return {"skeleton": skel, "initial": initial, "mod": M1, "arg": arg, "params": params}

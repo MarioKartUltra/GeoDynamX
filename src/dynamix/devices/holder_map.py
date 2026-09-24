@@ -54,13 +54,17 @@ def holder_arrays(vals, params: dict, progress=None):
                           int(params["n_scales"]))
     if progress is not None:
         progress("holder projections", 0.0)
+    # Projections are the slow part: reported per scale, over 0..70 %.
+    per_scale = (None if progress is None
+                 else (lambda stage, frac: progress(stage, 0.7 * float(frac))))
     if params["estimator"] == "multiaffine":
         T = mc.ricker_projections(vals, scales, wavelet=params["wavelet"],
-                                  beta=params["beta"], q_tsallis=params["q_tsallis"])
+                                  beta=params["beta"], q_tsallis=params["q_tsallis"],
+                                  progress=per_scale)
     else:
         T = mc.measure_projections(mc.gradient_measure(vals), scales,
                                    wavelet=params["wavelet"], beta=params["beta"],
-                                   q_tsallis=params["q_tsallis"])
+                                   q_tsallis=params["q_tsallis"], progress=per_scale)
     if progress is not None:
         progress("holder regression", 0.7)
     h_map, r2_map = mc.singularity_map_regression(T, scales, r2_min=0.0)

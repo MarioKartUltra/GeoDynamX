@@ -15,7 +15,8 @@ from typing import Any, Callable
 
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
-from dynamix.model.device import get_device, is_transform, validate_params
+from dynamix.model.device import (apply_view, get_device, is_transform, keyed_params,
+                                  validate_params)
 
 
 @dataclasses.dataclass
@@ -219,12 +220,15 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
 
         rect = tuple(int(v) for v in layer.tags["roi.window"].split(","))
         for device, params in roi_steps:
-            upstream = cache_key(device.name, sid, params, upstream=upstream)
+            upstream = cache_key(device.name, sid, keyed_params(device, params),
+                                 upstream=upstream)
 
         def _region(run=roi_steps, r=rect):
             return run_on_region(run, field, r, progress=progress, cancel=cancel)
 
         result = cache.get_or_compute(upstream, _region)
+        analyzer, analyzer_params = roi_steps[-1]
+        result = apply_view(analyzer, result, analyzer_params)
         ran_t.extend(d.name for d, _p in roi_steps)
         start = len(roi_steps)
     for ref in layer.chain.steps[start:]:
@@ -232,7 +236,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         params = validate_params(device, ref.params)
 
         if is_transform(device):
-            key = cache_key(device.name, sid, params, upstream=upstream)
+            key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream)
 
             # A transform after the first consumes the previous result, not the raw field.
             src = field if upstream is None else result
@@ -242,7 +246,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                     return d.compute(s, p, progress=progress, cancel=cancel)
                 return d.compute(s, p, progress=progress)
 
-            result = cache.get_or_compute(key, _compute)
+            result = apply_view(device, cache.get_or_compute(key, _compute), params)
             upstream = key
             ran_t.append(device.name)
         else:

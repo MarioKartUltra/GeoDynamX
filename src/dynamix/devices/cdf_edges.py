@@ -88,7 +88,7 @@ class CDFEdges:
         # rides the raster_out display contract (stretch/colormap/hillshade/export free-ride).
         # The extrema pyramid still computes and overlays either way (hide with H if unwanted).
         Param("show", ParamKind.CHOICE, default="edges",
-              choices=("edges", "filtered", "edge_channel"), label="Show"),
+              choices=("edges", "filtered", "edge_channel"), label="Show", view=True),
         # 2026-09-21: subpixel refinement, both conventions -- "mz" mode gets the wtmm2d
         # parabola along the gradient (dynamix.core.subpixel); "marr" mode gets the
         # zero-crossing offset t = -Im/||grad Im|| along the gradient (first-order root of the
@@ -205,9 +205,15 @@ class CDFEdges:
         if follow_det:
             out["_hline_runs"] = runs_all
             out["_hline_closed"] = closed_all
+        return out
+
+    def view(self, result: dict, params: dict) -> dict:
+        """``show`` is view-only: every channel is computed and cached once, and the chosen one
+        replaces the raw field on the canvas (the display contract) -- switching is a cache hit."""
+        out = {k: v for k, v in result.items() if k != "raster_out"}
+        out["params"] = {**result.get("params", {}), "show": params["show"]}
         if params["show"] != "edges":
-            # The display contract: the chosen channel replaces the raw field on the canvas.
-            out["raster_out"] = out[params["show"]]
+            out["raster_out"] = result[params["show"]]
         return out
 
     def roi_margin(self, params: dict) -> int:
@@ -223,5 +229,6 @@ class CDFEdges:
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
+        from dynamix.model.device import keyed_params
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))

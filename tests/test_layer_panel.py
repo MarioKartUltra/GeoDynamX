@@ -19,7 +19,7 @@ from dynamix.devices import register_builtin_devices
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.param import Param, ParamKind
 from dynamix.model.project import Project
-from dynamix.shell.layer_panel import LayerPanel, _LAYER_ID_ROLE
+from dynamix.shell.layer_panel import LayerPanel, _LAYER_ID_ROLE, _SOURCE_ID_ROLE
 
 # --------------------------------------------------------------------------- widget fixtures
 
@@ -41,6 +41,16 @@ def _layer(project, name, source_id, *, parent_id=None, visible=True, tags=None)
                              parent_id=parent_id)
 
 
+def _row_layer(panel, project, source, name="A", **kw):
+    """An ORDINARY layer row: the dataset's master is added first (its row is the dataset row,
+    since 2026-09-23), then ``name`` as its child -- what a result row is."""
+    master = _layer(project, "dataset", source.source_id)
+    panel.add_layer_row(master, None)
+    layer = _layer(project, name, source.source_id, parent_id=master.layer_id, **kw)
+    panel.add_layer_row(layer, None)
+    return layer
+
+
 # --------------------------------------------------------------------------- grouped rendering
 
 
@@ -54,7 +64,7 @@ def test_two_layers_over_one_source_group_under_one_header(panel, project):
     assert panel.topLevelItemCount() == 1                  # one source header
     header = panel.topLevelItem(0)
     assert header.text(0) == "dataset"
-    assert header.childCount() == 2
+    assert header.childCount() == 1        # A IS the dataset row ; B is the row under it
     assert panel.count() == 2                               # headers excluded
 
 
@@ -107,14 +117,16 @@ def test_header_falls_back_to_field_name_with_no_project(qtbot):
     assert bare.topLevelItem(0).text(0) == "my_raster"
 
 
-def test_header_item_carries_no_layer_id_role(panel, project):
-    """The guard every header-excluding handler (context menu, selection) relies on."""
+def test_the_dataset_row_carries_its_source_and_its_master_ids(panel, project):
+    """Used to pin that a header carries NO layer id. Since 2026-09-23 the dataset row IS
+    its master's row, so it carries both; handlers tell a dataset row by ``_SOURCE_ID_ROLE``."""
     source = project.add_source("/data/dataset.tif")
     layer = _layer(project, "A", source.source_id)
     panel.add_layer_row(layer, None)
 
     header = panel.topLevelItem(0)
-    assert header.data(0, _LAYER_ID_ROLE) is None
+    assert header.data(0, _SOURCE_ID_ROLE) == source.source_id
+    assert header.data(0, _LAYER_ID_ROLE) == layer.layer_id
 
 
 # --------------------------------------------------------------------------- collapse sync
@@ -144,8 +156,7 @@ def test_collapsing_a_header_writes_back_into_the_source_ref(panel, project):
 
 def test_select_layer_expands_a_collapsed_ancestor_and_syncs_it_open(panel, project):
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id)
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source)
     header = panel.topLevelItem(0)
     header.setExpanded(False)
     assert source.collapsed is True
@@ -161,9 +172,7 @@ def test_select_layer_expands_a_collapsed_ancestor_and_syncs_it_open(panel, proj
 
 def test_row_buttons_seed_from_the_layer_flags(panel, project):
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id, visible=False,
-                   tags={"ui.lock": "1"})
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source, visible=False, tags={"ui.lock": "1"})
 
     row = panel._row_widgets[layer.layer_id]
     assert row.hide_button.isChecked() is True       # not visible -> hidden is checked
@@ -173,8 +182,7 @@ def test_row_buttons_seed_from_the_layer_flags(panel, project):
 
 def test_hide_button_emits_hideToggled_with_the_layer_id(panel, project, qtbot):
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id)
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source)
     row = panel._row_widgets[layer.layer_id]
 
     with qtbot.waitSignal(panel.hideToggled, timeout=1000) as sig:
@@ -256,8 +264,7 @@ def test_layer_rows_do_not_carry_an_inspector_toggle(panel, project):
     """The inspector is per SOURCE dataset. A layer row keeps its three H/L/F buttons and
     grows no fourth one."""
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id)
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source)
 
     row = panel._row_widgets[layer.layer_id]
     assert not hasattr(row, "inspector_button")
@@ -346,10 +353,10 @@ def test_select_layer_sets_current_and_emits_layerSelected(panel, project, qtbot
     assert panel.current_layer_id() == layer.layer_id
 
 
-def test_selecting_a_header_row_promotes_to_the_master_layer(panel, project, qtbot):
-    """2026-09-18: a header click is
-    a real selection target -- it promotes onto the source's first layer row (the master),
-    which emits normally, instead of the old no-op that stranded the previous rack."""
+def test_selecting_a_header_row_selects_the_master_and_stays_current(panel, project, qtbot):
+    """2026-09-18: a header click is a real selection target. It used to PROMOTE the current
+    item onto a separate master row (the highlight left the row clicked); since
+    2026-09-23 the header IS the master's row, so it emits the master and stays current."""
     source = project.add_source("/data/dataset.tif")
     layer = _layer(project, "A", source.source_id)
     panel.add_layer_row(layer, None)
@@ -360,7 +367,7 @@ def test_selecting_a_header_row_promotes_to_the_master_layer(panel, project, qtb
     panel.setCurrentItem(header)
 
     assert received == [layer.layer_id]
-    assert panel.currentItem() is not header          # current landed on the master row
+    assert panel.currentItem() is header              # the highlight stays on the row clicked
 
 
 # --------------------------------------------------------------------------- remove
@@ -442,7 +449,8 @@ def test_context_menu_has_rename_remove_and_refined_run(panel, project):
 
     menu = panel._build_context_menu(item, layer.layer_id)
     titles = [a.text() for a in menu.actions()]
-    assert titles == ["Rename", "Remove", "New refined run"]
+    # "Remove" became the two deletes (2026-09-23).
+    assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run"]
 
 
 def test_context_menu_remove_action_emits_removeRequested(panel, project, qtbot):
@@ -451,7 +459,8 @@ def test_context_menu_remove_action_emits_removeRequested(panel, project, qtbot)
     panel.add_layer_row(layer, None)
     item = panel._layer_items[layer.layer_id]
     menu = panel._build_context_menu(item, layer.layer_id)
-    remove_action = next(a for a in menu.actions() if a.text() == "Remove")
+    # "Remove" is now "Delete layer and children" -- the same cascade.
+    remove_action = next(a for a in menu.actions() if a.text() == "Delete layer and children")
 
     with qtbot.waitSignal(panel.removeRequested, timeout=1000) as sig:
         remove_action.trigger()
@@ -473,8 +482,7 @@ def test_context_menu_refined_run_action_emits_refinedRunRequested(panel, projec
 
 def test_context_menu_rename_action_opens_the_inline_editor(panel, project):
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id)
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source)
     item = panel._layer_items[layer.layer_id]
     menu = panel._build_context_menu(item, layer.layer_id)
     rename_action = next(a for a in menu.actions() if a.text() == "Rename")
@@ -489,8 +497,7 @@ def test_context_menu_rename_action_opens_the_inline_editor(panel, project):
 
 def test_delete_key_on_a_selected_layer_emits_removeRequested(panel, project, qtbot):
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id)
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source)
     panel.select_layer(layer.layer_id)
 
     with qtbot.waitSignal(panel.removeRequested, timeout=1000) as sig:
@@ -503,8 +510,7 @@ def test_backspace_key_on_a_selected_layer_also_emits_removeRequested(panel, pro
     labeled "delete" on a Mac keyboard -- there is no separate forward-delete key to bind
     instead."""
     source = project.add_source("/data/dataset.tif")
-    layer = _layer(project, "A", source.source_id)
-    panel.add_layer_row(layer, None)
+    layer = _row_layer(panel, project, source)
     panel.select_layer(layer.layer_id)
 
     with qtbot.waitSignal(panel.removeRequested, timeout=1000) as sig:
@@ -512,20 +518,22 @@ def test_backspace_key_on_a_selected_layer_also_emits_removeRequested(panel, pro
     assert sig.args == [layer.layer_id]
 
 
-def test_delete_key_after_a_header_click_targets_the_promoted_master(panel, project, qtbot):
-    """The header promotion (above) means a header can no longer BE current -- Delete now
-    honestly targets the master row the click landed on, same as clicking it directly."""
+def test_delete_key_after_a_header_click_targets_the_dataset(panel, project, qtbot):
+    """Used to pin that Delete after a header click removed the promoted master LAYER. Since
+    2026-09-23 the header is the dataset row, and Delete on it removes the dataset (one
+    confirmation, the whole family) -- never the master alone, which would orphan its rows."""
     source = project.add_source("/data/dataset.tif")
     layer = _layer(project, "A", source.source_id)
     panel.add_layer_row(layer, None)
     header = panel.topLevelItem(0)
     panel.setCurrentItem(header)
 
-    received = []
+    received, datasets = [], []
     panel.removeRequested.connect(received.append)
+    panel.removeSourceRequested.connect(datasets.append)
     qtbot.keyClick(panel, QtCore.Qt.Key_Delete)
 
-    assert received == [layer.layer_id]
+    assert received == [] and datasets == [source.source_id]
 
 
 # --------------------------------------------------------------------------- flash_row
@@ -1104,30 +1112,31 @@ def test_hiding_the_source_hides_the_raster_but_not_the_layers_products(loaded):
 
 # ------------------------------------------------- master-row collapse (2026-09-18)
 
-def test_lone_raw_master_row_is_hidden_until_a_second_row_or_a_chain(panel, project, qtbot):
-    """A fresh open shows ONE row (the header) -- the identically-named master row stays
-    hidden while it is the source's only layer with an empty chain (user: it read as "the
-    dataset automatically forks a copy of itself"). It appears the moment a child forks, and
-    re-collapses when the child is removed."""
+def test_the_master_never_gets_a_second_row(panel, project, qtbot):
+    """A fresh open shows ONE row. This used to be done by HIDING an identically-named master
+    row while it was alone and showing it once a child forked (2026-09-18) -- the second
+    "dataset" row the user then read as the ROI. Since 2026-09-23 the master
+    never has a row of its own: the dataset row is its row, before and after children come
+    and go."""
     source = project.add_source("/data/dataset.tif")
     master = _layer(project, "dataset", source.source_id)
     panel.add_layer_row(master, None)
-    assert panel._layer_items[master.layer_id].isHidden()
+    header = panel.topLevelItem(0)
+    assert panel._layer_items[master.layer_id] is header and header.childCount() == 0
 
-    # header click still reaches the hidden master (promotion)
     received = []
     panel.layerSelected.connect(received.append)
-    panel.setCurrentItem(panel.topLevelItem(0))
+    panel.setCurrentItem(header)
     assert received == [master.layer_id]
 
     child = project.add_layer("dataset · wtmm2d", source.source_id,
                               parent_id=master.layer_id)
     panel.add_layer_row(child, None)
-    assert not panel._layer_items[master.layer_id].isHidden()
+    assert header.childCount() == 1 and panel._layer_items[child.layer_id].parent() is header
 
     project.layers.remove(child)
     panel.remove_rows([child.layer_id])
-    assert panel._layer_items[master.layer_id].isHidden()
+    assert panel._layer_items[master.layer_id] is header and header.childCount() == 0
 
 
 def test_master_row_with_a_chain_is_never_hidden(panel, project, qtbot,
@@ -1140,3 +1149,253 @@ def test_master_row_with_a_chain_is_never_hidden(panel, project, qtbot,
                                Chain((DeviceRef("t", {"scale": 4}),)))
     panel.add_layer_row(master, None)
     assert not panel._layer_items[master.layer_id].isHidden()
+
+
+def test_every_row_toggle_carries_the_row_toggle_style(panel, project):
+    """H/L/F on layer rows and H/I on the source header all take the theme's black/white toggle
+    rule (theme.py, ``QToolButton[rowToggle="true"]``)."""
+    source = project.add_source("/data/dataset.tif")
+    layer = _layer(project, "A", source.source_id)
+    panel.add_layer_row(layer, None)
+    row = panel._row_widgets[layer.layer_id]
+    header = panel._source_rows[source.source_id]
+    for button in (row.hide_button, row.lock_button, row.freeze_button,
+                   header.hide_button, header.inspector_button):
+        assert button.property("rowToggle") == "true", button.text()
+
+
+# ------------------------------------------- 2026-09-23: the dataset row IS its master's row
+# A dataset used to show as a header plus an identically-named master row that hid/unhid itself
+# -- read as "the ROI", the source of the highlight glitch and of Delete taking the dataset.
+# Now the first root layer of a source has no row of its own: the header row carries it.
+
+
+def test_the_first_layer_of_a_dataset_is_the_dataset_row_itself(panel, project):
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    panel.add_layer_row(master, None)
+
+    assert panel.topLevelItemCount() == 1
+    header = panel.topLevelItem(0)
+    assert header.childCount() == 0                          # no second "dataset" row
+    assert panel._layer_items[master.layer_id] is header
+    assert header.data(0, _LAYER_ID_ROLE) == master.layer_id
+    assert header.text(0) == "dataset"
+
+
+def test_a_child_of_the_master_nests_directly_under_the_dataset_row(panel, project):
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    child = _layer(project, "wtmm2d @A", source.source_id, parent_id=master.layer_id)
+    panel.add_layer_row(master, None)
+    panel.add_layer_row(child, None)
+
+    header = panel.topLevelItem(0)
+    assert panel._layer_items[child.layer_id].parent() is header
+    assert header.childCount() == 1
+
+
+def test_clicking_the_dataset_row_selects_its_master_and_stays_highlighted(panel, project):
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    panel.add_layer_row(master, None)
+    header = panel.topLevelItem(0)
+    received = []
+    panel.layerSelected.connect(received.append)
+
+    panel.setCurrentItem(header)
+
+    assert received == [master.layer_id]
+    assert panel.currentItem() is header                     # the highlight is on the row clicked
+    assert panel.current_layer_id() == master.layer_id
+
+
+def test_the_dataset_row_carries_lock_and_freeze_for_its_master(panel, project, qtbot):
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id, tags={"ui.lock": "1"})
+    panel.add_layer_row(master, None)
+    row = panel._source_rows[source.source_id]
+
+    assert not row.lock_button.isHidden() and not row.freeze_button.isHidden()
+    assert row.lock_button.isChecked() is True and row.freeze_button.isChecked() is False
+    assert [row.layout().itemAt(i).widget().text() for i in range(1, row.layout().count())] \
+        == ["H", "L", "F", "I"]
+    with qtbot.waitSignal(panel.freezeToggled, timeout=1000) as sig:
+        row.freeze_button.click()
+    assert sig.args == [master.layer_id, True]
+
+
+def test_delete_on_the_dataset_row_asks_to_remove_the_dataset(panel, project, qtbot):
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    panel.add_layer_row(master, None)
+    panel.setCurrentItem(panel.topLevelItem(0))
+    layer_removals = []
+    panel.removeRequested.connect(layer_removals.append)
+
+    with qtbot.waitSignal(panel.removeSourceRequested, timeout=1000) as sig:
+        qtbot.keyClick(panel, QtCore.Qt.Key_Delete)
+    assert sig.args == [source.source_id]
+    assert layer_removals == []
+
+
+def test_removing_the_master_alone_keeps_the_row_for_the_layers_left(panel, project):
+    """A second root layer over the same file keeps its dataset row when only the master goes
+    (a programmatic removal; the UI removes the whole dataset)."""
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    other = _layer(project, "second open", source.source_id)
+    panel.add_layer_row(master, None)
+    panel.add_layer_row(other, None)
+
+    panel.remove_rows([master.layer_id])
+
+    assert panel.topLevelItemCount() == 1
+    header = panel.topLevelItem(0)
+    assert header.data(0, _LAYER_ID_ROLE) is None
+    assert master.layer_id not in panel._layer_items
+    assert panel._layer_items[other.layer_id].parent() is header
+
+
+def test_removing_the_last_child_keeps_the_dataset_row(panel, project):
+    """The prune of an emptied header must not take a dataset row that still carries its
+    master -- removing the only result left the dataset's own row gone."""
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    child = _layer(project, "wtmm2d @A", source.source_id, parent_id=master.layer_id)
+    panel.add_layer_row(master, None)
+    panel.add_layer_row(child, None)
+    panel.select_layer(master.layer_id)
+
+    panel.remove_rows([child.layer_id])
+
+    assert panel.topLevelItemCount() == 1
+    assert panel.current_layer_id() == master.layer_id
+
+
+# ------------------------------------------- 2026-09-23: a saved ROI is a row of its dataset
+# An ROI is a pixel window on its parent raster; it shows as ``<dataset> @A`` under the dataset
+# row, results computed on it nest under it, and its H hides only its own outline.
+
+def _roi_setup(panel, project):
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    panel.add_layer_row(master, None)
+    roi = project.add_roi(4, 5, 16, 20, source_id=source.source_id, label="A")
+    panel.sync_roi_rows()
+    return source, master, roi
+
+
+def test_a_saved_roi_appears_as_a_row_under_its_dataset(panel, project):
+    source, master, roi = _roi_setup(panel, project)
+    header = panel.topLevelItem(0)
+    item = panel._roi_items[roi.roi_id]
+    assert item.parent() is header
+    assert item.text(0) == "dataset @A"
+    assert item.data(0, _LAYER_ID_ROLE) is None
+
+
+def test_a_result_on_an_roi_nests_under_that_roi_row(panel, project):
+    source, master, roi = _roi_setup(panel, project)
+    result = _layer(project, "wtmm2d @A", source.source_id, parent_id=master.layer_id)
+    result.roi_id = roi.roi_id
+    panel.add_layer_row(result, None)
+    assert panel._layer_items[result.layer_id].parent() is panel._roi_items[roi.roi_id]
+
+
+def test_a_result_added_before_its_roi_row_still_nests_under_it(panel, project):
+    """A project reopen adds layers before anything syncs the ROI rows."""
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    roi = project.add_roi(4, 5, 16, 20, source_id=source.source_id, label="A")
+    result = _layer(project, "wtmm2d @A", source.source_id, parent_id=master.layer_id)
+    result.roi_id = roi.roi_id
+    panel.add_layer_row(master, None)
+    panel.add_layer_row(result, None)
+    assert panel._layer_items[result.layer_id].parent() is panel._roi_items[roi.roi_id]
+    panel.sync_roi_rows()                                 # idempotent
+    assert panel.topLevelItem(0).childCount() == 1
+
+
+def test_clicking_an_roi_row_emits_roiSelected_not_layerSelected(panel, project, qtbot):
+    source, master, roi = _roi_setup(panel, project)
+    layers = []
+    panel.layerSelected.connect(layers.append)
+    with qtbot.waitSignal(panel.roiSelected, timeout=1000) as sig:
+        panel.setCurrentItem(panel._roi_items[roi.roi_id])
+    assert sig.args == [roi.roi_id] and layers == []
+    assert panel.current_layer_id() is None
+
+
+def test_the_roi_rows_h_emits_roiHideToggled(panel, project, qtbot):
+    source, master, roi = _roi_setup(panel, project)
+    row = panel._roi_rows[roi.roi_id]
+    assert row.hide_button.property("rowToggle") == "true"
+    with qtbot.waitSignal(panel.roiHideToggled, timeout=1000) as sig:
+        row.hide_button.click()
+    assert sig.args == [roi.roi_id, True]
+
+
+def test_an_roi_row_stays_when_its_last_result_is_removed(panel, project):
+    source, master, roi = _roi_setup(panel, project)
+    result = _layer(project, "wtmm2d @A", source.source_id, parent_id=master.layer_id)
+    result.roi_id = roi.roi_id
+    panel.add_layer_row(result, None)
+    panel.remove_rows([result.layer_id])
+    assert roi.roi_id in panel._roi_items
+    assert panel._roi_items[roi.roi_id].childCount() == 0
+
+
+# ------------------------------------------- 2026-09-23: the two deletes, ROI delete, many
+
+def test_a_result_rows_menu_offers_delete_layer_and_delete_layer_and_children(panel, project,
+                                                                             qtbot):
+    source = project.add_source("/data/dataset.tif")
+    layer = _row_layer(panel, project, source)
+    menu = panel._build_context_menu(panel._layer_items[layer.layer_id], layer.layer_id)
+    titles = [a.text() for a in menu.actions()]
+    assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run"]
+    only = next(a for a in menu.actions() if a.text() == "Delete layer")
+    with qtbot.waitSignal(panel.removeLayerOnlyRequested, timeout=1000) as sig:
+        only.trigger()
+    assert sig.args == [layer.layer_id]
+    both = next(a for a in menu.actions() if a.text() == "Delete layer and children")
+    with qtbot.waitSignal(panel.removeRequested, timeout=1000) as sig:
+        both.trigger()
+    assert sig.args == [layer.layer_id]
+
+
+def test_an_roi_row_offers_delete_roi_by_menu_and_by_key(panel, project, qtbot):
+    source, master, roi = _roi_setup(panel, project)
+    item = panel._roi_items[roi.roi_id]
+    menu = panel._build_roi_context_menu(roi.roi_id)
+    assert [a.text() for a in menu.actions()] == ["Delete ROI"]
+    with qtbot.waitSignal(panel.removeRoiRequested, timeout=1000) as sig:
+        menu.actions()[0].trigger()
+    assert sig.args == [roi.roi_id]
+    panel.setCurrentItem(item)
+    with qtbot.waitSignal(panel.removeRoiRequested, timeout=1000) as sig:
+        qtbot.keyClick(panel, QtCore.Qt.Key_Delete)
+    assert sig.args == [roi.roi_id]
+
+
+def test_the_layer_list_selects_several_rows(panel):
+    assert panel.selectionMode() == QtWidgets.QAbstractItemView.ExtendedSelection
+
+
+def test_delete_with_several_rows_selected_emits_one_batch(panel, project, qtbot):
+    source, master, roi = _roi_setup(panel, project)
+    r1 = _layer(project, "one", source.source_id, parent_id=master.layer_id)
+    r2 = _layer(project, "two", source.source_id, parent_id=master.layer_id)
+    panel.add_layer_row(r1, None)
+    panel.add_layer_row(r2, None)
+    panel.setCurrentItem(panel._layer_items[r1.layer_id])
+    for item in (panel._roi_items[roi.roi_id], panel._layer_items[r2.layer_id]):
+        item.setSelected(True)
+    singles = []
+    panel.removeRequested.connect(singles.append)
+    with qtbot.waitSignal(panel.removeManyRequested, timeout=1000) as sig:
+        qtbot.keyClick(panel, QtCore.Qt.Key_Delete)
+    layer_ids, roi_ids, source_ids = sig.args
+    assert sorted(layer_ids) == sorted([r1.layer_id, r2.layer_id])
+    assert roi_ids == [roi.roi_id] and source_ids == [] and singles == []

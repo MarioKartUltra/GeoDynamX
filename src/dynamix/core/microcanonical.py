@@ -250,7 +250,7 @@ def _zero_unsupported(T, supported, scales, route, wavelet, beta, q_tsallis, fra
 
 def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian",
                         beta: float = 1.0, q_tsallis: float = 1.5, frac_n: float = 2.0,
-                        pad: "int | None" = None) -> np.ndarray:
+                        pad: "int | None" = None, progress=None) -> np.ndarray:
     """``T(x, r)`` -- the measure convolved with the positive kernel at each scale (px).
 
     Returns ``(n_scales, ny, nx)`` float64. ``pad`` defaults to twice the largest scale
@@ -269,6 +269,8 @@ def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian
         Kf = _fft().fft2(_radial_kernel(mup.shape, r, wavelet, beta, q_tsallis, frac_n))
         conv = np.real(_fft().ifft2(F * Kf))
         T[i] = conv[pad:pad + ny, pad:pad + nx]
+        if progress is not None:
+            progress("holder projections", (i + 1) / len(scales))
     return _zero_unsupported(T, mu > 0, scales, "measure", wavelet, beta, q_tsallis, frac_n)
 
 
@@ -313,7 +315,7 @@ def _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0):
 
 def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
                        beta: float = 1.0, q_tsallis: float = 1.5, frac_n: float = 2.0,
-                       pad: "int | None" = None) -> np.ndarray:
+                       pad: "int | None" = None, progress=None) -> np.ndarray:
     """``|T_psi s(x, r)|`` -- the MULTIAFFINE functional (Turiel 2008 SS4.2.1): the signal
     convolved with a zero-mean 2D 2nd-order ("Mexican-hat") wavelet, absolute value taken.
     The per-pixel log-log slope of the result is the multiaffine Holder exponent gamma(x)
@@ -396,6 +398,8 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
         Kf = _fft().fft2(np.fft.ifftshift(k))
         conv = np.real(_fft().ifft2(F * Kf))
         T[i] = np.abs(conv[pad:pad + ny, pad:pad + nx])
+        if progress is not None:
+            progress("holder projections", (i + 1) / len(scales))
     gy, gx = np.gradient(s)
     return _zero_unsupported(T, np.hypot(gx, gy) > 0, scales, "marr", wavelet_arg, beta,
                              q_arg, frac_n_arg)

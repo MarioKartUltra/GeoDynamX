@@ -100,3 +100,18 @@ def validate_params(device: Device, params: dict) -> dict[str, Any]:
     if check is not None:
         check(out)            # cross-parameter validation; raises ValueError
     return out
+
+
+def keyed_params(device: Device, params: dict) -> dict[str, Any]:
+    """``params`` without the device's view-only params (``Param.view``) -- what a cache key and
+    a transform signature are built from. A display selector must never be keyed: switching
+    which computed output is shown would otherwise recompute the whole tool."""
+    view = {p.name for p in getattr(device, "params", ()) if p.view}
+    return {k: v for k, v in params.items() if k not in view}
+
+
+def apply_view(device: Device, result, params: dict):
+    """The device's ``view(result, params)`` applied to a (cached) result, or ``result`` itself
+    for a device with no view step. Runs after the cache, on every resolve."""
+    view = getattr(device, "view", None)
+    return result if view is None else view(result, params)

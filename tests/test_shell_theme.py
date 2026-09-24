@@ -73,3 +73,19 @@ def test_theme_is_frozen_data():
     except dataclasses.FrozenInstanceError:
         raised = True
     assert raised
+
+
+def test_row_toggles_read_black_at_rest_and_white_when_set():
+    """The layer list's H/L/F/I toggles: black with white text at rest, white with black text
+    when set (hidden / locked / frozen / inspector open) -- styled here, not left to the
+    platform, whose checked state was hard to tell from unchecked."""
+    t = RESTRAINED_DARK
+    qss = generate_qss(t)
+    rest = re.search(r'QToolButton\[rowToggle="true"\] \{([^}]*)\}', qss)
+    checked = re.search(r'QToolButton\[rowToggle="true"\]:checked \{([^}]*)\}', qss)
+    assert rest and checked
+    assert f"background: {t.toggle_rest};" in rest.group(1)
+    assert f"color: {t.toggle_set};" in rest.group(1)
+    assert f"background: {t.toggle_set};" in checked.group(1)
+    assert f"color: {t.toggle_rest};" in checked.group(1)
+    assert (t.toggle_rest, t.toggle_set) == ("#000000", "#ffffff")

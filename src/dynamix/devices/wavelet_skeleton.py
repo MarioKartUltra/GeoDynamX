@@ -85,7 +85,9 @@ class WaveletSkeleton:
                                edge_frac=params["edge_frac"],
                                n_stages=int(params["n_stages"]),
                                kernel=params["wavelet"],
-                               pair_dom=params["pair_dom"])
+                               pair_dom=params["pair_dom"],
+                               progress=(None if progress is None else
+                                         (lambda st, f: progress(st, 0.9 * float(f)))))
         if progress is not None:
             progress("wavelet skeleton", 0.9)
         ys, xs = np.where(core["skeleton"])

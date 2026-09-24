@@ -58,10 +58,13 @@ def method_arrays(vals, method: str, params: dict, progress=None):
               q_tsallis=params["q_tsallis"], frac_n=params["frac_n"])
     if progress is not None:
         progress("holder projections", 0.0)
+    # Projections are the slow part: reported per scale, over 0..70 %.
+    per_scale = (None if progress is None
+                 else (lambda stage, frac: progress(stage, 0.7 * float(frac))))
     if method == "multiaffine":
-        T = mc.ricker_projections(vals, scales, **kw)
+        T = mc.ricker_projections(vals, scales, progress=per_scale, **kw)
     else:
-        T = mc.measure_projections(mc.gradient_measure(vals), scales, **kw)
+        T = mc.measure_projections(mc.gradient_measure(vals), scales, progress=per_scale, **kw)
     if progress is not None:
         progress("holder estimate", 0.7)
     if punctual:

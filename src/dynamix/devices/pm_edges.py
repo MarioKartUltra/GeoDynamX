@@ -50,7 +50,7 @@ class PMEdges:
         Param("lam", ParamKind.FLOAT, default=0.2, min=0.001, max=0.25,
               soft_min=0.1, soft_max=0.25, units="", label="λ"),
         Param("show", ParamKind.CHOICE, default="edges",
-              choices=("edges", "filtered"), label="Show"),
+              choices=("edges", "filtered"), label="Show", view=True),
         # 2026-09-22: xsmurf's follow takes four IMAGES --
         # detector="follow" feeds it this device's own smoothed snapshots via FD derivative
         # stacks (dynamix.core.xsmurf_follow.kapa_from_field) and runs the exact ported
@@ -139,8 +139,15 @@ class PMEdges:
         if follow:
             out["_hline_runs"] = runs_all
             out["_hline_closed"] = closed_all
+        return out
+
+    def view(self, result: dict, params: dict) -> dict:
+        """``show`` is view-only: the filtered field is always computed and cached; showing it
+        is a cache hit."""
+        out = {k: v for k, v in result.items() if k != "raster_out"}
+        out["params"] = {**result.get("params", {}), "show": params["show"]}
         if params["show"] == "filtered":
-            out["raster_out"] = out["filtered"]
+            out["raster_out"] = result["filtered"]
         return out
 
     def roi_margin(self, params: dict) -> int:
@@ -155,5 +162,6 @@ class PMEdges:
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
+        from dynamix.model.device import keyed_params
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))

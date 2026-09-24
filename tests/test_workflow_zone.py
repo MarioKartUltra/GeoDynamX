@@ -1574,3 +1574,38 @@ def test_q_warning_lights_up_and_clears_in_the_box(qtbot, registered_builtins):
     assert "⚠" in label.text()
     box.controls["q_tsallis"].valueChanged.emit(0.5)
     assert label.text() == ""
+
+
+# ------------------------------------------- a knob that only applies under another's value
+
+def test_a_param_is_greyed_out_while_its_active_when_condition_does_not_hold(qtbot):
+    """tucker_havok's Tape axis applies only to the 1-D tape embedding; under the (default)
+    symmetric 2-D delay it is greyed out, and comes back the moment Embedding = delay."""
+    from dynamix.devices.decompose import TuckerHavok
+    from dynamix.model.device import defaults_for
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    dev = TuckerHavok()
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    assert box._params["embed"] == "delay_2d"
+    assert not box.controls["axis"].isEnabled()
+    assert box.controls["sweeps"].isEnabled()            # HOOI runs in every embedding
+    assert box.controls["n_delays"].isEnabled()
+    box._on_control_changed("embed", "delay")
+    assert box.controls["axis"].isEnabled() and box.controls["sweeps"].isEnabled()
+    box._on_control_changed("embed", "none")
+    assert not box.controls["axis"].isEnabled() and not box.controls["n_delays"].isEnabled()
+
+
+def test_tuckers_component_stepper_only_applies_when_showing_a_component(qtbot):
+    from dynamix.devices.decompose import TuckerHavok
+    from dynamix.model.device import defaults_for
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    dev = TuckerHavok()
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    assert not box.controls["component"].isEnabled()
+    box._on_control_changed("show", "component")
+    assert box.controls["component"].isEnabled()

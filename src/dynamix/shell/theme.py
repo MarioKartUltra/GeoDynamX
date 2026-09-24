@@ -36,6 +36,10 @@ class Theme:
     # orange `amber` (hex ffa028): close enough to read as the same "selection" family, distinct
     # enough that the two roles can diverge later without a hidden coupling.
     selection_accent: str = "#ffc107"
+    # The layer list's H/L/F/I toggles: black with white text at rest, inverted when set
+    # (hidden / locked / frozen / inspector open), so the state reads at a glance.
+    toggle_rest: str = "#000000"
+    toggle_set: str = "#ffffff"
     sans_family: str = "Helvetica Neue"
     mono_family: str = "Menlo"
     base_pt: int = 11
@@ -74,6 +78,10 @@ QPushButton {{ background: {t.raised}; border: 1px solid {t.border}; border-radi
                padding: 2px 8px; }}
 QPushButton:focus {{ border: 1px solid {t.amber}; outline: none; }}
 QPushButton:checked {{ color: {t.amber}; }}
+QToolButton[rowToggle="true"] {{ background: {t.toggle_rest}; color: {t.toggle_set};
+                                border: 1px solid {t.border}; border-radius: 2px;
+                                padding: 0px 4px; }}
+QToolButton[rowToggle="true"]:checked {{ background: {t.toggle_set}; color: {t.toggle_rest}; }}
 QListWidget {{ background: {t.panel}; border: none; }}
 QListWidget::item:selected {{ background: {t.raised}; color: {t.amber}; }}
 QLineEdit {{ background: {t.ground}; border: 1px solid {t.border};

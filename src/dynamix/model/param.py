@@ -52,6 +52,15 @@ class Param:
     #: sets this True to earn an editable line-edit control ("text_edit") instead. Ignored for
     #: every other kind -- there is nothing here for a non-TEXT param to opt into.
     editable: bool = False
+    #: A DISPLAY selector (which computed output is shown -- ``show``, ``component``): never part
+    #: of a cache key and never read by ``compute``; the device's ``view(result, params)`` applies
+    #: it after the cache, so switching it is a cache hit, not a recompute
+    #: (``dynamix.model.device.keyed_params``).
+    view: bool = False
+    #: ``(other_param, allowed_values)``: this knob only APPLIES while ``other_param`` holds one of
+    #: ``allowed_values`` -- the knob panel greys it out otherwise (it is still validated, stored
+    #: and keyed as before). ``None`` = always applies.
+    active_when: tuple | None = None
 
     def __post_init__(self):
         if self.kind is ParamKind.CHOICE:

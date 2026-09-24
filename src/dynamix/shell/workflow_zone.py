@@ -488,6 +488,19 @@ class DeviceBox(QtWidgets.QFrame):
         # Scoped to the CONTROL GRID ONLY (``self._body``), not ``self`` -- see the comment above
         # ``self._body``'s construction.
         self._body.setEnabled(not bypassed)
+        self._apply_active_when()
+
+    def _apply_active_when(self) -> None:
+        """Grey out every knob whose ``Param.active_when`` does not hold for the current params
+        (e.g. tucker's Tape axis outside the 1-D tape embedding). The value is kept and still
+        keyed -- this only says the knob does not apply right now."""
+        for p in self.device.params:
+            cond = getattr(p, "active_when", None)
+            control = self.controls.get(p.name)
+            if cond is None or control is None:
+                continue
+            other, allowed = cond
+            control.setEnabled(self._params.get(other) in allowed)
 
     @property
     def step_index(self) -> int:
@@ -510,6 +523,7 @@ class DeviceBox(QtWidgets.QFrame):
         then tells the outside world."""
         self._params[name] = value
         self.controls[name].set_value(value)
+        self._apply_active_when()
         for label_name, label in self._derived_labels.items():
             text = self._derived_text(label_name, self._params[label_name])
             if text is not None:

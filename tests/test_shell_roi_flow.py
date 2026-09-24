@@ -232,6 +232,22 @@ def test_the_band_is_live_during_the_drag_and_snaps_to_the_emitted_rect(qtbot, c
     assert (band_y.min(), band_y.max()) == (row - 0.5, row + h - 0.5)
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="the ⌘ mapping is a macOS question")
+def test_the_live_band_already_sits_on_the_whole_pixels_the_release_will_name(qtbot, canvas):
+    """What the user sees mid-drag is what they get: the live band covers whole pixel cells,
+    the same ones the release emits -- never the raw sub-pixel cursor position."""
+    from dynamix.shell.canvas import ROI_MODIFIER
+
+    canvas.mousePressEvent(_press((143.0, 161.0), ROI_MODIFIER))
+    canvas.mouseMoveEvent(_move((301.0, 277.0), ROI_MODIFIER))
+    live_x, live_y = canvas.roi_band_item.getData()
+    with qtbot.waitSignal(canvas.roiDrawn, timeout=1000) as sig:
+        canvas.mouseReleaseEvent(_release((301.0, 277.0), ROI_MODIFIER))
+    row, col, h, w = sig.args
+    assert (live_x.min(), live_x.max()) == (col - 0.5, col + w - 0.5)
+    assert (live_y.min(), live_y.max()) == (row - 0.5, row + h - 0.5)
+
+
 def test_a_drag_with_no_field_loaded_emits_nothing(qtbot):
     from dynamix.shell.canvas import ROI_MODIFIER, Canvas
 

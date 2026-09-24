@@ -102,9 +102,11 @@ def test_show_filtered_stamps_the_raster_out_display():
     field = _step_field()
     dev = PMEdges()
     params = dict(defaults_for(dev), n_levels=2)
-    edges = dev.compute(field, dict(params, show="edges"))
+    # ``show`` is view-only: one compute, the display pick is the device's view step.
+    res = dev.compute(field, params)
+    edges = dev.view(res, dict(params, show="edges"))
     assert "raster_out" not in edges
-    filt = dev.compute(field, dict(params, show="filtered"))
+    filt = dev.view(res, dict(params, show="filtered"))
     np.testing.assert_array_equal(filt["raster_out"], filt["filtered"])
     assert any(e["x"].size for e in filt["extrema"])   # the pyramid still rides
 
@@ -129,8 +131,10 @@ def test_cache_key_tracks_every_param():
     base = defaults_for(dev)
     k0 = dev.cache_key("src", base)
     for change in ({"n_levels": 3}, {"k_edge": 0.5}, {"g": "frac"}, {"lam": 0.1},
-                   {"show": "filtered"}, {"interpolate": True}, {"floor": 0.1}):
+                   {"interpolate": True}, {"floor": 0.1}):
         assert dev.cache_key("src", dict(base, **change)) != k0, change
+    # ``show`` is view-only: switching it is a cache hit, never a recompute.
+    assert dev.cache_key("src", dict(base, show="filtered")) == k0
 
 
 def test_refusals_are_the_shared_contract():

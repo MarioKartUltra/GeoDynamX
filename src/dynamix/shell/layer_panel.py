@@ -47,6 +47,9 @@ from PySide6 import QtCore, QtGui, QtWidgets
 #: the same item, which is how every handler below tells a header apart from a layer row.
 _LAYER_ID_ROLE = QtCore.Qt.UserRole
 _SOURCE_ID_ROLE = QtCore.Qt.UserRole + 1
+#: A saved-ROI row (2026-09-23) carries its ``roi_id`` here -- and no layer id: an ROI is a pixel
+#: window on its dataset, drawn as an outline, not a layer.
+_ROI_ID_ROLE = QtCore.Qt.UserRole + 2
 
 #: The chip-hover feedback:
 #: "chip hover emits chipHovered(parent_layer_id) -> LayerPanel.flash_row(layer_id) (temporary
@@ -92,7 +95,25 @@ class _LayerRow(QtWidgets.QWidget):
         button.setChecked(checked)
         button.setText(text)
         button.setToolTip(tooltip)
+        button.setProperty("rowToggle", "true")      # theme.py's black/white toggle rule
         return button
+
+
+class _RoiRow(QtWidgets.QWidget):
+    """A saved ROI row's trailing widget: its H only -- it hides the ROI's OUTLINE, never the
+    results computed on it."""
+
+    hideToggled = QtCore.Signal(bool)
+
+    def __init__(self, roi, parent=None):
+        super().__init__(parent)
+        row = QtWidgets.QHBoxLayout(self)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.addStretch(1)
+        self.hide_button = _LayerRow._make_button(
+            "H", "Hide this ROI's outline (results on it stay)", not roi.visible)
+        row.addWidget(self.hide_button)
+        self.hide_button.toggled.connect(self.hideToggled.emit)
 
 
 class _SourceRow(QtWidgets.QWidget):
@@ -113,6 +134,8 @@ class _SourceRow(QtWidgets.QWidget):
 
     inspectorToggled = QtCore.Signal(bool)
     hideToggled = QtCore.Signal(bool)          # the DATASET's own hide (2026-08-29)
+    lockToggled = QtCore.Signal(bool)          # the master layer's, once one attaches
+    freezeToggled = QtCore.Signal(bool)
 
     def __init__(self, open_: bool = False, hidden: bool = False, parent=None):
         super().__init__(parent)
@@ -128,17 +151,42 @@ class _SourceRow(QtWidgets.QWidget):
         self.hide_button.setChecked(hidden)
         self.hide_button.setText("H")
         self.hide_button.setToolTip("Hide dataset (the raster; its layers' products stay)")
+        self.hide_button.setProperty("rowToggle", "true")
         row.addWidget(self.hide_button)
         self.hide_button.toggled.connect(self.hideToggled.emit)
+
+        # The dataset row IS its master layer's row (2026-09-23): the master's
+        # lock/freeze sit here, hidden until a master attaches (a bare header has none).
+        self.lock_button = _LayerRow._make_button("L", "Lock (params read-only)", False)
+        self.freeze_button = _LayerRow._make_button(
+            "F", "Freeze (lock + pin cached results)", False)
+        for button in (self.lock_button, self.freeze_button):
+            button.setVisible(False)
+            row.addWidget(button)
+        self.lock_button.toggled.connect(self.lockToggled.emit)
+        self.freeze_button.toggled.connect(self.freezeToggled.emit)
 
         self.inspector_button = QtWidgets.QToolButton()
         self.inspector_button.setCheckable(True)
         self.inspector_button.setChecked(open_)
         self.inspector_button.setText("I")
         self.inspector_button.setToolTip("Inspector (floating window for this source)")
+        self.inspector_button.setProperty("rowToggle", "true")
         row.addWidget(self.inspector_button)
 
         self.inspector_button.toggled.connect(self.inspectorToggled.emit)
+
+    def attach_master(self, layer) -> None:
+        """Show the master layer's L/F, seeded from its flags without emitting."""
+        for button, tag in ((self.lock_button, "ui.lock"), (self.freeze_button, "ui.freeze")):
+            button.blockSignals(True)
+            button.setChecked(layer.tags.get(tag) == "1")
+            button.blockSignals(False)
+            button.setVisible(True)
+
+    def detach_master(self) -> None:
+        for button in (self.lock_button, self.freeze_button):
+            button.setVisible(False)
 
 
 class LayerPanel(QtWidgets.QTreeWidget):
@@ -165,6 +213,16 @@ class LayerPanel(QtWidgets.QTreeWidget):
     #: every signal above it: an inspector opens on a SOURCE, never on a layer.
     inspectorToggled = QtCore.Signal(str, bool)
     sourceHideToggled = QtCore.Signal(str, bool)   # (source_id, hidden): the dataset's own hide
+    #: A saved-ROI row became current: its ``roi_id`` (the next tool dropped runs on it).
+    roiSelected = QtCore.Signal(str)
+    #: ``(roi_id, hidden)`` -- an ROI row's H: its outline only.
+    roiHideToggled = QtCore.Signal(str, bool)
+    #: "Delete layer": remove ONE layer, its children move up to its parent.
+    removeLayerOnlyRequested = QtCore.Signal(int)
+    #: "Delete ROI" / Delete on an ROI row -- the shell refuses while results use it.
+    removeRoiRequested = QtCore.Signal(str)
+    #: Delete with several rows selected: ``(layer_ids, roi_ids, source_ids)``, one confirmation.
+    removeManyRequested = QtCore.Signal(list, list, list)
 
     def __init__(self, project=None, parent=None):
         super().__init__(parent)
@@ -185,12 +243,19 @@ class LayerPanel(QtWidgets.QTreeWidget):
         self.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
         self.setHeaderHidden(True)
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        # Shift = a range, cmd = individual rows; Delete acts on all of them.
+        self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
 
         self._project = None
         self._source_headers: dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._layer_items: dict[int, QtWidgets.QTreeWidgetItem] = {}
         self._row_widgets: dict[int, _LayerRow] = {}
         self._source_rows: dict[str, _SourceRow] = {}
+        #: source_id -> its MASTER layer id: the first root layer of a source, whose row IS the
+        #: dataset row (2026-09-23).
+        self._masters: dict[str, int] = {}
+        self._roi_items: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._roi_rows: dict[str, _RoiRow] = {}
 
         self.currentItemChanged.connect(self._on_current_item_changed)
         self.itemChanged.connect(self._on_item_changed)
@@ -220,6 +285,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
             self._layer_items.clear()
             self._row_widgets.clear()
             self._source_rows.clear()
+            self._masters.clear()
+            self._roi_items.clear()
+            self._roi_rows.clear()
             self.set_project(project)
         finally:
             self.blockSignals(False)
@@ -237,8 +305,17 @@ class LayerPanel(QtWidgets.QTreeWidget):
         unchanged.
         """
         header = self._ensure_source_header(layer.source_id, field)
+        if layer.parent_id is None and layer.source_id not in self._masters:
+            self._attach_master(header, layer)
+            return
         parent_item = (self._layer_items.get(layer.parent_id)
                        if layer.parent_id is not None else None)
+        roi_id = getattr(layer, "roi_id", None)
+        if roi_id is not None and layer.parent_id is not None:
+            # A result computed ON a saved ROI sits under that ROI's row (2026-09-23).
+            roi_item = self._ensure_roi_row(roi_id)
+            if roi_item is not None:
+                parent_item = roi_item
         if parent_item is None:
             parent_item = header
 
@@ -295,9 +372,103 @@ class LayerPanel(QtWidgets.QTreeWidget):
             lambda checked, sid=source_id: self.inspectorToggled.emit(sid, checked))
         row.hideToggled.connect(
             lambda checked, sid=source_id: self.sourceHideToggled.emit(sid, checked))
+        row.lockToggled.connect(
+            lambda checked, sid=source_id: self._emit_for_master(self.lockToggled, sid, checked))
+        row.freezeToggled.connect(
+            lambda checked, sid=source_id: self._emit_for_master(self.freezeToggled, sid,
+                                                                 checked))
         self.setItemWidget(item, 1, row)
         self._source_rows[source_id] = row
         return item
+
+    def _attach_master(self, header, layer) -> None:
+        """Make ``header`` the row of ``layer``, its source's master (2026-09-23): a dataset
+        used to show as a header plus an identically-named master row that hid itself while
+        alone -- read as the ROI, the cause of the header highlight never sticking, and why
+        Delete on it took the dataset. One row now: its H hides the raster, its L/F are the
+        master's, selecting it selects the master, and the master's children nest under it.
+        Signals are blocked for the ``setData`` (the ``add_layer_row`` spurious-rename trap)."""
+        self.blockSignals(True)
+        try:
+            header.setData(0, _LAYER_ID_ROLE, layer.layer_id)
+        finally:
+            self.blockSignals(False)
+        row = self._source_rows[layer.source_id]
+        row.attach_master(layer)
+        self._masters[layer.source_id] = layer.layer_id
+        self._layer_items[layer.layer_id] = header
+        self._row_widgets[layer.layer_id] = row
+
+    def _emit_for_master(self, signal, source_id: str, checked: bool) -> None:
+        layer_id = self._masters.get(source_id)
+        if layer_id is not None:
+            signal.emit(layer_id, checked)
+
+    # -- saved-ROI rows (2026-09-23) -------------------------------------------------------------
+    def _dataset_name(self, source_id: str) -> str:
+        """What an ROI row is named after: the dataset's master layer, else its row's text."""
+        master_id = self._masters.get(source_id)
+        if self._project is not None and master_id is not None:
+            master = next((l for l in self._project.layers if l.layer_id == master_id), None)
+            if master is not None:
+                return master.name
+        header = self._source_headers.get(source_id)
+        return header.text(0) if header is not None else source_id
+
+    def _ensure_roi_row(self, roi_id: str):
+        """The row for saved ROI ``roi_id`` under its dataset row, created once from the
+        project's ``RoiRecord``; ``None`` when the record, or its dataset's row, does not exist."""
+        item = self._roi_items.get(roi_id)
+        if item is not None:
+            return item
+        if self._project is None:
+            return None
+        roi = next((r for r in self._project.rois if r.roi_id == roi_id), None)
+        if roi is None:
+            return None
+        header = self._source_headers.get(roi.source_id)
+        if header is None:
+            return None
+        # Detached + data set BEFORE addChild: the add_layer_row spurious-itemChanged trap.
+        item = QtWidgets.QTreeWidgetItem([f"{self._dataset_name(roi.source_id)} @{roi.label}"])
+        item.setData(0, _ROI_ID_ROLE, roi_id)
+        header.addChild(item)
+        item.setExpanded(True)
+        self._roi_items[roi_id] = item
+        row = _RoiRow(roi)
+        row.hideToggled.connect(
+            lambda checked, rid=roi_id: self.roiHideToggled.emit(rid, checked))
+        self.setItemWidget(item, 1, row)
+        self._roi_rows[roi_id] = row
+        return item
+
+    def sync_roi_rows(self) -> None:
+        """One row per saved ROI of every dataset on the list; rows whose record is gone go
+        too. Idempotent -- the window calls it wherever the saved ROIs may have changed."""
+        if self._project is None:
+            return
+        live = {r.roi_id for r in self._project.rois}
+        for roi in self._project.rois:
+            self._ensure_roi_row(roi.roi_id)
+        for roi_id in [rid for rid in self._roi_items if rid not in live]:
+            self._forget_roi_row(roi_id, take=True)
+
+    def _forget_roi_row(self, roi_id: str, *, take: bool) -> None:
+        item = self._roi_items.pop(roi_id, None)
+        self._roi_rows.pop(roi_id, None)
+        if take and item is not None and item.parent() is not None:
+            item.parent().removeChild(item)
+
+    def select_roi(self, roi_id: str) -> None:
+        """Make saved ROI ``roi_id``'s row current (emits ``roiSelected``)."""
+        item = self._roi_items.get(roi_id)
+        if item is None:
+            return
+        ancestor = item.parent()
+        while ancestor is not None:
+            ancestor.setExpanded(True)
+            ancestor = ancestor.parent()
+        self.setCurrentItem(item)
 
     def remove_rows(self, layer_ids) -> None:
         """Remove every row named in ``layer_ids`` (the ``Project.remove_layer`` return:
@@ -343,6 +514,17 @@ class LayerPanel(QtWidgets.QTreeWidget):
                     continue
                 if item is current:
                     current_removed = True
+                source_id = item.data(0, _SOURCE_ID_ROLE)
+                if source_id is not None:
+                    # The master's row is the dataset row: drop the master from it; the row
+                    # goes below only if nothing else is left under it.
+                    item.setData(0, _LAYER_ID_ROLE, None)
+                    self._masters.pop(source_id, None)
+                    row = self._source_rows.get(source_id)
+                    if row is not None:
+                        row.detach_master()
+                    touched_headers.add(item)
+                    continue
                 parent = item.parent()
                 if parent is None:
                     self.takeTopLevelItem(self.indexOfTopLevelItem(item))
@@ -350,12 +532,16 @@ class LayerPanel(QtWidgets.QTreeWidget):
                 parent.removeChild(item)
                 touched_headers.add(parent)
             for source_id, header in list(self._source_headers.items()):
-                if header in touched_headers and header.childCount() == 0:
+                # A dataset row still carrying its master is not empty -- it IS a layer row.
+                if (header in touched_headers and header.childCount() == 0
+                        and header.data(0, _LAYER_ID_ROLE) is None):
                     idx = self.indexOfTopLevelItem(header)
                     if idx >= 0:
                         self.takeTopLevelItem(idx)
                     del self._source_headers[source_id]
                     self._source_rows.pop(source_id, None)   # never leak a pruned header's row
+                    self._masters.pop(source_id, None)
+                    self._forget_roi_rows_of(header)
             if current_removed:
                 self.setCurrentItem(None)
         finally:
@@ -400,7 +586,15 @@ class LayerPanel(QtWidgets.QTreeWidget):
             item = self.topLevelItem(i)
             if item is not None and item.data(0, _SOURCE_ID_ROLE) == source_id:
                 self.takeTopLevelItem(i)
+                self._source_headers.pop(source_id, None)
+                self._source_rows.pop(source_id, None)
+                self._masters.pop(source_id, None)
+                self._forget_roi_rows_of(item)
                 return
+
+    def _forget_roi_rows_of(self, header) -> None:
+        for roi_id in [rid for rid, it in self._roi_items.items() if it.parent() is header]:
+            self._forget_roi_row(roi_id, take=False)
 
     def refresh_master_rows(self) -> None:
         """Hide each source's MASTER row while it is the source's only layer AND its chain is
@@ -412,7 +606,14 @@ class LayerPanel(QtWidgets.QTreeWidget):
         it), so nothing is lost while it is collapsed.
 
         Called after every add/remove and after chain edits (``main_window`` pokes it) --
-        a cheap full scan over the handful of headers."""
+        a cheap full scan over the handful of headers.
+
+        Superseded 2026-09-23: the master has no row of its own any more (the dataset row IS
+        its row, :meth:`_attach_master`), so there is nothing to collapse -- and hiding a lone
+        SECOND root layer (what the scan below would now find) is not wanted. Kept as the call
+        ``main_window`` makes; it no longer hides anything. The old scan stays below as the
+        record of the rule it implemented."""
+        return
         if self._project is None:
             return
         layers_by_id = {l.layer_id: l for l in self._project.layers}
@@ -506,6 +707,10 @@ class LayerPanel(QtWidgets.QTreeWidget):
     def _on_current_item_changed(self, current, previous) -> None:
         if current is None:
             return
+        roi_id = current.data(0, _ROI_ID_ROLE)
+        if roi_id is not None:
+            self.roiSelected.emit(str(roi_id))
+            return
         layer_id = current.data(0, _LAYER_ID_ROLE)
         if layer_id is not None:
             self.layerSelected.emit(int(layer_id))
@@ -561,18 +766,33 @@ class LayerPanel(QtWidgets.QTreeWidget):
         menu = QtWidgets.QMenu(self)
         rename_action = menu.addAction("Rename")
         rename_action.triggered.connect(lambda: self.editItem(item, 0))
-        remove_action = menu.addAction("Remove")
+        # "Remove" became the two deletes (2026-09-23): this layer alone (its
+        # children move up to its parent), or this layer and everything under it.
+        only_action = menu.addAction("Delete layer")
+        only_action.triggered.connect(lambda: self.removeLayerOnlyRequested.emit(layer_id))
+        remove_action = menu.addAction("Delete layer and children")
         remove_action.triggered.connect(lambda: self.removeRequested.emit(layer_id))
         refined_action = menu.addAction("New refined run")
         refined_action.triggered.connect(lambda: self.refinedRunRequested.emit(layer_id))
+        return menu
+
+    def _build_roi_context_menu(self, roi_id: str) -> QtWidgets.QMenu:
+        """An ROI row's menu: Delete ROI (the shell refuses while results use it)."""
+        menu = QtWidgets.QMenu(self)
+        delete_action = menu.addAction("Delete ROI")
+        delete_action.triggered.connect(lambda: self.removeRoiRequested.emit(roi_id))
         return menu
 
     def _on_context_menu(self, pos: QtCore.QPoint) -> None:
         item = self.itemAt(pos)
         if item is None:
             return
+        roi_id = item.data(0, _ROI_ID_ROLE)
+        if roi_id is not None:
+            self._build_roi_context_menu(str(roi_id)).exec(self.viewport().mapToGlobal(pos))
+            return
         layer_id = item.data(0, _LAYER_ID_ROLE)
-        if layer_id is None:
+        if layer_id is None or item.data(0, _SOURCE_ID_ROLE) is not None:
             # A source header names a raster, not a layer -- so it gets the DATASET action:
             # one entry,
             # the whole family; the shell handler owns the confirmation and cascade.
@@ -601,6 +821,29 @@ class LayerPanel(QtWidgets.QTreeWidget):
         this class (``_on_context_menu``, ``_on_current_item_changed``).
         """
         if event.key() in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
+            selected = self.selectedItems()
+            if len(selected) > 1:
+                # Several rows: one batch, one confirmation in the shell.
+                layer_ids, roi_ids, source_ids = [], [], []
+                for it in selected:
+                    if it.data(0, _SOURCE_ID_ROLE) is not None:
+                        source_ids.append(str(it.data(0, _SOURCE_ID_ROLE)))
+                    elif it.data(0, _ROI_ID_ROLE) is not None:
+                        roi_ids.append(str(it.data(0, _ROI_ID_ROLE)))
+                    elif it.data(0, _LAYER_ID_ROLE) is not None:
+                        layer_ids.append(int(it.data(0, _LAYER_ID_ROLE)))
+                self.removeManyRequested.emit(layer_ids, roi_ids, source_ids)
+                return
+            item = self.currentItem()
+            roi_id = item.data(0, _ROI_ID_ROLE) if item is not None else None
+            if roi_id is not None:
+                self.removeRoiRequested.emit(str(roi_id))
+                return
+            source_id = item.data(0, _SOURCE_ID_ROLE) if item is not None else None
+            if source_id is not None:
+                # The dataset row: Delete removes the dataset (the shell confirms once).
+                self.removeSourceRequested.emit(str(source_id))
+                return
             layer_id = self.current_layer_id()
             if layer_id is not None:
                 self.removeRequested.emit(layer_id)

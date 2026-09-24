@@ -120,11 +120,13 @@ def test_show_filtered_stamps_the_raster_out_display():
     field64 = _step_field()
     dev = CDFEdges()
     params = dict(defaults_for(dev), n_levels=2)
-    edges = dev.compute(field64, dict(params, show="edges"))
+    # ``show`` is view-only: one compute, the display pick is the device's view step.
+    res = dev.compute(field64, params)
+    edges = dev.view(res, dict(params, show="edges"))
     assert "raster_out" not in edges
-    filt = dev.compute(field64, dict(params, show="filtered"))
+    filt = dev.view(res, dict(params, show="filtered"))
     np.testing.assert_array_equal(filt["raster_out"], filt["filtered"])
-    imag = dev.compute(field64, dict(params, show="edge_channel"))
+    imag = dev.view(res, dict(params, show="edge_channel"))
     np.testing.assert_array_equal(imag["raster_out"], imag["edge_channel"])
     # the extrema pyramid still rides either way
     assert any(e["x"].size for e in filt["extrema"])

@@ -1731,7 +1731,15 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def mouseMoveEvent(self, event) -> None:
         if self._roi_press is not None:
-            self._draw_roi_band(self._roi_press, self._data_xy(event))
+            # Whole pixels while dragging, too: the live band covers exactly the cells the
+            # release will emit (same arithmetic as mouseReleaseEvent), never the raw cursor.
+            br, bc = self._base_off
+            cur = self._data_xy(event)
+            row, col, h, w = roi_from_corners((self._roi_press[0] - bc, self._roi_press[1] - br),
+                                              (cur[0] - bc, cur[1] - br),
+                                              self._field_shape())
+            self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
+                                (col + w + bc - 0.5, row + h + br - 0.5))
             event.accept()
             return
         if self._box_press is not None:
