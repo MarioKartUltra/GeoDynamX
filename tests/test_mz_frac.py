@@ -191,3 +191,23 @@ def test_device_exposes_the_wavelet_and_order_knobs(clean_registry):
         "s", dict(base, wavelet="frac_bspline"))
     assert dev.cache_key("s", dict(base, wavelet="frac_bspline")) != dev.cache_key(
         "s", dict(base, wavelet="frac_bspline", alpha=2.0))
+
+
+# ------------------------------------------- theta_alpha(0): the slow tail (2026-09-24)
+
+@pytest.mark.parametrize("alpha,exact", [(1.0, 2.0), (3.0, 4.0 / 3.0)])
+def test_theta0_hits_the_exact_values_at_the_integer_anchors(alpha, exact):
+    """theta = 2 beta_*(2x): the hat's peak 1 gives 2, the cubic B-spline's 2/3 gives 4/3."""
+    assert mz_edges._theta0_frac(alpha) == pytest.approx(exact, abs=1e-6)
+
+
+@pytest.mark.parametrize("alpha", [0.1, 0.25, 0.5])
+def test_theta0_carries_the_slow_tail_at_small_alpha(alpha):
+    """|sinc(w/4)|^(alpha+1) decays only like w^-(alpha+1): a bare Fourier cutoff misses a
+    large part of the integral at small alpha (45% at alpha = 0.1 with a cutoff at 2000). The
+    analytic tail closes it -- the value holds still when the finite range grows 4x."""
+    v = mz_edges._theta0_frac(alpha)
+    assert v == pytest.approx(mz_edges._theta0_integral(alpha, periods=16000), rel=1e-6)
+    w = np.linspace(0.0, 2000.0, 2_000_001)
+    bare = np.trapezoid(np.abs(np.sinc(w / 4 / np.pi)) ** (alpha + 1.0), w) / np.pi
+    assert v > bare * 1.02

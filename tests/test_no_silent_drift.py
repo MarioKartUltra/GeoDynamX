@@ -132,11 +132,14 @@ EXTRACTED = {
 #: derivative: derivative datasets -- a result's rasters and/or extrema and maxima lines written
 #: once as a RasterField npz (vectors under vec_* keys, packed by wtmm_backend's own stage-cache
 #: codecs); the app's own module, pinned in tests/test_derivative.py.
+#: frac_bspline_exact: the symmetric fractional B-spline and its derivative in the time domain
+#: (Unser & Blu's series, Richardson-closed) -- the app's own module beside the verbatim Creep
+#: evaluators, exact at every order; pinned in tests/test_frac_bspline_exact.py.
 NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
-              "fft_policy", "ssa2d", "derivative"]
+              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact"]
 
 
 def _normalised(path: pathlib.Path) -> str:

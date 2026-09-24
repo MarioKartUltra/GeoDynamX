@@ -258,14 +258,31 @@ def _hf_frac(w, alpha: float):
 
 def _theta0_frac(alpha: float) -> float:
     """``theta_alpha(0) = (1/2pi) int |sinc(w/4)|^(alpha+1) dw`` -- the continuum unit-step
-    response peak (alpha=3: 4/3, mzlib's THETA0)."""
+    response peak (alpha=3: 4/3, mzlib's THETA0; alpha=1: 2). Computed by
+    :func:`_theta0_integral` (finite part + analytic tail); a bare cutoff at w = 2000, used
+    until 2026-09-24, dropped the slow tail: 45% low at alpha = 0.1, 2% at 0.5."""
     alpha = _check_alpha(alpha)
     t0 = _THETA0_CACHE.get(alpha)
     if t0 is None:
-        w = np.linspace(0.0, 2000.0, 2_000_001)
-        t0 = _THETA0_CACHE[alpha] = float(
-            np.trapezoid(np.abs(np.sinc(w / 4 / np.pi)) ** (alpha + 1.0), w) / np.pi)
+        t0 = _THETA0_CACHE[alpha] = _theta0_integral(alpha)
     return t0
+
+
+def _theta0_integral(alpha: float, periods: int = 4000, per_period: int = 500) -> float:
+    """``(1/pi) int_0^inf |sinc(w/4)|^s dw`` (``s = alpha + 1``): quadrature over whole periods
+    of ``|sin(w/4)|`` (``4 pi`` each) up to ``W``, then the analytic tail -- beyond ``W`` the
+    ``|sin|^s`` factor averages to ``m_s = Gamma((s+1)/2) / (sqrt(pi) Gamma(s/2 + 1))``, so
+    ``int_W^inf ~ m_s 4^s W^(1-s) / (s - 1)``. The device Unser & Blu use for their
+    B-spline autocorrelation sum (``fractsplineautocorr``: a finite part plus the asymptotic
+    tail): the integrand decays only like ``w^-s``, so a cutoff alone loses ``~W^-alpha``."""
+    from math import gamma, pi, sqrt
+
+    s = float(alpha) + 1.0
+    W = 4.0 * pi * periods
+    w = np.linspace(0.0, W, periods * per_period + 1)
+    finite = float(np.trapezoid(np.abs(np.sinc(w / 4 / np.pi)) ** s, w))
+    mean = gamma((s + 1) / 2) / (sqrt(pi) * gamma(s / 2 + 1))
+    return (finite + mean * 4.0 ** s * W ** (1.0 - s) / (s - 1.0)) / pi
 
 
 def lam_frac(j: int, alpha: float) -> float:
