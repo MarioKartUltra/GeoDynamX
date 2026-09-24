@@ -247,7 +247,10 @@ dyadic, $2^{k+1}$ px. The \texttt{frac\_bspline} wavelet fractionalizes the refi
 order (Unser--Blu): smoothness order $\alpha$ becomes real, one vanishing moment always
 (maxima-are-edges \emph{is} the method); $\alpha=3$ is the paper's wavelet exactly, with
 numeric $\lambda_j^{\alpha}$ from the rediscovered Table-II definition (discrete
-step-edge peak over $\theta_\alpha(0)$). Reconstruction preview requires
+step-edge peak over $\theta_\alpha(0)$; $\theta_\alpha(0)=\frac1\pi\int_0^\infty|\mathrm{sinc}(\omega/4)|^{\alpha+1}d\omega$
+decays only like $\omega^{-(\alpha+1)}$, so it is computed as a finite part plus its analytic
+tail --- Unser \& Blu's own device for their autocorrelation sum --- exact at the anchors,
+$2$ at $\alpha=1$ and $4/3$ at $\alpha=3$). Reconstruction preview requires
 \texttt{mz\_spline} (fractional POCS is a recorded follow-up).
 
 \begin{figure}[h]
@@ -260,8 +263,12 @@ cascade is pinned to (its maxima sit exactly where the classical $\alpha=3$ path
 no causal phase). $\alpha$ is $\theta$'s H\"older degree; its approximation order is
 $\alpha+1$. $\alpha=1$: a triangle and a box pair; $\alpha=3$: the paper's quadratic-spline
 wavelet. Only odd integer $\alpha$ gives a compactly supported classical B-spline; other
-orders decay algebraically, and as $\alpha\to0$ the symmetric spline is \emph{not} a box but
-develops logarithmic peaks and oscillating tails (Unser \& Blu, fig.~2). This is
+orders decay algebraically, with small sign-changing tails at the knot spacing (the lobes near
+$x\approx\pm1$ on the $\alpha\approx1.5$--$2.5$ wavelets are these, not ringing), and as
+$\alpha\to0$ the symmetric spline is \emph{not} a box but develops logarithmic peaks and
+oscillating tails (Unser \& Blu, fig.~2). Drawn from the exact time-domain series (their
+eq.~11), never by inverting the Fourier transform, so the $\alpha=1$ jumps carry no Gibbs
+ringing. This is
 Mallat--Zhong's dyadic \emph{derivative} wavelet built on a fractional spline --- exactly one
 vanishing moment ($\hat\psi\sim i\omega$ at low frequency), since maxima-are-edges is the
 method --- not one of Unser \& Blu's fractional spline wavelet bases, which behave like

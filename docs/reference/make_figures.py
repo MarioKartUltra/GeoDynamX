@@ -104,10 +104,21 @@ def _mz_frac_pair(alpha, x):
     return theta, psi
 
 
+def _mz_frac_pair_exact(alpha, x):
+    """theta_alpha(x) = 2 beta_*(2x) and psi_alpha = theta' = 4 beta_*'(2x), from the exact
+    time-domain series (dynamix.core.frac_bspline_exact; Unser & Blu 1999 eq. 11) -- no Fourier
+    inversion, so the alpha = 1 box pair has clean jumps (the truncated inverse transform of
+    ``_mz_frac_pair`` rang there), and the small tail lobes of non-odd orders are the real
+    ones."""
+    from dynamix.core.frac_bspline_exact import beta_star, beta_star_derivative
+
+    return 2.0 * beta_star(2.0 * x, alpha), 4.0 * beta_star_derivative(2.0 * x, alpha)
+
+
 def fig_frac_bspline():
     x = np.linspace(-2.5, 2.5, 801)          # compact only at odd integer alpha; tails small here
     alphas = [1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0]
-    pairs = {a_: _mz_frac_pair(a_, x) for a_ in alphas}
+    pairs = {a_: _mz_frac_pair_exact(a_, x) for a_ in alphas}
     fig, (a, b) = plt.subplots(1, 2, figsize=(10, 3.6), constrained_layout=True)
     cm = plt.get_cmap("rainbow")
     for al in alphas:
