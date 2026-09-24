@@ -2149,7 +2149,10 @@ off / z from this layer's own values / z from another loaded
             return
         result = self._active_result
         h_map = result.get("h_map") if isinstance(result, dict) else None
-        vals = getattr(self.field, "values", None)
+        # An ROI result's h-map is the ROI's: reconstruct the ROI's own values and draw on the
+        # ROI's own axes (comparing it with the WHOLE field made every tick skip silently).
+        roi_vals = result.get("_roi_values") if isinstance(result, dict) else None
+        vals = roi_vals if roi_vals is not None else getattr(self.field, "values", None)
         if h_map is None or vals is None:
             return
         vals = np.asarray(vals)
@@ -2181,11 +2184,18 @@ off / z from this layer's own values / z from another loaded
             recon = br.reconstruct(h_lo, h_hi).astype(np.float64)
             s = br.stride
             label = "band"
-        derived = dataclasses.replace(
-            self.field, values=np.asarray(recon, dtype=np.float64),
-            x_axis=np.asarray(self.field.x_axis)[::s],
-            y_axis=np.asarray(self.field.y_axis)[::s],
-            name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})")
+        roi_field = (_roi_display_field(result, recon, self.field,
+                                        f"{self.layer.name}·{label}[{h_lo:.2f},{h_hi:.2f})")
+                     if roi_vals is not None else None)
+        if roi_field is not None:
+            derived = dataclasses.replace(roi_field, x_axis=roi_field.x_axis[::s],
+                                          y_axis=roi_field.y_axis[::s])
+        else:
+            derived = dataclasses.replace(
+                self.field, values=np.asarray(recon, dtype=np.float64),
+                x_axis=np.asarray(self.field.x_axis)[::s],
+                y_axis=np.asarray(self.field.y_axis)[::s],
+                name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})")
         self.canvas.set_field(derived)
         self._apply_raster_visibility(showing_product=True)
         self._holder_raster_ref = None

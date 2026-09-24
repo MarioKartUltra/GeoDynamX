@@ -956,3 +956,47 @@ def test_a_derivative_keeps_its_parents_georeference_but_not_its_file_layout(
     parent = win._fields[child.layer_id] if child.layer_id in win._fields else None
     np.testing.assert_array_equal(back.x_axis, np.arange(50.0))
     assert parent is None or np.array_equal(back.y_axis, np.asarray(parent.y_axis))
+
+
+# ------------------------------------------- The Band dialog's live preview
+
+@pytest.mark.parametrize("where", ["whole", "roi"])
+@pytest.mark.parametrize("mode", ["mask", "reconstruction"])
+@pytest.mark.parametrize("tool", ["holder_measure", "holder_multiaffine"])
+def test_the_live_band_preview_draws_on_whole_and_roi_results(plain_window, qtbot, where, mode,
+                                                              tool):
+    """Dragging the h band with Live on redraws the canvas. On an ROI result (selecting an ROI
+    row sends the next tool to it) the h-map is the ROI's, so the preview must reconstruct the
+    ROI's own values and draw on the ROI's own axes -- comparing it with the WHOLE field made
+    the preview skip silently."""
+    win = plain_window
+    if where == "roi":
+        _save(win)
+        _roi_child(win, qtbot, tool)
+    else:
+        _whole_field_child(win, qtbot, tool)
+    result = win._active_result
+    h = np.asarray(result["h_map"])
+    win._on_band_preview_requested(float(np.nanmin(h)), float(np.nanmax(h)) + 1.0, mode)
+    shown = win.canvas._field
+    assert ("·mask[" if mode == "mask" else "·band[") in shown.name
+    assert shown.values.shape == h.shape                     # small fields: stride 1
+    x_axis = result["_roi_axes"][0] if where == "roi" else win.field.x_axis
+    np.testing.assert_array_equal(shown.x_axis, np.asarray(x_axis))
+
+
+@pytest.mark.parametrize("tool", ["holder_measure", "holder_multiaffine"])
+def test_reconstruct_commits_a_band_recon_child_on_an_roi_result(plain_window, qtbot, tool):
+    """The Band dialog's Reconstruct on an ROI result: a band_recon child over the same ROI,
+    its reconstruction the ROI's size."""
+    win = plain_window
+    _save(win)
+    parent = _roi_child(win, qtbot, tool)
+    h = np.asarray(win._active_result["h_map"])
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._on_band_reconstruct_requested(float(np.nanmin(h)), float(np.nanmax(h)) + 1.0)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    child = win.layer
+    assert child.parent_id == parent.layer_id
+    assert child.tags.get("roi.window") == parent.tags.get("roi.window")
+    assert np.asarray(win._active_result["raster_out"]).shape == h.shape
