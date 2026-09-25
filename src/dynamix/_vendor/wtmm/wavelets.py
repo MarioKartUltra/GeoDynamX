@@ -529,6 +529,8 @@ def _borges_normalization(q_tsallis, beta=0.5):
     -------
     A_q : float
     """
+    from scipy.special import poch
+
     if abs(q_tsallis - 1.0) < 1e-12:
         return 2.0 / (np.pi**0.25 * np.sqrt(3.0))
 
@@ -538,7 +540,7 @@ def _borges_normalization(q_tsallis, beta=0.5):
         #               [(q-1)^{5/2} Γ(2q/(q-1))]^{1/2} / [Γ(2q/(q-1) - 5/2)]^{1/2}
         arg1 = 2.0 * q / (q - 1.0)
         A_q = (beta**0.25 / (np.pi**0.25 * np.sqrt(3.0))) * \
-              np.sqrt((q - 1.0)**2.5 * gamma_func(arg1) / gamma_func(arg1 - 2.5))
+              np.sqrt((q - 1.0)**2.5 * poch(arg1 - 2.5, 2.5))
         return A_q
     elif q > -1.0 and q < 1.0:
         # Eq. 18: A_q = (β^{1/4} / (π^{1/4}√3)) * ((5-q)^{1/2}(3+q)^{1/2} / 2) *
@@ -546,7 +548,7 @@ def _borges_normalization(q_tsallis, beta=0.5):
         arg2 = 2.0 * q / (1.0 - q)
         A_q = (beta**0.25 / (np.pi**0.25 * np.sqrt(3.0))) * \
               (np.sqrt(5.0 - q) * np.sqrt(3.0 + q) / 2.0) * \
-              np.sqrt((1.0 - q)**0.5 * gamma_func(arg2 + 1.5) / gamma_func(arg2 + 1.0))
+              np.sqrt((1.0 - q)**0.5 * poch(arg2 + 1.0, 0.5))
         return A_q
     else:
         raise ValueError(f"q_tsallis must be in (-1, 3), got {q_tsallis}")
