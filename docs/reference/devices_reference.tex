@@ -68,10 +68,12 @@ $\alpha=0.5$), which holds for $L^1$ scaling, not for the $a^{-1/2}$ of their eq
         $\hat\psi(a\mathbf{k})$ from a smoothing function with $\hat\theta(0)=1$
         (unit mass at every scale), times the derivative factor $i\,a\mathbf{k}$: scale
         enters only through $a\mathbf{k}$, which \emph{is} the $L^1$ dilation.
-  \item \textbf{The H\"older tools normalize in real space,} on the pixel grid: positive
-        kernels (\dev{holder\_measure}) to unit discrete mass; Mexican hats
+  \item \textbf{The H\"older tools normalize in real space} by default, on the pixel grid:
+        positive kernels (\dev{holder\_measure}) to unit discrete mass; Mexican hats
         (\dev{holder\_multiaffine}) to exact zero mean, then unit $L^1$ norm
-        ($\sum|\psi_r|=1$), at every scale.
+        ($\sum|\psi_r|=1$), at every scale. With \emph{Wavelet space} set to Fourier
+        (\S\ref{sec:micro}) they are built as $\hat\psi(r\mathbf{k})$ instead, like
+        \dev{wtmm2d}'s filters.
   \item A constant prefactor that does not depend on the scale (such as $A$ or $A_q$)
         cannot change any exponent --- it only shifts $\log|T|$ --- and the app's own
         normalization replaces it anyway. Only the \emph{scale dependence} of the
@@ -491,7 +493,7 @@ $T$ = positive unit-mass kernel over $\lVert\nabla s\rVert$ (finite differences 
 then $g_0$-class smoothing). For measure-like / edge-sparse fields; slope $=h$.
 The scale knob $r_1$ is the kernel's \emph{dilation scale} (for the Gaussian: its
 standard deviation) --- positive kernels have no zero crossings, and their resolution
-floor is the pixel. Kernel trade-off (Turiel App.~A): Gaussian resolves every $h$;
+floor is the pixel, except for the compactly supported q-Gaussian (below). Kernel trade-off (Turiel App.~A): Gaussian resolves every $h$;
 Lorentzian truncates at $h<2\beta-d$ but localizes sharpest; q-Gaussian interpolates;
 \texttt{frac\_gaussian} fractionalizes the envelope, $e^{-\rho^{n}/2}$ ($n{=}2$ is the
 Gaussian exactly).
@@ -503,14 +505,18 @@ $q\equiv 1+1/\beta$ with $\rho^2/r^2$ rescaled); $q=1$ is the Gaussian; below $q
 \emph{compactly supported}, radius $r\sqrt{2/(1-q)}$ --- $q=0$ is the Epanechnikov
 paraboloid, $q=-1$ a half-dome of radius $r$, and $q\to-\infty$ the Dirac $\delta$. For
 $q\ge2$ the 2-D kernel has no finite mass (the Lorentzian $\beta\le1$ case), so the result
-depends on the field size; the $q$ knob shows a warning there.
+depends on the field size; the $q$ knob shows a warning there. The compact kernel (below $q=1$)
+is the steepest decrease there is, so it carries a resolution floor: the $r_1$ knob warns when
+its support disc, of radius $r/\sqrt{\beta(1-q)}$ for width $\beta$, is less than 2\,px across,
+i.e.\ below $r_1=\sqrt{\beta(1-q)}$ (at most 1\,px at the default width).
 
 \subsection{\dev{holder\_multiaffine} --- wavelet-projection route}
 $T=|\psi_r * s|$ with a zero-mean wavelet applied to the \emph{raw signal} (derivative
 order lives inside the kernel). For smooth / function-class fields (DEMs); slope
 $=\gamma$, with $h_{\text{measure}}=\gamma-1$. Here $r_1$ is the \emph{zero-crossing
-radius}: every wavelet in the menu is calibrated to change sign at radius $r$, so the
-fig.-2 minimum-resolution rule reads $r_1\ge 1$ uniformly. The g-ladder is the
+radius}: every wavelet in the menu is calibrated to change sign at radius $r$, so for a
+wavelet with one crossing the fig.-2 minimum-resolution rule reads $r_1\ge 1$ (more crossings,
+or a compact support, raise it: \emph{Resolution floor} below). The g-ladder is the
 vanishing-moment axis (order $n$ measures only $\gamma<n$): \texttt{g1}/\texttt{g3} are
 the fractional family at $n{=}1,3$; \texttt{g2} \emph{is} the Ricker;
 \texttt{lorentzian\_marr} is the Laplacian (Marr operator) of the Lorentzian envelope (true
@@ -553,12 +559,51 @@ from the paper's two choices.
   \item The pairing exists exactly where the 2-D q-Mexican hat is admissible, $q<2$: the
         escort variance and the zero mean both need $d+2-dq>0$. A q-paired q-Gaussian
         therefore refuses $q\ge2$.
-  \item The normalisation is still done numerically at every scale, so the paper's
+  \item In real space the normalisation is done numerically at every scale, so the paper's
         closed-form constants are not used. (In 2-D they happen to be elementary:
         $A_q=\sqrt{\beta(3-q)(1+q)/\pi}$ for the q-Mexican hat,
         $B_q=\sqrt{\beta(3-q)/\pi}$ for the modulated q-Gaussian. The flat Jacobian
         $\rho\,d\rho=du/2\beta$ turns every integral into a Beta function with integer
         arguments, where 1-D keeps $\Gamma(\tfrac12)$-type ratios.)
+\end{itemize}
+
+\textbf{Resolution floor on $r_1$.} A discretized wavelet must separate its positive and
+negative parts, so its zero crossings set the minimum attainable resolution, and more crossings
+cost resolution (Turiel et al.\ 2008, fig.~2 and \S4.2.1); Turiel (2009) puts a Mexican hat's
+inner minimum scale at ``several pixels''. Neither gives a number. The tools read the rule as:
+every sign lobe at least 2\,px across at $r_1$, the central disc counted by its diameter. The
+edge of a compact support is not a sign change, but it closes the last lobe. The $r_1$ knob
+warns below the floor and never refuses.
+\begin{itemize}\itemsep2pt
+  \item One crossing at $r$ (\texttt{g1}, \texttt{g2}, \texttt{lorentzian\_marr},
+        \texttt{frac\_gaussian} for $n\le2$): the floor is $r_1=1$, as before.
+  \item More crossings: \texttt{g3} 1.32\,px (its ring is $1.52\,r$ wide); \texttt{frac\_gaussian}
+        at $n=4$ and $5$, 1.41 and 1.46\,px.
+  \item \texttt{q\_mexican}: its crossing sits at $\rho_0=r/\sqrt{2\beta(2-q)}$ ($r$ when q-paired)
+        and, below $q=1$, its support ends at $\rho_0\sqrt{(2-q)/(1-q)}$. The negative ring between
+        them narrows as $q$ falls, and below $q\approx0.875$ (q-paired) it is the narrowest lobe:
+        floor 2.73\,px at $q=0.5$ and 4.42\,px at $q=0.1$. A fixed width $\beta$ is a pure
+        dilation of the wavelet, so it rescales the floor by $\sqrt{2\beta(2-q)}$.
+  \item \dev{holder\_measure}: only the compact q-Gaussian has a floor (above).
+\end{itemize}
+
+\textbf{Wavelet space: real or Fourier} (both tools). \emph{Real} (the default, Turiel's
+construction) samples each kernel on the pixel grid and normalizes it there. \emph{Fourier}
+evaluates the same continuous kernel's closed-form 2-D transform at $r\mathbf{k}$: a Mat\'ern
+function of $k$ for a q-Gaussian with $q>1$ (and the Lorentzian, $q=1+1/\beta$), a Jahnke--Emde
+function for $q<1$, $k^n e^{-k^2/4u_0}$ for the fractional family, evaluated stably at every
+$q$. The kernel is then band-limited rather than sampled.
+\begin{itemize}\itemsep2pt
+  \item Measure route: unit mass exactly. Multiaffine route: zero mean exactly, and the kernel
+        is the $L^1$-dilated continuous wavelet, so $T$ equals the real construction's times the
+        mother wavelet's $L^1$ norm (a constant that cancels in every slope) wherever both are
+        exact.
+  \item They differ where sampling matters: at the smallest scales, for compact kernels (the
+        Fourier one rings slightly), and for heavy tails, which real space cuts at the edge of the
+        padded grid (about $10^{-4}$ at the default padding for a $\rho^{-6.7}$ tail).
+  \item Fourier is refused on the measure route for \texttt{frac\_gaussian} (no closed-form
+        transform), and for a q-Gaussian at $q\ge2$ or a Lorentzian with $\beta\le1$ (no finite
+        mass to normalize by).
 \end{itemize}
 
 \begin{figure}[h]
@@ -582,7 +627,7 @@ across the two tools, and $\gamma$ values are not comparable across wavelets.}
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning (both holder tools) \\ \midrule
 \texttt{estimator} & regression & regression / punctual & Pont estimator pair (see above) \\
-\texttt{r\_min} ($r_1$) & 1.0 & $[0.1,32]$ px & finest scale (dilation scale / zero-crossing radius per tool) \\
+\texttt{r\_min} ($r_1$) & 1.0 & $[0.1,32]$ px & finest scale (dilation scale / zero-crossing radius per tool); warns below the resolution floor \\
 \texttt{kappa} ($\kappa=r_2/r_1$) & 8 & $[1.1,200]$ & scale-range width; the knob that changes the physics \\
 \texttt{n\_scales} & 6 & $[2,64]$ & samples in the range (nearly irrelevant vs $\kappa$; keep small) \\
 \texttt{wavelet} & (per tool) & method-true menu & see tool text \\
@@ -591,6 +636,7 @@ across the two tools, and $\gamma$ values are not comparable across wavelets.}
 \texttt{frac\_n} ($n$) & 2.0 & $[0.05,8]$ & fractional order (frac\_gaussian only) \\
 \texttt{q\_pairing} (q width) & fixed & fixed / q-paired & the q-kernel's width $\beta$: fixed, or $\beta(q)=1/(2(2-q))$ (below); greyed out unless q\_gaussian / q\_mexican \\
 \texttt{q\_beta} (q $\beta$) & 0.5 & $[0.05,5]$ & the fixed width of $e_q^{-\beta\rho^2/r^2}$ (greyed out while q-paired) \\
+\texttt{construction} (Wavelet space) & real & real / fourier & sample each kernel on the grid, or build it from its closed-form transform (above) \\
 \bottomrule
 \end{longtable}
 
@@ -706,13 +752,20 @@ wavelet or the sinc function.''
 \begin{itemize}\itemsep2pt
   \item \textbf{q-generalized \texttt{g1} and \texttt{g3} for \dev{wtmm2d}.} WTMM's
         analyzing wavelets must stay \emph{derivatives of a smoothing function}
-        ($\psi=\partial\theta$), so that maxima mark edges: the q versions are
-        $\partial\theta_q$ with $\theta_q$ a q-Gaussian (\texttt{g1}) or its Mexican-hat
-        (\texttt{g3}) --- the same power-$(2-q)$ recipe keeps closed forms, and the $L^1$
-        normalization is unchanged ($\hat\theta_q(0)=1$). The filters are built in the Fourier
-        domain, so they need the \emph{2-D} transform of the q-Gaussian (a Hankel transform:
-        $K_\mu$ for $1<q<2$, $J$ below $q=1$, with the Bessel order $1/(q-1)-d/2$ one half lower
-        than the paper's 1-D order), and they exist only for $q<2$.
+        ($\psi=\partial\theta$), so that maxima mark edges. The filters are built in the Fourier
+        domain, so they need the \emph{2-D} transform of the q-Gaussian, a Hankel transform with
+        Bessel order $1/(q-1)-d/2$, one half lower than the paper's 1-D order. That transform is
+        now built and evaluated stably at every $q$ (the Mat\'ern and Jahnke--Emde functions used
+        by \emph{Wavelet space: Fourier}, \S\ref{sec:micro}).
+        \begin{itemize}\itemsep1pt
+          \item q-\texttt{g1}: $\partial\theta_q$ with $\theta_q$ the unit-mass q-Gaussian, so the
+                $L^1$ normalization is unchanged ($\hat\theta_q(0)=1$); it exists for $q<2$.
+          \item q-\texttt{g3}: the power-$(2-q)$ recipe makes the Laplacian's envelope a
+                $q'$-Gaussian with $q'=1/(2-q)$, whose mass is finite only for $q<3/2$. For
+                $3/2\le q<2$ the wavelet is still finite ($k^2$ cancels the divergence at
+                $k=0$), but $\hat\theta(0)=1$ can no longer fix its scale, so it needs another
+                normalization there, such as unit $L^1$ norm.
+        \end{itemize}
   \item \textbf{q-Morlet} and the \textbf{q-trigonometric} pair (oriented/directional
         analysis).
   \item \textbf{q-Meyer} and \textbf{q-sinc}, as the paper suggests.
@@ -726,6 +779,7 @@ wavelet or the sinc function.''
   \item A.~Turiel, H.~Yahia and C.~J.~P\'erez-Vicente (2008), Microcanonical multifractal
         formalism --- a geometrical approach to multifractal systems: Part I.
         Singularity analysis, \emph{J.\ Phys.\ A: Math.\ Theor.}\ 41, 015501.
+  \item A.~Turiel (2009), Relevance of multifractal textures in static images, book chapter.
   \item M.~Unser and T.~Blu (1999), Construction of fractional spline wavelet bases,
         \emph{Proc.\ SPIE} 3813 (Wavelet Applications in Signal and Image Processing VII),
         422--431.
