@@ -67,6 +67,12 @@ __all__ = [
 
 _WAVELETS = ("gaussian", "lorentzian", "q_gaussian", "frac_gaussian")
 
+#: Where a kernel is built. "real" samples it on the pixel grid and normalises it there (Turiel's
+#: construction: his figure-2 discretisation argument sets the minimum scale). "fourier"
+#: evaluates the SAME continuous kernel's closed-form 2-D transform (:func:`_fourier_kernel`),
+#: band-limited instead of sampled -- for comparing the two.
+_CONSTRUCTIONS = ("real", "fourier")
+
 #: The multiaffine route's own wavelet names (2026-09-19 split -- the wavelet family is a
 #: property of the METHOD, so the split devices name kernels the method's way): g2 /
 #: q_mexican / lorentzian_marr are method-true aliases of the original envelope names;
@@ -282,12 +288,16 @@ def _zero_unsupported(T, supported, scales, route, wavelet, beta, q_tsallis, fra
 def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian",
                         beta: float = 1.0, q_tsallis: float = 1.5, frac_n: float = 2.0,
                         pad: "int | None" = None, progress=None,
-                        q_beta: "float | None" = None) -> np.ndarray:
+                        q_beta: "float | None" = None,
+                        construction: str = "real") -> np.ndarray:
     """``T(x, r)`` -- the measure convolved with the positive kernel at each scale (px).
 
     Returns ``(n_scales, ny, nx)`` float64. ``pad`` defaults to twice the largest scale
-    (reflect), correcting the prototype's constant 32.
+    (reflect), correcting the prototype's constant 32. ``construction`` is where the kernel is
+    built (:data:`_CONSTRUCTIONS`); "fourier" refuses the kernels
+    :func:`_check_construction` names.
     """
+    _check_construction(construction, "measure", wavelet, beta, q_tsallis)
     mu = np.asarray(measure, dtype=np.float64)
     mu = np.where(np.isfinite(mu), mu, 0.0)
     scales = np.asarray(scales, dtype=np.float64)
@@ -298,8 +308,12 @@ def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian
     F = _fft().fft2(mup)
     T = np.empty((len(scales), ny, nx), dtype=np.float64)
     for i, r in enumerate(scales):
-        Kf = _fft().fft2(_radial_kernel(mup.shape, r, wavelet, beta, q_tsallis, frac_n,
-                                        q_beta=q_beta))
+        if construction == "fourier":
+            Kf = _fourier_kernel(mup.shape, r, "measure", wavelet, beta, q_tsallis, frac_n,
+                                 q_beta=q_beta)
+        else:
+            Kf = _fft().fft2(_radial_kernel(mup.shape, r, wavelet, beta, q_tsallis, frac_n,
+                                            q_beta=q_beta))
         conv = np.real(_fft().ifft2(F * Kf))
         T[i] = conv[pad:pad + ny, pad:pad + nx]
         if progress is not None:
@@ -348,10 +362,91 @@ def _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0, stretch=1.0):
     return k
 
 
+def _check_construction(construction: str, route: str, wavelet: str, beta: float,
+                        q_tsallis: float) -> None:
+    """Refuse an unknown construction, and a measure kernel that cannot be built in Fourier:
+    one with no closed-form 2-D transform, or no finite mass to normalise by."""
+    if construction not in _CONSTRUCTIONS:
+        raise ValueError(f"unknown construction {construction!r}; expected one of "
+                         f"{_CONSTRUCTIONS}")
+    if construction != "fourier" or route != "measure":
+        return
+    if wavelet == "frac_gaussian":
+        raise ValueError("frac_gaussian cannot be built in Fourier: its envelope exp(-rho^n/2) "
+                         "has no closed-form 2-D transform -- build it in real space")
+    if wavelet == "q_gaussian" and float(q_tsallis) >= 2.0:
+        raise ValueError(f"a q-Gaussian at q = {q_tsallis} cannot be built in Fourier: from "
+                         "q = 2 its 2-D mass is infinite, so there is no unit-mass kernel -- "
+                         "build it in real space")
+    if wavelet == "lorentzian" and float(beta) <= 1.0:
+        raise ValueError(f"a Lorentzian with beta = {beta} cannot be built in Fourier: for "
+                         "beta <= 1 its 2-D mass is infinite, so there is no unit-mass kernel "
+                         "-- build it in real space")
+
+
+def _fourier_kernel(shape: tuple, r: float, route: str, wavelet: str, beta: float,
+                    q_tsallis: float, frac_n: float = 2.0, u0: "float | None" = None,
+                    q_beta: "float | None" = None, stretch: float = 1.0) -> np.ndarray:
+    """The kernel's DFT on an FFT grid of ``shape``, from the closed-form 2-D transform of the
+    SAME continuous kernel :func:`_radial_kernel` / :func:`_marr_kernel` sample, at scale r as
+    a pure L1 dilation: the unit-scale transform evaluated at ``kappa = r |k|``.
+
+    * ``route="measure"``: divided by its value at k = 0, so the kernel has unit mass exactly
+      (the real construction's unit discrete mass).
+    * ``route="marr"`` (``wavelet`` already resolved from its alias, as in
+      :func:`ricker_projections`): ``2 pi`` times the Hankel transform (the DFT convention),
+      so the kernel is the L1-dilated continuous wavelet -- zero mean exactly, and its L1 norm
+      the mother's constant. The real construction normalises each discrete kernel to L1 = 1
+      instead; the ratio is scale-independent and cancels in every slope.
+
+    The kernel is radial, so the transform is evaluated on one quadrant of frequencies and
+    mirrored."""
+    from dynamix.core.q_fourier import q_gaussian_ft
+
+    ny, nx = shape
+    iy = np.minimum(np.arange(ny), ny - np.arange(ny))
+    ix = np.minimum(np.arange(nx), nx - np.arange(nx))
+    ky = 2.0 * np.pi * np.arange(ny // 2 + 1) / ny
+    kx = 2.0 * np.pi * np.arange(nx // 2 + 1) / nx
+    kap = float(r) * np.hypot(ky[:, None], kx[None, :])
+    q, b = float(q_tsallis), float(beta)
+    if route == "measure":
+        if wavelet == "gaussian":                     # e^(-rho^2/2)
+            quad = np.exp(-0.5 * kap * kap)
+        elif wavelet == "q_gaussian":                 # e_q^(-w rho^2), w = q_beta (1/2)
+            w = 0.5 if q_beta is None else float(q_beta)
+            quad = q_gaussian_ft(kap, q, w) * (2.0 * w * (2.0 - q))
+        elif wavelet == "lorentzian":                 # (1 + rho^2)^-b: q = 1 + 1/b, width b
+            ql = 1.0 + 1.0 / b
+            quad = q_gaussian_ft(kap, ql, b) * (2.0 * b * (2.0 - ql))
+        else:
+            raise ValueError(f"{wavelet!r} cannot be built in Fourier on the measure route")
+        return quad[np.ix_(iy, ix)]
+    with np.errstate(invalid="ignore"):              # 0 * inf at k = 0 from q' >= 2
+        if wavelet == "gaussian":                     # (1 - rho^2) e^-rho^2 = -lap(e^-rho^2)/4
+            quad = kap * kap * np.exp(-0.25 * kap * kap) / 8.0
+        elif wavelet == "q_gaussian":                 # -lap(e_q'^(-s rho^2)) / (4 s), s = stretch
+            quad = kap * kap * q_gaussian_ft(kap, q, stretch) / (4.0 * stretch)
+        elif wavelet == "lorentzian":                 # -lap((1 + rho^2/b)^-b) / 4
+            quad = kap * kap * q_gaussian_ft(kap, 1.0 + 1.0 / b, 1.0) / 4.0
+        elif wavelet == "frac_gaussian":              # 1F1(a; 1; -u0 rho^2), a = (n + 2)/2
+            from scipy.special import gammaln
+
+            a = (float(frac_n) + 2.0) / 2.0
+            quad = 2.0 * kap ** float(frac_n) * np.exp(-kap * kap / (4.0 * u0)
+                                                       - a * np.log(4.0 * u0) - gammaln(a))
+        else:
+            raise ValueError(f"unknown wavelet {wavelet!r}")
+    quad = 2.0 * np.pi * quad
+    quad[0, 0] = 0.0                                  # zero mean, exactly
+    return quad[np.ix_(iy, ix)]
+
+
 def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
                        beta: float = 1.0, q_tsallis: float = 1.5, frac_n: float = 2.0,
                        pad: "int | None" = None, progress=None,
-                       q_beta: "float | None" = None) -> np.ndarray:
+                       q_beta: "float | None" = None,
+                       construction: str = "real") -> np.ndarray:
     """``|T_psi s(x, r)|`` -- the MULTIAFFINE functional (Turiel 2008 SS4.2.1): the signal
     convolved with a zero-mean 2D 2nd-order ("Mexican-hat") wavelet, absolute value taken.
     The per-pixel log-log slope of the result is the multiaffine Holder exponent gamma(x)
@@ -359,7 +454,8 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
 
     Three envelopes, all exact 2-D Laplacians of their positive counterparts and all
     parameterized by the SAME zero-crossing radius r (so the fig-2 minimum-resolution rule
-    reads ``r_min = 1`` for every choice):
+    reads ``r_min = 1`` for every wavelet with one crossing; more crossings, or a compact
+    support's edge, raise it -- ``holder_methods.lobe_floor``):
 
     * ``"gaussian"`` -- the Ricker/Marr LoG, ``(1 - rho^2/2 sigma^2) exp(-rho^2/2 sigma^2)``,
       crossing at ``rho = sqrt(2) sigma``.
@@ -401,15 +497,21 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
     ``scales`` are ZERO-CROSSING RADII in pixels: the kernel's sign change sits at radius r
     (sigma = r/sqrt(2)), so the paper's minimum-resolution rule (figure 2: the discretized
     wavelet must separate its positive and negative parts -- ~2 samples between the zero
-    crossings) reads simply ``r_min = 1``. The reference's typical fit range is
-    ``r_1 = 1, kappa = r_2/r_1 = 10``. Kernels are exactly zero-mean on the discrete grid and
+    crossings) reads simply ``r_min = 1`` for a single crossing. The reference's typical fit
+    range is ``r_1 = 1, kappa = r_2/r_1 = 10``. Kernels are exactly zero-mean on the discrete grid and
     L1-normalized, so prefactors are scale-consistent and slopes untouched.
 
     ``q_beta`` (``"q_mexican"`` only) is the Borges width: None -- or the paired
     :func:`paired_q_beta` -- is the kernel as it always was, the zero crossing at r for every q;
     a fixed width keeps r the zero crossing at q = 1, beta = 1/2 and lets it drift with q
     (``r / sqrt(2 beta (2 - q))``).
+
+    ``construction`` is where each wavelet is built (:data:`_CONSTRUCTIONS`): "real" samples
+    it, makes it zero-mean on the grid and L1-normalises it (the default, above); "fourier"
+    evaluates its closed-form transform (:func:`_fourier_kernel`) -- zero mean exactly, and T
+    the real construction's times the mother's L1 norm wherever both are exact.
     """
+    _check_construction(construction, "marr", wavelet, beta, q_tsallis)
     wavelet_arg, frac_n_arg, q_arg = wavelet, frac_n, q_tsallis
     stretch = 1.0
     if wavelet == "q_mexican":
@@ -435,10 +537,14 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
     rho2 = y[:, None] ** 2 + x[None, :] ** 2
     T = np.empty((len(scales), ny, nx), dtype=np.float64)
     for i, r in enumerate(scales):
-        k = _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0, stretch=stretch)
-        k -= k.mean()                                    # exactly zero-mean on the grid
-        k /= np.abs(k).sum()
-        Kf = _fft().fft2(np.fft.ifftshift(k))
+        if construction == "fourier":
+            Kf = _fourier_kernel(sp.shape, r, "marr", wavelet, beta, q_tsallis, frac_n, u0,
+                                 stretch=stretch)
+        else:
+            k = _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0, stretch=stretch)
+            k -= k.mean()                                # exactly zero-mean on the grid
+            k /= np.abs(k).sum()
+            Kf = _fft().fft2(np.fft.ifftshift(k))
         conv = np.real(_fft().ifft2(F * Kf))
         T[i] = np.abs(conv[pad:pad + ny, pad:pad + nx])
         if progress is not None:

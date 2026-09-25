@@ -180,9 +180,9 @@ class BandReconMeasure:
         return _split_band_compute(self, "measure", field, params, progress)
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        from dynamix.devices.holder_methods import q_warning
+        from dynamix.devices.holder_methods import knob_warning
 
-        return q_warning("measure", name, value, params)
+        return knob_warning("measure", name, value, params)
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
@@ -208,9 +208,9 @@ class BandReconMultiaffine:
         return _split_band_compute(self, "multiaffine", field, params, progress)
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        from dynamix.devices.holder_methods import q_warning
+        from dynamix.devices.holder_methods import knob_warning
 
-        return q_warning("multiaffine", name, value, params)
+        return knob_warning("multiaffine", name, value, params)
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k

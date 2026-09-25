@@ -56,7 +56,8 @@ def method_arrays(vals, method: str, params: dict, progress=None):
                           int(params["n_scales"]))
     kw = dict(wavelet=params["wavelet"], beta=params["beta"],
               q_tsallis=params["q_tsallis"], frac_n=params["frac_n"],
-              q_beta=q_width(method, params))
+              q_beta=q_width(method, params),
+              construction=params.get("construction", "real"))
     if progress is not None:
         progress("holder projections", 0.0)
     # Projections are the slow part: reported per scale, over 0..70 %.
@@ -116,6 +117,109 @@ def q_width_check(method: str, params: dict) -> None:
                          "width there")
 
 
+#: The multiaffine route's resolution floor (Turiel 2008, figure 2 and section 4.2.1): a
+#: discretised wavelet must separate its positive and negative parts, so its zero crossings set
+#: the minimum attainable resolution; Turiel 2009 puts the Mexican hat's at "several pixels".
+#: Read here as every sign lobe -- between crossings, or from a crossing to the edge of a compact
+#: support -- at least this many pixels across at r1; the central disc counts by its diameter,
+#: so a wavelet with one crossing at r keeps the floor r1 = 1.
+_LOBE_PX = 2.0
+
+
+@functools.lru_cache(maxsize=64)
+def _frac_crossings(n: float) -> tuple:
+    """The fractional-Gaussian wavelet's zero-crossing radii in units of r (the first is 1 by
+    its calibration): the sign changes of ``1F1((n+2)/2; 1; -u)``, with ``rho/r =
+    sqrt(u / u0)``."""
+    import numpy as np
+    from scipy.optimize import brentq
+    from scipy.special import hyp1f1
+
+    from dynamix.core.microcanonical import _frac_u0
+
+    a = (float(n) + 2.0) / 2.0
+    u = np.linspace(0.0, 50.0 + 10.0 * float(n), 200_001)
+    v = hyp1f1(a, 1.0, -u)
+    v[np.abs(v) < 1e-12] = 0.0                    # the dust of an underflowing tail
+    nz = np.flatnonzero(v)
+    flips = nz[np.flatnonzero(np.diff(np.sign(v[nz])))]
+    roots = [brentq(lambda x: hyp1f1(a, 1.0, -x), u[i], u[j])
+             for i, j in zip(flips, nz[np.searchsorted(nz, flips) + 1])]
+    u0 = _frac_u0(float(n))
+    return tuple(float(np.sqrt(x / u0)) for x in roots)
+
+
+def lobe_floor(method: str, params: dict) -> "float | None":
+    """The smallest r1 (px) at which every sign lobe of the kernel is :data:`_LOBE_PX` wide.
+    The q-Mexican hat's is closed-form: its crossing sits at ``r / sqrt(2 beta (2 - q))`` (r
+    when q-paired), and below q = 1 its support ends at that radius times
+    ``sqrt((2 - q)/(1 - q))``. On the measure route the positive kernels have no zero
+    crossings; only the compact q-Gaussian (q < 1) gets a floor, its one lobe being the support
+    disc of radius ``r / sqrt(beta (1 - q))`` -- the steepest decrease there is (Turiel 2008
+    section 4.2.2). None for every other positive kernel."""
+    import numpy as np
+
+    wavelet = params.get("wavelet")
+    if method == "measure":
+        q = float(params.get("q_tsallis", 1.5))
+        if wavelet != "q_gaussian" or q >= 1.0:
+            return None
+        return _LOBE_PX / (2.0 / np.sqrt(q_width(method, params) * (1.0 - q)))
+    if wavelet == "q_mexican":
+        q = float(params["q_tsallis"])
+        rho0 = 1.0 / np.sqrt(2.0 * q_width(method, params) * (2.0 - q))
+        widths = [2.0 * rho0]
+        if q < 1.0:
+            widths.append(rho0 * (np.sqrt((2.0 - q) / (1.0 - q)) - 1.0))
+    elif wavelet in ("g1", "g3", "frac_gaussian"):
+        n = {"g1": 1.0, "g3": 3.0}.get(wavelet, float(params.get("frac_n", 2.0)))
+        radii = _frac_crossings(n)
+        widths = [2.0 * radii[0]] + list(np.diff(radii))
+    else:                                         # g2, lorentzian_marr: one crossing, at r
+        widths = [2.0]
+    return _LOBE_PX / min(widths)
+
+
+def scale_warning(method: str, value, params: "dict | None") -> "str | None":
+    """The r1 knob's live line: a warning below :func:`lobe_floor`, empty above it or where no
+    floor applies -- empty, not None, so the label exists and can light up when a sibling knob
+    (the kernel, q, the width) moves the floor."""
+    floor = lobe_floor(method, params or {})
+    if floor is None:
+        return ""
+    if float(value) < floor * (1.0 - 1e-9):
+        return (f"⚠ below {floor:.2f} px a lobe of this wavelet is narrower than "
+                f"{_LOBE_PX:g} px")
+    return ""
+
+
+def knob_warning(method: str, name: str, value, params: "dict | None") -> "str | None":
+    """The holder tools' ``derived_reading``: r1's resolution floor (:func:`scale_warning`),
+    q's clean range (:func:`q_warning`)."""
+    if name == "r_min":
+        return scale_warning(method, value, params)
+    return q_warning(method, name, value, params)
+
+
+def construction_check(method: str, params: dict) -> None:
+    """A Fourier-built kernel needs a finite closed-form transform: the measure route refuses
+    frac_gaussian, a q-Gaussian from q = 2 and a Lorentzian with beta <= 1 there
+    (:func:`dynamix.core.microcanonical._check_construction`)."""
+    from dynamix.core.microcanonical import _check_construction
+
+    _check_construction(params.get("construction", "real"),
+                        "measure" if method == "measure" else "marr", params.get("wavelet"),
+                        float(params.get("beta", 1.0)), float(params.get("q_tsallis", 1.5)))
+
+
+#: Where each kernel is built: "real" samples it on the pixel grid (Turiel's construction, the
+#: default); "fourier" evaluates the same continuous kernel's closed-form 2-D transform,
+#: band-limited instead of sampled, to compare the two (see
+#: :data:`dynamix.core.microcanonical._CONSTRUCTIONS`).
+_CONSTRUCTION = Param("construction", ParamKind.CHOICE, default="real",
+                      choices=("real", "fourier"), label="Wavelet space")
+
+
 #: The margin a Hölder estimate needs around an ROI is the
 #: reach of its LARGEST kernel -- the radius holding all but ``_REACH_TOL`` of the kernel's 2-D
 #: |mass| (the convolution error an ROI pixel can pick up from outside the margin), capped at
@@ -172,7 +276,8 @@ def holder_roi_margin(method: str, params: dict) -> int:
 #: beyond pixel sampling, which is why this route localizes sharpest) -- while the
 #: MULTIAFFINE tool's r is the ZERO-CROSSING radius (our concrete reading of the fig-2
 #: rule: every wavelet in that menu is calibrated to change sign at radius r, so
-#: "the discrete wavelet separates its +/- parts" reads uniformly as r >= 1). The same
+#: "the discrete wavelet separates its +/- parts" reads as r >= 1 for one crossing, and
+#: higher where more crossings or a compact edge make a lobe narrower -- lobe_floor). The same
 #: r value is therefore NOT numerically comparable across the two tools.
 _ESTIMATOR_AND_SCALES = (
     Param("estimator", ParamKind.CHOICE, default="regression",
@@ -258,16 +363,17 @@ class HolderMeasure:
         Param("wavelet", ParamKind.CHOICE, default="gaussian",
               choices=("gaussian", "q_gaussian", "lorentzian", "frac_gaussian"),
               label="Wavelet"),
-    ) + _FAMILY_KNOBS + _width_knobs("q_gaussian")
+    ) + _FAMILY_KNOBS + _width_knobs("q_gaussian") + (_CONSTRUCTION,)
 
     def check(self, params: dict) -> None:
         q_width_check("measure", params)
+        construction_check("measure", params)
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "measure", field, params, progress)
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        return q_warning("measure", name, value, params)
+        return knob_warning("measure", name, value, params)
 
     def roi_margin(self, params: dict) -> int:
         """The largest kernel's measured 2-D reach
@@ -287,20 +393,21 @@ class HolderMultiaffine:
         # is the derivative-order axis (order n measures only γ < n; g2 = the Ricker, the
         # conflated device's default), frac_gaussian makes the order a REAL knob (frac_n).
         # All share the zero-crossing-radius scale convention (r_min = 1 is the fig-2
-        # minimum for every choice).
+        # minimum for one crossing; r1's live line warns where a lobe is narrower).
         Param("wavelet", ParamKind.CHOICE, default="g2",
               choices=("g1", "g2", "g3", "q_mexican", "lorentzian_marr", "frac_gaussian"),
               label="Wavelet"),
-    ) + _MULTIAFFINE_KNOBS + _width_knobs("q_mexican")
+    ) + _MULTIAFFINE_KNOBS + _width_knobs("q_mexican") + (_CONSTRUCTION,)
 
     def check(self, params: dict) -> None:
         q_width_check("multiaffine", params)
+        construction_check("multiaffine", params)
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "multiaffine", field, params, progress)
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        return q_warning("multiaffine", name, value, params)
+        return knob_warning("multiaffine", name, value, params)
 
     def roi_margin(self, params: dict) -> int:
         """The largest kernel's measured 2-D reach

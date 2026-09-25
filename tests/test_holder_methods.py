@@ -198,4 +198,5 @@ def test_q_knob_warns_where_the_kernel_misbehaves():
         assert multi.derived_reading("q_tsallis", 0.0, None, pa) == ""
         assert "⚠" in multi.derived_reading("q_tsallis", -0.5, None, pa)
         assert multi.derived_reading("q_tsallis", -0.5, None, dict(pa, wavelet="g2")) == ""
-        assert meas.derived_reading("r_min", 1.0, None, pm) is None
+        assert meas.derived_reading("r_min", 1.0, None, pm) == ""       # r1 has its own line
+        assert meas.derived_reading("kappa", 8.0, None, pm) is None
