@@ -27,8 +27,7 @@ and the D(h) spectrum are all live views of the same chain.
 
 Analysis runs in each dataset's native domain; results display on a WGS84 globe.
 
-**Status: early, but it runs.** The analysis core is extracted, the device/document model is built,
-and there is a working demo of the core gesture.
+
 
 ## Run the demo
 
@@ -102,17 +101,4 @@ python -m pytest
 divergence becomes a decision someone makes on purpose. It skips when the EQSelect checkout is
 absent.
 
-## License and citation
 
-Copyright (C) 2026 Abraham Joseph Okayli Masaryk. GeoDynamix is free software under the GNU
-General Public License (see [`LICENSE`](LICENSE)): the author's code is GPL-2.0-or-later, and the
-modules translated from **xsmurf** (Decoster, Kestener, Roux, Arneodo; GPL-2.0) are GPL-2.0-only.
-The 1-D WTMM code is based on **LastWave** (Bacry, Mallat; GPL-2.0-or-later). See
-[`NOTICE`](NOTICE) for the derived code and the principal scientific references, and
-[`CITATION.cff`](CITATION.cff) for how to cite this software.
-
-## Relationship to EQSelect
-
-The analysis core is a **copy** from EQSelect, not a dependency. That application is in active use
-and is never modified by work here. The cost — two copies of a 2,323-line WTMM backend will drift —
-is accepted, and the drift test makes it visible.
