@@ -3261,23 +3261,31 @@ both ``Canvas`` signals report the
 
     def _on_precision_selected(self, precision: int) -> None:
         """Settings > FFT precision: persisted; applied at the next start (2026-09-22)."""
-        update_settings(compute_precision=int(precision))
+        from dynamix.core.fft_policy import precision_note
+
+        saved = update_settings(compute_precision=int(precision))
         note = " (64-bit runs on FFTW3)" if int(precision) == 64 else ""
+        warn = precision_note(saved.compute_engine, int(precision))
         self._notify(f"FFT precision set to {int(precision)}-bit{note} — restart DynamiX to "
-                     "apply", "status")
+                     "apply" + (f". {warn}" if warn else ""), "status")
 
     def _on_engine_selected(self, engine: str) -> None:
         """Settings > Compute engine (2026-09-22): persisted; applied at the next start
         through fft_policy (restart to apply). The legacy immediate-apply body below stays
         for the old values (never-delete); the new values return before it."""
         if engine in ("auto", "mlx", "fftw"):
-            update_settings(compute_engine=engine)
+            from dynamix.core.fft_policy import precision_note
+
+            saved = update_settings(compute_engine=engine)
             extra = ""
             if engine == "mlx":
                 try:
                     import mlx.core  # noqa: F401
                 except ImportError:
                     extra = " (mlx is not installed here — FFTW3 will be used)"
+            warn = precision_note(engine, saved.compute_precision)
+            if warn:
+                extra += f". {warn}"
             self._notify(f"compute engine set to {engine}{extra} — restart DynamiX to apply",
                          "status")
             return

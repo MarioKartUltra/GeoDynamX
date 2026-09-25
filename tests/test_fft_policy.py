@@ -207,3 +207,17 @@ def test_nodata_never_gets_an_exponent_for_any_kernel(engine, precision, method,
     h, _r2, _s = method_arrays(v, method, params)
     assert np.isnan(h[30:60, 30:60]).all()
     assert np.isfinite(h).mean() > 0.3
+
+
+def test_the_settings_note_warns_when_64_bit_takes_the_ffts_off_mlx():
+    """mlx has float64 only on the CPU and its FFT returns complex64 (no complex128), so 64-bit
+    FFTs run on FFTW3 on the CPU -- worth a warning exactly where mlx would otherwise run."""
+    from dynamix.core.fft_policy import precision_note
+
+    mac = dict(platform="darwin", machine="arm64", have={"mlx": True, "pyfftw": True})
+    assert precision_note("auto", 64, **mac).startswith("⚠")
+    assert precision_note("mlx", 64, **mac).startswith("⚠")
+    assert precision_note("auto", 32, **mac) == ""
+    assert precision_note("fftw", 64, **mac) == ""
+    win = dict(platform="win32", machine="AMD64", have={"mlx": False, "pyfftw": True})
+    assert precision_note("auto", 64, **win) == ""

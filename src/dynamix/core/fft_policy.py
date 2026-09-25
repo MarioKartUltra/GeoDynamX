@@ -24,7 +24,8 @@ import os
 
 import numpy as np
 
-__all__ = ["ENGINES", "PRECISIONS", "active", "configure", "make", "reset", "resolve"]
+__all__ = ["ENGINES", "PRECISIONS", "active", "configure", "make", "precision_note", "reset",
+           "resolve"]
 
 ENGINES = ("auto", "mlx", "fftw")
 PRECISIONS = (32, 64)
@@ -189,6 +190,16 @@ def resolve(engine="auto", precision=32, *, platform=None, machine=None, have=No
     warnings.warn("neither mlx nor pyfftw is installed -- falling back to numpy's FFT, which "
                   "is slow (pip install pyfftw)", RuntimeWarning, stacklevel=2)
     return "numpy", precision
+
+
+def precision_note(engine: str, precision: int, **machine) -> str:
+    """The Settings warning for 64-bit FFTs where the engine would otherwise be mlx: mlx has a
+    64-bit float only on the CPU and its FFT still returns complex64 (it has no complex128), so
+    64-bit FFTs run on FFTW3 on the CPU instead of mlx on the GPU. Empty otherwise. ``machine``
+    passes :func:`resolve`'s ``platform`` / ``machine`` / ``have``."""
+    if int(precision) != 64 or resolve(engine, 32, **machine)[0] != "mlx":
+        return ""
+    return "⚠ 64-bit FFTs run on FFTW3 on the CPU, not on mlx's GPU: mlx has no 64-bit FFT"
 
 
 def make(name: str, precision: int = 32):
