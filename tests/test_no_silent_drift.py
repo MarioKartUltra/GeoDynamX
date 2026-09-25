@@ -135,11 +135,15 @@ EXTRACTED = {
 #: frac_bspline_exact: the symmetric fractional B-spline and its derivative in the time domain
 #: (Unser & Blu's series, Richardson-closed) -- the app's own module beside the verbatim Creep
 #: evaluators, exact at every order; pinned in tests/test_frac_bspline_exact.py.
+#: q_fourier: the 2-D Fourier transform of the Tsallis q-Gaussian in closed form (Matern for
+#: q > 1, Jahnke-Emde lambda for q < 1), evaluated stably at every order -- log space, the
+#: small-argument series and Debye's uniform expansions; the app's own module, pinned against
+#: 40-digit mpmath and a numerical Hankel transform in tests/test_q_fourier.py.
 NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
-              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact"]
+              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier"]
 
 
 def _normalised(path: pathlib.Path) -> str:
