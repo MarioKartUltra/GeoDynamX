@@ -46,7 +46,7 @@ def test_noise_is_a_field_stage_with_no_margin_of_its_own(builtins):
     assert noise.roi_margin(defaults_for(noise)) == 0
 
 
-@pytest.mark.parametrize("name", ["pca", "tucker_havok", "tucker_HOOI_HOSVD", "ssa2d"])
+@pytest.mark.parametrize("name", ["pca", "tucker_havok", "tucker_HOOI_HOSVD"])
 def test_global_statistics_tools_analyse_the_roi_itself(builtins, name):
     """PCA's covariance / the HOSVD are statistics OF the analysed region -- margin pixels
     would mix outside data into them, so they declare 0 (the ROI is what is decomposed)."""
@@ -54,6 +54,18 @@ def test_global_statistics_tools_analyse_the_roi_itself(builtins, name):
 
     dev = builtins[name]
     assert dev.roi_margin(defaults_for(dev)) == 0
+
+
+def test_ssa2d_reads_one_window_of_margin_by_default(builtins):
+    """2D-SSA's edge pixels are covered by fewer windows, so by default it reads one window of
+    real data around the ROI (every ROI pixel fully covered) and crops back; 0 keeps the ROI
+    alone, the global-statistics reading."""
+    from dynamix.model.device import defaults_for
+
+    dev = builtins["ssa2d"]
+    d = defaults_for(dev)
+    assert dev.roi_margin(d) == max(d["rows_window"], d["cols_window"]) - 1
+    assert dev.roi_margin({**d, "margin_windows": 0.0}) == 0
 
 
 # ------------------------------------------------------------ measured margins: the oracle

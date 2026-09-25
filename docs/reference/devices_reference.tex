@@ -435,6 +435,8 @@ reconstruction averages each pixel over the windows covering it.
 \texttt{component} (\emph{view}) & 1 & $[1,64]$ & the component shown (Show $=$ component) \\
 \texttt{pairs} (Orientation; \emph{view}) & separate & separate / combined & component numbering under delay\_2d; also what a Group refers to \\
 \texttt{group} (Group; \emph{view}) & all & text & the components the recon sums (above) \\
+\texttt{cluster} (\emph{view}) & 1 & $[1,64]$ & the cluster shown (largest share first) \\
+\texttt{cluster\_distance} (\emph{view}) & 0.5 & $[0.05,0.95]$ & where the clustering tree is cut \\
 \bottomrule
 \end{longtable}
 
@@ -454,23 +456,64 @@ the image. Ranks (the paper's \S4, pinned by tests): an oblique cosine
 $\cos 2\pi(\omega_xk+\omega_yl)$ is rank 2, a product of cosines rank 4, a sum of $m$ 2-D
 exponentials rank $m$.
 
-Computed without forming $\mathbf W$: the lag covariance $\mathbf W\mathbf W^{\mathsf T}$
-($(L_rL_c)^2$) accumulated from blocks of window rows, its eigenbasis, then
-$\mathbf W^{\mathsf T}U$ in the same blocks; float64 BLAS, no FFT; equal to an explicit SVD of
-$\mathbf W$ to $10^{-9}$. Windows are limited to 1600 entries ($40\times40$, about 4\,s on a
-$256^2$ field; larger ones would need Lanczos with an FFT matvec). Single-band fields only.
-NaN pixels are filled with the finite mean for the decomposition and re-masked in every
-output. Also returned: the eigenvalue shares $\lambda_i/\sum\lambda$ and the
-\textbf{w-correlation} matrix (the paper's Def.~3.18) of the kept components --- the grouping
-aid shown in the Components window.
+\textbf{Solvers.} None forms $\mathbf W$.
+\begin{itemize}\itemsep2pt
+  \item \emph{Lanczos} (the default), \emph{PROPACK} and \emph{randomized} use FFT products: $\mathbf
+        W^{\mathsf T}u$ and $\mathbf Wv$ are 2-D correlations of the image, done at its own size,
+        whose kept parts never wrap (Korobeynikov 2010; Golyandina et al.\ 2015). They find only
+        the $k$ leading eigentriples --- ARPACK's Lanczos on the implicit $\mathbf W\mathbf
+        W^{\mathsf T}$; PROPACK's bidiagonalization of $\mathbf W$, with full reorthogonalization
+        (its default partial one returns ghost copies of the leading triplet when the 32-bit FFT
+        products are adjoint only to $\sim10^{-7}$); or a randomized range finder whose power
+        iterations are re-orthonormalized after every product (Halko et al.\ 2011; Lopes et al.\
+        2024). Components are FFT convolutions of eigenarray and factor array. They agree with the
+        dense route to float32 tolerance. Measured on a $2048^2$ field with a $64\times64$ window
+        and $k=16$: Lanczos 6\,s, randomized 25\,s, PROPACK 42\,s.
+  \item \emph{Dense}: the lag covariance $\mathbf W\mathbf W^{\mathsf T}$ ($(L_rL_c)^2$)
+        accumulated from blocks of window rows, its full eigenbasis, then $\mathbf W^{\mathsf
+        T}U$ in the same blocks; float64 BLAS, equal to an explicit SVD of $\mathbf W$ to
+        $10^{-9}$. Limited to windows of 1600 entries ($40\times40$, about 4\,s on a $256^2$ field).
+        An FFT solver hands over to it when the kept count reaches the window size.
+\end{itemize}
+The shares $\lambda_i/\operatorname{tr}(\mathbf W\mathbf W^{\mathsf T})$ are exact on every route
+(the trace is the sum of the squared pixels weighted by their window counts). Each eigenarray is
+signed so that its largest entry is positive. Large outputs are stored at the app's precision.
+Single-band fields only. NaN pixels are filled with the finite mean for the decomposition and
+re-masked in every output. Also returned: the \textbf{w-correlation} matrix (the paper's
+Def.~3.18) of the kept components --- the grouping aid shown in the Components window.
+
+\textbf{Keeping and grouping} (Lopes et al.\ 2024). \emph{Keep: energy} treats
+\texttt{n\_components} as the most to find and keeps the fewest whose cumulative share reaches
+the threshold (the row note says when it was not reached). This 2D-SSA is uncentred, so on a raw
+field the first eigentriple, the mean, often carries most of the energy on its own.
+\emph{Show: cluster} shows one group of an automatic grouping: average-linkage clustering on
+$1-|\text{w-correlation}|$, cut at the cluster distance, clusters ordered by share. The cluster knobs
+are view settings, so changing them never re-decomposes.
+
+\textbf{Edges.} A pixel near the edge of the analysed region is covered by fewer windows. On a
+region of interest the tool reads a margin of real data around it (\texttt{margin\_windows}
+windows of $\max(L_r,L_c)-1$ pixels; at one window every ROI pixel is fully covered) and crops
+back. On the whole field there is no data beyond the edge. Lopes et al.'s mirror extension is
+available (\emph{Whole-field edges: mirror}), but off by default: in 2-D a reflected wave is a
+different wave (an oblique wave flips a frequency component), so the extension adds rank. On two
+test waves it raised the edge error 3--18$\times$, where the real-data margin of an ROI lowered
+it by about 10\%.
 
 \begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
-\texttt{rows\_window}, \texttt{cols\_window} & 16 & $[2,512]$ & window $L_r\times L_c$ ($L_rL_c\le1600$) \\
-\texttt{n\_components} (Components kept) & 16 & $[1,64]$ & leading eigentriples kept \\
-\texttt{show} (\emph{view}) & recon & recon / residual / component & what the canvas shows \\
+\texttt{rows\_window}, \texttt{cols\_window} & 16 & $[2,512]$ & window $L_r\times L_c$ ($L_rL_c\le1600$ for dense) \\
+\texttt{n\_components} (Components kept) & 16 & $[1,64]$ & leading eigentriples kept (the most, with Keep: energy) \\
+\texttt{keep} & count & count / energy & keep \texttt{n\_components}, or the fewest reaching the energy threshold \\
+\texttt{energy\_threshold} (Energy) & 0.9 & $[0.5,0.9999]$ & cumulative share to reach (Keep: energy only) \\
+\texttt{solver} & lanczos & lanczos / propack / randomized / dense & the eigentriple route (above) \\
+\texttt{power\_iterations} & 2 & $[0,10]$ & randomized solver only \\
+\texttt{margin\_windows} (Edge margin) & 1 & $[0,4]$ & ROI margin in windows; also the mirror width \\
+\texttt{edge\_extension} (Whole-field edges) & none & none / mirror & mirror-extend the whole field (off: it adds rank in 2-D) \\
+\texttt{show} (\emph{view}) & recon & recon / residual / component / cluster & what the canvas shows \\
 \texttt{component} (\emph{view}) & 1 & $[1,64]$ & the elementary component shown \\
 \texttt{group} (Group; \emph{view}) & all & text & the components the recon sums (above) \\
+\texttt{cluster} (\emph{view}) & 1 & $[1,64]$ & the cluster shown (largest share first) \\
+\texttt{cluster\_distance} (\emph{view}) & 0.5 & $[0.05,0.95]$ & where the clustering tree is cut \\
 \bottomrule
 \end{longtable}
 
@@ -792,6 +835,16 @@ wavelet or the sinc function.''
   \item N.~Golyandina and K.~Usevich (2010), 2D-extension of singular spectrum analysis:
         algorithm and elements of theory, in \emph{Matrix Methods: Theory, Algorithms and
         Applications} (V.~Olshevsky, E.~Tyrtyshnikov, eds.), World Scientific, 449--473.
+  \item A.~Korobeynikov (2010), Computation- and space-efficient implementation of SSA,
+        \emph{Statistics and Its Interface} 3, 257--268.
+  \item N.~Golyandina, A.~Korobeynikov, A.~Shlemov and K.~Usevich (2015), Multivariate and 2D
+        extensions of singular spectrum analysis with the Rssa package, \emph{J.\ Stat.\
+        Software} 67(2), 1--78.
+  \item N.~Halko, P.-G.~Martinsson and J.~A.~Tropp (2011), Finding structure with randomness:
+        probabilistic algorithms for constructing approximate matrix decompositions, \emph{SIAM
+        Review} 53, 217--288.
+  \item F.~Lopes, D.~Gibert, V.~Courtillot, J.-L.~Le~Mou\"el and J.-B.~Boul\'e (2024), On the
+        optimization of singular spectrum analyses: a pragmatic approach, preprint.
   \item D.~S.~Broomhead and G.~P.~King (1986), Extracting qualitative dynamics from
         experimental data, \emph{Physica D} 20, 217--236.
   \item L.~De~Lathauwer, B.~De~Moor and J.~Vandewalle (2000), A multilinear singular value

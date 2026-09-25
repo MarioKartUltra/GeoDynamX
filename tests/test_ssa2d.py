@@ -155,9 +155,12 @@ def test_the_ssa2d_device_flips_every_view_without_recomputing(builtins):
     assert c3.cache_misses == grp.cache_misses == res.cache_misses == 0
     comps = c3.result["ssa_components"]
     np.testing.assert_array_equal(c3.result["raster_out"], comps[2])
-    np.testing.assert_allclose(grp.result["raster_out"], comps[0] + comps[1] + comps[3])
+    # stored at the app's precision (float32 at 32 bit): identities hold to that precision
+    tol = 1e-5 * np.abs(field.values).max()
+    np.testing.assert_allclose(grp.result["raster_out"], comps[0] + comps[1] + comps[3],
+                               rtol=0, atol=tol)
     np.testing.assert_allclose(res.result["raster_out"] + first.result["raster_out"],
-                               field.values)
+                               field.values, rtol=0, atol=tol)
 
 
 def test_the_residual_is_the_data_minus_the_chosen_group(builtins):
@@ -172,12 +175,13 @@ def test_the_residual_is_the_data_minus_the_chosen_group(builtins):
     minus_some = _resolve(cache, field, **base, show="residual", group="2-3, 5")
     assert minus_c1.cache_misses == minus_some.cache_misses == 0
     comps = whole.result["ssa_components"]
+    tol = 1e-5 * np.abs(field.values).max()                  # stored at the app's precision
     np.testing.assert_allclose(minus_c1.result["raster_out"], field.values - comps[0],
-                               atol=1e-9)
+                               atol=tol)
     np.testing.assert_allclose(minus_some.result["raster_out"],
-                               field.values - comps[1] - comps[2] - comps[4], atol=1e-9)
+                               field.values - comps[1] - comps[2] - comps[4], atol=tol)
     np.testing.assert_allclose(whole.result["raster_out"],
-                               field.values - comps.sum(axis=0), atol=1e-9)
+                               field.values - comps.sum(axis=0), atol=tol)
     share = whole.result["ssa_eigen_share"]
     assert minus_c1.result["_view_note"] == f"data − [1] ({100 * share[0]:.0f}%)"
     assert whole.result["_view_note"] == "residual"
@@ -222,4 +226,6 @@ def test_the_ssa2d_device_refuses_an_oversized_window(builtins):
     from dynamix.model.device import get_device, validate_params
 
     with pytest.raises(ValueError, match="window"):
-        validate_params(get_device("ssa2d"), {"rows_window": 64, "cols_window": 64})
+        validate_params(get_device("ssa2d"), {"rows_window": 64, "cols_window": 64,
+                                              "solver": "dense"})
+    validate_params(get_device("ssa2d"), {"rows_window": 64, "cols_window": 64})   # FFT: allowed
