@@ -178,6 +178,53 @@ def points_lonlat(field, cols, rows, *, sub=None):
     return _to_lonlat(crs_text, x, y)
 
 
+def field_north(field):
+    """``(col_east, row_north, north_frame)`` for a georeferenced grid -- how its axes run and
+    which north its bearings refer to (``Frame.TRUE`` for lon/lat, ``Frame.GRID`` for a
+    projected CRS) -- or ``None`` with no CRS (a swath, a pixel grid: pixel frame only)."""
+    from dynamix.core.orientation import Frame
+
+    crs_text = _field_crs(field)
+    if crs_text is None:
+        return None
+    from rasterio.crs import CRS
+
+    crs = CRS.from_user_input(crs_text)
+    x = np.asarray(field.x_axis, dtype=np.float64)
+    y = np.asarray(field.y_axis, dtype=np.float64)
+    col_east = bool(x[-1] > x[0]) if x.size > 1 else True
+    row_north = bool(y[-1] > y[0]) if y.size > 1 else False
+    return col_east, row_north, (Frame.TRUE if crs.is_geographic else Frame.GRID)
+
+
+def grid_north_bearing(field, cols, rows) -> np.ndarray:
+    """The TRUE bearing (degrees clockwise from true north) of GRID north at fractional pixel
+    positions -- the meridian convergence; add it to a grid azimuth for a true one. A
+    one-pixel step toward +y in the projected CRS, taken to lon/lat, and its initial
+    great-circle bearing."""
+    from dynamix.roi.picture import file_pixel_grid
+
+    crs_text = _require_crs(field)
+    grid = file_pixel_grid(field)          # a display picture: positions are FILE pixels
+    if grid is not None:
+        x0, dx, y0, dy = grid[:4]
+        x = x0 + dx * np.asarray(cols, dtype=np.float64)
+        y = y0 + dy * np.asarray(rows, dtype=np.float64)
+        step = abs(float(dy))
+    else:
+        x = axis_at(field.x_axis, cols)
+        y = axis_at(field.y_axis, rows)
+        y_axis = np.asarray(field.y_axis, dtype=np.float64)
+        step = abs(float(y_axis[1] - y_axis[0])) if y_axis.size > 1 else 1.0
+    lon0, lat0 = _to_lonlat(crs_text, x, y)
+    lon1, lat1 = _to_lonlat(crs_text, x, y + step)
+    p0, p1 = np.radians(lat0), np.radians(lat1)
+    dl = np.radians(np.asarray(lon1) - np.asarray(lon0))
+    b = np.arctan2(np.sin(dl) * np.cos(p1),
+                   np.cos(p0) * np.sin(p1) - np.sin(p0) * np.cos(p1) * np.cos(dl))
+    return np.degrees(b)
+
+
 def axis_at(axis, positions) -> np.ndarray:
     """Coordinates at FRACTIONAL pixel indices along ``axis`` (linear between pixel centers,
     extended linearly past the ends -- the regular-axis RasterField contract)."""

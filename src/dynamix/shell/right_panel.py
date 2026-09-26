@@ -246,6 +246,18 @@ class RightPanel(QtWidgets.QScrollArea):
         self.trails_check.toggled.connect(
             lambda checked: self.styleChanged.emit("show_trails", checked))
         column.addWidget(self.trails_check)
+        # Gradient arrows along each maximum's argument, at the current scale.
+        arrows_row = QtWidgets.QWidget()
+        arrows_lay = QtWidgets.QHBoxLayout(arrows_row)
+        arrows_lay.setContentsMargins(0, 0, 0, 0)
+        arrows_lay.addWidget(QtWidgets.QLabel("Gradient arrows"))
+        self.arrows_combo = QtWidgets.QComboBox()
+        for mode, label in (("off", "off"), ("wtmmm", "on WTMMM"), ("all", "on all maxima")):
+            self.arrows_combo.addItem(label, mode)
+        self.arrows_combo.currentIndexChanged.connect(
+            lambda _i: self.styleChanged.emit("arrows", self.arrows_combo.currentData()))
+        arrows_lay.addWidget(self.arrows_combo, 1)
+        column.addWidget(arrows_row)
         # Hillshade (2026-08-29): the raster shaded by the Sun az / Sun alt / Vert. exag. knobs
         # above, on the canvas and on the drape. Same styleChanged path as everything here.
         self.hillshade_check = QtWidgets.QCheckBox("Hillshade")
@@ -378,6 +390,10 @@ class RightPanel(QtWidgets.QScrollArea):
         self.trails_check.blockSignals(True)
         self.trails_check.setChecked(style["show_trails"])
         self.trails_check.blockSignals(False)
+        self.arrows_combo.blockSignals(True)
+        self.arrows_combo.setCurrentIndex(max(self.arrows_combo.findData(
+            style.get("arrows", "off")), 0))
+        self.arrows_combo.blockSignals(False)
         self.hillshade_check.blockSignals(True)
         self.hillshade_check.setChecked(bool(style.get("hillshade", False)))
         self.hillshade_check.blockSignals(False)

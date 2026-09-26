@@ -96,6 +96,7 @@ from dynamix.shell.layer_panel import LayerPanel, ReferencePanel
 from dynamix.shell.levels_dialog import BandDialog, LevelsDialog
 from dynamix.shell.multifractal_window import MultifractalWindow
 from dynamix.shell.opening import open_field
+from dynamix.shell.anisotropy_window import AnisotropyWindow
 from dynamix.shell.spectrum_window import SpectrumWindow
 from dynamix.shell.point_import import load_points
 from dynamix.shell.profile_dialog import ProfileDialog
@@ -287,6 +288,8 @@ def _display_style_of(layer) -> dict:
         raw = tags.get(f"ui.{name}")
         out[name] = raw if isinstance(raw, str) and _HEX_RE.match(raw) else default
     out["show_trails"] = tags.get("ui.show_trails") == "True"
+    raw = tags.get("ui.arrows")
+    out["arrows"] = raw if raw in ("off", "wtmmm", "all") else "off"
     out["hillshade"] = tags.get("ui.hillshade") == "True"
     raw = tags.get("ui.stretch")
     out["stretch"] = raw if raw in STRETCHES else "linear"
@@ -1268,9 +1271,16 @@ class MainWindow(QtWidgets.QMainWindow):
         spectrum_lay.setContentsMargins(0, 0, 0, 0)
         spectrum_lay.addWidget(self._spectrum_button)
         spectrum_lay.addWidget(self._dh_button)
+        # WTMMM angle statistics (Arneodo, Decoster & Roux 2000): P_a(A) across scales, the
+        # gradient plane, M per angle sector -- pixel frame or bearings.
+        self._anisotropy_button = QtWidgets.QPushButton("Anisotropy (WTMMM angles)…")
+        self._anisotropy_button.clicked.connect(self._on_anisotropy_button_clicked)
+        self._anisotropy_window: AnisotropyWindow | None = None
+        spectrum_lay.addWidget(self._anisotropy_button)
         self.right_panel.add_section("Spectrum", spectrum_box)
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_anisotropy()
 
         # The grouping aids of a decomposition (ssa2d / tucker): thumbnails, shares and
         # w-correlations in a floating window; picking thumbnails sets the tool's Group knob.
@@ -2166,6 +2176,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_overlay_colors(style["color_hchain"], style["color_vtrail"],
                                            style["color_extrema"])
             self.canvas.set_show_trails(style["show_trails"])
+            self.canvas.set_arrow_mode(style["arrows"])
             self.canvas.set_stretch(style["stretch"], style["stretch_pct"])
             self.canvas.set_levels(style["levels"], style["levels_colors"],
                                    style["levels_sieve"])
@@ -2939,6 +2950,35 @@ both ``Canvas`` signals report the
         window.activateWindow()
 
     # -- singularity-spectrum construction window (2026-09-20) ----------------------------------
+    def _refresh_anisotropy(self) -> None:
+        """Enable the Anisotropy button for a result with per-scale maxima, and feed an OPEN
+        window the active result (with its ROI offset, for bearings)."""
+        result = self._active_result
+        ok = bool(result) and bool(result.get("extrema"))
+        self._anisotropy_button.setEnabled(ok)
+        self._anisotropy_button.setToolTip(
+            "WTMMM angle statistics — P_a(A) across scales, the gradient plane, M per angle "
+            "sector (Arnéodo, Decoster & Roux 2000)" if ok else
+            "Needs a WTMM result with per-scale maxima on the active layer")
+        win = self._anisotropy_window
+        if ok and win is not None and win.isVisible():
+            self._feed_anisotropy(win)
+
+    def _feed_anisotropy(self, win) -> None:
+        from dynamix.shell.canvas import display_offset
+
+        result = self._active_result
+        offset = display_offset(result, self.field) if self.field is not None else (0, 0)
+        win.set_result(result, self.field, offset=offset,
+                       scale_idx=int(self.transport.slider.value()))
+
+    def _on_anisotropy_button_clicked(self) -> None:
+        if self._anisotropy_window is None:
+            self._anisotropy_window = AnisotropyWindow(self)
+        self._feed_anisotropy(self._anisotropy_window)
+        self._anisotropy_window.show()
+        self._anisotropy_window.raise_()
+
     def _refresh_dh_button(self) -> None:
         """Enable/disable "D(h) construction…": needs the partition tables (canonical + hull
         constructions) OR an ``h_map`` (microcanonical histogram alone) on the active result."""
@@ -3892,6 +3932,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_anisotropy()
         self._refresh_components_button()
 
     def _on_auto_run_toggled(self, checked: bool) -> None:
@@ -4471,6 +4512,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()      # no active result left -- back to disabled
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_anisotropy()
         self._refresh_components_button()
         self._set_recipe([], [])
         self._build_strips()
@@ -5981,6 +6023,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_anisotropy()
         self._refresh_components_button()
         self._sync_holder_raster(result)
         # A landing while the Vector/Globe tab is up must reach the scene (forked wtmm computed with the Vector tab showing -- extrema absent until a manual

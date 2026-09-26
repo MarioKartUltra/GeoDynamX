@@ -142,12 +142,17 @@ EXTRACTED = {
 #: bus: band buses -- raw bands routed by reference (file + grid id / band index) into one
 #: (ny, nx, n) stack on a host grid, same-grid law enforced, windows aligned geometrically
 #: with the ROI runner's reflect padding; the app's own module, pinned in tests/test_bus.py.
+#: orientation: angles as (angle, frame) -- the WTMM pixel-frame argument to grid / true
+#: azimuths from the grid's own axis directions and the meridian convergence; the app's own
+#: module, pinned in tests/test_orientation.py.
+#: anisotropy: Arneodo, Decoster & Roux 2000's WTMMM angle statistics (P_a(A), the gradient
+#: plane, M | A-sector pdfs); the app's own module, pinned in tests/test_orientation.py.
 NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
-              "bus"]
+              "bus", "orientation", "anisotropy"]
 
 
 def _normalised(path: pathlib.Path) -> str:

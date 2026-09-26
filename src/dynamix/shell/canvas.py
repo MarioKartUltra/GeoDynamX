@@ -506,6 +506,25 @@ def classify_chains(chains) -> tuple[list, list, dict[tuple, list]]:
     return plain, seam, grouped
 
 
+#: Gradient-arrow colour (amber: apart from the chain/extrema palette).
+ARROW_COLOR = "#f2c14e"
+
+
+def _arrow_segments(x, y, arg, length) -> tuple:
+    """Pairs-connected ``(xs, ys)`` for arrows from ``(x, y)`` along ``arg`` (radians, pixel
+    frame: data y is the row, so this draws uphill on screen): a shaft of ``length`` (a
+    scalar, or one per arrow) and two head strokes of ``0.35 * length`` at ±150° off the
+    shaft, per arrow."""
+    x, y, a = (np.asarray(v, dtype=np.float64) for v in (x, y, arg))
+    tx, ty = x + length * np.cos(a), y + length * np.sin(a)
+    h = 0.35 * length
+    h1x, h1y = tx + h * np.cos(a + 5 * np.pi / 6), ty + h * np.sin(a + 5 * np.pi / 6)
+    h2x, h2y = tx + h * np.cos(a - 5 * np.pi / 6), ty + h * np.sin(a - 5 * np.pi / 6)
+    xs = np.stack([x, tx, tx, h1x, tx, h2x], axis=1).ravel()
+    ys = np.stack([y, ty, ty, h1y, ty, h2y], axis=1).ravel()
+    return xs, ys
+
+
 def _composite_rgba(stack, spec: dict):
     """A multiband stack ``(my, mx, nc)`` as display RGBA under the composite law.
 
@@ -856,6 +875,16 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.extrema_item = pg.ScatterPlotItem(size=3, pen=None, brush=pg.mkBrush(*EXTREMA_COLOR))
         self.extrema_item.setVisible(False)      # raster view draws pixels, not dots (2026-09-22)
         self.view.addItem(self.extrema_item)
+        # Gradient arrows (xsmurf's vector display): at the current scale, one arrow per WTMMM
+        # (or per maximum) along its argument -- uphill, in the pixel frame. One pairs-connected
+        # item: shaft + two head strokes per arrow.
+        self.arrow_item = pg.PlotDataItem(pen=pg.mkPen(ARROW_COLOR, width=1.2),
+                                          connect="pairs")
+        self.arrow_item.setZValue(12)
+        self.view.addItem(self.arrow_item)
+        self._arrow_mode = "off"
+        self._arrow_memo = None           # (id(ext layer), its WTMMM) -- ssm per scale, once
+        self._last_arrows = None          # (result, scale_idx, row_off, col_off) to redraw
 
         # The point-layer scatter overlay -- one array-fed ScatterPlotItem, shown only
         # when the raster currently displayed IS the bound target of a point layer's own
@@ -1575,6 +1604,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # pixel overlay is a set_result product like every item below -- it leaves with them.
         self.extrema_raster_item.clear()
         self.extrema_item.setData([], [])
+        self.arrow_item.setData([], [])
+        self._last_arrows = None
         self.hchain_item.setData([], [])
         self.vtrail_item.setData([], [])
         self.seam_item.setData([], [])
@@ -2032,6 +2063,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         col_off += self._base_off[1]
         self._draw_off = (float(row_off), float(col_off))
 
+        self._draw_arrows(result, scale_idx, row_off, col_off)
         ext_x = np.asarray(ext["x"])
         ext_y = np.asarray(ext["y"])
         iso = np.asarray(ext["line_id"]) == -1
@@ -2177,6 +2209,49 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.roi_bounds_item.setData(
             [col_off, col_off + w, col_off + w, col_off, col_off],
             [row_off, row_off, row_off + h, row_off + h, row_off])
+
+    def set_arrow_mode(self, mode: str) -> None:
+        """Gradient arrows: ``"off"``, ``"wtmmm"`` (the WTMMM only -- xsmurf ``ssm``, the points
+        Arneodo's statistics use) or ``"all"`` (every maximum). Redraws the current scale."""
+        self._arrow_mode = mode if mode in ("off", "wtmmm", "all") else "off"
+        if self._last_arrows is not None:
+            self._draw_arrows(*self._last_arrows)
+        else:
+            self.arrow_item.setData([], [])
+
+    def _draw_arrows(self, result, scale_idx: int, row_off, col_off) -> None:
+        self._last_arrows = (result, scale_idx, row_off, col_off)
+        extrema = result.get("extrema") or []
+        if self._arrow_mode == "off" or not 0 <= scale_idx < len(extrema):
+            self.arrow_item.setData([], [])
+            return
+        ext = extrema[scale_idx]
+        if self._arrow_mode == "wtmmm":
+            if self._arrow_memo is None or self._arrow_memo[0] is not ext:
+                from dynamix.core.anisotropy import wtmmm_by_scale
+
+                self._arrow_memo = (ext, wtmmm_by_scale([ext])[0])
+            pts = self._arrow_memo[1]
+            x, y = np.asarray(pts["x"], float), np.asarray(pts["y"], float)
+        else:
+            pts = ext
+            x = np.asarray(ext.get("x_sub", ext["x"]), float)
+            y = np.asarray(ext.get("y_sub", ext["y"]), float)
+        arg = np.asarray(pts.get("arg", np.zeros(len(x))), float)
+        if x.size == 0:
+            self.arrow_item.setData([], [])
+            return
+        scales = result.get("scales")
+        a = (float(np.asarray(scales)[scale_idx])
+             if scales is not None and scale_idx < len(scales) else 4.0)
+        # Half the scale (capped) at full strength, down to 30% for the weakest: the arrow
+        # carries the modulus as well as the argument, and stays readable at coarse scales.
+        mod = np.asarray(pts.get("mod", np.ones(x.size)), float)
+        ref = float(np.nanpercentile(mod, 95)) if mod.size else 1.0
+        base = float(np.clip(0.5 * a, 1.5, 12.0))
+        lengths = base * (0.3 + 0.7 * np.clip(mod / (ref if ref > 0 else 1.0), 0.0, 1.0))
+        xs, ys = _arrow_segments(x + col_off, y + row_off, arg, lengths)
+        self.arrow_item.setData(xs, ys)
 
     def set_show_trails(self, value: bool) -> None:
         self._show_trails = bool(value)
