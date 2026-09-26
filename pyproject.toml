@@ -76,7 +76,8 @@ catalog = ["pyyaml>=6.0"]
 
 # GeoDynamix_Beta: everything the app needs, in one extra -- `pip install -e ".[app]"`.
 app = ["numba>=0.60", "scipy>=1.11", "rasterio>=1.4", "Pillow>=10", "PySide6>=6.5",
-       "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11"]
+       "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11",
+       "pyhdf>=0.11.6,<0.11.7"]   # same pin as the hdf4 extra, for the same reason
 
 # The vendored `wtmm` package's own optional features (its NN and dataset helpers), lazily
 # imported and never used by the app -- declared honestly, installed only on request.

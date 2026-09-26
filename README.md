@@ -19,6 +19,14 @@ resampling a raster before a scale-sensitive analysis changes the statistics bei
   filtering, and a medial-axis extractor.
 - **Decompositions.** Principal components of multi-band data, delay-embedded Tucker
   decomposition, and 2-D singular spectrum analysis.
+- **Multiband data.** Sensor products such as ASTER import grouped by sensor and resolution.
+  Each band can be analysed or removed on its own, and a stack displays as an RGB composite
+  with per-band channel, solo and mute controls and ENVI-style stretches.
+- **Band routing.** A bus assembles bands from several datasets on the same grid into one
+  stack for the multi-band tools, and a band stack can follow the results of other layers
+  as they change.
+- **Anisotropy.** Gradient-direction arrows on the wavelet maxima, and the angle statistics
+  of Arneodo, Decoster and Roux (2000), in image coordinates or as map bearings.
 - **Filters on the results.** By scale, orientation, modulus, chain length and topology.
 - **Regions of interest.** Any tool can run on a rectangular region. The region is read with a
   margin, so tools that need neighbouring data see real data beyond its edges.
@@ -54,8 +62,8 @@ mlx has no double-precision FFT. Changes take effect after a restart.
 ## Documentation
 
 The [device reference](docs/reference/devices_reference.pdf) describes every tool and parameter,
-the wavelet normalisation, and the wavelet families, with figures drawn from the application's
-own kernel code.
+multiband data and band routing, the wavelet normalisation, and the wavelet families, with
+figures drawn from the application's own kernel code.
 
 ## Status
 

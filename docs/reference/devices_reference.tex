@@ -16,9 +16,8 @@
 \newcolumntype{R}{>{\raggedright\arraybackslash}p{0.17\textwidth}}
 \newcolumntype{N}{>{\raggedright\arraybackslash}p{0.33\textwidth}}
 
-\title{\textbf{DynamiX Device Reference}\\[2mm]
-\large Every device, every knob, what it means}
-\author{Generated from the live device registry}
+\title{\textbf{DynamiX Device Reference}}
+\author{Checked against the live device registry}
 \date{\today \;\textperiodcentered\; kernel figures drawn by \texttt{make\_figures.py} from the app's own kernel code}
 
 \begin{document}
@@ -34,9 +33,8 @@ Chains are always transforms-then-filters; interleaving is rejected at construct
 Conventions that hold everywhere:
 \begin{itemize}\itemsep2pt
   \item \textbf{Scales are stored in pixels}, converted only for display.
-  \item \textbf{The wavelet family is a property of the method}, never an orthogonal
-        knob: each tool's menu lists only the kernel class its method admits, under the
-        method's own names.
+  \item \textbf{The wavelet family belongs to the method}: each tool's menu lists only the
+        kernel class its method admits, under the method's own names.
   \item \textbf{Inert knobs}: a parameter that binds only under one choice of another
         parameter (e.g.\ $q$ only for q-family wavelets) is ignored otherwise; where the device
         declares it, the knob is \emph{greyed out} in the device box while it does not apply
@@ -44,16 +42,15 @@ Conventions that hold everywhere:
   \item \textbf{View-only knobs} (marked \emph{view} in the tables) choose what is shown from
         a result that is already computed and cached --- Show, Component, Group, Orientation,
         Show PC. Switching one redraws at once; it never recomputes.
-  \item \textbf{Orientations are $(\text{angle},\text{frame})$} with
-        $\text{NorthRef}\in\{\text{grid},\text{true},\text{magnetic}\}$ --- never a bare
-        float.
+  \item \textbf{Orientations are $(\text{angle},\text{frame})$}, the frame being the pixel
+        grid or grid, true or magnetic north (\S\ref{sec:arrows}, Gradient arrows and anisotropy).
   \item \textbf{No-support masking}: pixels with no honest signal support (nodata flats,
-        FFT dust) are NaN in every exponent map --- absence, never fabrication.
+        FFT dust) are NaN in every exponent map.
   \item Each table lists: parameter (UI label), default, hard range, and meaning. Soft
         ranges (knob-drag limits) are narrower than hard ranges.
 \end{itemize}
 
-\subsection*{Wavelet normalization: $L^1$, not $L^2$}
+\subsection*{Wavelet normalization: $L^1$}
 Every wavelet in the app is normalized in the $L^1$ (pure-dilation) convention,
 $\psi_a(x)=a^{-d}\,\psi(x/a)$ in $d=2$ dimensions, so that at a H\"older singularity the
 transform scales as $|T_\psi[f](x,a)|\sim a^{h(x)}$ with no offset. The $L^2$ convention
@@ -116,6 +113,12 @@ outside data into the statistic).
 \textbf{Progress} is live: every compute reports one increasing fraction from inside its own
 loops.
 
+\textbf{The right panel} shows what applies to the selected row: the colours, widths and
+arrows of the WTMM overlays appear with a result that has maxima or chains,
+\emph{Reconstruct\ldots} with an $h$ map, colormap, stretch and hillshade with a single-band
+display (a multiband display uses the Composite section), and the view-specific sections in
+the Vector and Geo views.
+
 \subsection*{Derivative datasets (Fork)}
 A \emph{child} keeps re-processing its parent. A \textbf{derivative} is forked once from what a
 result shows and from then on is an \emph{original raw dataset}: nothing links it back, and a
@@ -169,6 +172,83 @@ Clicking thumbnails picks the \textbf{group}: click one, Cmd-click (Ctrl) to add
 shift-click for a range, \emph{All} for every one. The pick is written into the tool's Group
 knob (and the window follows the knob), so the canvas redraws from the cache.
 
+\subsection*{Multidimensional rasters}
+\textbf{Import.} Opening a multi-grid container (netCDF, HDF5, HDF4) shows an import dialog:
+the image grids grouped by sensor and resolution with a checkbox per band, and the remaining
+grids (geolocation lattices, calibration tables, supplements) in a collapsed \emph{Ancillary
+grids} group, each importable on its own. Each ticked group becomes one multiband dataset
+$(n_y,n_x,n_c)$. Grids of different resolution are separate datasets: ASTER's VNIR (15\,m),
+SWIR (30\,m) and TIR (90\,m) arrive as three. HDF4 grids are named by their swath group
+(\texttt{VNIR\_Band3N/ImageData}), since ASTER names every band's array
+\texttt{ImageData}. A dataset is its file together with its band list, so two groups
+imported from one file are two datasets, each with its own row, cache and saved state.
+
+\textbf{Band rows.} A multiband dataset lists its bands under a collapsed \emph{Bands ($n$)}
+row. Each band row is a child layer whose chain starts with \dev{band\_select}: selecting it
+shows that band, and a tool dropped on it runs on that band alone. \emph{Remove band from
+project} (right-click, or Delete) takes the band out of the dataset together with its row
+and any results under it; the file is untouched, and the last band stays. The removal
+changes the dataset's identity, so a result computed on the fuller stack is recomputed.
+
+\textbf{Composite.} A multiband dataset draws as an RGB composite. The \emph{Composite}
+section of the right panel lists the bands with a channel (R, G, B or none; each channel
+takes one band) and Solo / Mute buttons: mute drops a band's channel; one solo shows that
+band alone in grey; several solos keep each in its channel. Its \emph{Stretch} applies one
+type to all channels, each computed from its own band's values:
+
+\begin{longtable}{L M}
+\toprule Stretch & Mapping to $[0,1]$ \\ \midrule
+linear (min--max) & minimum to maximum (normalisation) \\
+percent clip & the $p$-th to $(100-p)$-th percentiles, clipped ($p=2$ is ENVI's linear 2\,\%) \\
+std-dev & mean $\pm k\sigma$, clipped \\
+log & $\log(1+v-\min v)$, then minimum to maximum \\
+histogram equalize & each value's rank among the finite values \\
+bipolar & $-m$ to $+m$, $m$ the $(100-p)$-th percentile of $|v|$: zero maps to mid-scale,
+          for signed data (principal components, residuals) \\
+\bottomrule
+\end{longtable}
+
+The single-band Display stretch offers the same six types. Stretches are display only;
+analysis reads the band values themselves.
+
+\textbf{What a field stage shows.} A chain that ends on a field stage shows the field it
+produces: \dev{noise} alone shows the noised field (a stack through the composite), a band row
+its band, a bus its stack. Bypassing the stage shows the raw data again, and \emph{Fork
+derivative dataset\ldots} takes the produced field, one band per checkbox.
+
+\subsection*{Buses: routing bands into one stack}\label{sec:buses}
+Multi-band tools (\dev{pca}, \dev{tucker\_HOOI\_HOSVD}) take a stack $(n_y,n_x,n)$. A
+\textbf{bus} assembles one from the bands of any datasets on the same grid. It heads a child
+layer's rack (\dev{bus}), and a tool dropped after it analyses the bus's stack. Right-click a
+dataset row $\to$ \emph{Route bands to a new bus\ldots}:
+\begin{itemize}\itemsep2pt
+  \item \textbf{Sends} are picked per band from every loaded dataset; a dataset on another
+        grid is listed greyed out with the reason. A send references the band in its file
+        (the file path and the band's grid id or index); the bus reads the band when it
+        computes, over the window it needs.
+  \item \textbf{Channel order} (drag to reorder) is the band axis the tool receives.
+        \dev{pca} and \dev{tucker\_HOOI\_HOSVD} give the same decomposition in any order, with
+        the per-band loadings in that order; band math and the composite's default channels
+        depend on it.
+  \item \textbf{Same grid}: every send has the bus's shape, pixel step, georeference anchor and
+        CRS. Combining grids of different resolution requires resampling, which the bus does
+        not do.
+  \item \textbf{Windows}: on an ROI the bus reads each band over the ROI's processing window,
+        reflect-padded at the file edges exactly as the dataset itself is.
+  \item \textbf{Returns}: the results of the tool after the bus are ordinary result rows;
+        forking one makes it a dataset of its own.
+  \item \emph{Edit bus sends\ldots} (right-click the bus row) re-opens the routing; a routing
+        already computed is answered from the cache.
+\end{itemize}
+
+\textbf{Live band stacks.} Select two or more layers (shift- or Cmd-click), right-click
+$\to$ \emph{Build band stack from $N$ selected layers}: a bus whose sends are the rasters those
+layers show (a reconstruction, a noised band, an $h$ map), referenced live. Each send carries
+a fingerprint of its layer's chain; editing a referenced layer changes the fingerprint, and
+the stack recomputes when next shown. Referenced layers are computed first when needed, and a
+deleted one is reported by name. The layers share the stack's grid (an ROI result has its own
+grid and is refused). Layer sends and file sends mix in one bus.
+
 %======================================================================
 \section{Field preparation}
 
@@ -186,6 +266,26 @@ zero-gradient flats.
 \bottomrule
 \end{longtable}
 
+\subsection{\dev{band\_select} --- one band of a stack}
+Slices one band out of a multiband field as the working field; grid, frame and CRS are
+unchanged. Band rows start with it and name their band, so removing another band from the
+dataset leaves each row on its own band.
+
+\begin{longtable}{L l l M}
+\toprule Parameter & Default & Range & Meaning \\ \midrule
+\texttt{band} (Band) & 1 & $[1,256]$ & the band, 1-based (a band row selects by name) \\
+\bottomrule
+\end{longtable}
+
+%======================================================================
+\section{Routing}
+
+\subsection{\dev{bus} --- sends into one stack}
+The head of a bus layer's rack (\S\ref{sec:buses}, Buses). It has no knobs: the routing dialog writes
+its send list. Its output is the stack $(n_y,n_x,n)$ in channel order, or one band for one
+send, on the incoming field's grid (the whole dataset, or an ROI's processing window). The
+shell places it; it is not in the device browser.
+
 %======================================================================
 \section{Primary analyzers}
 Each primary analyzer is its own representation of the field. Dropping a
@@ -194,7 +294,8 @@ than mutating the chain; consumers (filters) follow their producer on forks.
 
 \subsection{\dev{wtmm2d} --- canonical WTMM (Arn\'eodo)}
 The canonical multifractal machinery: a continuous wavelet transform over a geometric
-scale grid, modulus \emph{maxima} detected per scale (along-gradient NMS), maxima chained
+scale grid, modulus \emph{maxima} detected per scale (along-gradient non-maxima suppression,
+or xsmurf's \texttt{follow}), maxima chained
 across scales into maxima lines, feeding partition functions
 $\to\tau(q)\to$ Legendre $D(h)$. The maxima are dense by design --- they are the
 statistical support, not a lineament map (use the filters, or the other analyzers, for
@@ -212,24 +313,46 @@ modulus maxima of $\psi$ are the edges of $\theta$-smoothed data.}
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
-\texttt{n\_oct} (Octaves) & 3 & $[1,8]$ & scale range: $a$ spans \texttt{n\_oct} octaves above $a_{\min}$ \\
-\texttt{n\_voice} & 4 & $[1,16]$ & scales per octave (grid density) \\
-\texttt{a\_min} ($a_{\min}$) & 1.0 & $[0.25,16]$ px & finest analyzed scale \\
+\texttt{n\_oct} (Octaves) & 3 & $[1,12]$ & scale range: $a$ spans \texttt{n\_oct} octaves above $a_{\min}$ \\
+\texttt{n\_voice} & 4 & $[1,64]$ & scales per octave (grid density) \\
+\texttt{a\_min} ($a_{\min}$) & 1.0 & $[0.01,64]$ px & finest analyzed scale \\
 \texttt{wavelet} & mexican & mexican / gaussian & CWT kernel (Mexican hat $=$ LoG; gaussian $=$ gradient pair) \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither for quantized rasters \\
-\texttt{fracint\_alpha} ($\eta$) & 1.0 & $[-2,3]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$) \\
-\texttt{min\_chain\_len} & 2 & $[2,64]$ & discard maxima lines spanning fewer scales \\
+\texttt{fracint\_alpha} ($\eta$) & 1.0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$) \\
+\texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
+\texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient (\texttt{follow} always refines) \\
+\texttt{min\_chain\_len} & 2 & $[1,1024]$ & discard maxima lines spanning fewer scales \\
 \texttt{smooth} & on & bool & smooth maxima-line traces \\
 \texttt{thresh} & 0.001 & $[0,1]$ & modulus floor for maxima detection (fraction) \\
-\texttt{dist2\_max} & 50 & $[1,500]$ px$^2$ & max squared jump when chaining maxima across scales \\
-\texttt{box\_ratio} & 1.0 & $[0.1,8]$ & chaining search-box anisotropy \\
+\texttt{dist2\_max} & 50 & $[0,10^6]$ px$^2$ & max squared jump when chaining maxima across scales \\
+\texttt{box\_ratio} & 1.0 & $[0.001,64]$ & chaining search-box anisotropy \\
 \texttt{similitude} & 0.8 & $[0,1]$ & cross-scale similarity acceptance for chaining \\
 \bottomrule
 \end{longtable}
 
+\subsection*{Gradient arrows and anisotropy}\label{sec:arrows}
+The argument $\mathcal{A}=\arg T_\psi$ of each maximum points uphill in the pixel frame:
+$0^\circ$ toward increasing column, $+90^\circ$ toward increasing row (clockwise on screen).
+\textbf{Gradient arrows} (Display section: off / on WTMMM / on all maxima) draw one arrow per
+point at the current scale, half the scale long (at most 12\,px) and scaled by modulus. The
+WTMMM are the maxima of the modulus along each maxima line (xsmurf's \texttt{ssm}).
+
+\textbf{Anisotropy} (Spectrum section) plots the WTMMM statistics of Arn\'eodo, Decoster and
+Roux (2000, \S6): the density $P_a(\mathcal{A})$ at several scales, flat for an isotropic
+field; the WTMMM of one scale in the gradient plane $(T_{\psi_1},T_{\psi_2})$, round for an
+isotropic field; and the density of $\log_2\mathcal{M}$ in four axial sectors of
+$\mathcal{A}$ (mod $180^\circ$, centred on $0^\circ$, $45^\circ$, $90^\circ$, $135^\circ$),
+whose shapes coincide when $\mathcal{M}$ and $\mathcal{A}$ are independent.
+
+\textbf{Frames.} Angles are shown in the pixel frame or, for a georeferenced dataset, as
+azimuths: from grid north for a projected CRS (from the directions its axes run), from true
+north by adding the meridian convergence at each point, and from true north directly on a
+longitude/latitude grid. A dataset without a CRS (a sensor swath, a pixel grid) offers the
+pixel frame only.
+
 \subsection{\dev{wtmm2d\_roi} --- WTMM over one ROI window}
-The parent's WTMM re-pointed at a native-resolution window: same knobs as \dev{wtmm2d}
-(minus the fractional-integration lift) plus the window itself. Used by the overview
+The parent's WTMM re-pointed at a native-resolution window: the knobs of \dev{wtmm2d} plus
+the window itself. Used by the overview
 drill-down: draw an ROI on the decimated whole-extent, compute native.
 
 \begin{longtable}{L l l M}
@@ -284,6 +407,7 @@ fractional differentiators $|\omega|^{\alpha+1}$.}
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither before analysis \\
 \texttt{wavelet} & mz\_spline & mz\_spline / frac\_bspline & the paper's quadratic-spline bank, or the fractional order \\
 \texttt{alpha} ($\alpha$) & 3.0 & $[0.1,8]$ & fractional spline order (binds under frac\_bspline; $3$ = the paper) \\
+\texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient \\
 \bottomrule
 \end{longtable}
 
@@ -755,7 +879,7 @@ chains optionally drawn as ghosts.
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{estimator} & ols & ols / max & per-chain $h$ estimator \\
-\texttt{fit\_a\_min} & 2.0 & $[0.25,16]$ & fit floor: scales below this are excluded from the $h$ fit \\
+\texttt{fit\_a\_min} & 2.0 & $[0.01,64]$ & fit floor: scales below this are excluded from the $h$ fit \\
 \texttt{h\_step\_lo/hi} & $-0.15$ / $0.15$ & $[-3,3]$ & the step-class $h$ window \\
 \texttt{h\_delta\_lo/hi} & $-1.2$ / $-0.8$ & $[-3,3]$ & the delta-class $h$ window \\
 \texttt{straightness\_min} & 0.85 & $[0,1]$ & end-to-end / arc-length straightness gate \\
@@ -816,6 +940,9 @@ wavelet or the sinc function.''
 
 \section*{References}
 \begin{itemize}\itemsep1pt
+  \item A.~Arn\'eodo, N.~Decoster and S.~G.~Roux (2000), A wavelet-based method for
+        multifractal image analysis. I. Methodology and test applications on isotropic and
+        anisotropic random rough surfaces, \emph{Eur.\ Phys.\ J.\ B} 15, 567--600.
   \item E.~P.~Borges, C.~Tsallis, J.~G.~V.~Miranda and R.~F.~S.~Andrade (2004), Mother
         wavelet functions generalized through $q$-exponentials, \emph{J.\ Phys.\ A:
         Math.\ Gen.}\ 37, 9125--9137. doi:10.1088/0305-4470/37/39/006
