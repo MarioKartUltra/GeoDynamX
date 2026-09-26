@@ -156,19 +156,36 @@ def field_lonlat_grid(field, max_points: int = 2_000_000):
     return lon2d, lat2d, values2d, stride
 
 
-def points_lonlat(field, cols, rows):
+def points_lonlat(field, cols, rows, *, sub=None):
     """``(lon, lat)`` float64 arrays for the pixel centers at ``cols``/``rows`` (parallel integer
     arrays, vectorized) -- the same pixel-center source (``field.x_axis``/``field.y_axis``) and
     CRS transform as :func:`field_lonlat_grid`, so picking a pixel out of a decimated grid (or
     off any full-res list of extrema/chain vertices) lands at the identical lon/lat. Raises
     :class:`NoGeoreference` when ``field.provenance`` carries no CRS.
+
+    ``sub``: optional ``(cols_f, rows_f)`` FRACTIONAL pixel positions (a maximum's subpixel
+    refinement) placed linearly along the axes instead of the integer centers.
     """
     crs_text = _require_crs(field)
+    if sub is not None:
+        x = axis_at(field.x_axis, sub[0])
+        y = axis_at(field.y_axis, sub[1])
+        return _to_lonlat(crs_text, x, y)
     cols = np.asarray(cols, dtype=np.intp)
     rows = np.asarray(rows, dtype=np.intp)
     x = field.x_axis[cols]
     y = field.y_axis[rows]
     return _to_lonlat(crs_text, x, y)
+
+
+def axis_at(axis, positions) -> np.ndarray:
+    """Coordinates at FRACTIONAL pixel indices along ``axis`` (linear between pixel centers,
+    extended linearly past the ends -- the regular-axis RasterField contract)."""
+    axis = np.asarray(axis, dtype=np.float64)
+    p = np.asarray(positions, dtype=np.float64)
+    if axis.size < 2:
+        return np.full(p.shape, float(axis[0]) if axis.size else 0.0)
+    return axis[0] + p * ((axis[-1] - axis[0]) / (axis.size - 1))
 
 
 def lonlat_to_pixels(field, lon, lat):

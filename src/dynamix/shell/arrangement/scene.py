@@ -319,8 +319,8 @@ from dynamix.core.hlines import hline_runs
 from dynamix.model.project import REFERENCE_COLORS
 from dynamix.geo.footprints import band_sort_key as _band_sort_key
 from dynamix.geo.footprints import group_key as _footprint_group_key
-from dynamix.geo.mapping import (NoGeoreference, _mask_sentinels, _stride_for, field_lonlat_grid,
-                                 points_lonlat)
+from dynamix.geo.mapping import (NoGeoreference, _mask_sentinels, _stride_for, axis_at,
+                                 field_lonlat_grid, points_lonlat)
 
 #: The scene's own default -- deliberately NOT ``dynamix.core.projection.DEFAULT_MODE`` (which is
 #: "pacific", chosen there for a different reason: the flat equirect split-arc fix out of the box).
@@ -531,6 +531,20 @@ class _VectorMaskState:
     hi_scale_idx: np.ndarray    # int64 (n_chains,) -- see set_mask's docstring
     base_rgba: np.ndarray       # uint8 (n_points, 4), alpha always 255 -- the UNMASKED colors
 
+
+
+def _subpixel_of(layer: dict, idx) -> "tuple | None":
+    """``(x_sub, y_sub)`` of extrema layer ``layer`` at indices ``idx`` -- the subpixel
+    refinement a detector stamped (follow always; nms with Interpolate on) -- with any
+    non-finite entry falling back to its integer pixel; ``None`` when the layer has none."""
+    if not isinstance(layer, dict) or "x_sub" not in layer or "y_sub" not in layer:
+        return None
+    idx = np.asarray(idx)
+    xs = np.asarray(layer["x_sub"], dtype=np.float64)[idx]
+    ys = np.asarray(layer["y_sub"], dtype=np.float64)[idx]
+    xi = np.asarray(layer["x"], dtype=np.float64)[idx]
+    yi = np.asarray(layer["y"], dtype=np.float64)[idx]
+    return (np.where(np.isfinite(xs), xs, xi), np.where(np.isfinite(ys), ys, yi))
 
 class Scene:
     """Owns every actor drawn in the arrangement view's ``plotter`` and the current projection
@@ -2118,7 +2132,7 @@ class Scene:
             return h * _frame_z_scale(getattr(field, "frame", None))
         return h / 1000.0
 
-    def _scene_points(self, field, cols, rows, height=None) -> np.ndarray:
+    def _scene_points(self, field, cols, rows, height=None, sub=None) -> np.ndarray:
         """One placement seam for pixel-index arrays ``cols``/``rows`` (parallel integer arrays --
         the same ``(field, cols, rows)`` shape ``dynamix.geo.mapping.points_lonlat`` takes) ->
         ``(N, 3)`` float64 scene coordinates, GEO or FRAME mode per ``self._frame_mode``. Every vector-actor call site that used to inline
@@ -2155,12 +2169,21 @@ class Scene:
         runs -- so vertical exaggeration composes as an ADDITIONAL stretch on top of the lift in
         BOTH modes, via the exact same code path every other height already uses (see the module
         docstring's "Composition with vertical exaggeration" section for why this is a
-        deliberate divergence from EQSelect's own choice to bypass vexag in scale-space mode)."""
+        deliberate divergence from EQSelect's own choice to bypass vexag in scale-space mode).
+
+        **``sub``:** optional ``(cols_f, rows_f)`` -- a maximum's SUBPIXEL position
+        (``x_sub``/``y_sub``), used to PLACE the point (linear along the axes); every
+        index-based lookup (the surface ride) stays on the integer ``cols``/``rows``. Without
+        it an H-line follows the pixel staircase."""
         if self._frame_mode:
             cols = np.asarray(cols, dtype=np.intp)
             rows = np.asarray(rows, dtype=np.intp)
-            x = np.asarray(field.x_axis, dtype=np.float64)[cols]
-            y = np.asarray(field.y_axis, dtype=np.float64)[rows]
+            if sub is not None:
+                x = axis_at(field.x_axis, sub[0])
+                y = axis_at(field.y_axis, sub[1])
+            else:
+                x = np.asarray(field.x_axis, dtype=np.float64)[cols]
+                y = np.asarray(field.y_axis, dtype=np.float64)[rows]
             z = (np.asarray(height, dtype=np.float64) if height is not None
                  else np.zeros_like(x))
             ride = self._surface_ride(field, cols, rows)     # 3-D surface: sit on it
@@ -2173,7 +2196,7 @@ class Scene:
             # z-lift so a lifted cone rides the same epsilon above the drape as flat chains do.
             pts[:, 2] += self._frame_vector_lift(field)
             return pts
-        lon, lat = points_lonlat(field, cols, rows)
+        lon, lat = points_lonlat(field, cols, rows, sub=sub)
         h = np.asarray(height, dtype=np.float64) if height is not None else np.zeros_like(lon)
         ride = self._surface_ride(field, cols, rows)         # 3-D surface: sit on it (km)
         if ride is not None:
@@ -2222,7 +2245,8 @@ class Scene:
                 return False
             order = np.concatenate(runs)
             run_id = np.repeat(np.arange(len(runs)), [len(r) for r in runs])
-            pts = self._scene_points(field, bx[order], by[order])
+            pts = self._scene_points(field, bx[order], by[order],
+                                     sub=_subpixel_of(base, order))
             vert_pos = by[order] * int(field.nx) + bx[order]
             cached = (key, pts, vert_pos, run_id, order)
             self._hline_base_cache[layer_id] = cached
@@ -2264,7 +2288,8 @@ class Scene:
         dot_pts = []
         iso = np.flatnonzero(lid0 == -1)
         if iso.size:
-            dot_pts.append(self._scene_points(field, ex[iso], ey[iso]))
+            dot_pts.append(self._scene_points(field, ex[iso], ey[iso],
+                                              sub=_subpixel_of(ext0, iso)))
         if lonely.any():
             dot_pts.append(pts[lonely])
         if dot_pts:
@@ -2340,7 +2365,8 @@ class Scene:
                     on_line[run[run < k]] = True
                 dot_idx = np.flatnonzero(~on_line) if not built else np.array([], dtype=np.int64)
                 if dot_idx.size:
-                    pts = self._scene_points(field, ex[dot_idx], ey[dot_idx])
+                    pts = self._scene_points(field, ex[dot_idx], ey[dot_idx],
+                                             sub=_subpixel_of(ext0, dot_idx))
                     name = self._extrema_actor_name(layer_id)
                     self._plotter.add_mesh(pv.PolyData(pts), color=EXTREMA_COLOR, style="points",
                                             point_size=4.0, name=name, reset_camera=False)
@@ -2351,7 +2377,8 @@ class Scene:
                         cells.extend([len(run), *range(offset, offset + len(run))])
                         offset += len(run)
                     order = np.concatenate(runs)
-                    hpts = self._scene_points(field, ex[order], ey[order])
+                    hpts = self._scene_points(field, ex[order], ey[order],
+                                              sub=_subpixel_of(ext0, order))
                     hname = self._hlines_actor_name(layer_id)
                     self._plotter.add_mesh(pv.PolyData(hpts, lines=np.array(cells, dtype=np.int64)),
                                            color=HLINE_COLOR, line_width=1.5, name=hname,
