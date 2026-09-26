@@ -405,6 +405,16 @@ class Project:
         self.reference_layers.append(rec)
         return rec
 
+    def remove_reference_layer(self, ref_id: str) -> bool:
+        """Unregister a reference layer. The FILE is never touched: the record is only where
+        the layer is and how it shows, so removing it just forgets the layer -- re-opening the
+        file brings it back."""
+        for i, r in enumerate(self.reference_layers):
+            if r.ref_id == ref_id:
+                del self.reference_layers[i]
+                return True
+        return False
+
     def add_annotation(self, text: str, *, point: tuple[float, float] | None = None,
                        target: ObjRef | None = None) -> AnnotationRecord:
         """Pin a note to a point, to an object, or to both, and return it.

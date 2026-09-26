@@ -205,3 +205,90 @@ def test_toggling_an_unselected_row_affects_only_it(qtbot):
     panel.item(2).setCheckState(QtCore.Qt.Unchecked)     # NOT part of the selection
     assert emitted == {"r2": False}
     assert panel.item(0).checkState() == QtCore.Qt.Checked
+
+
+def test_opening_a_small_raster_frames_it_not_the_reference_vectors(loaded, qtbot, tmp_path):
+    """A far-flung reference layer must not drive the camera when a new raster opens: the
+    view frames the dataset; vectors merely overlay it. (Seen as: forking a small
+    derivative zoomed all the way out to a basin-wide shapefile's extent.)"""
+    from rasterio.crs import CRS
+
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    far = tmp_path / "far_ring"
+    ring = [(900.0, 900.0), (1500.0, 900.0), (1500.0, 1500.0), (900.0, 900.0)]
+    _write_shapefile(far, 15, [[ring]], [("NAME", "C", 8, 0)], [("x",)],
+                     CRS.from_epsg(32750).to_wkt())
+    loaded._open_reference_layers([str(far.with_suffix(".shp"))])
+    small = RasterField(name="fork", values=np.zeros((16, 20)), frame=LocalFrame(),
+                        x_axis=np.arange(20.0), y_axis=np.arange(16.0))
+    with qtbot.waitSignal(loaded.resolved, timeout=10000):
+        loaded.load_field(small, "mem:small")
+    (x0, x1), (y0, y1) = loaded.canvas.view.viewRange()
+    assert x1 - x0 < 60.0 and y1 - y0 < 60.0        # framed to the 20 x 16 raster, not the ring
+    assert x0 <= 0.0 <= x1 and x1 >= 19.0            # and the raster is inside the frame
+
+
+def test_context_menu_remove_emits_for_every_selected_row(qtbot, monkeypatch):
+    from dynamix.model.project import ReferenceLayerRecord
+    from dynamix.shell.layer_panel import ReferencePanel
+
+    panel = ReferencePanel(); qtbot.addWidget(panel)
+    panel.set_records([ReferenceLayerRecord("ref0", "/a.shp"),
+                       ReferenceLayerRecord("ref1", "/b.shp"),
+                       ReferenceLayerRecord("ref2", "/c.shp")])
+    got = []
+    panel.removeRequested.connect(got.append)
+    panel.item(0).setSelected(True)
+    panel.item(1).setSelected(True)
+    monkeypatch.setattr(ReferencePanel, "_exec_menu",
+                        lambda self, menu, pos: menu.actions()[0])
+    panel._on_context_menu(panel.visualItemRect(panel.item(0)).center())
+    assert got == ["ref0", "ref1"]                    # the selection, not the third row
+    got.clear()
+    panel._on_context_menu(panel.visualItemRect(panel.item(2)).center())
+    assert got == ["ref2"]                            # an unselected row removes only itself
+
+
+def test_removing_a_reference_layer_unloads_it_but_keeps_the_file(loaded, tmp_path):
+    shp = _shp(tmp_path)
+    loaded._open_reference_layers([str(shp)])
+    ref_id = loaded.project.reference_layers[0].ref_id
+    loaded._on_reference_remove(ref_id)
+    assert loaded.project.reference_layers == []
+    assert ref_id not in loaded._reference_layers
+    assert ref_id not in loaded.canvas.reference_items
+    assert ref_id not in loaded._reference_pixels and ref_id not in loaded._reference_inside
+    assert loaded.reference_panel.count() == 0
+    assert shp.exists()                               # never touch the file
+    assert "untouched" in loaded.statusBar().currentMessage()
+
+
+def test_layer_switches_reuse_the_reference_pixel_warp(loaded, qtbot, tmp_path, monkeypatch):
+    """Selecting a layer must not re-warp reference vectors for a georeference already
+    seen: over a big shapefile that warp is a visible pause on every click."""
+    import dynamix.shell.main_window as mw
+
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    loaded._open_reference_layers([str(_shp(tmp_path))])     # warps for the loaded grid
+    calls = []
+    real = mw.to_field_pixels
+
+    def counting(layer, field):
+        calls.append(1)
+        return real(layer, field)
+
+    monkeypatch.setattr(mw, "to_field_pixels", counting)
+    other = RasterField(name="other", values=np.zeros((8, 9)), frame=LocalFrame(),
+                        x_axis=np.arange(9.0) + 100.0, y_axis=np.arange(8.0) + 100.0)
+    with qtbot.waitSignal(loaded.resolved, timeout=10000):
+        loaded.load_field(other, "mem:other")                # a NEW grid: warps once
+    assert len(calls) == 1
+    a, b = loaded.project.layers[0], loaded.layer
+    loaded.layer_list.select_layer(a.layer_id)               # back to the first grid: cached
+    loaded.layer_list.select_layer(b.layer_id)               # and the new grid again: cached
+    loaded.layer_list.select_layer(a.layer_id)
+    assert len(calls) == 1

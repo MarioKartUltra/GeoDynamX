@@ -480,3 +480,14 @@ def test_a_saved_project_leaves_temporary_datasets_out(_registry):
     assert [r["source_id"] for r in payload["rois"]] == [keep.source_id]
     assert temp.source_id in p.sources and len(p.layers) == 3      # the live project is intact
     assert p.temporary_sources() == [temp]
+
+
+def test_remove_reference_layer_forgets_the_record_and_round_trips(_registry):
+    p = Project()
+    p.add_reference_layer("/data/anomaly_slumps.shp")
+    keep = p.add_reference_layer("/data/seep_positives.shp")
+    assert p.remove_reference_layer("ref0") is True
+    assert [x.ref_id for x in p.reference_layers] == ["ref1"]
+    assert p.remove_reference_layer("ref0") is False               # already gone: says so
+    q = Project.from_payload(p.to_payload())
+    assert [x.path for x in q.reference_layers] == [keep.path]

@@ -668,6 +668,25 @@ def _common_prefix(names: list[str]) -> str:
     return first[:i]
 
 
+def _georef_signature(field) -> tuple:
+    """Everything ``to_field_pixels`` and the inside-count read off a field -- its axes' ends
+    and lengths, a picture's file grid, the CRS, the native shape -- as a hashable key: two
+    fields sharing it map a reference layer to identical pixels, so the warp can be reused."""
+    if field is None:
+        return ("none",)
+    x = getattr(field, "x_axis", None)
+    y = getattr(field, "y_axis", None)
+    shape = tuple(np.asarray(getattr(field, "values", field)).shape[:2])
+    if x is None or y is None:
+        return ("bare", shape)
+    from dynamix.roi.picture import file_pixel_grid
+
+    grid = file_pixel_grid(field)
+    crs = str((getattr(field, "provenance", {}) or {}).get("crs"))
+    return (crs, shape, len(x), float(x[0]), float(x[-1]), len(y), float(y[0]), float(y[-1]),
+            None if grid is None else tuple(grid))
+
+
 def _expand_reference_paths(paths) -> list:
     """Vector files to open as reference layers. A ``.shp`` is itself; an Esri ``.lyr`` is the
     binary, unreadable half of a layer PACKAGE whose data is every shapefile under the sibling
@@ -1004,6 +1023,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.reference_panel = ReferencePanel()
         self.reference_panel.visibilityToggled.connect(self._on_reference_visibility)
         self.reference_panel.zoomRequested.connect(self._on_reference_zoom)
+        self.reference_panel.removeRequested.connect(self._on_reference_remove)
         self.reference_panel.setVisible(False)
         self._left_split.addWidget(self.reference_panel)
         self.roi_panel = RoiPanel()
@@ -1058,6 +1078,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reference_layers: dict = {}   # ref_id -> geo.vectors.VectorLayer (native CRS)
         self._reference_inside: dict = {}   # ref_id -> (features inside this raster, total)
         self._reference_pixels: dict = {}   # ref_id -> [parts...] in the field's pixel frame
+        # The warp caches: layer geometry is immutable once read, so each (layer, grid) pixel
+        # warp and each layer's lon/lat / per-CRS form are computed once, not on every layer
+        # switch (over a basin-wide shapefile that recompute is a visible pause per click).
+        self._reference_pixel_cache: dict = {}   # (ref_id, georef sig) -> ([parts...], inside)
+        self._reference_world_cache: dict = {}   # ref_id -> {"lonlat": [...], "native": {crs: [...]}}
         # The View dialog -- built lazily, the first time
         # ``ArrangementView.viewOptionsRequested`` fires (``_toggle_center_view``'s own first-build
         # branch wires that signal; it cannot be wired any earlier, since the button it comes from
@@ -1544,6 +1569,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._notify(f"Could not open {Path(path).name}: {exc}", "status")
                 continue
             rec = self.project.add_reference_layer(str(Path(path).resolve()), name=layer.name)
+            self._drop_reference_caches(rec.ref_id)   # a re-open re-reads the file: fresh warps
             self._reference_layers[rec.ref_id] = layer
             opened += 1
         self.reference_panel.set_records(self.project.reference_layers)
@@ -1568,6 +1594,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reference_layers = {}
         self._reference_inside = {}
         self._reference_pixels = {}
+        self._reference_pixel_cache = {}
+        self._reference_world_cache = {}
         missing = []
         for rec in self.project.reference_layers:
             try:
@@ -1601,32 +1629,63 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._arrangement is not None:
             self._arrangement.set_reference_visible(ref_id, visible)
 
+    def _on_reference_remove(self, ref_id: str) -> None:
+        """Unload a reference layer everywhere (panel, canvas, world). The FILE is never
+        touched -- removing forgets the layer, and re-opening the file brings it back."""
+        layer = self._reference_layers.pop(ref_id, None)
+        removed = self.project.remove_reference_layer(ref_id)
+        if layer is None and not removed:
+            return
+        self._reference_pixels.pop(ref_id, None)
+        self._reference_inside.pop(ref_id, None)
+        self._drop_reference_caches(ref_id)
+        self.reference_panel.set_records(self.project.reference_layers)
+        self._push_reference_layers()
+        name = layer.name if layer is not None else ref_id
+        self._notify(f"{name}: removed — the file on disk is untouched", "status")
+
+    def _drop_reference_caches(self, ref_id: str) -> None:
+        """Forget every cached warp of one reference layer (its geometry was re-read or the
+        layer removed). The pixel cache is keyed (ref_id, grid), so this sweeps its keys."""
+        self._reference_world_cache.pop(ref_id, None)
+        for key in [k for k in self._reference_pixel_cache if k[0] == ref_id]:
+            del self._reference_pixel_cache[key]
+
     def _push_reference_layers(self) -> None:
         """Canvas: layers in the current field's pixel frame; world: lon/lat (+ the field's CRS
-        for the Vector view). Called on open and whenever the field changes."""
+        for the Vector view). Called on open and whenever the field changes. Each (layer, grid)
+        warp lands in ``_reference_pixel_cache`` and is reused on later switches to any field
+        with the same georeference -- the geometry is immutable, so only the grid can change."""
         records = {r.ref_id: r for r in self.project.reference_layers}
         canvas_entries = []
         if self.field is not None:
+            sig = _georef_signature(self.field)
             for ref_id, layer in self._reference_layers.items():
                 rec = records.get(ref_id)
                 if rec is None:
                     continue
-                try:
-                    px = to_field_pixels(layer, self.field)
-                except Exception as exc:                 # a CRS rasterio cannot transform: say so
-                    self._notify(f"{layer.name}: cannot place on this raster ({exc})", "status")
-                    continue
+                cached = self._reference_pixel_cache.get((ref_id, sig))
+                if cached is None:
+                    try:
+                        px = to_field_pixels(layer, self.field)
+                    except Exception as exc:             # a CRS rasterio cannot transform: say so
+                        self._notify(f"{layer.name}: cannot place on this raster ({exc})",
+                                     "status")
+                        continue
+                    parts = [f.parts for f in px.features]
+                    # How much of the layer this raster can show at all (2026-08-29: "it doesn't
+                    # actually show" -- a 12 km window holds 3 of BOEM's 20 980 seep polygons).
+                    ny, nx = native_shape(self.field)  # FILE pixels (a picture's own extent)
+                    n_in = sum(1 for f in px.features if any(
+                        np.any((pt[:, 0] >= -0.5) & (pt[:, 0] <= nx - 0.5) & (pt[:, 1] >= -0.5) & (pt[:, 1] <= ny - 0.5))
+                        for pt in f.parts if len(pt)))
+                    cached = (parts, (n_in, len(px.features)))
+                    self._reference_pixel_cache[(ref_id, sig)] = cached
                 canvas_entries.append({"ref_id": ref_id, "name": layer.name, "kind": layer.kind,
                                        "color": rec.color, "visible": rec.visible,
-                                       "features": [f.parts for f in px.features]})
-                # How much of the layer this raster can show at all (2026-08-29: "it doesn't
-                # actually show" -- a 12 km window holds 3 of BOEM's 20 980 seep polygons).
-                ny, nx = native_shape(self.field)      # FILE pixels (a picture's own extent)
-                n_in = sum(1 for f in px.features if any(
-                    np.any((pt[:, 0] >= -0.5) & (pt[:, 0] <= nx - 0.5) & (pt[:, 1] >= -0.5) & (pt[:, 1] <= ny - 0.5))
-                    for pt in f.parts if len(pt)))
-                self._reference_inside[ref_id] = (n_in, len(px.features))
-                self._reference_pixels[ref_id] = [f.parts for f in px.features]
+                                       "features": cached[0]})
+                self._reference_inside[ref_id] = cached[1]
+                self._reference_pixels[ref_id] = cached[0]
         self.canvas.set_reference_layers(canvas_entries)
         if self._arrangement is not None:
             self._arrangement.set_reference_layers(self._scene_reference_entries())
@@ -1639,18 +1698,29 @@ class MainWindow(QtWidgets.QMainWindow):
             rec = records.get(ref_id)
             if rec is None:
                 continue
-            try:
-                lonlat = [f.parts for f in to_lonlat(layer).features]
-            except Exception:
-                lonlat = []
+            # Cached like the pixel warp above: lon/lat depends only on the layer, the native
+            # form only on (layer, CRS); a failure caches as its empty/None result -- it would
+            # fail identically on every push.
+            world = self._reference_world_cache.get(ref_id)
+            if world is None:
+                try:
+                    lonlat = [f.parts for f in to_lonlat(layer).features]
+                except Exception:
+                    lonlat = []
+                world = {"lonlat": lonlat, "native": {}}
+                self._reference_world_cache[ref_id] = world
             native = None
             if field_crs:
-                try:
-                    native = [f.parts for f in to_crs(layer, str(field_crs)).features]
-                except Exception:
-                    native = None
+                key = str(field_crs)
+                if key not in world["native"]:
+                    try:
+                        world["native"][key] = [f.parts
+                                                for f in to_crs(layer, key).features]
+                    except Exception:
+                        world["native"][key] = None
+                native = world["native"][key]
             entries.append({"ref_id": ref_id, "name": layer.name, "kind": layer.kind, "color": rec.color,
-                            "visible": rec.visible, "lonlat": lonlat, "native": native,
+                            "visible": rec.visible, "lonlat": world["lonlat"], "native": native,
                             "pixels": self._reference_pixels.get(ref_id)})
         return entries
 
@@ -1886,7 +1956,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._apply_raster_visibility()
         self._displayed_layer_name = self.layer.name
         self._holder_raster_ref = None       # raw field is up -- holder display re-syncs on land
-        self.canvas.view.autoRange()
+        # Frame the RASTER, not every item: reference vectors can span far beyond a small
+        # raster (a derivative fork against a basin-wide shapefile), and a bare autoRange()
+        # fits them all -- opening would zoom to the vectors instead of the dataset.
+        self.canvas.view.autoRange(items=[self.canvas.image_item])
         self._update_scale_bar()
         if auto_run:
             self._start_worker()

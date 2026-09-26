@@ -913,10 +913,12 @@ class ReferencePanel(QtWidgets.QListWidget):
     """The reference layers (GIS vector files drawn OVER the data, 2026-08-29): one checkable
     row per layer with its colour square. Sits under the layer list; a checkbox toggles
     visibility everywhere (canvas + world). Lives in this module so devloop's reload registry
-    needs no new entry. ``visibilityToggled(ref_id, visible)`` is the only outward wire."""
+    needs no new entry. Outward wires: ``visibilityToggled(ref_id, visible)``,
+    ``zoomRequested(ref_id)`` and ``removeRequested(ref_id)``."""
 
     visibilityToggled = QtCore.Signal(str, bool)
     zoomRequested = QtCore.Signal(str)        # double-click: fit the view to this layer's extent
+    removeRequested = QtCore.Signal(str)      # context menu: unload the layer (file untouched)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -926,11 +928,34 @@ class ReferencePanel(QtWidgets.QListWidget):
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self._propagating = False
         self.setToolTip("Reference layers — interpretation drawn over the data; tick to show, "
-                        "double-click to zoom. Shift/⌘-click to select several, then tick one "
-                        "to toggle them all")
+                        "double-click to zoom, right-click to remove. Shift/⌘-click to select "
+                        "several, then tick one to toggle them all")
         self.itemChanged.connect(self._on_item_changed)
         self.itemDoubleClicked.connect(
             lambda item: self.zoomRequested.emit(str(item.data(QtCore.Qt.UserRole))))
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._on_context_menu)
+
+    def _on_context_menu(self, pos) -> None:
+        """Remove the row under the cursor -- or, when it is part of a multi-selection, every
+        selected row (the same propagation rule as the visibility checkbox). Removing only
+        unloads: the file stays on disk, and the menu label says so."""
+        item = self.itemAt(pos)
+        if item is None:
+            return
+        selected = self.selectedItems()
+        rows = selected if item in selected and len(selected) > 1 else [item]
+        menu = QtWidgets.QMenu(self)
+        label = ("Remove layer" if len(rows) == 1 else f"Remove {len(rows)} layers")
+        action = menu.addAction(f"{label} (file kept on disk)")
+        if self._exec_menu(menu, self.mapToGlobal(pos)) is action:
+            for row in rows:
+                self.removeRequested.emit(str(row.data(QtCore.Qt.UserRole)))
+
+    def _exec_menu(self, menu, global_pos):
+        """The one popup call, separated so an offscreen test can choose an action without a
+        real menu event loop (which never returns when nobody can click)."""
+        return menu.exec(global_pos)
 
     def set_records(self, records) -> None:
         """Mirror the project's ReferenceLayerRecords (non-emitting)."""
