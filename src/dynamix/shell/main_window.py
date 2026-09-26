@@ -1281,6 +1281,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_panel_relevance()
 
         # The grouping aids of a decomposition (ssa2d / tucker): thumbnails, shares and
         # w-correlations in a floating window; picking thumbnails sets the tool's Group knob.
@@ -1300,6 +1301,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._transect_panel.selectionChanged.connect(self._on_transect_selection_changed)
         self._transect_panel.plotRequested.connect(self._on_transect_plot_requested)
         self.right_panel.add_section("Transect", self._transect_panel)
+        self._refresh_panel_relevance()
         self.canvas.transectDrawn.connect(self._on_canvas_transect_drawn)
 
         self._work_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
@@ -2046,6 +2048,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.view.autoRange(items=[self.canvas.image_item])
         self._update_scale_bar()
         self._sync_composite_panel()
+        self._refresh_panel_relevance()
         if auto_run:
             self._start_worker()
         if not self._center_view_restored:
@@ -2222,6 +2225,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # docstring.
         self._apply_display_style(_display_style_of(self.layer),
                                   points_only=self._is_point_layer(self.layer))
+        self._refresh_panel_relevance()
         # The arrangement scene reads THREE of the new keys (colormap for a layer's own
         # drape, color_vtrail as `_chain_color`'s fallback, color_points for a point layer's own
         # drape -- see `_sync_arrangement`'s entries); color_hchain/color_extrema/show_trails are
@@ -2529,6 +2533,7 @@ off / z from this layer's own values / z from another loaded
         # -- see ``_apply_display_style``'s own docstring.
         self._apply_display_style(style, points_only=self._is_point_layer(layer))
         self._sync_composite_panel()
+        self._refresh_panel_relevance()
 
     def _default_composite(self, nc: int) -> dict:
         return {"r": 0 if nc >= 1 else None, "g": 1 if nc >= 2 else None,
@@ -2950,6 +2955,53 @@ both ``Canvas`` signals report the
         window.activateWindow()
 
     # -- singularity-spectrum construction window (2026-09-20) ----------------------------------
+    def _refresh_panel_relevance(self) -> None:
+        """Show only the right-panel controls that apply to what is on screen -- keyed on what
+        the active RESULT carries (maxima, chains, an h-map, partition tables, a decomposition),
+        never on tool names, so every tool (wtmm2d, M-Z / CDF edges, Perona-Malik diffusion,
+        the Hölder tools) gets exactly its controls. Hidden, not greyed: nothing takes space
+        it does not use."""
+        if not hasattr(self, "_anisotropy_button") or not hasattr(self, "_transect_panel"):
+            return                                          # the panel is still being built
+        res = self._active_result if isinstance(self._active_result, dict) else {}
+        points = self.layer is not None and self._is_point_layer(self.layer)
+        shown = getattr(self.canvas, "_field", None)
+        ndim = np.ndim(getattr(shown, "values", ())) if shown is not None else 0
+        raster = not points and ndim in (2, 3)
+        single, stack = raster and ndim == 2, raster and ndim == 3
+        ext = [e for e in (res.get("extrema") or []) if isinstance(e, dict)]
+        has_ext = any(len(e.get("x", ())) for e in ext)
+        has_lines = has_ext and any(np.any(np.asarray(e.get("line_id", ())) >= 0) for e in ext)
+        has_chains = bool(res.get("chains"))
+        overlays = has_ext or has_chains or points
+        style = _display_style_of(self.layer)
+        shade = single and style["hillshade"]
+        arrangement = getattr(self, "_center_view", "raster") != "raster"
+        tables = res.get("hd_std") is not None and res.get("hd_cmax") is not None
+        self.right_panel.apply_relevance({
+            "knob:opacity": overlays,
+            "knob:point_size": has_ext or points,
+            "knob:line_width": has_lines or has_chains,
+            "knob:sun_azimuth": shade, "knob:sun_altitude": shade,
+            "knob:z_factor": shade or (single and style["surface"]),
+            "colormap": single, "stretch": single,
+            "reconstruct": res.get("h_map") is not None,
+            "swatches": has_ext or has_chains,
+            "swatch:color_hchain": has_lines, "swatch:color_vtrail": has_chains,
+            "swatch:color_extrema": has_ext,
+            "trails": has_chains,
+            "arrows": has_ext and "arg" in ext[0],
+            "hillshade": single, "surface": single,
+            "depth": single and style["surface"],
+            "Display mask — hides, never removes": arrangement,
+            "Groups": arrangement and has_chains,
+            "Topology": has_chains or bool(self._topology_rows_shown),
+            "Skeleton": has_chains,
+            "Spectrum": tables or res.get("h_map") is not None or has_ext,
+            "Decomposition": self._decomposition_of(res) is not None,
+            "Transect": raster,
+        })
+
     def _refresh_anisotropy(self) -> None:
         """Enable the Anisotropy button for a result with per-scale maxima, and feed an OPEN
         window the active result (with its ROI offset, for bearings)."""
@@ -3588,6 +3640,7 @@ both ``Canvas`` signals report the
         self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
         self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
         self._sync_composite_panel(result)
+        self._refresh_panel_relevance()
         tail = self._names[-1] if self._names else ""
         if self._names == ["bus"]:
             self._notify("bus: drop pca, tucker or another multi-band tool after it to "
@@ -3933,6 +3986,7 @@ both ``Canvas`` signals report the
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_panel_relevance()
         self._refresh_components_button()
 
     def _on_auto_run_toggled(self, checked: bool) -> None:
@@ -4513,6 +4567,7 @@ both ``Canvas`` signals report the
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_panel_relevance()
         self._refresh_components_button()
         self._set_recipe([], [])
         self._build_strips()
@@ -6024,6 +6079,7 @@ both ``Canvas`` signals report the
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_panel_relevance()
         self._refresh_components_button()
         self._sync_holder_raster(result)
         # A landing while the Vector/Globe tab is up must reach the scene (forked wtmm computed with the Vector tab showing -- extrema absent until a manual
@@ -7130,6 +7186,7 @@ both ``Canvas`` signals report the
         if view == self._center_view:
             return
         self._center_view = view
+        self._refresh_panel_relevance()
         update_settings(center_view=view)
         if view == "raster":
             if self._arrangement is not None:

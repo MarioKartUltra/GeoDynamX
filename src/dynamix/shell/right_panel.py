@@ -164,11 +164,15 @@ class RightPanel(QtWidgets.QScrollArea):
         #: (``main_window.py``'s ``__init__``: ``self._display_controls =
         #: self.right_panel._display_controls``).
         self._display_controls: dict[str, QtWidgets.QWidget] = {}
+        #: What the window may show or hide by relevance: section frames by TITLE, Display
+        #: rows by key -- see :meth:`apply_relevance`.
+        self._sections: dict = {}
+        self._relevant_items: dict = {}
         self._build_display_section(display_params)
 
     # -- sections ----------------------------------------------------------------------------
     def add_section(self, title: str, widget: QtWidgets.QWidget, *, view_scoped: bool = False
-                    ) -> None:
+                    ) -> QtWidgets.QFrame:
         """Append a titled section holding ``widget``.
 
         ``view_scoped`` only ever adds a divider line above the section, visually setting it apart
@@ -195,6 +199,18 @@ class RightPanel(QtWidgets.QScrollArea):
         layout.addWidget(widget)
         self._protect_from_wheel(frame)
         self._column.insertWidget(self._column.count() - 1, frame)   # before the trailing stretch
+        self._sections[title] = frame
+        return frame
+
+    def apply_relevance(self, relevance: dict) -> None:
+        """Show only what applies: ``relevance`` maps a section TITLE or a Display-row key
+        (``knob:<param>``, ``colormap``, ``stretch``, ``reconstruct``, ``swatches``,
+        ``swatch:<key>``, ``trails``, ``arrows``, ``hillshade``, ``surface``, ``depth``) to
+        visible. Names it does not mention keep their current state."""
+        for key, visible in relevance.items():
+            widget = self._sections.get(key) or self._relevant_items.get(key)
+            if widget is not None:
+                widget.setVisible(bool(visible))
 
     def _protect_from_wheel(self, widget: QtWidgets.QWidget) -> None:
         """Install the wheel filter on ``widget`` and every current descendant -- a section built
@@ -227,7 +243,10 @@ class RightPanel(QtWidgets.QScrollArea):
         row_layout = QtWidgets.QHBoxLayout(row)
         row_layout.setContentsMargins(0, 0, 0, 0)
         for p in display_params:
-            knob_column = QtWidgets.QVBoxLayout()
+            knob_widget = QtWidgets.QWidget()
+            knob_column = QtWidgets.QVBoxLayout(knob_widget)
+            knob_column.setContentsMargins(0, 0, 0, 0)
+            self._relevant_items[f"knob:{p.name}"] = knob_widget
             mini = QtWidgets.QLabel(p.label or p.name)
             mini.setProperty("muted", "true")
             knob_column.addWidget(mini)
@@ -236,16 +255,22 @@ class RightPanel(QtWidgets.QScrollArea):
                 lambda value, name=p.name: self.styleChanged.emit(name, value))
             knob_column.addWidget(control)
             self._display_controls[p.name] = control
-            row_layout.addLayout(knob_column)
+            row_layout.addWidget(knob_widget)
         column.addWidget(row)
 
-        column.addWidget(self._build_cmap_row())
-        column.addWidget(self._build_stretch_row())
-        column.addWidget(self._build_swatch_row())
+        for key, widget in (("colormap", self._build_cmap_row()),
+                            ("stretch", self._build_stretch_row()),
+                            ("swatches", self._build_swatch_row())):
+            self._relevant_items[key] = widget
+            column.addWidget(widget)
+        self._relevant_items["reconstruct"] = self.band_button
+        for key, button in self._swatch_buttons.items():
+            self._relevant_items[f"swatch:{key}"] = button
         self.trails_check = QtWidgets.QCheckBox("Show V-trails")
         self.trails_check.toggled.connect(
             lambda checked: self.styleChanged.emit("show_trails", checked))
         column.addWidget(self.trails_check)
+        self._relevant_items["trails"] = self.trails_check
         # Gradient arrows along each maximum's argument, at the current scale.
         arrows_row = QtWidgets.QWidget()
         arrows_lay = QtWidgets.QHBoxLayout(arrows_row)
@@ -258,12 +283,14 @@ class RightPanel(QtWidgets.QScrollArea):
             lambda _i: self.styleChanged.emit("arrows", self.arrows_combo.currentData()))
         arrows_lay.addWidget(self.arrows_combo, 1)
         column.addWidget(arrows_row)
+        self._relevant_items["arrows"] = arrows_row
         # Hillshade (2026-08-29): the raster shaded by the Sun az / Sun alt / Vert. exag. knobs
         # above, on the canvas and on the drape. Same styleChanged path as everything here.
         self.hillshade_check = QtWidgets.QCheckBox("Hillshade")
         self.hillshade_check.toggled.connect(
             lambda checked: self.styleChanged.emit("hillshade", checked))
         column.addWidget(self.hillshade_check)
+        self._relevant_items["hillshade"] = self.hillshade_check
         # 3-D surface (2026-08-29; 2026-09-16 user redesign): in the Vector/Globe views the
         # raster stands up with z = a chosen HEIGHT SOURCE -- this layer's own values, or
         # another loaded raster's (the drape case: an h(x) layer standing on a DEM). The whole
@@ -273,10 +300,12 @@ class RightPanel(QtWidgets.QScrollArea):
         self.surface_button = QtWidgets.QPushButton("3-D surface…")
         self.surface_button.clicked.connect(self.surfaceDialogRequested.emit)
         column.addWidget(self.surface_button)
+        self._relevant_items["surface"] = self.surface_button
         self.depth_check = QtWidgets.QCheckBox("Depth positive (flip sign)")
         self.depth_check.toggled.connect(
             lambda checked: self.styleChanged.emit("depth_positive", checked))
         column.addWidget(self.depth_check)
+        self._relevant_items["depth"] = self.depth_check
 
         self.add_section("Display", container)
 
