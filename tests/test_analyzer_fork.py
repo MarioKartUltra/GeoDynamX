@@ -32,7 +32,7 @@ def test_preset_replacing_the_analyzer_forks_the_whole_preset():
 
 def test_multiset_diff_ships_a_reincluded_duplicate():
     """A preset re-including a device the parent also holds must still fork a copy -- the
-    name-subtraction hole (2026-09-17)."""
+    name-subtraction hole."""
     sibling, _ = _analyzer_fork(["holder_map", "scale_select"], [False, False],
                                 _d("holder_map", "scale_select", "wtmm2d", "scale_select"))
     assert _devices(sibling) == ["wtmm2d", "scale_select"]
@@ -80,7 +80,7 @@ def test_mz_edges_onto_wtmm_forks_the_extrema_rep():
 
 
 def test_master_root_never_takes_an_analyzer_directly():
-    """Root protection (2026-09-18): a primary dropped on a RAW master forks a child; the
+    """Root protection: a primary dropped on a RAW master forks a child; the
     master's own recipe stays empty. Non-root raw layers keep the ordinary edit."""
     sibling, shipped = _analyzer_fork([], [], _d("holder_map"), root=True)
     assert _devices(sibling) == ["holder_map"] and shipped == []
@@ -98,7 +98,7 @@ def test_master_keeps_filters_and_noise_without_forking():
 
 
 def test_split_holder_tools_are_primary_analyzers():
-    """2026-09-19 split: each method is its own representation -- dropping the OTHER method
+    """Split holder tools: each method is its own representation -- dropping the OTHER method
     (or the conflated predecessor's sibling) forks a sibling layer, exactly as wtmm2d does."""
     sibling, shipped = _analyzer_fork(["holder_multiaffine"], [False],
                                       _d("holder_multiaffine", "holder_measure"))
@@ -109,9 +109,9 @@ def test_split_holder_tools_are_primary_analyzers():
 
 
 def test_band_dialog_commit_picks_the_variant_of_the_recipes_producer():
-    """The 2026-09-19 source split: a Band-dialog commit creates the band_recon VARIANT whose
-    engine params are the recipe's h-map producer's verbatim; the conflated holder_map keeps
-    the conflated band_recon (the old path, byte-compatible for saved projects)."""
+    """A Band-dialog commit creates the band_recon VARIANT whose engine params are the
+    recipe's h-map producer's verbatim; the conflated holder_map keeps the conflated
+    band_recon (byte-compatible for saved projects)."""
     from dynamix.shell.main_window import _band_device_for, _band_step_for
 
     assert _band_device_for(["holder_measure"]) == "band_recon_measure"
@@ -134,11 +134,10 @@ def test_wavelet_skeleton_is_a_primary_analyzer():
 
 
 def test_wavelet_skeleton_is_a_chain_producer_for_the_shipping_law():
-    """Adversarial review (2026-09-19): the skeleton emits the extrema schema the chain
-    consumers read, so it belongs in _CHAIN_PRODUCERS -- otherwise a fork STRIPS live,
-    tuned filters off a skeleton layer (measured before the fix: shipped=[1,2] where the
-    identical wtmm2d-parent fork ships nothing), and stranded consumers never ship TO a
-    skeleton sibling."""
+    """The skeleton emits the extrema schema the chain consumers read, so it belongs in
+    _CHAIN_PRODUCERS -- otherwise a fork STRIPS live, tuned filters off a skeleton layer
+    (shipped=[1,2] where the identical wtmm2d-parent fork ships nothing), and stranded
+    consumers never ship TO a skeleton sibling."""
     sibling, shipped = _analyzer_fork(
         ["wavelet_skeleton", "scale_select", "orientation_wedge"], [False] * 3,
         _d("wavelet_skeleton", "scale_select", "orientation_wedge", "mz_edges"))
@@ -159,7 +158,7 @@ def test_cdf_edges_is_a_primary_analyzer_and_chain_producer():
 
 
 def test_pm_edges_is_a_primary_analyzer_and_chain_producer():
-    """Perona-Malik proper (2026-09-21) is the fifth peer analyzer: dropping it on an
+    """Perona-Malik proper is the fifth peer analyzer: dropping it on an
     analyzed layer forks a sibling, and its extrema pyramid feeds the same chain
     consumers, so its consumers must stay put on a fork exactly as cdf_edges' do."""
     sibling, shipped = _analyzer_fork(["wtmm2d"], [False], _d("wtmm2d", "pm_edges"))

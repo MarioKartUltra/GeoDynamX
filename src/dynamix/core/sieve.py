@@ -3,9 +3,9 @@
 """Connected-component size filtering ("sieve", GDAL/ENVI's term) -- pure numpy/scipy.
 
 Suppress islands of a boolean mask (or of each class of a class map) whose pixel count falls
-outside ``[min_px, max_px]`` -- the user's fault-delineation cleanup (2026-09-18): dithered
-measure-route h maps delineate BOEM faults well but speckle with single-pixel "snow"; a size
-floor keeps the coherent ribbons, and an optional ceiling can drop a giant background blob.
+outside ``[min_px, max_px]`` -- a fault-delineation cleanup: dithered measure-route h maps
+delineate BOEM faults well but speckle with single-pixel "snow"; a size floor keeps the
+coherent ribbons, and an optional ceiling can drop a giant background blob.
 
 ``connectivity`` 8 (default) counts diagonal neighbours -- the right choice for ribbon-like
 structures, which a 4-connected sieve chops into fragments at every diagonal step.

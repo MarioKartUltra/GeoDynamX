@@ -153,9 +153,9 @@ def test_drag_is_enabled(qtbot, registered_builtins):
 
 
 def test_dev_group_contains_stub_and_superseded_devices(qtbot, registered_builtins):
-    """Test (a): Dev holds exactly the stubs plus the superseded devices (2026-09-19 split:
-    registered for saved projects, out of the palette) plus the devices only the shell places
-    (a derivative dataset's vector loader, 2026-09-23)."""
+    """Test (a): Dev holds exactly the stubs plus the superseded devices (registered for saved
+    projects, out of the palette) plus the devices only the shell places (a derivative dataset's
+    vector loader)."""
     from dynamix.shell.browser import DeviceBrowser, _DEV_PREFIX, _SHELL_PLACED, _SUPERSEDED
 
     browser = DeviceBrowser()
@@ -250,8 +250,8 @@ def test_window_injects_all_presets_into_browser(qtbot, registered_builtins):
 
 
 def test_superseded_devices_sit_under_dev_not_transforms(qtbot, registered_builtins):
-    """The 2026-09-19 split: holder_map stays REGISTERED (saved projects name it) but leaves
-    the palette -- its per-method successors are what the Transforms category offers."""
+    """holder_map stays REGISTERED (saved projects name it) but leaves the palette -- its
+    per-method successors are what the Transforms category offers."""
     from dynamix.shell.browser import DeviceBrowser, _SUPERSEDED
 
     browser = DeviceBrowser()

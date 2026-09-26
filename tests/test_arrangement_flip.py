@@ -13,10 +13,9 @@ def test_app_boots_with_arrangement_never_built(window):
 
 
 def test_tab_flips_and_builds_lazily(qtbot, window):
-    # 2026-08-18 three-view supersession: Tab now cycles THREE
-    # states -- raster -> vector -> geo -> raster (MainWindow._cycle_center_view) -- not two, so
-    # a full round trip takes three presses, not two. The arrangement still builds lazily on the
-    # very first press (into "vector"), which is what this test originally pinned down.
+    # Tab cycles THREE states -- raster -> vector -> geo -> raster
+    # (MainWindow._cycle_center_view) -- so a full round trip takes three presses. The arrangement
+    # builds lazily on the very first press (into "vector").
     qtbot.keyClick(window, QtCore.Qt.Key_Tab)
     assert window._center_stack.currentIndex() == 1
     assert window._arrangement is not None
@@ -347,8 +346,7 @@ def test_activation_pushes_the_persisted_view_options_into_the_view(qtbot, windo
     ``test_set_camera_state_reset_camera_graticule_vexag_background_no_op_before_a_scene`` above
     (and the Scene-level tests in tests/test_arrangement_scene.py) already cover.
 
-    2026-08-18 three-view supersession: the full
-    mode/graticule/vexag/background push now happens only on the "geo" view --
+    The full mode/graticule/vexag/background push happens only on the "geo" view --
     MainWindow._set_center_view's own vector/geo split pushes background ONLY on "vector"
     (mode-independent chrome; no CRS to project a mode against). Tab lands on "vector" first, so
     this drives a SECOND Tab press to reach "geo" before asserting the full push landed."""
@@ -377,9 +375,9 @@ def test_activation_pushes_the_persisted_view_options_into_the_view(qtbot, windo
 
 
 def test_activation_with_no_saved_view_options_pushes_defaults(qtbot, window, monkeypatch):
-    # 2026-08-18 three-view supersession: same retargeting as
-    # test_activation_pushes_the_persisted_view_options_into_the_view above -- the full push only
-    # happens on "geo", which now takes a SECOND Tab press (the first lands on "vector").
+    # Same targeting as test_activation_pushes_the_persisted_view_options_into_the_view above --
+    # the full push only happens on "geo", which takes a SECOND Tab press (the first lands on
+    # "vector").
     from dynamix.shell.arrangement.view import ArrangementView
     from dynamix.shell.view_dialog import DEFAULT_BACKGROUND
 

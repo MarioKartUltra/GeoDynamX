@@ -34,7 +34,7 @@ __all__ = ["PICTURE_MAX_DIM", "block_centres", "display_stride", "native_shape",
 
 #: Long side of the picture, in samples. The canvas LOD shows at most 2048 per axis and the
 #: Vector drape budgets ~2M points, so more would be read and never seen; BOEM West reads in
-#: ~1.9 s at this size (measured 2026-09-22, exact strided reads of its 64x128 tiles).
+#: ~1.9 s at this size (measured with exact strided reads of its 64x128 tiles).
 PICTURE_MAX_DIM = 4096
 
 

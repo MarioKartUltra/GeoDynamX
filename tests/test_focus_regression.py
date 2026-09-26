@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Focus regression (Schadner 2026 generalized focus + Mukli 2015 fixed focus) --
-implementation per the verified re-derivation (freddie-friday agent, 2026-09-22): the
-reduced closed forms in dynamix.core.spectra.focus_regression, candidates = {feasible
-interior root, fixed-focus endpoint, monofractal infinity endpoint}, winner by SSE argmin
-(never root classification -- the sign rule fails in ~4% of cases), delta computed in the
-additive non-negative form, Vieta for the second root (c/a = -sigma_X^2 exactly).
+implementation: the reduced closed forms in dynamix.core.spectra.focus_regression,
+candidates = {feasible interior root, fixed-focus endpoint, monofractal infinity endpoint},
+winner by SSE argmin (never root classification -- the sign rule fails in ~4% of cases),
+delta computed in the additive non-negative form, Vieta for the second root
+(c/a = -sigma_X^2 exactly).
 """
 from __future__ import annotations
 

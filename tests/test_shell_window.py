@@ -252,7 +252,7 @@ def test_flipping_auto_run_after_an_inert_open_reseeds_the_default_chain(
     recipe while still dispatching a worker for it; the second open has to build
     ``DEFAULT_STEPS``, exactly as a brand-new auto-run window would.
 
-    Reviewer's repro, verbatim: MainWindow() -> load_field (settings off) ->
+    Repro: MainWindow() -> load_field (settings off) ->
     save_settings(Settings(auto_run_wtmm=True)) -> load_field again on the same window.
     """
     from dynamix.shell.main_window import MainWindow
@@ -389,7 +389,7 @@ def test_a_shrinking_scale_stack_clamps_params_and_transport_together(qtbot, loa
 
 
 def test_only_the_first_transform_strip_claims_the_compute(qtbot, stub_devices):
-    """I-6: two transforms, ONE compute. Progress and elapsed describe the whole worker run, so
+    """Two transforms, ONE compute. Progress and elapsed describe the whole worker run, so
     exactly one strip may claim them -- both strips reading "cwt 40%" and then both reading
     "820 ms" said the run happened twice. The other transform keeps its state dot (which IS
     per-strip and honest) and an empty reading."""
@@ -623,7 +623,7 @@ def test_transform_param_change_recomputes_via_worker(qtbot, loaded):
 
 
 def test_transport_is_disabled_while_a_transform_computes(qtbot, stub_devices):
-    """I-1: during a recompute the raster, the overlay and the transport each showed a different
+    """During a recompute the raster, the overlay and the transport would each show a different
     scale -- the canvas its last good frame, the slider wherever the user dragged it, the reading
     a third thing. Scrubbing a stack that is being rebuilt cannot be answered honestly (there is
     no cancellation in v1), so the control is disabled for the duration and re-enabled the moment
@@ -811,7 +811,7 @@ def test_soft_bounds_edits_persist_as_json_in_layer_tags(qtbot, loaded):
 
 
 def test_scale_bar_label_follows_a_zoom(qtbot, loaded):
-    """I-2: the distance reading was computed once per RESOLVE, so zooming or panning left it
+    """The distance reading was computed once per RESOLVE, so zooming or panning left it
     claiming a length the view no longer had -- the one overlay whose entire job is to be true
     about on-screen distance. The canvas re-derives both corner overlays on every camera move and
     tells the window, which re-states the label from the width now visible."""
@@ -1507,13 +1507,12 @@ def test_master_transport_moves_a_following_inspector_slider(qtbot, loaded):
 def test_master_transport_does_not_move_an_unfollowing_inspector(qtbot, loaded):
     """Un-checking "M" freezes that inspector's scale CONTROL while the master keeps moving.
 
-    Reworded at the review of ``1b405f2``: what this asserts is the index and the reading, not
-    two extrema sets. Sec 5d's comparison-of-two-extrema-sets is NOT what un-checking "M" buys
-    today -- the picture is the chain's post-``scale_select`` result, one extrema layer, so a
-    window held at another index has no second scale in it to draw and says so instead
+    What this asserts is the index and the reading, not two extrema sets. Sec 5d's
+    comparison-of-two-extrema-sets is NOT what un-checking "M" buys today -- the picture is the
+    chain's post-``scale_select`` result, one extrema layer, so a window held at another index
+    has no second scale in it to draw and says so instead
     (``test_a_follower_whose_picture_cannot_follow_says_so``). The divergent PICTURE needs a
-    per-source result at a per-source scale, which is a sec 5b "no new compute path" call for
-    the user."""
+    per-source result at a per-source scale, which is a sec 5b "no new compute path" decision."""
     inspector = _open_inspector(loaded, loaded.layer.source_id)
     inspector.follow_button.setChecked(False)
     assert inspector.follow_master is False
@@ -1550,12 +1549,11 @@ def test_an_inspector_slider_drag_does_not_change_the_active_layer_chain(qtbot, 
 def test_two_inspectors_one_following_one_not_diverge_visibly(qtbot, loaded):
     """What visibly diverges is the scale INDEX and its reading, in two windows at once.
 
-    Reworded and extended at the review of ``1b405f2``: neither picture moves to the other's
-    scale, and each window now SAYS which scale it is showing rather than letting a moved
-    reading imply a moved picture. ``following`` is over a non-active source, so it adopts the
-    master's index over a kept picture; ``frozen`` is over the ACTIVE source, so its picture DID
-    move (the chain re-ran at the master's index) while its own control stayed put -- the two
-    faces of the same confession."""
+    Neither picture moves to the other's scale, and each window SAYS which scale it is showing
+    rather than letting a moved reading imply a moved picture. ``following`` is over a
+    non-active source, so it adopts the master's index over a kept picture; ``frozen`` is over
+    the ACTIVE source, so its picture DID move (the chain re-ran at the master's index) while
+    its own control stayed put -- the two faces of the same confession."""
     from dynamix.shell.inspector import SCALE_NOT_SHOWN_LIVE_TEXT, SCALE_NOT_SHOWN_TEXT
 
     first_source = loaded.layer.source_id
@@ -1582,7 +1580,7 @@ def test_two_inspectors_one_following_one_not_diverge_visibly(qtbot, loaded):
 # tick. Every OTHER way the master's scale moves settles it through the SILENT
 # ``Transport.sync_to``, which is the exact divergence ``sync_to``'s own docstring was written
 # for ("the same scale is addressable from two places"), reintroduced one level out: a following
-# inspector was left behind with its "M" still checked. Both repros below are the review's.
+# inspector was left behind with its "M" still checked.
 
 
 def test_the_scale_select_knob_also_moves_a_following_inspector(qtbot, loaded):
@@ -1778,7 +1776,7 @@ def test_an_entry_for_an_unknown_source_is_dropped_silently(qtbot, stub_devices)
     """Sec 4a's honest drop: an entry naming a source this project does not have opens nothing
     and says nothing -- a preference cannot be a fault.
 
-    TWO entries, not one (review of ``33b870b``): with only the stranger written, ``_inspectors
+    TWO entries, not one: with only the stranger written, ``_inspectors
     == {}`` is trivially true when NOTHING restores at all, and the test passed against sources
     with the whole feature removed. The real source beside it is what makes the assertion
     discriminate a DROP from an absence.
@@ -1989,10 +1987,11 @@ def test_a_remembered_geometry_a_screen_can_show_is_replayed(qtbot, stub_devices
     assert (inspector.geometry().x(), inspector.geometry().y()) == (40, 60)
 
 
-# ------------------------------------------------- open the FULL extent, decimated (2026-08-30)
-# Opening the full BOEM West file still clipped it to the launch scene -- open_window_px windows every fresh GeoTIFF open at native resolution. The full
-# extent is 800 Mpx, so the whole-file open is the OVERVIEW: decimated, provenance says so,
-# context only (WTMM on resampled pixels violates the native-grid rule).
+# ------------------------------------------------- open the FULL extent, decimated
+# open_window_px windows every fresh GeoTIFF open at native resolution, which clips a large file
+# such as BOEM West to the launch scene. Its full extent is 800 Mpx, so the whole-file open is
+# the OVERVIEW: decimated, provenance says so, context only (WTMM on resampled pixels violates
+# the native-grid rule).
 
 def test_open_full_extent_overview_opens_the_whole_raster_decimated(window, tmp_path, monkeypatch):
     import rasterio
@@ -2017,7 +2016,7 @@ def test_open_full_extent_overview_opens_the_whole_raster_decimated(window, tmp_
 
 
 def test_expand_reference_paths_extracts_shapefile_zips(tmp_path):
-    """A GIS-portal shapefile .zip (2026-09-18, gcfaultsg) expands to its .shp members via a
+    """A GIS-portal shapefile .zip (gcfaultsg) expands to its .shp members via a
     one-time sidecar extraction; a non-shapefile zip passes through untouched."""
     import io
     import zipfile
@@ -2041,7 +2040,7 @@ def test_expand_reference_paths_extracts_shapefile_zips(tmp_path):
 
 
 def test_roi_create_scales_a_decimated_overview_to_native_pixels(qtbot, loaded):
-    """Overview drill-down (2026-09-18): a footprint drawn on a decimation-16 overview lands
+    """Overview drill-down: a footprint drawn on a decimation-16 overview lands
     in NATIVE file coordinates — offsets AND size scaled — so wtmm2d_roi reads full-res halos."""
     import dataclasses
 

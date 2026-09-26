@@ -16,7 +16,7 @@ docs/reference/*.out
 docs/reference/*.toc
 docs/reference/*.pdf
 
-# ---- GeoDynamix_Beta public release (2026-09-22): working files kept LOCAL, never published ----
+# ---- working files kept LOCAL, never published ----
 # session and design-context notes, agent tooling, editor settings, internal docs and research
 CLAUDE.md
 DESIGN.md

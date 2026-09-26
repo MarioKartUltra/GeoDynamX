@@ -47,7 +47,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 #: the same item, which is how every handler below tells a header apart from a layer row.
 _LAYER_ID_ROLE = QtCore.Qt.UserRole
 _SOURCE_ID_ROLE = QtCore.Qt.UserRole + 1
-#: A saved-ROI row (2026-09-23) carries its ``roi_id`` here -- and no layer id: an ROI is a pixel
+#: A saved-ROI row carries its ``roi_id`` here -- and no layer id: an ROI is a pixel
 #: window on its dataset, drawn as an outline, not a layer.
 _ROI_ID_ROLE = QtCore.Qt.UserRole + 2
 #: A band row under a stack dataset: the band's 0-based index (-1 on the "Bands" row
@@ -137,7 +137,7 @@ class _SourceRow(QtWidgets.QWidget):
     """
 
     inspectorToggled = QtCore.Signal(bool)
-    hideToggled = QtCore.Signal(bool)          # the DATASET's own hide (2026-08-29)
+    hideToggled = QtCore.Signal(bool)          # the DATASET's own hide
     lockToggled = QtCore.Signal(bool)          # the master layer's, once one attaches
     freezeToggled = QtCore.Signal(bool)
 
@@ -149,7 +149,7 @@ class _SourceRow(QtWidgets.QWidget):
 
         # The dataset's hide: the raster itself, everywhere it is drawn -- the layer rows' own H
         # under this header hide their PRODUCTS (extrema, chains) and never the raster, which is
-        # what "hide the dataset and show only extrema" needs (2026-08-29).
+        # what "hide the dataset and show only extrema" needs.
         self.hide_button = QtWidgets.QToolButton()
         self.hide_button.setCheckable(True)
         self.hide_button.setChecked(hidden)
@@ -159,8 +159,8 @@ class _SourceRow(QtWidgets.QWidget):
         row.addWidget(self.hide_button)
         self.hide_button.toggled.connect(self.hideToggled.emit)
 
-        # The dataset row IS its master layer's row (2026-09-23): the master's
-        # lock/freeze sit here, hidden until a master attaches (a bare header has none).
+        # The dataset row IS its master layer's row: the master's lock/freeze sit here,
+        # hidden until a master attaches (a bare header has none).
         self.lock_button = _LayerRow._make_button("L", "Lock (params read-only)", False)
         self.freeze_button = _LayerRow._make_button(
             "F", "Freeze (lock + pin cached results)", False)
@@ -208,7 +208,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
     lockToggled = QtCore.Signal(int, bool)
     freezeToggled = QtCore.Signal(int, bool)
     removeRequested = QtCore.Signal(int)
-    #: Header-row "Remove dataset" (2026-09-19): carries the SOURCE id -- the shell
+    #: Header-row "Remove dataset": carries the SOURCE id -- the shell
     #: owns the confirmation and the family cascade.
     removeSourceRequested = QtCore.Signal(str)
     renameRequested = QtCore.Signal(int, str)
@@ -268,7 +268,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         self._row_widgets: dict[int, _LayerRow] = {}
         self._source_rows: dict[str, _SourceRow] = {}
         #: source_id -> its MASTER layer id: the first root layer of a source, whose row IS the
-        #: dataset row (2026-09-23).
+        #: dataset row.
         self._masters: dict[str, int] = {}
         self._roi_items: dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._band_groups: dict[str, QtWidgets.QTreeWidgetItem] = {}
@@ -329,7 +329,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
                        if layer.parent_id is not None else None)
         roi_id = getattr(layer, "roi_id", None)
         if roi_id is not None and layer.parent_id is not None:
-            # A result computed ON a saved ROI sits under that ROI's row (2026-09-23).
+            # A result computed ON a saved ROI sits under that ROI's row.
             roi_item = self._ensure_roi_row(roi_id)
             if roi_item is not None:
                 parent_item = roi_item
@@ -380,7 +380,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if not stem:
             stem = getattr(field, "name", None) or source_id
         # A derivative dataset is named at the fork (its file name is only storage), and may
-        # nest inside the row of the dataset it came from (2026-09-23).
+        # nest inside the row of the dataset it came from.
         text = (getattr(source, "label", "") or stem) if source is not None else stem
         nest = self._source_headers.get(getattr(source, "nest_under", None) or "")
         item = QtWidgets.QTreeWidgetItem(nest if nest is not None else self, [text])
@@ -449,12 +449,10 @@ class LayerPanel(QtWidgets.QTreeWidget):
         group.setText(0, f"Bands ({group.childCount()})")
 
     def _attach_master(self, header, layer) -> None:
-        """Make ``header`` the row of ``layer``, its source's master (2026-09-23): a dataset
-        used to show as a header plus an identically-named master row that hid itself while
-        alone -- read as the ROI, the cause of the header highlight never sticking, and why
-        Delete on it took the dataset. One row now: its H hides the raster, its L/F are the
-        master's, selecting it selects the master, and the master's children nest under it.
-        Signals are blocked for the ``setData`` (the ``add_layer_row`` spurious-rename trap)."""
+        """Make ``header`` the row of ``layer``, its source's master: one row per dataset. Its H
+        hides the raster, its L/F are the master's, selecting it selects the master, and the
+        master's children nest under it. Signals are blocked for the ``setData`` (the
+        ``add_layer_row`` spurious-rename trap)."""
         self.blockSignals(True)
         try:
             header.setData(0, _LAYER_ID_ROLE, layer.layer_id)
@@ -471,7 +469,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if layer_id is not None:
             signal.emit(layer_id, checked)
 
-    # -- saved-ROI rows (2026-09-23) -------------------------------------------------------------
+    # -- saved-ROI rows --------------------------------------------------------------------------
     def _dataset_name(self, source_id: str) -> str:
         """What an ROI row is named after: the dataset's master layer, else its row's text."""
         master_id = self._masters.get(source_id)
@@ -705,22 +703,17 @@ class LayerPanel(QtWidgets.QTreeWidget):
             self._forget_roi_row(roi_id, take=False)
 
     def refresh_master_rows(self) -> None:
-        """Hide each source's MASTER row while it is the source's only layer AND its chain is
-        empty (a fresh open showing header + identically-named row read as
-        "it automatically forks a copy of itself" -- three reports of the same confusion).
-        One row until there is something to distinguish: the master row appears the moment
-        its chain gains a step or a child forks. A hidden master still works through the
-        header (header clicks already promote onto it -- selection, rack, Delete all reach
-        it), so nothing is lost while it is collapsed.
+        """A no-op, kept as the call ``main_window`` makes after every add/remove and after chain
+        edits. The master has no row of its own (the dataset row IS its row,
+        :meth:`_attach_master`), so there is nothing to collapse -- and hiding a lone SECOND root
+        layer (what the scan below would find) is not wanted.
 
-        Called after every add/remove and after chain edits (``main_window`` pokes it) --
-        a cheap full scan over the handful of headers.
-
-        Superseded 2026-09-23: the master has no row of its own any more (the dataset row IS
-        its row, :meth:`_attach_master`), so there is nothing to collapse -- and hiding a lone
-        SECOND root layer (what the scan below would now find) is not wanted. Kept as the call
-        ``main_window`` makes; it no longer hides anything. The old scan stays below as the
-        record of the rule it implemented."""
+        The unreachable scan below is the record of the rule it implemented: hide each source's
+        MASTER row while it is the source's only layer AND its chain is empty. One row until
+        there is something to distinguish: the master row appears the moment its chain gains a
+        step or a child forks. A hidden master still works through the header (header clicks
+        promote onto it -- selection, rack, Delete all reach it), so nothing is lost while it
+        is collapsed. It is a cheap full scan over the handful of headers."""
         return
         if self._project is None:
             return
@@ -891,16 +884,16 @@ class LayerPanel(QtWidgets.QTreeWidget):
             return menu
         rename_action = menu.addAction("Rename")
         rename_action.triggered.connect(lambda: self.editItem(item, 0))
-        # "Remove" became the two deletes (2026-09-23): this layer alone (its
-        # children move up to its parent), or this layer and everything under it.
+        # Two deletes: this layer alone (its children move up to its parent), or this layer
+        # and everything under it.
         only_action = menu.addAction("Delete layer")
         only_action.triggered.connect(lambda: self.removeLayerOnlyRequested.emit(layer_id))
         remove_action = menu.addAction("Delete layer and children")
         remove_action.triggered.connect(lambda: self.removeRequested.emit(layer_id))
         refined_action = menu.addAction("New refined run")
         refined_action.triggered.connect(lambda: self.refinedRunRequested.emit(layer_id))
-        # A DERIVATIVE dataset (2026-09-23): what this result shows, written once as a dataset of
-        # its own -- unlike a child, it never re-processes.
+        # A DERIVATIVE dataset: what this result shows, written once as a dataset of its own --
+        # unlike a child, it never re-processes.
         fork_action = menu.addAction("Fork derivative dataset…")
         fork_action.triggered.connect(lambda: self.forkDerivativeRequested.emit(layer_id))
         layer = next((l for l in (self._project.layers if self._project is not None else [])
@@ -1043,7 +1036,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
 
 
 class ReferencePanel(QtWidgets.QListWidget):
-    """The reference layers (GIS vector files drawn OVER the data, 2026-08-29): one checkable
+    """The reference layers (GIS vector files drawn OVER the data): one checkable
     row per layer with its colour square. Sits under the layer list; a checkbox toggles
     visibility everywhere (canvas + world). Lives in this module so devloop's reload registry
     needs no new entry. Outward wires: ``visibilityToggled(ref_id, visible)``,

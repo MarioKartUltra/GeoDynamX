@@ -4,10 +4,9 @@
 
 One ordering for every surface that draws H-lines as lines rather than dots: the 2-D canvas
 (``shell/canvas.py::hline_polylines``, which predates this module and keeps its own NaN-separated
-form) and the 3-D scene (``shell/arrangement/scene.py``, 2026-08-28: "in the vector view it's not
-connecting the horizontal extrema that belong to the same horizontal chain"). Both follow the
-topology's own walk, :func:`dynamix.core.wtmm_backend._order_lines` -- a PRIVATE name in a
-verbatim EQSelect copy, so this is the third call site carrying that coupling.
+form) and the 3-D scene (``shell/arrangement/scene.py``). Both follow the topology's own walk,
+:func:`dynamix.core.wtmm_backend._order_lines` -- a PRIVATE name in a verbatim EQSelect copy, so
+this is the third call site carrying that coupling.
 """
 from __future__ import annotations
 

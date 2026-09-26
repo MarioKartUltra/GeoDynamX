@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Dataset removal + devloop-rebuild adoption (2026-09-19 smoke pass).
+"""Dataset removal + devloop-rebuild adoption.
 
-Offscreen Qt: the header-row "Remove dataset" cascade (the header itself had NO removal
-path -- only layer rows did) and load_field's adoption of an already-populated source (a
-rebuilt devloop window used to add a DUPLICATE master and strand every existing row)."""
+Offscreen Qt: the header-row "Remove dataset" cascade and load_field's adoption of an
+already-populated source (a rebuilt devloop window must not add a DUPLICATE master and strand
+every existing row)."""
 from __future__ import annotations
 
 import numpy as np
@@ -67,7 +67,8 @@ def test_rebuild_adopts_the_restored_family_without_duplicating_the_master(
 
 def test_reopen_in_a_live_window_still_adds_a_master(qtbot, window):
     """The @ov overview flow depends on this: same path, LIVE window with rows -> a second
-    root under the same header, exactly as before the adoption fix."""
+    root under the same header. Adoption applies only to a window that knows no rows for an
+    already-populated source."""
     f = _field()
     for _ in range(2):
         with qtbot.waitSignal(window.resolved, timeout=5000, raising=False):
@@ -109,8 +110,8 @@ def test_locked_layer_refuses_the_dataset(qtbot, window, monkeypatch):
 
 
 def test_removals_resync_the_arrangement(qtbot, window, monkeypatch):
-    """The 3-D view must learn about removals (2026-09-20: it kept framing a removed
-    dataset's extent): per-layer removal resyncs (camera preserved); dataset removal
+    """The 3-D view must learn about removals, or it keeps framing a removed dataset's
+    extent: per-layer removal resyncs (camera preserved); dataset removal
     resyncs AND refits the camera -- the subject changed."""
     f = _field()
     child = _open_with_child(window, f, qtbot)
@@ -132,7 +133,7 @@ def test_removals_resync_the_arrangement(qtbot, window, monkeypatch):
 
 
 def test_surface_apply_all_fans_the_tags_across_the_family(qtbot, window, monkeypatch):
-    """The 3-D surface dialog's "apply to every layer of this dataset" (2026-09-20): one
+    """The 3-D surface dialog's "apply to every layer of this dataset": one
     gesture writes the same surface tags on every non-point sibling, so the family stands
     on the same base instead of per-layer unsynchronized configs."""
     from dynamix.shell import surface_dialog

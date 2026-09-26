@@ -202,7 +202,7 @@ def _read_halo(source, parent_rect, roi, margin, nodata):
     missing = ~np.isfinite(values)
     if sentinel is not None:
         missing |= values == sentinel
-    # BOEM-style undeclared fill (2026-09-22): the tifs declare nodata = 0.0 but fill with
+    # BOEM-style undeclared fill: the tifs declare nodata = 0.0 but fill with
     # float32-lowest -- |v| >= 3e38 is nodata whatever the header says (the rule both other
     # read paths, from_geotiff_window and the picture, apply at read).
     missing |= np.abs(values) >= 3e38
@@ -404,8 +404,8 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
             # nodata BEFORE the transform, and the honesty channel for fabricated data is
             # _missing_mask/real_frac reporting, never extrema dropping (the whole-field
             # pipeline's NaN-distrust contract does not apply to the windowed read).
-            # 2026-09-22 exact-port swap, matching the full run's extrema stage
-            # (dynamix.core.xsmurf_follow, parity-proven -- see wtmm_backend's own swap).
+            # The exact xsmurf port, matching the full run's extrema stage
+            # (dynamix.core.xsmurf_follow, parity-proven -- see wtmm_backend's own use of it).
             from dynamix.core.xsmurf_follow import follow_extrema_scale_exact
             scale_extrema = follow_extrema_scale_exact(
                 cwt["mod"][0], cwt["arg"][0], kapa, kapap,

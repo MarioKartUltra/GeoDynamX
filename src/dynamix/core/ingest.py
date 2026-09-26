@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Multi-sensor grid ingestion: multiband GeoTIFF, netCDF, HDF5, HDF4 (2026-09-21).
+"""Multi-sensor grid ingestion: multiband GeoTIFF, netCDF, HDF5, HDF4.
 
 Driver reality on this machine (measured): rasterio's bundled GDAL reads
 **netCDF** and **HDF5** (subdataset enumeration + georeferencing when present) but NOT HDF4 --

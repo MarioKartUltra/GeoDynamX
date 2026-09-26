@@ -2,11 +2,12 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Regression: interleaved selection-aware and non-aware filters must not freeze the app.
 
-The min |W| frac filter stopped working and the scale bar lagged badly. Root cause: the 2026-08-30 selection/materialize
-layer back-references each chain to the ORIGINAL transform layer; when a non-aware filter
-(min_vchains) rewrites extrema between a selection-aware scale_select and modulus_threshold,
-``materialize_selection`` applies stale ``h_src`` indices to an already-shrunk layer and raises
-IndexError inside a Qt signal handler -- Qt swallows it and the canvas silently stops redrawing.
+The failure guarded: the min |W| frac filter stops working and the scale bar lags badly. Root
+cause: the selection/materialize layer back-references each chain to the ORIGINAL transform
+layer; when a non-aware filter (min_vchains) rewrites extrema between a selection-aware
+scale_select and modulus_threshold, ``materialize_selection`` applies stale ``h_src`` indices
+to an already-shrunk layer and raises IndexError inside a Qt signal handler -- Qt swallows it
+and the canvas silently stops redrawing.
 
 These assert the OBSERVABLE contract, through the real engine on the real fixture:
 * the DEMO-shaped interleaved chain resolves without raising, repeatedly;

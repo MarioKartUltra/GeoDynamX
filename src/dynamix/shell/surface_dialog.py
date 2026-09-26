@@ -52,8 +52,8 @@ class SurfaceDialog(QtWidgets.QDialog):
         row.addWidget(self._layer_combo, 1)
         layout.addLayout(row)
         self._other_radio.toggled.connect(self._layer_combo.setEnabled)
-        # 2026-09-20 (user: layers "are not synchronized"): one gesture stands the whole
-        # dataset's family on the same choice -- the caller fans the tags out.
+        # One gesture stands the whole dataset's family on the same choice -- the caller fans
+        # the tags out.
         self._all_box = QtWidgets.QCheckBox("Apply to every layer of this dataset")
         layout.addWidget(self._all_box)
         # No eligible siblings -> "Other" is honestly unavailable rather than an empty combo.

@@ -11,7 +11,7 @@ Fourier filter ``exp(-(s|k|)^2)`` with ``k`` in cycles/px, whose real-space Gaus
 
 The ANALYZING wavelet of the WTMM path is ``d/dx`` of the smoother -- a directional dipole,
 not isotropic. What this module samples for display is therefore the kernel's TRUE 2D
-sections (the psi-formula adjudication, spec 2026-08-10 section 2):
+sections:
 
 - theta (smoother): the isotropic radial profile. Gaussian: ``exp(-u^2/2)``. Mexican
   (``|k|^2 * gauss`` in Fourier is ``-laplacian(G)`` in real space -- the (2 pi i k)^2 sign):
@@ -41,16 +41,14 @@ log-log slope, but bites raw-amplitude comparisons against analytic or xsmurf nu
 Display names keep the community's g-family labels (theta g0/g2, psi g1/g3); the curves
 drawn are the 2D sections above. ``tests/test_scale_units.py`` pins every constant against
 an inverse FFT of the actual pipeline filters (``_build_wavelet_filters_numpy``) -- the
-oracle, not this docstring, is the ground truth. Derivation independently reviewed
-(freddie consult, 2026-08-10): all section algebra confirmed to machine precision; the
-lambda doctrine and the g3 edge-response distinction are that consult's rulings.
+oracle, not this docstring, is the ground truth.
 
 Adding a wavelet is one ``_Kernel`` entry per (smoothing, deriv_order) pair: a profile
 callable in ``u = x/sigma`` units and its outer-extremum position in sigma units.
 
-xsmurf provenance (2026-08-10 dig; primary tree ``xsmurf`` lacks ``tcl_library/``,
-so the Tcl citations below are the byte-identical copy at ``xSmurfMetal/xsmurf``,
-confirmed identical against ``xSmurfMacPorts/xsmurf``):
+xsmurf provenance (the primary tree ``xsmurf`` lacks ``tcl_library/``, so the Tcl
+citations below are the byte-identical copy at ``xSmurfMetal/xsmurf``, confirmed
+identical against ``xSmurfMacPorts/xsmurf``):
 
 ``6.0/0.86`` is xsmurf's own scale-ladder normalization, applied AFTER the octave/voice
 power-of-2 ladder -- found as ``set scale [expr $scale*(6/0.86)]`` in
@@ -61,13 +59,13 @@ power-of-2 ladder -- found as ``set scale [expr $scale*(6/0.86)]`` in
 ``wt.tcl``, ``study.tcl``, ``imStudy.tcl``, ``mmto.tcl``, ``to.tcl``, ``hpcal_proc.tcl``. Every
 occurrence writes the SAME two bare literals as a ratio, ``(6/0.86)``, never pre-combined into
 one decimal, and NONE is ever commented on -- no hit anywhere in the tree ties either number to
-"support", "halo width", or "calibration" (freddie check b). The pair reads as an inherited
-empirical normalization from the original 1998 CRPP Bordeaux Tcl library (wt.tcl's own
+"support", "halo width", or "calibration". The pair reads as an inherited empirical
+normalization from the original 1998 CRPP Bordeaux Tcl library (wt.tcl's own
 copyright: "Written by Nicolas Decoster"), copied forward unchanged through Kestener's
-1999-2007 extensions into every scale-generating script (check a: yes, always two literals,
-always the same split -- consistent with two once-meaningful numbers whose individual meaning
-was never written down, not with a single fitted constant). The numerological match
-``0.86 ~ 12/(pi^2*sqrt(2)) = 0.85974`` (check d) has no support in how the literal is written:
+1999-2007 extensions into every scale-generating script (always two literals, always the
+same split -- consistent with two once-meaningful numbers whose individual meaning was never
+written down, not with a single fitted constant). The numerological match
+``0.86 ~ 12/(pi^2*sqrt(2)) = 0.85974`` has no support in how the literal is written:
 a bare 2-decimal number ratioed against a bare integer, never expressed via pi or sqrt anywhere
 in the tree -- reads as coincidence, not the origin.
 
@@ -77,10 +75,9 @@ from byte-identical lines; ``imStudy::WtmmgCurrentScale`` (``imStudy.tcl:1054`` 
 shared ``$scale`` for both the ``gaussian`` and ``mexican`` switch branches -- only the FILTER
 EXPRESSION differs (``gaussianDef``/``mexicanDef`` arrays, ``imStudy.tcl:103-144``), never the
 scale value. ``compute_scales2d``'s single ``norm`` for every wavelet is therefore not a
-DynamiX simplification of something xsmurf varies per wavelet -- it is what xsmurf itself does;
-the HARD STOP GATE this dig was run against does not trigger.
+DynamiX simplification of something xsmurf varies per wavelet -- it is what xsmurf itself does.
 
-Fourier convention (freddie check c): xsmurf's Gaussian is written in cycles/px, not angular
+Fourier convention: xsmurf's Gaussian is written in cycles/px, not angular
 frequency -- confirmed two ways in the primary C++ tree. The built-in filter path,
 ``im_fourier_conv_`` (``image_cpp/wt2d.cpp:66-133``), builds frequency via ``_ImaCvlInit_``
 (``wt2d.cpp:29-61``: ``_freq1_[i] = i/sizeX``, standard fftfreq-style cycles/px) and computes
@@ -90,8 +87,8 @@ frequency -- confirmed two ways in the primary C++ tree. The built-in filter pat
 ``mexicanDef(dx,i) = x*(x*x+y*y)*exp(-x*x-y*y)`` -- ``x``/``y`` are ``scale*k`` in cycles/px,
 the SAME exponent this module and ``_build_wavelet_filters_numpy`` build (``gauss =
 exp(-(sx**2+sy**2))``, mexican = ``|k|^2 * gauss``). Because the convention already matches,
-``6.0/0.86`` is not a units bridge between angular and cycles/px frequency (the check that
-would have forced a ladder change) -- it is purely a scale NORMALIZATION, of unexplained
+``6.0/0.86`` is not a units bridge between angular and cycles/px frequency (which would have
+forced a ladder change) -- it is purely a scale NORMALIZATION, of unexplained
 origin, that both this module and ``compute_scales2d`` inherit unchanged from xsmurf.
 
 Pure numpy; no Qt, no wtmm.
@@ -153,10 +150,9 @@ def outer_extremum_sigma(smoothing: str, deriv_order: int) -> float:
 
 def lambda_peak_px(scale: float, smoothing: str, deriv_order: int = 1) -> float:
     """Bandpass peak wavelength in px: 2*pi*sigma/sqrt(m) for a |k|^m exp(-s^2|k|^2)
-    filter -- the per-wavelet number the readings quote (the freddie adjudication: an
-    outer-extremum footprint orders the wavelets backwards; lambda is the metric with an
-    operational meaning). Raises ValueError for a pure-lowpass entry (m = 0): a smoother
-    has no bandpass wavelength."""
+    filter -- the per-wavelet number the readings quote (an outer-extremum footprint orders
+    the wavelets backwards; lambda is the metric with an operational meaning). Raises
+    ValueError for a pure-lowpass entry (m = 0): a smoother has no bandpass wavelength."""
     m = _KERNELS[(str(smoothing), int(deriv_order))].bandpass_m
     if m == 0:
         raise ValueError(f"({smoothing!r}, {deriv_order}) is pure lowpass: no bandpass wavelength")

@@ -194,10 +194,10 @@ _WEST_ZIP = os.path.abspath(
 
 @pytest.mark.skipif(not os.path.exists(_WEST_ZIP), reason="real BOEM fixture not present on this machine")
 def test_real_boem_west_opens_as_a_whole_extent_overview():
-    """Real-data smoke (contract updated 2026-09-22): the default open of BOEM West is now
-    the WHOLE 38470x20782 extent as a decimated overview -- finite, negative (below-sea-level)
-    depths, provenance carrying the stride every native-mapping consumer needs. (2026-09-22
-    evening: the default became the display picture -- this pins the overview path, kept.)"""
+    """Real-data smoke: the overview open of BOEM West is the WHOLE 38470x20782 extent as a
+    decimated overview -- finite, negative (below-sea-level) depths, provenance carrying the
+    stride every native-mapping consumer needs. The default open is the display picture; this
+    pins the overview path."""
     rf = open_field(_WEST_ZIP, mode="overview")
 
     ov = int(rf.provenance["overview"])
@@ -214,7 +214,7 @@ def test_real_boem_west_opens_as_a_whole_extent_overview():
 # ------------------------------------------------------------------ whole-extent overview
 
 def test_open_field_too_big_defaults_to_a_whole_extent_overview(tmp_path):
-    """2026-09-22: a raster over max_pixels now opens as a DECIMATED WHOLE-EXTENT overview
+    """In overview mode a raster over max_pixels opens as a DECIMATED WHOLE-EXTENT overview
     (display/navigation; native pixels come back through the ROI child tool), stride chosen
     to fit the budget, provenance carrying overview/source/full_dims so every consumer can
     map display -> native as r*ov + off (the _on_roi_create convention)."""
@@ -281,11 +281,10 @@ def test_open_field_window_mode_is_still_available(tmp_path):
 
 
 def test_boem_style_undeclared_sentinels_read_as_nan(tmp_path):
-    """2026-09-22: the real BOEM
-    tifs DECLARE nodata = 0.0 but FILL empty areas with float32-lowest (-3.4028235e38) -- the
-    declaration is wrong, and the sentinel would pin every color ramp and poison analysis.
-    Both read paths convert |v| >= 3e38 to NaN (the geo _mask_sentinels convention), in
-    addition to the declared nodata."""
+    """The real BOEM tifs DECLARE nodata = 0.0 but FILL empty areas with float32-lowest
+    (-3.4028235e38) -- the declaration is wrong, and the sentinel would pin every color ramp
+    and poison analysis. Both read paths convert |v| >= 3e38 to NaN (the geo _mask_sentinels
+    convention), in addition to the declared nodata."""
     import rasterio
     from rasterio.transform import from_origin
 

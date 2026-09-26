@@ -32,9 +32,9 @@ needs_backing = pytest.mark.skipif(_chain_filters() is None,
 @pytest.fixture(scope="module")
 def stack():
     """``defaults_for``, not a hand-spelled dict -- see test_real_devices.py's own fixture, which
-    documents why (the five values this used to list by hand were already WTMM2D's own defaults).
+    documents why.
 
-    ``fracint_alpha=0`` pinned (2026-09-15, when the lift started applying on the scalar path):
+    ``fracint_alpha=0`` pinned because the lift applies on the scalar path:
     every triage number below was MEASURED on the unlifted pipeline -- under the lift each
     chain's OLS slope shifts by exactly +alpha and the similitude band re-links chains, which is
     real physics but not what these reading-format/triage regressions pin. The lift itself is

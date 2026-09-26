@@ -205,10 +205,10 @@ def test_recommit_updates_params_in_place_never_a_second_step(qtbot, win):
 
 
 def test_recommit_clears_bypass_on_its_own_painter_step(qtbot, win):
-    """Fold-in fix (review): a commit un-bypasses its own painter -- pre-fix, re-committing onto
-    a ``group_paint`` step the user had bypassed left it bypassed, silently discarding the just-
-    committed groups (``layer.chain.steps`` excludes a bypassed step entirely -- ``_chain()``'s
-    own docstring) from every future resolve until someone happened to un-bypass it by hand."""
+    """A commit un-bypasses its own painter: re-committing onto a ``group_paint`` step the user
+    had bypassed must not leave it bypassed, which would silently discard the just-committed
+    groups (``layer.chain.steps`` excludes a bypassed step entirely -- ``_chain()``'s own
+    docstring) from every future resolve until someone happened to un-bypass it by hand."""
     layer = win.layer
     _commit(win, layer.layer_id, "fault_a", [0])
     i = win._names.index("group_paint")

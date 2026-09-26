@@ -113,7 +113,7 @@ def test_refusals_are_the_shared_contract():
         dev.compute({"chains": [], "extrema": []}, defaults_for(dev))
 
 
-# ----------------------------------------------------- show + interpolate (2026-09-21)
+# ------------------------------------------------------------------ show + interpolate
 
 
 def test_show_filtered_stamps_the_raster_out_display():
@@ -149,7 +149,7 @@ def test_interpolate_adds_float_channels_in_both_edge_modes():
 
 
 def test_follow_detector_finds_a_closed_ring_on_a_disk():
-    """detector='follow' on cdf_edges (2026-09-22): a disk's edge is a closed contour --
+    """detector='follow' on cdf_edges: a disk's edge is a closed contour --
     the xsmurf search_lines walk must mark the big line CLOSED."""
     import numpy as np
     n = 96

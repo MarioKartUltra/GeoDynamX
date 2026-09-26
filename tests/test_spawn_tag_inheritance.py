@@ -2,11 +2,9 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Layers spawned FROM a child dataset must inherit its ``roi.window`` provenance tag.
 
-2026-09-22 (user: analyzer drop on an analyzed ROI child "spawns a sub child but both child
-layers have chains and the og ROI child can no longer use the apps controls"): the analyzer
-fork, refined-run and band-commit spawn paths all resolve the new layer against the parent's
-FIELD (the crop) but minted the layer with EMPTY tags -- so its ``engine.resolve.
-source_identity`` lost the ``|win:`` fold and its cache lines collided with a same-chain run
+The analyzer fork, refined-run and band-commit spawn paths all resolve the new layer against
+the parent's FIELD (the crop). A layer minted there with EMPTY tags has an ``engine.resolve.
+source_identity`` without the ``|win:`` fold, so its cache lines collide with a same-chain run
 on the FULL dataset (or any other untagged fork of any other window). First writer wins; the
 other layer silently displays the wrong result -- the exact collision class the window fold
 exists to prevent. ``_on_roi_create`` is unaffected (its window rides in the chain params).
@@ -50,11 +48,9 @@ def win(qtbot, registered_builtins):
 
 
 def test_roi_holder_child_replaces_its_analyzer_in_place(win, qtbot):
-    """Contract change 2026-09-22: an
-    ROI-holder child NEVER forks -- a different primary analyzer replaces the one in its
+    """An ROI-holder child NEVER forks -- a different primary analyzer replaces the one in its
     chain, in place, keeping the filter tail and the window tag. (The analyzer fork stays
-    the behavior for ordinary analyzed layers; the old fork-with-tag-inheritance pin this
-    test replaces recorded the pre-change contract.)"""
+    the behavior for ordinary analyzed layers.)"""
     one = [{"device": "mz_edges", "params": {}, "bypassed": False, "rack": None},
            {"device": "scale_select", "params": {}, "bypassed": False, "rack": None}]
     win.strips.set_steps(one, field=win.field)
@@ -89,10 +85,9 @@ def test_refined_run_inherits_the_window_tag(win, qtbot):
 
 def test_child_from_an_overview_reads_native_pixels_from_disk(qtbot, registered_builtins,
                                                               tmp_path):
-    """2026-09-22: a child drawn on
-    a decimated whole-extent overview cuts NATIVE pixels by reading the window straight off
-    the source file (the wtmm2d_roi coordinate convention: native = display*ov + off),
-    instead of refusing."""
+    """A child drawn on a decimated whole-extent overview cuts NATIVE pixels by reading the
+    window straight off the source file (the wtmm2d_roi coordinate convention:
+    native = display*ov + off), instead of refusing."""
     import rasterio
     from rasterio.transform import from_origin
     from dynamix.shell.main_window import MainWindow
@@ -121,9 +116,9 @@ def test_child_from_an_overview_reads_native_pixels_from_disk(qtbot, registered_
 
 
 def test_source_hide_spares_a_child_datasets_own_crop(win, qtbot):
-    """2026-09-22: the dataset header's H hides rasters PER SOURCE, and a child shares its
-    parent's source by design -- so the crop vanished with the big raster. A layer carrying
-    ``roi.window`` is exempt: its crop is its own product, not 'the dataset'."""
+    """The dataset header's H hides rasters PER SOURCE, and a child shares its parent's source
+    by design -- so without an exemption the crop would vanish with the big raster. A layer
+    carrying ``roi.window`` is exempt: its crop is its own product, not 'the dataset'."""
     child = win.layer                                  # the fixture leaves the child active
     assert child.tags.get("roi.window")
     win._on_source_hide_toggled(child.source_id, True)

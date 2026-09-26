@@ -617,8 +617,7 @@ def install_momentum_observers(iren, camera) -> None:
     ``self.OnLeftButtonDown()`` itself. The move observer has to be on the style (the interactor's
     own MouseMoveEvent observers never fire during a button grab -- see :meth:`ArrangementView.
     activate`'s comment), so it must call ``style.OnMouseMove()`` too, or every drag reaches the
-    velocity tracker and never the camera: no rotate, no pan, wheel-zoom still fine. That was the
-    2026-08-25 "I can't click and drag to twist it" bug. Pinned by
+    velocity tracker and never the camera: no rotate, no pan, wheel-zoom still fine. Pinned by
     ``tests/test_arrangement_camera_observers.py``.
     """
     iren.add_observer("LeftButtonPressEvent", camera.on_press)
@@ -666,7 +665,7 @@ class ArrangementView(QtWidgets.QWidget):
     #: relocated to ``MainWindow``'s right panel in Tasks 4/5 instead -- see the module
     #: docstring's "Correction" notes for exactly which control went where).
     viewOptionsRequested = QtCore.Signal()
-    #: Right-click landed on one or more footprints (2026-08-28): the hit list, smallest first
+    #: Right-click landed on one or more footprints: the hit list, smallest first
     #: (``Scene.footprints_at_screen``). MainWindow turns it into the Import menu; a right-click
     #: that hits nothing emits nothing.
     footprintsRightClicked = QtCore.Signal(list)
@@ -803,7 +802,7 @@ The mask is deliberately NOT applied here anymore -- ``MaskRow``
             # GetEventPosition() (bottom-left origin) -- exactly what _on_click's own docstring
             # documents and flips. side="left" per the design ("click selects a chain").
             self._interactor.track_click_position(self._on_click, side="left", viewport=True)
-            # Footprint browser (2026-08-28): the right button through the same VTK observer path,
+            # Footprint browser: the right button through the same VTK observer path,
             # resolved by _on_right_click against Scene.footprints_at_screen.
             self._interactor.track_click_position(self._on_right_click, side="right",
                                                   viewport=True)
@@ -827,10 +826,10 @@ The mask is deliberately NOT applied here anymore -- ``MaskRow``
             # read the same event, neither consumes or blocks the other.
             self._camera = MomentumCamera(self._interactor, self._scene)
             iren = self._interactor.iren
-            # 2026-08-25: the three registrations below moved into install_momentum_observers()
-            # (module level, testable off-screen) after the MouseMoveEvent one turned out to
-            # DISABLE the trackball -- see that function's docstring. The comments that follow
-            # still describe WHY each event lands where it does.
+            # The three registrations below live in install_momentum_observers() (module level,
+            # testable off-screen); the MouseMoveEvent one must also drive the style's own handler
+            # or it DISABLES the trackball -- see that function's docstring. The comments that
+            # follow describe WHY each event lands where it does.
             install_momentum_observers(iren, self._camera)
             # MouseMoveEvent is registered on the INTERACTOR STYLE object, not the interactor
             # itself, unlike every other observer here -- confirmed empirically (see the task
@@ -1063,7 +1062,7 @@ The mask is deliberately NOT applied here anymore -- ``MaskRow``
 
     def preview_raster_values(self, layer_id, values, src_stride: int = 1) -> bool:
         """Forward into ``Scene.preview_raster_values``; False before a scene exists -- the
-        live band-preview tick's Vector-view half (2026-09-16)."""
+        live band-preview tick's Vector-view half."""
         if self._scene is not None:
             return self._scene.preview_raster_values(layer_id, values, src_stride)
         return False
@@ -1209,7 +1208,7 @@ The mask is deliberately NOT applied here anymore -- ``MaskRow``
         self._group_palette.add_pick(picked, shift)
 
     def _on_right_click(self, point) -> None:
-        """Right button (footprint browser, 2026-08-28): the identical pixel flip :meth:`_on_click`
+        """Right button (footprint browser): the identical pixel flip :meth:`_on_click`
         documents (VTK's bottom-left origin -> the top-left screen pixels the picking math uses),
         then :meth:`Scene.footprints_at_screen`; hits are emitted for MainWindow's Import menu."""
         if self._scene is None:

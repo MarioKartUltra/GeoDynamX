@@ -21,9 +21,9 @@ class WTMM2D:
     """
 
     name = "wtmm2d"
-    #: Progressive compute (design 2026-09-14 §3): resolve() threads its ``cancel`` predicate into
-    #: this device's ``compute`` because it opts in here. Reaches ``run_wtmm2d``'s per-stage check
-    #: so a superseding edit kills the in-flight stack instead of waiting it out.
+    #: Progressive compute: resolve() threads its ``cancel`` predicate into this device's
+    #: ``compute`` because it opts in here. Reaches ``run_wtmm2d``'s per-stage check so a
+    #: superseding edit kills the in-flight stack instead of waiting it out.
     wants_cancel = True
     #: PRE is everything that shapes the wavelet transform and its extrema
     #: (run once, expensive); CHAINING is everything that decides how extrema link into maxima
@@ -48,10 +48,10 @@ class WTMM2D:
               soft_min=0.5, soft_max=4.0, units="", label="aₘᵢₙ"),
         Param("wavelet", ParamKind.CHOICE, default="mexican",
               choices=("mexican", "gaussian"), label="Wavelet"),
-        # 2026-08-30 ("break up processing noise before chaining"): the M-Z devices' seeded
-        # half-LSB dither, on the WTMM path. Applied by THIS device to a CLONE of the field
-        # (the backend is a verbatim EQSelect copy and rejects unknown params); fails toward
-        # no-op when no value lattice is measurable (core.mz_edges.measure_lsb's contract).
+        # The M-Z devices' seeded half-LSB dither, on the WTMM path: it breaks up processing
+        # noise before chaining. Applied by THIS device to a CLONE of the field (the backend is
+        # a verbatim EQSelect copy and rejects unknown params); fails toward no-op when no
+        # value lattice is measurable (core.mz_edges.measure_lsb's contract).
         Param("dither", ParamKind.BOOL, default=False, label="Dither (±½ LSB)"),
         # Pseudo-fractional integration order η (Wendt 2009; available
         # on the scalar path too, not only tensor) -- the per-scale a**η modulus lift applied
@@ -60,10 +60,10 @@ class WTMM2D:
         # seeds its η shift-back from this value, so what is lifted forward is undone at the fit.
         Param("fracint_alpha", ParamKind.FLOAT, default=1.0, min=-6.0, max=6.0,
               soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
-        # 2026-09-20 ("interpolation for xsmurf parity"): parabolic refinement of each NMS
-        # maximum along its gradient direction (dynamix.core.subpixel) -- the refined MODULUS
-        # replaces mod (the xsmurf follow / LastWave-1D value channel, feeding chaining and
-        # Z(q,a)); float x_sub/y_sub positions ride alongside the untouched integer support.
+        # Parabolic refinement of each NMS maximum along its gradient direction, for xsmurf
+        # parity (dynamix.core.subpixel) -- the refined MODULUS replaces mod (the xsmurf
+        # follow / LastWave-1D value channel, feeding chaining and Z(q,a)); float x_sub/y_sub
+        # positions ride alongside the untouched integer support.
         # Default off = byte-identical pipeline.
         Param("interpolate", ParamKind.BOOL, default=False, label="Interpolate"),
         # The detection method. "nms" = bilinear non-maxima suppression (the historical DynamiX
@@ -139,18 +139,18 @@ class WTMM2D:
         res = dict(res)
         res["_frame"] = getattr(field, "frame", None)
         res["_shape"] = tuple(field.values.shape)
-        # H-line ordering, paid HERE on the worker (2026-08-30): the
-        # _order_lines walk used to run on the MAIN thread at every landing -- and with a noise
-        # step upstream every run mints a fresh result, so it ran every time, freezing the GUI
-        # for the whole walk. Stamped per scale, cached with the result; ScaleSelect hands the
-        # selected scale's runs to the canvas and the scene, which then never walk at landing.
+        # H-line ordering, paid HERE on the worker: run on the MAIN thread, the _order_lines
+        # walk would run at every landing -- and with a noise step upstream every run mints a
+        # fresh result, so it would run every time, freezing the GUI for the whole walk. Stamped
+        # per scale, cached with the result; ScaleSelect hands the selected scale's runs to the
+        # canvas and the scene, which then never walk at landing.
         from dynamix.core.hlines import hline_runs
         shape = res["_shape"][:2]
         res["_hline_runs"] = [hline_runs(layer, shape) for layer in res["extrema"]]
         # The draw-ready CSR chain product: EQSelect's representation
         # stamped as the result's native form -- filters narrow index selections over its metric
-        # table, views draw from it by concatenation, and the npz export writes the SAME bundle
-        # (spec 2026-08-24 §10 A6). Reuses the runs stamped just above; still worker-side.
+        # table, views draw from it by concatenation, and the npz export writes the SAME bundle.
+        # Reuses the runs stamped just above; still worker-side.
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
         return res
@@ -197,9 +197,9 @@ class WTMM2D:
         return res
 
     def preview(self, field, params: dict) -> dict:
-        """Finest-scale-only result for the progressive preview (design 2026-09-14 §3): the
-        wavelet transform + H-lines for the SINGLE finest scale, value-identical to this device's
-        own scale-0 layer, computed in ~1/n_scales the time. Skips ``dither`` (a preview is a
+        """Finest-scale-only result for the progressive preview: the wavelet transform +
+        H-lines for the SINGLE finest scale, value-identical to this device's own scale-0
+        layer, computed in ~1/n_scales the time. Skips ``dither`` (a preview is a
         provisional frame, not the analysed answer) and all chaining. ``engine.resolve.
         preview_resolve`` calls this then applies the chain's cheap filter steps on top."""
         from dynamix.core.wtmm_backend import run_wtmm2d_preview

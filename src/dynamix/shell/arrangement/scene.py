@@ -155,8 +155,8 @@ through to get here (``arrangement/view.py``'s own module docstring).
 bool and rebuilds, mirroring its shape exactly. In frame mode, every placement call site above
 (raster, chains, extrema, ROI outline) is rerouted from ``geo.mapping``'s CRS pipeline
 (``field_lonlat_grid``/``points_lonlat`` + :func:`~dynamix.core.projection.project`) to the
-field's own ``x_axis``/``y_axis`` used DIRECTLY as planar coordinates (2026-08-19 fix --
-originally ``field.frame.to_scene``, which is a pass-through for ``LocalFrame`` but routes a
+field's own ``x_axis``/``y_axis`` used DIRECTLY as planar coordinates (bypassing
+``field.frame.to_scene``, which is a pass-through for ``LocalFrame`` but routes a
 ``GeographicFrame`` through the world-map ``mod 360`` longitude canonicalisation, tearing any
 seam-crossing raster into edge strips with the bridging cells smeared across the width; native-
 frame display is seam-free by doctrine, see :meth:`_scene_points`). No CRS, no projection mode,
@@ -328,11 +328,11 @@ from dynamix.geo.mapping import (NoGeoreference, _mask_sentinels, _stride_for, a
 DEFAULT_MODE = "mercator"
 
 #: Vertical lift for VECTOR actors (chains/extrema/ROI/point layers) above the raster drape they
-#: sit on (2026-08-19 fix). Coplanar geometry at the drape's exact z loses the depth test to the
-#: opaque surface nearly everywhere under a top-down parallel view -- the Vector tab's default
-#: framing -- so chains vanished except where they overhang the drape's half-pixel border (only points on the border showed; reproduced offscreen, confirmed
-#: angle-dependent, and confirmed FIXED by geometric separation where VTK's shader-side
-#: coincident-topology offsets empirically did nothing in this pipeline). Geo modes lift via the
+#: sit on. Coplanar geometry at the drape's exact z loses the depth test to the opaque surface
+#: nearly everywhere under a top-down parallel view -- the Vector tab's default framing -- so
+#: chains vanish except where they overhang the drape's half-pixel border (only points on the
+#: border show). The loss is angle-dependent; geometric separation fixes it, where VTK's
+#: shader-side coincident-topology offsets showed no effect in this pipeline. Geo modes lift via the
 #: existing ``height`` plumbing in KILOMETRES (the globe turns it into a radial lift for free;
 #: flat modes into a small z) -- 0.5 km is invisible at map scale and vexag-scaling it stays
 #: invisible top-down. Frame mode lifts by a fixed fraction of the layer's own extent, so the
@@ -343,9 +343,9 @@ _VECTOR_LIFT_FRAC = 1e-3
 #: Name of the corner legend's text actor -- excluded from :meth:`Scene.actor_count`, and never
 #: collides with a layer's own mesh-actor name (see :meth:`Scene._mesh_actor_name`).
 _LEGEND_NAME = "__arrangement_legend__"
-_PREVIEW_PREFIX = "__preview__"           # one actor per previewed scene (data browser, 2026-08-28)
-_REFERENCE_PREFIX = "__ref__"             # one actor per reference layer (2026-08-29)
-_FOOTPRINT_NAME = "__footprints__"      # the data browser's footprint loops (2026-08-28), ONE actor
+_PREVIEW_PREFIX = "__preview__"           # one actor per previewed scene (data browser)
+_REFERENCE_PREFIX = "__ref__"             # one actor per reference layer
+_FOOTPRINT_NAME = "__footprints__"      # the data browser's footprint loops, ONE actor
 FOOTPRINT_COLOR = (255, 230, 120)       # pale amber: outlines of rasters NOT loaded -- distinct from
                                         # ROI_BOUNDS_COLOR's deeper amber (a box on loaded data)
 
@@ -637,7 +637,7 @@ class Scene:
         self._footprints: list = []          # dynamix.geo.footprints.Footprint records
         self._previews: list = []            # (name, RasterField) previews draped on the world
         self._surface_fields: dict = {}      # id(field) -> negate, for layers shown as a 3-D surface
-        # Live drape preview (2026-09-16): layer_id -> {"grid", "stride", "dims", "rgba"} --
+        # Live drape preview: layer_id -> {"grid", "stride", "dims", "rgba"} --
         # the handles preview_raster_values needs to swap a drape's scalars IN PLACE (a
         # histogram drag tick) without the full set_layers rebuild. Cleared with the actors.
         self._raster_grids: dict = {}
@@ -755,21 +755,21 @@ class Scene:
         old_frame_key = self.camera_key() if (self._frame_mode and not was_empty) else None
         old_ids = {e["layer"].layer_id for e in self._entries}
         if self._filter_only_resync(entries):
-            # Filter-only change (2026-08-30, "controls only work in the raster view"): same
-            # layers, fields, signatures and raster styles -- only filtered results moved. The
-            # vector actors of the changed layers are rebuilt in place; the raster drapes,
-            # reference layers, previews, legend and CAMERA are all left exactly as they are.
+            # Filter-only change: same layers, fields, signatures and raster styles -- only
+            # filtered results moved. The vector actors of the changed layers are rebuilt in
+            # place; the raster drapes, reference layers, previews, legend and CAMERA are all
+            # left exactly as they are.
             self._entries = entries
             return pruned
         self._entries = entries
         self._rebuild()
         self._apply_raster_visibility()
-        # **First-flip framing (real-display finding, 2026-08-13).** Every actor above was added
-        # with ``reset_camera=False`` (deliberate: a relayering must never yank a navigated
-        # camera), and the live first-Tab order is camera-reset-on-EMPTY-scene first, entries
-        # after (``ArrangementView.activate``'s build tail runs before ``_sync_arrangement``
-        # delivers anything) -- so the camera sits framed on VTK's default unit bounds at the
-        # origin while the first drape lands hundreds of projected degrees away: a themed, blank
+        # **First-flip framing.** Every actor above was added with ``reset_camera=False``
+        # (deliberate: a relayering must never yank a navigated camera), and the live first-Tab
+        # order is camera-reset-on-EMPTY-scene first, entries after
+        # (``ArrangementView.activate``'s build tail runs before ``_sync_arrangement`` delivers
+        # anything) -- so the camera sits framed on VTK's default unit bounds at the origin
+        # while the first drape lands hundreds of projected degrees away: a themed, blank
         # view. The empty -> non-empty TRANSITION is the one moment a re-frame can never fight
         # the user (there was nothing to navigate on), so it is the one moment this method
         # re-frames: ``reset_camera()`` re-fits bounds only, preserving the current projection
@@ -799,11 +799,11 @@ class Scene:
                     self._fit_to_data()
         elif not self._frame_mode and old_ids and entries \
                 and old_ids.isdisjoint(e["layer"].layer_id for e in entries):
-            # **Geo-mode dataset swap (2026-08-29).** The geo camera is mode-scoped (one world,
-            # one camera), which is right while layers ADD -- but when every layer on screen is
-            # replaced by others, the new data can sit on the far side of the globe from a
-            # camera fitted on the old (ASTER in the Pilbara -> BOEM in the Gulf: "the raster
-            # disappears"). Only the disjoint case re-frames; adding or resyncing never does.
+            # **Geo-mode dataset swap.** The geo camera is mode-scoped (one world, one camera),
+            # which is right while layers ADD -- but when every layer on screen is replaced by
+            # others, the new data can sit on the far side of the globe from a camera fitted on
+            # the old (ASTER in the Pilbara -> BOEM in the Gulf leaves the new raster out of
+            # view). Only the disjoint case re-frames; adding or resyncing never does.
             self._fit_to_data()
         return pruned
 
@@ -1039,7 +1039,7 @@ class Scene:
 
     def _apply_raster_visibility(self) -> None:
         """Each entry's ``show_raster`` (default True) onto its drape actor -- the dataset hidden
-        from the source header row (2026-08-29) while its vectors stay. Re-applied after every
+        from the source header row while its vectors stay. Re-applied after every
         :meth:`set_layers` and every :meth:`_rebuild`, since both can mint the actor afresh."""
         actors = self._plotter.renderer.actors
         for entry in self._entries:
@@ -1050,10 +1050,10 @@ class Scene:
     def _fit_to_data(self) -> None:
         """Frame the DATA layers' actors (rasters + their vectors, :attr:`_layer_actors`) -- not
         the graticule, footprints, previews or reference layers, which can span the world
-        (BOEM's ``website/states``) and would shrink a 12 km window to nothing (2026-08-29: the raster vanished from the globe view). On the globe the camera is
-        first put OUTSIDE the Earth on the data's own radial, so a fit never looks through the
-        planet at a dataset on the far side; flat modes keep their top-down normal. Falls back
-        to a plain ``reset_camera()`` when no data actor is on screen."""
+        (BOEM's ``website/states``) and would shrink a 12 km window to nothing. On the globe
+        the camera is first put OUTSIDE the Earth on the data's own radial, so a fit never looks
+        through the planet at a dataset on the far side; flat modes keep their top-down normal.
+        Falls back to a plain ``reset_camera()`` when no data actor is on screen."""
         actors = self._plotter.renderer.actors
         names = [n for ns in self._layer_actors.values() for n in ns if n in actors]
         if not names:
@@ -1190,11 +1190,11 @@ class Scene:
             if len(x_axis) == 0 or len(y_axis) == 0:
                 continue
             try:
-                # Planar axis extremes directly (2026-08-19 fix) -- the signature must describe
-                # the geometry frame mode actually DRAWS, and both drawing paths are planar now
-                # (see _scene_points's "Frame mode" section); running the corners through
-                # frame.to_scene here would re-import the world-map wrap this fix removed and
-                # let the camera key disagree with the on-screen bounds.
+                # Planar axis extremes directly -- the signature must describe the geometry
+                # frame mode actually DRAWS, and both drawing paths are planar (see
+                # _scene_points's "Frame mode" section); running the corners through
+                # frame.to_scene here would re-import the world-map wrap and let the camera key
+                # disagree with the on-screen bounds.
                 x0, x1 = float(x_axis[0]), float(x_axis[-1])
                 y0, y1 = float(y_axis[0]), float(y_axis[-1])
             except Exception:
@@ -1541,7 +1541,7 @@ class Scene:
 
     _STYLE_KEYS = ("status", "signature", "colormap", "hillshade", "stretch", "surface",
                    "vtrail_color", "show_raster", "kind",
-                   # Surface-source + drape (2026-09-16): identity stamps computed by
+                   # Surface-source + drape: identity stamps computed by
                    # main_window (arrays are immutable; a new z-source layer or a fresh h_map
                    # mints a new id), so the filter-only fast path correctly falls back to a
                    # full rebuild when either changes.
@@ -1652,11 +1652,11 @@ class Scene:
                     status = f"error:{exc}"
             elif status != "no-georeference" and entry.get("kind") != "points" \
                     and entry.get("field") is not None:
-                # 2026-09-16 (user): a loaded raster shows in the Vector view BEFORE any compute
-                # -- the drape (and the 3-D surface) need only the field; chains/extrema join
-                # when a result lands (_add_layer_geometry already treats result=None as
-                # raster-only). The legend line still carries the honest status ("edited — run
-                # to compute" / the compute error), so nothing pretends to be resolved.
+                # A loaded raster shows in the Vector view BEFORE any compute -- the drape (and
+                # the 3-D surface) need only the field; chains/extrema join when a result lands
+                # (_add_layer_geometry already treats result=None as raster-only). The legend
+                # line still carries the honest status ("edited — run to compute" / the compute
+                # error), so nothing pretends to be resolved.
                 try:
                     self._add_layer_geometry(layer, entry["field"], None,
                                              colormap=entry.get("colormap"),
@@ -1769,7 +1769,7 @@ class Scene:
         ``self._layer_actors`` -- :meth:`_add_layer_geometry` commits that only once the whole
         layer, vectors included, has built successfully).
 
-        **Surface source + drape (2026-09-16).** ``surface_field`` (a same-grid RasterField, or
+        **Surface source + drape.** ``surface_field`` (a same-grid RasterField, or
         ``None`` = this layer's own values) supplies the 3-D surface HEIGHTS; ``drape`` (a
         same-shape 2-D array, or ``None`` = this layer's own values) supplies the COLOR scalars
         -- e.g. a holder_map result's h(x) draped over the DEM's elevation. Both are decimated
@@ -1789,8 +1789,8 @@ class Scene:
         **Frame mode** branches to :meth:`_frame_grid_for` instead
         of :meth:`_lonlat_grid_for` -- same decimation budget/shape (:func:`~dynamix.geo.mapping.
         _stride_for`, reused directly rather than reimplemented), but the coordinate SOURCE is
-        ``field.x_axis``/``field.y_axis`` used DIRECTLY as planar coordinates (2026-08-19 fix --
-        deliberately NOT ``frame.to_scene``, whose GeographicFrame branch applies the world-map
+        ``field.x_axis``/``field.y_axis`` used DIRECTLY as planar coordinates (deliberately
+        NOT ``frame.to_scene``, whose GeographicFrame branch applies the world-map
         ``mod 360`` longitude canonicalisation and tears seam-crossing rasters; see
         :meth:`_scene_points`'s own "Frame mode" section for the full rationale -- the two
         placement paths must agree or the drape and its own chains land in different frames);
@@ -1826,11 +1826,10 @@ class Scene:
                 # layer, elevation-like recon on a recon layer. The DEM-under-h pairing is
                 # the Other-dataset pick (the master's field).
                 z2d = color2d
-            # 3-D surface (2026-08-29): z = the height source (sign-flipped for depth-positive
-            # data) so a DEM or bathymetry stands up in its own frame; else the flat drape.
-            # 2026-09-16 (user): the Display section's "Vert. exag." (the hillshade z_factor)
-            # scales the SURFACE HEIGHTS too, not just the shading -- the knob finally does
-            # what its label says, per layer, composing with the scene-wide View vexag.
+            # 3-D surface: z = the height source (sign-flipped for depth-positive data) so a
+            # DEM or bathymetry stands up in its own frame; else the flat drape. The Display
+            # section's "Vert. exag." (the hillshade z_factor) scales the SURFACE HEIGHTS as
+            # well as the shading, per layer, composing with the scene-wide View vexag.
             zf = float(hillshade[3]) if hillshade and len(hillshade) > 3 else 1.0
             z = (self._surface_heights_rebased(z2d, surface).ravel() * zf
                  * _frame_z_scale(getattr(field, "frame", None))
@@ -1850,7 +1849,7 @@ class Scene:
                 cand = _slice_like(drape, values2d, _stride)
                 color2d = cand if cand is not None else color2d
             if surface_field is None and drape is not None:
-                # Same rule as the frame branch above (2026-09-18).
+                # Same rule as the frame branch above.
                 z2d = color2d
             lon_flat, lat_flat = lon2d.ravel(), lat2d.ravel()
             # height 0 for draping -- an ARRAY of zeros, not a bare python float: project()'s flat
@@ -1859,7 +1858,7 @@ class Scene:
             # broadcasts, via a plain multiply). Every other project() call site in this codebase
             # already passes a same-shape array for this reason (see tests/test_projection.py).
             # geo modes take height in KM: values are assumed metres (a DEM/bathymetry in m)
-            # Same per-layer height exaggeration as the frame branch above (2026-09-16).
+            # Same per-layer height exaggeration as the frame branch above.
             zf = float(hillshade[3]) if hillshade and len(hillshade) > 3 else 1.0
             h_km = (self._surface_heights_rebased(z2d, surface).ravel() * zf / 1000.0
                     if surface and surface[0] else np.zeros_like(lon_flat))
@@ -1871,7 +1870,7 @@ class Scene:
         grid.dimensions = [nx, ny, 1]          # x fastest, matching the ravel() order above
         classes01, class_rgba = self._classified(color2d, levels)
         if class_rgba is not None and not (hillshade and hillshade[0]):
-            # Explicit slice colors (2026-09-16): bake RGBA, same as the hillshade path --
+            # Explicit slice colors: bake RGBA, same as the hillshade path --
             # a LUT maps one scalar and these colors are the user's own table.
             grid.point_data["rgba"] = (class_rgba.reshape(-1, 4) * 255.0).astype(np.uint8)
             name = self._mesh_actor_name(layer.layer_id)
@@ -1879,11 +1878,11 @@ class Scene:
                                     name=name, reset_camera=False)
             return name
         if classes01 is not None:
-            # Density slice (2026-09-16): discrete classes replace the continuous stretch --
+            # Density slice: discrete classes replace the continuous stretch --
             # the LUT paints piecewise-constant slices, same field the canvas shows.
             grid.point_data["value"] = classes01.ravel()
         elif stretch and stretch[0] != "linear" and color2d.ndim == 2:
-            # Stretch (2026-08-29): the drape's scalars are the stretched [0, 1] field, so the
+            # Stretch: the drape's scalars are the stretched [0, 1] field, so the
             # LUT (and its later swaps) sees exactly what the canvas shows.
             from dynamix.core.stretch import stretch as _stretch
             grid.point_data["value"] = _stretch(color2d, stretch[0], percent=stretch[1]).ravel()
@@ -1895,10 +1894,10 @@ class Scene:
             "grid": grid, "stride": _stride, "dims": (ny, nx),
             "rgba": bool(hillshade and hillshade[0] and color2d.ndim == 2)}
         if hillshade and hillshade[0] and color2d.ndim == 2:
-            # Hillshade (2026-08-29): colours baked as RGBA -- colormap × shaded relief -- because
+            # Hillshade: colours baked as RGBA -- colormap × shaded relief -- because
             # a LUT maps one scalar and this needs two. Same core function and the same
             # "frame spacing × stride" the canvas uses, so the two surfaces shade identically.
-            # Surface source + drape (2026-09-16): SHADE from the height source, COLOR the drape.
+            # Surface source + drape: SHADE from the height source, COLOR the drape.
             grid.point_data["rgba"] = self._shaded_rgba(field, z2d, _stride, colormap, hillshade,
                                                         stretch, color2d=color2d, levels=levels)
             self._plotter.add_mesh(grid, scalars="rgba", rgba=True, show_scalar_bar=False,
@@ -1910,8 +1909,8 @@ class Scene:
         return name
 
     def preview_raster_values(self, layer_id, values, src_stride: int = 1) -> bool:
-        """Swap one drape's COLOR scalars in place -- the live band-reconstruction tick
-        (2026-09-16). ``values`` is a (possibly ``src_stride``-decimated) full-field raster;
+        """Swap one drape's COLOR scalars in place -- the live band-reconstruction tick.
+        ``values`` is a (possibly ``src_stride``-decimated) full-field raster;
         nearest-neighbor sampled onto the drape's own grid, scalar range refreshed, one
         render. False (caller notifies instead) when the layer has no plain-LUT drape here --
         unbuilt, or RGBA-baked (hillshade), where a per-tick rebake is not v1."""
@@ -1943,7 +1942,7 @@ class Scene:
     @staticmethod
     def _classified(color2d, levels):
         """``(classes01, rgba)`` for an active density slice, else ``(None, None)``.
-        ``levels`` is the entry's ``(spec_text, colors_text)`` pair (2026-09-16); classes01 is
+        ``levels`` is the entry's ``(spec_text, colors_text)`` pair; classes01 is
         the [0, 1] class field for the LUT path, rgba a float [0, 1] table-painted image when
         EXPLICIT per-class colors are set (count-matched), else None. Unparseable text falls
         back to the continuous stretch silently -- same posture as the canvas."""
@@ -1982,7 +1981,7 @@ class Scene:
                      color2d=None, levels=None) -> np.ndarray:
         """``(N, 4)`` uint8 colours for a hillshaded drape: the layer's colormap over the COLOR
         array, multiplied by relief shading from ``values2d`` (the HEIGHT source -- the same
-        array when no drape/surface-source is in play, so pre-2026-09-16 calls are unchanged);
+        array when no drape/surface-source is in play);
         NaN cells transparent."""
         import matplotlib
         from dynamix.core.hillshade import hillshade as _hillshade
@@ -1999,7 +1998,7 @@ class Scene:
         mode, pct = (stretch[0], stretch[1]) if stretch else ("linear", 2.0)
         classes01, class_rgba = self._classified(color2d, levels)
         if class_rgba is not None:
-            # Explicit slice colors x shaded relief (2026-09-16).
+            # Explicit slice colors x shaded relief.
             class_rgba = class_rgba.copy()
             class_rgba[..., :3] *= np.nan_to_num(shade, nan=0.0)[..., None]
             class_rgba[..., 3] *= np.where(np.isfinite(shade), 1.0, 0.0)
@@ -2104,7 +2103,7 @@ class Scene:
         """Heights for the 3-D surface option: the value (first component of a multi-component
         field), NaN -> 0 (those cells are transparent anyway), negated for depth-positive data
         so land and seafloor share sea level = 0. SUPERSEDED for the mesh and the ride by
-        :meth:`_surface_heights_rebased` (2026-09-20); kept as the absolute-height reading."""
+        :meth:`_surface_heights_rebased`; kept as the absolute-height reading."""
         v = np.asarray(values2d, dtype=np.float64)
         if v.ndim == 3:
             v = v[..., 0]
@@ -2123,7 +2122,7 @@ class Scene:
         if vals.ndim == 3:
             vals = vals[..., 0]
         v = -vals if negate else vals
-        # Same rebasing datum as the mesh (2026-09-20) -- computed over the WHOLE field,
+        # Same rebasing datum as the mesh -- computed over the WHOLE field,
         # so chains sit ON the rebased surface instead of floating a base-level above it.
         base = self._surface_base(v)
         h = np.nan_to_num(v[np.asarray(rows, dtype=np.intp), np.asarray(cols, dtype=np.intp)]
@@ -2142,7 +2141,7 @@ class Scene:
 
         **Frame mode:** ``field.x_axis[cols]``/``field.y_axis[rows]`` -- the identical pixel-center
         lookup ``points_lonlat`` performs before its own CRS transform -- used DIRECTLY as planar
-        scene coordinates (2026-08-19 fix). Deliberately NOT ``field.frame.to_scene``: for a
+        scene coordinates. Deliberately NOT ``field.frame.to_scene``: for a
         ``LocalFrame`` that call is a documented pass-through (identical to planar), but for a
         ``GeographicFrame`` it routes through ``projection.project``'s WORLD-MAP longitude
         canonicalisation (``mod 360``), which tears any raster whose lon range crosses the active
@@ -2221,14 +2220,14 @@ class Scene:
         return _VECTOR_LIFT_FRAC * span if span > 0 else _VECTOR_LIFT_FRAC
 
     def _hline_actors_from_base(self, layer_id, field, result, ext0, k, ex, ey, names) -> bool:
-        """H-line + singleton actors from the BASE layer's cached ordering (2026-08-30): ``result["_ext_base"]`` is the id-stable unfiltered layer (ScaleSelect's
-        stamp), so the ``hline_runs`` walk and the ``_scene_points`` projection are paid once per
-        computed stack; every filter tweak after that keeps exactly the segments whose BOTH
-        endpoints survived -- an O(n) membership test, the scene half of the canvas's
-        ``_masked_hline_geometry``. A kept point stripped of both neighbours falls back to a dot
-        (the singleton actor), matching what a re-walk would produce. Returns False (build
-        nothing) when there is no base or the placement inputs changed -- caller runs the
-        original walk."""
+        """H-line + singleton actors from the BASE layer's cached ordering: ``result["_ext_base"]``
+        is the id-stable unfiltered layer (ScaleSelect's stamp), so the ``hline_runs`` walk and
+        the ``_scene_points`` projection are paid once per computed stack; every filter tweak
+        after that keeps exactly the segments whose BOTH endpoints survived -- an O(n)
+        membership test, the scene half of the canvas's ``_masked_hline_geometry``. A kept point
+        stripped of both neighbours falls back to a dot (the singleton actor), matching what a
+        re-walk would produce. Returns False (build nothing) when there is no base or the
+        placement inputs changed -- caller runs the original walk."""
         base = result.get("_ext_base")
         if base is None:
             return False
@@ -2260,10 +2259,10 @@ class Scene:
             si = int(result.get("_scale_idx", 0))
             keep = layer_point_keep(prod, sel, si, len(np.asarray(base["x"])))[order]
         else:
-            # TRUE O(n) membership (2026-09-14): mirrors the canvas fix -- the old
-            # np.sort+searchsorted was O(n log n) (~144 ms on a 1M-point DEM finest scale), the
-            # vector view's half of the scrub lag the user profiled. Scatter the filtered points
-            # into a boolean raster grid, gather by the base ordering's flat positions.
+            # TRUE O(n) membership, mirroring the canvas: an np.sort+searchsorted test would be
+            # O(n log n) (~144 ms on a 1M-point DEM finest scale), the vector view's half of the
+            # lag while scrubbing. Scatter the filtered points into a boolean raster grid, gather
+            # by the base ordering's flat positions.
             grid = np.zeros(int(field.ny) * int(field.nx), dtype=bool)
             grid[np.asarray(ey[:k], np.int64) * int(field.nx)
                  + np.asarray(ex[:k], np.int64)] = True
@@ -2351,7 +2350,7 @@ class Scene:
             ey = np.asarray(ext0.get("y", ()), dtype=np.intp)
             k = min(len(ex), len(ey))
             if k > 0:
-                # H-lines as polylines (2026-08-28): the same points joined along each labelled
+                # H-lines as polylines: the same points joined along each labelled
                 # line, the way the 2-D canvas has always drawn them. One actor, one cell per
                 # contiguous run. Points that sit on a line are drawn AS the line; only the
                 # singletons keep a dot (4 px of grey per point would otherwise bury 1.5 px lines).
@@ -2629,7 +2628,7 @@ class Scene:
         rank = np.searchsorted(uniq, rounded)
         return palette[rank]
 
-    # -- footprints (data browser, 2026-08-28) ---------------------------------------------
+    # -- footprints (data browser) ---------------------------------------------------------
     def set_footprints(self, footprints) -> None:
         """Outline every :class:`~dynamix.geo.footprints.Footprint` on the world -- rasters the
         user has NOT loaded, drawn from header metadata alone so a folder of 37 ASTER tiles
@@ -2709,7 +2708,7 @@ class Scene:
             members.sort(key=lambda m: _band_sort_key(m.name))
         return groups
 
-    # -- reference layers (2026-08-29) -----------------------------------------------------
+    # -- reference layers ------------------------------------------------------------------
     def set_reference_layers(self, entries) -> None:
         """Draw GIS reference layers (``dynamix.geo.vectors``) on the world: one actor per layer.
         ``entries`` are dicts ``{ref_id, name, kind, color, visible, lonlat: [[(N,2) lon/lat
@@ -2776,9 +2775,9 @@ class Scene:
             if not parts:
                 continue
             allpts = np.concatenate(parts)
-            # 3-D surface (2026-08-29, "the shp are rendering UNDER the raster"): a raster shown
-            # as a surface rises above the fixed lift, so ride it from the layer's pixel-frame
-            # vertices, exactly as chains and H-lines do through _scene_points.
+            # 3-D surface: a raster shown as a surface rises above the fixed lift and would hide
+            # the outlines under it, so ride it from the layer's pixel-frame vertices, exactly
+            # as chains and H-lines do through _scene_points.
             ride = self._reference_ride(e.get("pixels"), parts)
             z = ride if ride is not None else np.zeros(len(allpts))
             if self._frame_mode:
@@ -2801,7 +2800,7 @@ class Scene:
                                                color=color, line_width=1.5, name=name, reset_camera=False)
             actor.SetVisibility(bool(e.get("visible", True)))
 
-    # -- previews (data browser, 2026-08-28) -----------------------------------------------
+    # -- previews (data browser) -----------------------------------------------------------
     def set_previews(self, previews) -> None:
         """Drape small preview fields (:func:`dynamix.geo.footprints.overview_field`) on the
         world so a scene can be judged before it is imported. ``previews`` is a list of

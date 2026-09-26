@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Tests for dynamix.core.microcanonical -- the Turiel microcanonical formalism core
-(fresh reimplementation of the author's microcanonical_wtmm.ipynb notebook, 2026-09-15,
-with the prototype's defects corrected -- see the module docstring).
+(fresh reimplementation of the author's microcanonical_wtmm.ipynb notebook, with the
+prototype's defects corrected -- see the module docstring).
 
 Two synthetic grounds, chosen deliberately:
 
@@ -248,7 +248,7 @@ def test_multiaffine_gamma_tracks_fbm_hurst():
 
 def test_scale_grid_count_is_nearly_irrelevant_but_range_dominates():
     """Turiel 2009: regressions run over "a range of scales typically going from 1 to 8 pixels
-    non uniformly sampled" -- a FEW scales over ~3 octaves. Pinned finding (2026-09-16): within
+    non uniformly sampled" -- a FEW scales over ~3 octaves. Pinned finding: within
     the SAME range the sample count barely changes the map (dyadic 4-pt vs geometric 6-pt over
     kappa=8: r > 0.9), while widening the RANGE changes the physics (kappa=32: r < 0.7 against
     the Turiel-range map -- coarse-scale blur homogenizes exactly what the microcanonical
@@ -263,7 +263,7 @@ def test_scale_grid_count_is_nearly_irrelevant_but_range_dominates():
     dyadic = gmap(np.array([1.0, 2.0, 4.0, 8.0]))
     geom_same = gmap(np.geomspace(1, 8, 6))
     geom_wide = gmap(np.geomspace(1, 32, 10))
-    # jointly-finite pixels (2026-09-22): at 32-bit FFT precision the few |T|~0 zero
+    # jointly-finite pixels: at 32-bit FFT precision the few |T|~0 zero
     # crossings of the multiaffine projection are honestly NaN
     ok = np.isfinite(dyadic) & np.isfinite(geom_same) & np.isfinite(geom_wide)
     assert ok.mean() > 0.99
@@ -349,7 +349,7 @@ def test_single_band_reconstruction_answers_which_band_carries_the_features():
 def test_reconstruction_border_fix_on_a_nonperiodic_field():
     """The Fourier kernel assumes periodicity; a plain TREND (maximally non-periodic) is the
     acid test. Default symmetric extension reconstructs it well from the full mask; the raw
-    periodic inversion (pad=0, the pre-2026-09-16 behavior) demonstrably cannot."""
+    periodic inversion (pad=0) demonstrably cannot."""
     yy, xx = np.mgrid[:128, :128].astype(np.float64)
     s = xx + 0.5 * yy
     full = np.ones(s.shape, dtype=bool)
@@ -384,10 +384,10 @@ def test_band_reconstructor_matches_the_exact_inversion_and_is_fast_per_tick():
 
 
 def test_flat_patches_get_nan_not_absurd_slopes():
-    """The +-200 artifact (user, BOEM 2026-09-18): a field with a large FLAT patch (nodata
-    fill / quantized plain) has zero measure there; the projection hits the log floor at fine
-    scales and the regression manufactured slopes of +-hundreds. Floored pixels are NaN now,
-    and every finite h stays physically plausible."""
+    """The +-200 artifact: a field with a large FLAT patch (nodata fill / quantized plain) has
+    zero measure there; the projection hits the log floor at fine scales and the regression
+    would manufacture slopes of +-hundreds. Floored pixels are NaN, and every finite h stays
+    physically plausible."""
     rng = np.random.default_rng(0)
     f = rng.normal(0.0, 1.0, (128, 128)).cumsum(axis=1)     # textured half
     f[:, :64] = 3.7                                          # exactly flat half
@@ -404,10 +404,10 @@ def test_flat_patches_get_nan_not_absurd_slopes():
 #
 
 def test_marr_family_names_alias_their_kernels():
-    """The method-true names (2026-09-19 taxonomy: the wavelet family is a property of the
-    METHOD, not an orthogonal knob): g2 / q_mexican / lorentzian_marr are the multiaffine
-    route's own names for the kernels the conflated device called gaussian / q_gaussian /
-    lorentzian -- same arrays, exactly, so the split devices change no physics."""
+    """The method-true names (the wavelet family is a property of the METHOD, not an
+    orthogonal knob): g2 / q_mexican / lorentzian_marr are the multiaffine route's own names
+    for the kernels the conflated device called gaussian / q_gaussian / lorentzian -- same
+    arrays, exactly, so the split devices change no physics."""
     f = fbm2d(64, 0.5, seed=3)
     scales = [1.0, 2.0, 4.0]
     np.testing.assert_array_equal(mc.ricker_projections(f, scales, wavelet="g2"),
@@ -471,7 +471,7 @@ def test_measure_frac_gaussian_is_positive_unit_mass():
     from dynamix.core import fft_policy
 
     const = np.full((48, 48), 1.6)
-    # the identity to float64 on 64-bit FFTW3, to float32 on the 32-bit engines (2026-09-22)
+    # the identity to float64 on 64-bit FFTW3, to float32 on the 32-bit engines
     for engine, precision, rtol in (("fftw", 64, 1e-9), ("fftw", 32, 1e-6), ("mlx", 32, 1e-6)):
         if engine == "mlx":
             try:
@@ -530,14 +530,13 @@ def test_g1_g3_track_fbm_hurst_with_the_tail_compression_caveat():
 
 
 def test_flat_patches_get_nan_in_the_punctual_estimate_too():
-    """The +-200 artifact class, punctual edition (adversarial review, 2026-09-19): FFT
-    leakage dust (~1e-16 of the signal) keeps a no-support pixel 'positive', so the plain
-    T0 > 0 gate fabricated a plausible-looking finite h across a nodata flat -- determined
-    by rounding noise, not data. The regression path's relative floor applies at the single
-    finest scale too. (This function-level floor catches DUST; the multiaffine route's
-    scale-1 alias coupling is above it and is masked at the device layer instead -- the
-    estimator-orthogonal cross-scale mask in ``holder_methods.method_arrays``, whose test
-    lives with the devices.)"""
+    """The +-200 artifact class, punctual edition: FFT leakage dust (~1e-16 of the signal)
+    keeps a no-support pixel 'positive', so a plain T0 > 0 gate fabricates a plausible-looking
+    finite h across a nodata flat -- determined by rounding noise, not data. The regression
+    path's relative floor applies at the single finest scale too. (This function-level floor
+    catches DUST; the multiaffine route's scale-1 alias coupling is above it and is masked at
+    the device layer instead -- the estimator-orthogonal cross-scale mask in
+    ``holder_methods.method_arrays``, whose test lives with the devices.)"""
     rng = np.random.default_rng(0)
     f = rng.normal(0.0, 1.0, (128, 128)).cumsum(axis=1)     # textured half
     f[:, :64] = 3.7                                          # exactly flat half

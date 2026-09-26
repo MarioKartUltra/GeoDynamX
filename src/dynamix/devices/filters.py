@@ -57,10 +57,10 @@ class ScaleSelect:
         out = dict(result)
         out["extrema"] = [layers[idx]]
         out["_scale_idx"] = idx
-        # Geometry-reuse anchor (2026-08-30): downstream filters mint a NEW
-        # extrema dict on every tweak, so identity-keyed geometry caches always miss. This is the
-        # id-STABLE unfiltered layer (the cached transform's own object) -- the canvas orders its
-        # H-lines once under this key and masks per tweak instead of re-walking.
+        # Geometry-reuse anchor: downstream filters mint a NEW extrema dict on every tweak, so
+        # identity-keyed geometry caches always miss. This is the id-STABLE unfiltered layer (the
+        # cached transform's own object) -- the canvas orders its H-lines once under this key and
+        # masks per tweak instead of re-walking.
         out["_ext_base"] = layers[idx]
         runs = result.get("_hline_runs")
         if runs is not None and idx < len(runs):
@@ -189,10 +189,10 @@ class ModulusThreshold:
 class HLineLength:
     """Keep extrema on H-lines whose point count is within a range.
 
-    The missing member of EQSelect's fast filter stack (functionality matrix, 2026-08-09): short
-    H-lines are usually linking coincidences, and very long ones on mosaic data are often stitching
-    seams -- both ends of the range earn their knob. Length here is the POINT COUNT of the line at
-    this scale (the H-line family the chain filters' cross-scale lengths do not measure).
+    Part of EQSelect's fast filter stack: short H-lines are usually linking coincidences, and very
+    long ones on mosaic data are often stitching seams -- both ends of the range earn their knob.
+    Length here is the POINT COUNT of the line at this scale (the H-line family the chain filters'
+    cross-scale lengths do not measure).
 
     Isolated extrema (``line_id == -1``) pass through untouched: they are not lines, and their
     display is the orphan-dots toggle's business, not a length predicate's.
@@ -331,8 +331,7 @@ class HLineModulus:
     """Keep H-lines -- not points -- above a fraction of the layer's peak modulus.
 
     ``modulus_threshold`` judges every extremum alone, so a strong lineament loses its weak
-    flanks and breaks into pieces (2026-08-29: "it's treating the horizontal extrema as
-    individual points instead of lists of points"). This one judges the line:
+    flanks and breaks into pieces. This one judges the line:
 
     * ``sup`` -- the line's max |W| at this scale.
     * ``sup_all_scales`` -- the max |W| over every scale of the chains threading the line's points
@@ -414,7 +413,7 @@ class HLineModulus:
         return out
 
     def reading(self, result: dict, params: dict) -> str:
-        """Live feedback for the per-LINE H modulus filter (2026-09-15): the per-line sup |W|
+        """Live feedback for the per-LINE H modulus filter: the per-line sup |W|
         distribution from the chain product's static ``h_mod_sup`` column, so this reads as
         present and data-driven like the V-chain modulus filter."""
         prod = result.get("chain_product")

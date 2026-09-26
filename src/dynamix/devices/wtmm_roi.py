@@ -65,23 +65,22 @@ class WTMM2DROI:
               soft_min=MIN_A_MIN, soft_max=4.0, units="", label="aₘᵢₙ"),
         Param("wavelet", ParamKind.CHOICE, default="mexican",
               choices=("mexican", "gaussian"), label="Wavelet"),
-        # Mirrors wtmm2d's declaration (2026-09-20 fix): the ROI path always APPLIED the lift
-        # (``run_wtmm2d_roi`` reads ``resolved["fracint_alpha"]``) but the knob was neither
-        # declared nor carried, so a parent tuned off the default silently lost it on every ROI
-        # child -- the exact class of bug an earlier fix closed for the other five params.
+        # Mirrors wtmm2d's declaration: the ROI path APPLIES the lift (``run_wtmm2d_roi`` reads
+        # ``resolved["fracint_alpha"]``), so the knob must be declared and carried here, or a
+        # parent tuned off the default silently loses it on every ROI child.
         Param("fracint_alpha", ParamKind.FLOAT, default=1.0, min=-6.0, max=6.0,
               soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
-        # Mirrors wtmm2d's 2026-09-20 subpixel/parity knob -- an ROI child must run the same
+        # Mirrors wtmm2d's subpixel/parity knob -- an ROI child must run the same
         # refinement its parent ran, or the two are different analyses (the shared-params law).
         Param("interpolate", ParamKind.BOOL, default=False, label="Interpolate"),
-        # Mirrors wtmm2d's 2026-09-21 detector knob (nms / follow) -- shared-params law.
+        # Mirrors wtmm2d's detector knob (nms / follow) -- shared-params law.
         Param("detector", ParamKind.CHOICE, default="nms", choices=("nms", "follow"),
               label="Detector"),
         Param("min_chain_len", ParamKind.INT, default=2, min=1, max=1024,
               soft_min=2, soft_max=16, label="Min chain length"),
-        # The five exposed here for the first time -- mirror wtmm2d's own declarations
-        # (see that file for the backend-default verification, and for ``similitude``'s bound reasoning). ``run_wtmm2d_roi`` resolves them through the
-        # identical ``_resolve_wtmm2d_params`` contract wtmm2d uses.
+        # These five mirror wtmm2d's own declarations (see that file for the backend-default
+        # verification, and for ``similitude``'s bound reasoning). ``run_wtmm2d_roi`` resolves
+        # them through the identical ``_resolve_wtmm2d_params`` contract wtmm2d uses.
         Param("smooth", ParamKind.BOOL, default=True, label="Smooth"),
         Param("thresh", ParamKind.FLOAT, default=1e-3, min=0.0, max=1.0,
               soft_min=0.0, soft_max=0.05, units="", label="Thresh"),

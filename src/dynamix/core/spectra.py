@@ -88,7 +88,7 @@ def fit_spectra(hd: dict, log2_a_min: float, log2_a_max: float, *,
         out[name] = _propagated_slope_sigma(dx, denom, S)
 
     if fit_mode != "naive":
-        # Focus regression over the PARTITION channel (2026-09-22): fit the power-mean
+        # Focus regression over the PARTITION channel: fit the power-mean
         # columns Y_q = (tau_qa - log2 N_a) / q jointly through one focus (Schadner closed
         # forms; Mukli anchor), then reconstruct tau(q) = q*h_q + slope(log2 N_a) and
         # tau(0) = slope(log2 N_a) exactly. h/D channels keep their own per-q estimators.
@@ -178,10 +178,10 @@ def _lnq_side_fit(lnq: np.ndarray, tau: np.ndarray):
 def phase_transition_fit(q_list, tau, q_break: float, *, q_min: float = 0.01,
                          min_pts: int = 3) -> dict:
     """Two-segment fit of tau(q) against **ln q** split at ``q_break`` -- the EBSD workbook's
-    cell-49 phase-transition surface (census 2026-09-20): in the constant-specific-heat
-    approximation tau(q) is linear in ln(q) within each phase, so a slope break at q* signals
-    a phase transition (freezing of singularities). Positive branch only (``q > q_min``); a
-    side with fewer than ``min_pts`` finite points comes back NaN (and so does ``ds``).
+    cell-49 phase-transition surface: in the constant-specific-heat approximation tau(q) is
+    linear in ln(q) within each phase, so a slope break at q* signals a phase transition
+    (freezing of singularities). Positive branch only (``q > q_min``); a side with fewer
+    than ``min_pts`` finite points comes back NaN (and so does ``ds``).
 
     Returns ``{slope_L, slope_R, ds, r2_L, r2_R, n_L, n_R}`` with ``ds = slope_L - slope_R``.
     """
@@ -289,13 +289,12 @@ def _propagated_slope_sigma(dx: np.ndarray, denom: float, S: np.ndarray) -> np.n
 
 
 # ---------------------------------------------------------------------------------------------
-# Focus regression (2026-09-22): Schadner, "Focus regression for multifractal analysis",
+# Focus regression: Schadner, "Focus regression for multifractal analysis",
 # Chaos Solitons Fractals 209:118368 (2026) -- generalized focus with non-iterative closed
 # forms (his eqs. 5/7/9) -- and Mukli-Nagy-Eke, Physica A 417:150 (2015) -- the fixed-focus
 # origin, whose Eq. (7) (one window at the signal length => S(q, L) is q-independent BY
-# CONSTRUCTION) is the anchor rationale. Implemented per the verified re-derivation
-# (freddie-friday, 2026-09-22; scratch scripts check.py..check4.py): everything reduces to
-# the naive per-q OLS slopes b_q, the per-q column means ybar_q, and sigma_X^2 (POPULATION,
+# CONSTRUCTION) is the anchor rationale. Everything reduces to the naive per-q OLS slopes
+# b_q, the per-q column means ybar_q, and sigma_X^2 (POPULATION,
 # ddof=0 -- Schadner's eq. 5 is only exact then). The quadratic's two roots have product
 # -sigma_X^2 exactly (Vieta -- the stable second root needs NO subtraction), its
 # discriminant is computed in the additive non-negative form, and the winner among {feasible
@@ -305,7 +304,7 @@ def _propagated_slope_sigma(dx: np.ndarray, denom: float, S: np.ndarray) -> np.n
 # endpoint is the identical-slopes / free-intercepts fit whose common slope equals the mean
 # of the naive slopes (= the ANCOVA pooled slope, since all columns share X). Monotone-h_q
 # enforcement (the formalism's validity condition) uses the exact threshold
-# |xi| >= sigma_X^2 * max(db/dy) derived there; the guarantee otherwise rides on the
+# |xi| >= sigma_X^2 * max(db/dy); the guarantee otherwise rides on the
 # power-mean ordering of the columns, which is exactly why callers must normalize the
 # partition sums by N_a before fitting (log2 Z -> log2 Z - log2 N_a).
 

@@ -83,7 +83,7 @@ def test_footprint_folders_default_empty_and_round_trip(tmp_path, monkeypatch):
 
 
 def test_compute_engine_defaults_validates_and_roundtrips(tmp_path, monkeypatch):
-    """2026-09-21 master engine setting: default 'auto'; garbage falls back to 'auto';
+    """Master engine setting: default 'auto'; garbage falls back to 'auto';
     legal values round-trip through update_settings without touching other fields."""
     import json
 
@@ -91,7 +91,7 @@ def test_compute_engine_defaults_validates_and_roundtrips(tmp_path, monkeypatch)
 
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
     assert load_settings().compute_engine == "auto"
-    # 2026-09-22: the CPU engine is FFTW3;
+    # The CPU engine is FFTW3;
     # a settings file saved with the old "numpy" choice loads as that CPU engine, "fftw".
     update_settings(compute_engine="numpy")
     assert load_settings().compute_engine == "fftw"
@@ -114,7 +114,7 @@ def test_open_max_pixels_defaults_to_64m_and_rejects_garbage(tmp_path, monkeypat
 
 
 def test_compute_precision_defaults_to_32_and_round_trips_64(tmp_path, monkeypatch):
-    """2026-09-22: 32 or 64-bit FFTs, 32 by default (xsmurf's own single precision); 64-bit
+    """32 or 64-bit FFTs, 32 by default (xsmurf's own single precision); 64-bit
     runs on FFTW3. Restart to apply."""
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
     assert load_settings().compute_precision == 32

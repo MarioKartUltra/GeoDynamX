@@ -297,7 +297,7 @@ the thickness applied but the number on the knob stayed put."""
     assert "2.5" in control.text()
 
 
-# ---------------------------------------------------------------- hillshade (2026-08-29)
+# ----------------------------------------------------------------------------- hillshade
 
 def test_hillshade_defaults_off_with_sun_from_the_north_west(loaded):
     style = _display_style_of(loaded.layer)
@@ -329,7 +329,7 @@ def test_hillshade_survives_a_colormap_change_and_a_layer_switch(qtbot, loaded):
     assert loaded.right_panel._display_controls["sun_azimuth"]._value == 315.0
 
 
-# ------------------------------------------------------------------- stretch (2026-08-29)
+# -------------------------------------------------------------------------------- stretch
 
 def test_stretch_defaults_to_linear_and_validates_the_tag(loaded):
     style = _display_style_of(loaded.layer)
@@ -354,7 +354,7 @@ def test_stretch_changes_the_canvas_image_and_persists(loaded):
     assert loaded.right_panel.stretch_combo.currentText() == "percent"
 
 
-# ---------------------------------------------------------------- 3-D surface (2026-08-29)
+# ----------------------------------------------------------------------------- 3-D surface
 
 def test_surface_and_depth_positive_are_per_layer_display_tags(loaded):
     style = _display_style_of(loaded.layer)
@@ -363,8 +363,8 @@ def test_surface_and_depth_positive_are_per_layer_display_tags(loaded):
     loaded._on_display_style_changed("depth_positive", True)
     assert loaded.layer.tags["ui.surface"] == "True" and loaded.layer.tags["ui.depth_positive"] == "True"
     loaded._sync_display_controls(loaded.layer)
-    # 2026-09-16: the surface control is now a dialog-opening button whose label
-    # mirrors state; depth stays a checkbox. The default source is "same".
+    # The surface control is a dialog-opening button whose label mirrors state; depth
+    # is a checkbox. The default source is "same".
     assert loaded.right_panel.depth_check.isChecked()
     assert loaded.right_panel.surface_button.text() == "3-D surface: same dataset…"
     assert _display_style_of(loaded.layer)["surface_source"] == "same"

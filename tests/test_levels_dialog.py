@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Offscreen tests for the two histogram dialogs (levels_dialog.py, 2026-09-16 split):
+"""Offscreen tests for the two histogram dialogs (levels_dialog.py):
 LevelsDialog = display coloring only; BandDialog = the h-band reconstruction mask only."""
 from __future__ import annotations
 
@@ -124,7 +124,7 @@ def test_histogram_zoom_is_horizontal_only(qtbot):
 
 
 def test_levels_live_preview_coalesces_bound_drags(qtbot):
-    """Live delineation (2026-09-16): dragging a bound / picking a color emits the coalesced
+    """Live delineation: dragging a bound / picking a color emits the coalesced
     PREVIEW signal (same payload as Apply, no tag semantics); unchecking Live silences it."""
     dialog = LevelsDialog(_values(), levels_text="0.0", colors_text="#ff0000,#00ff00")
     qtbot.addWidget(dialog)
@@ -143,8 +143,8 @@ def test_levels_live_preview_coalesces_bound_drags(qtbot):
 
 
 def test_dragging_a_class_span_moves_both_bounds_together(qtbot):
-    """2026-09-18: grabbing the middle of a class span shifts BOTH bounding lines by the
-    drag delta (the recon dialog's gesture); an outermost span moves its one real bound."""
+    """Grabbing the middle of a class span shifts BOTH bounding lines by the drag delta (the
+    recon dialog's gesture); an outermost span moves its one real bound."""
     dialog = LevelsDialog(_values(), levels_text="0.0, 0.5", colors_text="")
     qtbot.addWidget(dialog)
     assert dialog.bounds() == [0.0, 0.5]

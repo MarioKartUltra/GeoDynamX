@@ -2,12 +2,11 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """wavelet_skeleton — the Tang-You medial-axis extractor as a peer primary analyzer.
 
-The third representation next to ``wtmm2d`` and ``mz_edges`` (each method its own tool —
-the 2026-09-19 design law): the CWT gradient-modulus machinery with the method's OWN
-wavelet, the Tang-You 2003 constructed compact-support kernel (support radius = the scale;
-the width-invariance theorems hold for it and for neither the Gaussian nor the spline),
-and You et al. 2006's modulus-MINIMA thinning — Algorithm 1 over
-:mod:`dynamix.core.wavelet_skeleton`, deviations documented there.
+The third representation next to ``wtmm2d`` and ``mz_edges`` (each method its own tool): the
+CWT gradient-modulus machinery with the method's OWN wavelet, the Tang-You 2003 constructed
+compact-support kernel (support radius = the scale; the width-invariance theorems hold for it
+and for neither the Gaussian nor the spline), and You et al. 2006's modulus-MINIMA thinning —
+Algorithm 1 over :mod:`dynamix.core.wavelet_skeleton`, deviations documented there.
 
 Output speaks the app's per-scale extrema schema (x/y/mod/arg/line_id — the ``mz_edges``
 precedent), so the shell renders skeletons through the existing display path unchanged:

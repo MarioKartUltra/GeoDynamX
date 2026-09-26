@@ -26,7 +26,7 @@ scale scrubbed, which is the whole of what it is for. The divergence is asserted
 ``tests/test_inspector.py`` rather than merely commented, so a future copy-paste of the overlay's
 constructor cannot quietly reintroduce it.
 
-Chrome is deliberately absent (sec 5c is PENDING on the user's mockups): a thin title strip, the
+Chrome is deliberately absent (sec 5c is PENDING on mockups): a thin title strip, the
 canvas, the sub-layer tree, a transport and the follow-master button, nothing styled beyond the
 theme's own properties. What is real here is the STATE and the signals that carry it; pixels are
 the mockups' business.
@@ -47,15 +47,14 @@ from dynamix.shell.transport import Transport
 #: this one from here so the two halves cannot come to word the same state differently.
 NO_RESULT_TEXT = "no result yet — select a layer over this source and run its chain"
 
-#: Appended to the status strip whenever this window's scale CONTROL names a scale its PICTURE
-#: is not showing (added at the review of ``1b405f2``). That happens whenever the held
-#: result is post-``scale_select`` -- the shipped ``DEMO_CHAIN``'s shape -- because that filter
-#: reduces the stack to the ONE layer the chain asked for (``devices/filters.py``'s
-#: ``ScaleSelect.apply``), so there is no other scale in this window to draw. Showing a moving
-#: reading over a still picture and saying nothing is precisely the "silent refusal" sec 8 rule 6
-#: forbids, so this names the state AND the fix -- and the fix it names is a gesture that exists
-#: today: make that source's layer active and the master's scrub re-runs its chain at the new
-#: index, which is what actually moves the picture.
+#: Appended to the status strip whenever this window's scale CONTROL names a scale its PICTURE is
+#: not showing. That happens whenever the held result is post-``scale_select`` -- the shipped
+#: ``DEMO_CHAIN``'s shape -- because that filter reduces the stack to the ONE layer the chain asked
+#: for (``devices/filters.py``'s ``ScaleSelect.apply``), so there is no other scale in this window
+#: to draw. Showing a moving reading over a still picture and saying nothing is precisely the
+#: "silent refusal" sec 8 rule 6 forbids, so this names the state AND the fix -- and the fix it
+#: names is a gesture that exists today: make that source's layer active and the master's scrub
+#: re-runs its chain at the new index, which is what actually moves the picture.
 SCALE_NOT_SHOWN_TEXT = ("scale {control} is not in this result — showing scale {picture}; "
                         "select this source's layer and scrub to re-run it there")
 
@@ -403,12 +402,11 @@ class InspectorWindow(QtWidgets.QWidget):
         would echo it straight back and re-run a change that has already been applied. The
         reading label moves with the slider, which is what makes a follower visibly follow.
 
-        Clamped to THIS window's own range first (review of ``1b405f2``): ``sync_to`` is
-        unclamped on the receiving side -- ``SweepClock.scrub`` assigns ``_index`` outright and
-        the label is formatted from whatever index it is handed, while ``QSlider.setValue``
-        clamps -- so a master index past this source's own scale count would otherwise leave the
-        slider at the end while the reading named a scale this window cannot show, and the next
-        playback tick would advance from out of range.
+        Clamped to THIS window's own range first: ``sync_to`` is unclamped on the receiving side --
+        ``SweepClock.scrub`` assigns ``_index`` outright and the label is formatted from whatever
+        index it is handed, while ``QSlider.setValue`` clamps -- so a master index past this
+        source's own scale count would otherwise leave the slider at the end while the reading named
+        a scale this window cannot show, and the next playback tick would advance from out of range.
 
         The redraw is attempted with the same clamped index: where the held result still carries
         the whole stack it is a free re-index, and where it does not :meth:`redraw_at` says so
@@ -507,10 +505,10 @@ class InspectorWindow(QtWidgets.QWidget):
         drives is this window's own reading and its persisted state.
 
         ``MainWindow`` routes this signal back into :meth:`redraw_at` for THIS window only
-        (``_on_inspector_scale_changed``), which is the plan's Task-10 interface. The status
-        re-render happens here regardless -- before the ``_syncing`` return, since a
-        ``set_n_scales`` clamp moves the slider too -- so a bare window (this file's own tests,
-        and any future host) still cannot end up showing a reading that contradicts its picture.
+        (``_on_inspector_scale_changed``). The status re-render happens here regardless -- before
+        the ``_syncing`` return, since a ``set_n_scales`` clamp moves the slider too -- so a bare
+        window (this file's own tests, and any future host) still cannot end up showing a reading
+        that contradicts its picture.
         """
         self._render_status()
         if self._syncing:

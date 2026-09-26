@@ -396,7 +396,7 @@ def test_project_from_payload_without_annotations_key_opens_with_an_empty_list()
     assert p.title == "old"                     # the rest of the legacy payload still loads
 
 
-# ------------------------------------------------------------ reference layers (2026-08-29)
+# ------------------------------------------------------------ reference layers
 
 def test_reference_layer_records_are_additive_and_round_trip(_registry):
     from dynamix.model.project import ReferenceLayerRecord
@@ -419,7 +419,7 @@ def test_a_payload_without_reference_layers_opens_with_an_empty_list(_registry):
 
 
 def test_source_hidden_flag_round_trips_and_defaults_false():
-    # 2026-08-29: hide the DATASET (raster) from the source header row, products stay.
+    # The flag hides the DATASET (raster) from the source header row; its products stay.
     from dynamix.model.project import SourceRef
     s = SourceRef(source_id="s0", path="/x.tif", hidden=True)
     assert SourceRef.from_payload(s.to_payload()).hidden is True

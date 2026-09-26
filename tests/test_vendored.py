@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""GeoDynamix_Beta's vendored wtmm / wtmm_ebsd (2026-09-22): Windows-safe, and verbatim.
+"""GeoDynamix_Beta's vendored wtmm / wtmm_ebsd: Windows-safe, and verbatim.
 
 - With mlx absent (a Windows / Intel-Mac install), the vendored packages import, the policy runs
   every FFT on FFTW3, and a 2-D WTMM transform + partition function run end to end.

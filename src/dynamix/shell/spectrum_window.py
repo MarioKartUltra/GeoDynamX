@@ -3,8 +3,7 @@
 """SpectrumWindow: the singularity-spectrum CONSTRUCTION window.
 
 A non-modal ``Qt.Window`` sibling of :class:`~dynamix.shell.multifractal_window.
-MultifractalWindow` (the user's "extend or sibling it, don't replace"), showing HOW a D(h) is
-constructed, three ways on one panel:
+MultifractalWindow`, showing HOW a D(h) is constructed, three ways on one panel:
 
 - **Canonical (Arneodo direct)** -- the parametric (h(q), D(q)) points from
   :func:`dynamix.core.spectra.fit_spectra` over the hd tables, with propagated error bars. The
@@ -141,11 +140,11 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._table_combo.currentTextChanged.connect(lambda _t: self._recompute())
         controls.addWidget(self._table_combo)
 
-        # Focus regression (2026-09-22, Schadner/Mukli -- core/spectra.focus_regression):
+        # Focus regression (Schadner/Mukli -- core/spectra.focus_regression):
         # joint fit of every q through one focus. The readout is the honesty display the
         # method demands: branch, x-hat_0, and Delta-h naive vs focus SIDE BY SIDE -- the
         # estimator buys valid spectra by narrowing Delta-h (bias ~ 1/|xi|), and the reader
-        # must see the price (freddie-friday review, guard g).
+        # must see the price.
         controls.addWidget(QtWidgets.QLabel("Fit"))
         self._fitmode_combo = QtWidgets.QComboBox()
         self._fitmode_combo.addItems(["naive", "fixed focus", "focus"])

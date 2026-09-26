@@ -258,7 +258,7 @@ def test_fit_spectra_matches_the_oracle_on_nan_poisoned_tables():
                                        equal_nan=True, err_msg=f"{key} window=({lo},{hi})")
 
 
-# --------------------------------------------------- Legendre-Fenchel hull (2026-09-20)
+# --------------------------------------------------- Legendre-Fenchel hull
 
 
 def test_legendre_hull_of_a_quadratic_tau_is_the_exact_parabola():

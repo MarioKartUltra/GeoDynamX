@@ -2,10 +2,8 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Subpixel refinement of NMS modulus maxima -- position AND value, along the gradient.
 
-Written for DynamiX after the 2026-09-20 reference-implementation census;
-a REIMPLEMENTATION against documented
-reference semantics, never a copy (the ``chain_stats``/``spectra`` license). The provenance,
-precisely:
+A REIMPLEMENTATION against documented reference semantics, never a copy (the
+``chain_stats``/``spectra`` license). The provenance, precisely:
 
 - **LastWave 1-D** (``package_extrema1d/src/ext_compute.c``, default-on): a 3-point parabola
   through the extremum and its two neighbours refines BOTH the position and the value, stored

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Tests for dynamix.core.subpixel -- parabolic refinement of NMS modulus maxima along the
-gradient direction (the 2026-09-20 subpixel-extrema investigation).
+gradient direction.
 
 Provenance being pinned here:
 

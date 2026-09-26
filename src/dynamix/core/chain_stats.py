@@ -119,7 +119,7 @@ def _chain_max_slope_holder(chain: dict) -> float:
 
 _ESTIMATORS = {"ols": _chain_ols_holder, "max": _chain_max_slope_holder}
 
-#: Bounded identity memo (2026-09-14): a filter tweak re-resolves the whole chain, so the SAME
+#: Bounded identity memo: a filter tweak re-resolves the whole chain, so the SAME
 #: cached transform ``chains`` list reaches ``stats_for`` on every tweak -- computing the metric
 #: once and reusing it by ``id(chains)`` is EQSelect's "cache the per-chain metric" (its metric
 #: registry). Strong ref held so a freed+realloc'd list can't collide on ``id``; small LRU since
@@ -204,11 +204,11 @@ def stats_for(chains: list, estimator: str) -> np.ndarray:
 
     ``estimator`` is ``"ols"`` (least-squares slope) or ``"max"`` (max local slope) -- the same
     two names, and the same NaN semantics, as ``wtmm_ebsd.chain_filters.filter_by_holder``'s own
-    ``holder=`` keyword. Vectorized (2026-09-14): the old per-chain ``np.polyfit`` loop cost ~1 s
-    over the 59k chains of a 2048 DEM window and ran up to THREE times per filter tweak (apply +
-    reading + data_hints) -- the "Hölder filter beach-balls" report. The estimators below produce
-    IDENTICAL values (``tests/test_chain_stats.py`` pins equality with the reference per-chain
-    functions, retained above). Raises ``ValueError`` for an unknown estimator, matching before.
+    ``holder=`` keyword. Vectorized: a per-chain ``np.polyfit`` loop costs ~1 s over the 59k
+    chains of a 2048 DEM window, and this runs up to THREE times per filter tweak (apply +
+    reading + data_hints). The estimators below produce IDENTICAL values
+    (``tests/test_chain_stats.py`` pins equality with the reference per-chain functions, retained
+    above). Raises ``ValueError`` for an unknown estimator.
     """
     if estimator not in _ESTIMATORS:
         raise ValueError(f"estimator must be 'ols' or 'max'; got {estimator!r}")

@@ -42,8 +42,8 @@ def _layer(project, name, source_id, *, parent_id=None, visible=True, tags=None)
 
 
 def _row_layer(panel, project, source, name="A", **kw):
-    """An ORDINARY layer row: the dataset's master is added first (its row is the dataset row,
-    since 2026-09-23), then ``name`` as its child -- what a result row is."""
+    """An ORDINARY layer row: the dataset's master is added first (its row is the dataset row),
+    then ``name`` as its child -- what a result row is."""
     master = _layer(project, "dataset", source.source_id)
     panel.add_layer_row(master, None)
     layer = _layer(project, name, source.source_id, parent_id=master.layer_id, **kw)
@@ -118,8 +118,8 @@ def test_header_falls_back_to_field_name_with_no_project(qtbot):
 
 
 def test_the_dataset_row_carries_its_source_and_its_master_ids(panel, project):
-    """Used to pin that a header carries NO layer id. Since 2026-09-23 the dataset row IS
-    its master's row, so it carries both; handlers tell a dataset row by ``_SOURCE_ID_ROLE``."""
+    """The dataset row IS its master's row, so it carries both ids; handlers tell a dataset row
+    by ``_SOURCE_ID_ROLE``."""
     source = project.add_source("/data/dataset.tif")
     layer = _layer(project, "A", source.source_id)
     panel.add_layer_row(layer, None)
@@ -354,9 +354,8 @@ def test_select_layer_sets_current_and_emits_layerSelected(panel, project, qtbot
 
 
 def test_selecting_a_header_row_selects_the_master_and_stays_current(panel, project, qtbot):
-    """2026-09-18: a header click is a real selection target. It used to PROMOTE the current
-    item onto a separate master row (the highlight left the row clicked); since
-    2026-09-23 the header IS the master's row, so it emits the master and stays current."""
+    """A header click is a real selection target. The header IS the master's row, so it emits
+    the master and stays current."""
     source = project.add_source("/data/dataset.tif")
     layer = _layer(project, "A", source.source_id)
     panel.add_layer_row(layer, None)
@@ -449,7 +448,6 @@ def test_context_menu_has_rename_remove_and_refined_run(panel, project):
 
     menu = panel._build_context_menu(item, layer.layer_id)
     titles = [a.text() for a in menu.actions()]
-    # "Remove" became the two deletes (2026-09-23).
     assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run",
                       "Fork derivative dataset…", "Route bands to a new bus…"]
 
@@ -520,9 +518,8 @@ def test_backspace_key_on_a_selected_layer_also_emits_removeRequested(panel, pro
 
 
 def test_delete_key_after_a_header_click_targets_the_dataset(panel, project, qtbot):
-    """Used to pin that Delete after a header click removed the promoted master LAYER. Since
-    2026-09-23 the header is the dataset row, and Delete on it removes the dataset (one
-    confirmation, the whole family) -- never the master alone, which would orphan its rows."""
+    """The header is the dataset row, and Delete on it removes the dataset (one confirmation,
+    the whole family) -- never the master alone, which would orphan its rows."""
     source = project.add_source("/data/dataset.tif")
     layer = _layer(project, "A", source.source_id)
     panel.add_layer_row(layer, None)
@@ -1076,9 +1073,9 @@ def test_hovering_the_chip_flashes_the_parent_row(loaded, qtbot):
     assert parent_row.property("flash") == "true"
 
 
-# ------------------------------------------ the dataset's own hide, on the source row (2026-08-29)
+# ------------------------------------------ the dataset's own hide, on the source row
 # Hiding the dataset while still showing its extrema. The layer row's H hides that
-# layer's products (unchanged); the SOURCE header's new H hides the raster itself ("the toggle sits on the source").
+# layer's products; the SOURCE header's H hides the raster itself.
 
 def test_source_header_hide_button_emits_sourceHideToggled(panel, project, qtbot):
     source = project.add_source("/data/dataset.tif")
@@ -1111,14 +1108,11 @@ def test_hiding_the_source_hides_the_raster_but_not_the_layers_products(loaded):
     assert loaded.canvas.image_item.isVisible()
 
 
-# ------------------------------------------------- master-row collapse (2026-09-18)
+# ------------------------------------------------- master-row collapse
 
 def test_the_master_never_gets_a_second_row(panel, project, qtbot):
-    """A fresh open shows ONE row. This used to be done by HIDING an identically-named master
-    row while it was alone and showing it once a child forked (2026-09-18) -- the second
-    "dataset" row the user then read as the ROI. Since 2026-09-23 the master
-    never has a row of its own: the dataset row is its row, before and after children come
-    and go."""
+    """A fresh open shows ONE row. The master never has a row of its own: the dataset row is
+    its row, before and after children come and go."""
     source = project.add_source("/data/dataset.tif")
     master = _layer(project, "dataset", source.source_id)
     panel.add_layer_row(master, None)
@@ -1165,10 +1159,8 @@ def test_every_row_toggle_carries_the_row_toggle_style(panel, project):
         assert button.property("rowToggle") == "true", button.text()
 
 
-# ------------------------------------------- 2026-09-23: the dataset row IS its master's row
-# A dataset used to show as a header plus an identically-named master row that hid/unhid itself
-# -- read as "the ROI", the source of the highlight glitch and of Delete taking the dataset.
-# Now the first root layer of a source has no row of its own: the header row carries it.
+# ------------------------------------------- the dataset row IS its master's row
+# The first root layer of a source has no row of its own: the header row carries it.
 
 
 def test_the_first_layer_of_a_dataset_is_the_dataset_row_itself(panel, project):
@@ -1274,7 +1266,7 @@ def test_removing_the_last_child_keeps_the_dataset_row(panel, project):
     assert panel.current_layer_id() == master.layer_id
 
 
-# ------------------------------------------- 2026-09-23: a saved ROI is a row of its dataset
+# ------------------------------------------- a saved ROI is a row of its dataset
 # An ROI is a pixel window on its parent raster; it shows as ``<dataset> @A`` under the dataset
 # row, results computed on it nest under it, and its H hides only its own outline.
 
@@ -1347,7 +1339,7 @@ def test_an_roi_row_stays_when_its_last_result_is_removed(panel, project):
     assert panel._roi_items[roi.roi_id].childCount() == 0
 
 
-# ------------------------------------------- 2026-09-23: the two deletes, ROI delete, many
+# ------------------------------------------- the two deletes, ROI delete, many
 
 def test_a_result_rows_menu_offers_delete_layer_and_delete_layer_and_children(panel, project,
                                                                              qtbot):
@@ -1403,7 +1395,7 @@ def test_delete_with_several_rows_selected_emits_one_batch(panel, project, qtbot
     assert roi_ids == [roi.roi_id] and source_ids == [] and singles == []
 
 
-# ------------------------------------------- derivative datasets (2026-09-23)
+# ------------------------------------------- derivative datasets
 
 def test_a_labelled_source_names_its_dataset_row(panel, project):
     """A derivative dataset is named at the fork; its file name is only storage."""

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""fft_policy.py -- the app-wide FFT engine + precision POLICY (DynamiX-native, 2026-09-22).
+"""fft_policy.py -- the app-wide FFT engine + precision POLICY (DynamiX-native).
 
 Every FFT runs on mlx or FFTW3, never numpy by default. So:
 

@@ -1268,11 +1268,10 @@ def test_wtmm2d_roi_threads_the_same_five_params_into_its_backend_call(
 
 @pytest.fixture(scope="module")
 def kam64_stack():
-    """Real WTMM2D output over the real fixture -- the same one the bug triage measured (73
-    chains, OLS Hölder h in [-1.28, 0.69]).
+    """Real WTMM2D output over the real fixture (73 chains, OLS Hölder h in [-1.28, 0.69]).
 
-    ``fracint_alpha=0`` pinned (2026-09-15, when the lift started applying on the scalar path):
-    the triage numbers above were measured on the unlifted pipeline -- the lift shifts every
+    ``fracint_alpha=0`` pinned because the lift applies on the scalar path:
+    the numbers above were measured on the unlifted pipeline -- the lift shifts every
     chain's OLS slope by +alpha and re-links chains through the similitude band, which is not
     what these hint/snap regressions pin (tests/test_fracint_scalar.py covers the lift; the
     same pin, same reason, as tests/test_chain_filter_devices.py's ``stack``)."""

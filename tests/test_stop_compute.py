@@ -2,10 +2,9 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The user stop control.
 
-v1's "no cancellation" had one exception already built: the active-layer preempt sets the
-worker's cancel flag and lands in _on_cancelled, which redispatches the pending recipe.
-This slice adds the USER stop on top of the same machinery: a status-bar button visible
-while a worker runs; stopping cancels the in-flight run, restores the transport/strips
+The active-layer preempt sets the worker's cancel flag and lands in _on_cancelled, which
+redispatches the pending recipe. The USER stop rides the same machinery: a status-bar button
+visible while a worker runs; stopping cancels the in-flight run, restores the transport/strips
 instead of redispatching, and SUPPRESSES the auto-redispatch (_dispatch_next's cache probe
 would otherwise instantly restart the very compute the user stopped -- the tail is
 uncached) until the chain signature changes or a new dispatch happens.

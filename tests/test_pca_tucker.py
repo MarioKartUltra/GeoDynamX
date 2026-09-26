@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Tests for dynamix.core.pca and dynamix.core.tucker_havok -- the ASTER-notebook ports
-(the author's aster_him.ipynb), rebuilt under the 2026-09-21 efficiency mandate: covariance-trick PCA,
-stride-view Hankel embedding (never materialized), blockwise-Gram HOSVD."""
+(the author's aster_him.ipynb), rebuilt for efficiency: covariance-trick PCA, stride-view
+Hankel embedding (never materialized), blockwise-Gram HOSVD."""
 from __future__ import annotations
 
 import numpy as np
@@ -220,7 +220,7 @@ def test_pca_device_refuses_single_band_and_result_dicts(clean_registry):
     dev = get_device("pca")
     flat = RasterField(name="flat", values=np.zeros((8, 8)), frame=LocalFrame(),
                        x_axis=np.arange(8.0), y_axis=np.arange(8.0))
-    # 2026-09-21: the refusal must not reuse the word "components" -- that is the KEEP knob's
+    # The refusal must not reuse the word "components" -- that is the KEEP knob's
     # name -- it must say BANDS and point at what to do instead.
     with pytest.raises(ValueError, match="across BANDS"):
         dev.compute(flat, dict(defaults_for(dev)))
@@ -230,8 +230,7 @@ def test_pca_device_refuses_single_band_and_result_dicts(clean_registry):
 
 def test_tucker_device_recon_and_residual_share_one_cache_entry(clean_registry):
     """``show`` is view-only: recon and residual come from ONE cached
-    decomposition, so they share a key -- switching never re-decomposes. (This test used to pin
-    the opposite: the two keyed the cache apart.)"""
+    decomposition, so they share a key -- switching never re-decomposes."""
     from dynamix.devices import register_builtin_devices
     from dynamix.model.device import defaults_for, get_device
 
@@ -266,7 +265,7 @@ def test_tucker_device_works_on_scalar_fields_too(clean_registry):
     rng = np.random.default_rng(4)
     flat = RasterField(name="flat", values=rng.normal(size=(40, 12)), frame=LocalFrame(),
                        x_axis=np.arange(12.0), y_axis=np.arange(40.0))
-    # The 1-D tape (no longer the default since the symmetric 2-D delay, 2026-09-23).
+    # The 1-D tape (the symmetric 2-D delay is the default).
     res = dev.compute(flat, dict(defaults_for(dev), embed="delay", n_delays=8,
                                  rank_delay=0))
     np.testing.assert_allclose(res["raster_out"], flat.values, atol=1e-8)  # full rank = identity
@@ -311,9 +310,9 @@ def test_device_embed_none_ignores_delay_knobs(clean_registry):
     assert len(a["tucker_energy"]) == 3
 
 
-# ------------------------------------------- the symmetric 2-D delay embedding (2026-09-23)
+# ------------------------------------------- the symmetric 2-D delay embedding
 # Both axes delayed: Ly x Lx patches, a (delay_y, delay_x, rows', cols'[, band]) tensor. On a 2-D
-# field neither axis is "time", so the 1-D tape's rows/cols choice biased the result.
+# field neither axis is "time", so the 1-D tape's rows/cols choice biases the result.
 
 def _brute_2d(a, L, ranks):
     """Reference: MATERIALIZE the 2-D Hankel tensor, run the existing HOSVD, rebuild the
@@ -406,7 +405,7 @@ def test_the_tucker_device_defaults_to_the_symmetric_2d_delay(clean_registry):
                                atol=1e-10)
 
 
-# ------------------------------------------- components you can click through (2026-09-23)
+# ------------------------------------------- components you can click through
 # The rank-truncated reconstruction is a SUM of components (SSA's elementary reconstructions):
 # per kept (delay_y, delay_x) pattern pair in 2-D, per delay pattern on the 1-D tape, per rows
 # mode with no embedding. Kept once with the result, top-32 by core energy, largest first.
@@ -471,7 +470,7 @@ def test_the_tucker_device_steps_through_its_components_without_recomputing(clea
     np.testing.assert_array_equal(c99.result["raster_out"], comps[-1])
 
 
-# ------------------------------------------- HOOI sweeps + combined orientation pairs (2026-09-23)
+# ------------------------------------------- HOOI sweeps + combined orientation pairs
 
 def _brute_2d_hooi(a, L, ranks, sweeps):
     from dynamix.core.tucker_havok import hosvd_tucker

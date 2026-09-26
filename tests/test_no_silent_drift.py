@@ -86,12 +86,12 @@ EXTRACTED = {
 #: -- a REIMPLEMENTATION of EQSelect's own eqselect/transect.py DOCUMENTED algorithm (bilinear
 #: sample, NaN-bridge-then-filter-then-restore smoothing), never a copy or import of it (the project rules forbid modifying/importing EQSelect at all) -- same "no separate drift guard" reasoning as
 #: chain_stats above; see its own module docstring.
-#: hlines: ordered H-line point runs for the 3-D scene (2026-08-28) -- a thin wrapper over the
+#: hlines: ordered H-line point runs for the 3-D scene -- a thin wrapper over the
 #: copied wtmm_backend._order_lines walk (the same private-symbol coupling canvas.py and
 #: topology/wtmm.py carry), written for DynamiX, not copied from anything.
 #: hillshade: shaded-relief display product --
 #: written for DynamiX, numpy only, not a copy of anything.
-#: stretch: display contrast stretches (2026-08-29) -- numpy only, written for DynamiX.
+#: stretch: display contrast stretches -- numpy only, written for DynamiX.
 #: spectra: multifractal spectrum scale-window fitter -- a
 #: REIMPLEMENTATION of wtmm_ebsd.partition.fit_hq_Dq_weighted's documented semantics, never a
 #: copy or import of it (same reasoning as chain_stats); oracle-pinned in tests/test_spectra.py.
@@ -105,7 +105,7 @@ EXTRACTED = {
 #: license); theorem-pinned in tests/test_wavelet_skeleton.py.
 #: cdf: complex cross-diffusion filtering (linear LCDF + nonlinear NCDF), lifted VERBATIM (recorded
 #: parameter edits only) from research/reconstruction scripts 24/25/27 (rescued probes
-#: 17-20, 2026-08-17) -- its own guard is tests/test_cdf_port.py (the mzlib pattern:
+#: 17-20) -- its own guard is tests/test_cdf_port.py (the mzlib pattern:
 #: research provenance + script 28's functional gates).
 #: chain_groups: Boltzmann-weight chain grouping over the partition function's tilted measure (the EBSD-workbook cell-52 port) -- numpy classification written fresh; the partition-table math itself stays in
 #: wtmm_ebsd via lazy delegation (the partition2d law), oracle-pinned in tests/test_chain_groups.py.
@@ -114,16 +114,14 @@ EXTRACTED = {
 #: Hankel + blockwise-Gram HOSVD -- the notebook's materialized-tensor crash class removed);
 #: not copies of anything, pinned in tests/test_pca_tucker.py.
 #: ingest: multi-sensor grid ingestion (netCDF/HDF5 via rasterio's GDAL, HDF4 via pyhdf,
-#: multiband GeoTIFF; 2026-09-21) -- convention-MIRRORS of the frozen rasterfield (never a
+#: multiband GeoTIFF) -- convention-MIRRORS of the frozen rasterfield (never a
 #: copy of it), pinned in tests/test_ingest.py.
-#: follow2d: the xsmurf follow (kappa zero-crossing) detector ('i still
-#: dont see the option to switch between follow and nms') -- gkapa/gkapap formulas ported
+#: follow2d: the xsmurf follow (kappa zero-crossing) detector -- gkapa/gkapap formulas ported
 #: from xsmurf interpreter/wt2d_cmds.c:2948/3022 (verified byte-identical to upstream
 #: pkestene/xsmurf), detection discretization written fresh; pinned in tests/test_follow2d.py.
-#: subpixel: parabolic refinement of NMS maxima along the gradient (the
-#: "interpolation for xsmurf parity" ask) -- a REIMPLEMENTATION against the documented reference
-#: semantics of LastWave-1D's ext_compute.c parabola and xsmurf's follow modulus channel,
-#: never a copy of anything (the
+#: subpixel: parabolic refinement of NMS maxima along the gradient (xsmurf parity) -- a
+#: REIMPLEMENTATION against the documented reference semantics of LastWave-1D's ext_compute.c
+#: parabola and xsmurf's follow modulus channel, never a copy of anything (the
 #: chain_stats/spectra license); pinned in tests/test_subpixel.py.
 #: ssa2d: 2D singular-spectrum analysis -- a REIMPLEMENTATION of Golyandina & Usevich 2010
 #: (the corpus paper golyandina_usevich_2010_2d_ssa: Hankel-block-Hankel SVD, elementary

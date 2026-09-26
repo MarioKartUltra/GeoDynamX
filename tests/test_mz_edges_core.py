@@ -205,9 +205,9 @@ def test_dither_is_deterministic():
 
 
 def test_fast_torus_components_partition_matches_the_reference():
-    """The 2026-09-19 profiling fix (61 s -> ~2 s at the overview size): the vectorized
-    labeller must produce the SAME partitions as the kept union-find reference on
-    randomized torus point sets -- numbering free, grouping identical both ways."""
+    """The vectorized labeller (61 s -> ~2 s at the overview size) must produce the SAME
+    partitions as the kept union-find reference on randomized torus point sets -- numbering
+    free, grouping identical both ways."""
     rng = np.random.default_rng(7)
     for trial in range(6):
         ny, nx = rng.integers(8, 40, 2)
@@ -236,7 +236,7 @@ def test_analyze_reports_progress_stages():
 
 
 def test_interpolate_adds_float_channels_and_keeps_pocs_support_integer():
-    """2026-09-21: the wtmm2d subpixel refinement on the dyadic maxima -- x_sub/y_sub ride,
+    """The wtmm2d subpixel refinement on the dyadic maxima -- x_sub/y_sub ride,
     the refined modulus replaces mod, and mz_maxima (the POCS constraint input) keeps raw
     integer positions and raw w1/w2 regardless (the recorded M-Z split)."""
     img = _composite64()

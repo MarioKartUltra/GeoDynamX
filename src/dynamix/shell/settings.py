@@ -35,7 +35,7 @@ class Settings:
     #: shell; anything that is not a positive int
     #: falls back to 4096. Fresh opens only -- reopening a project keeps the window it was saved with.
     open_window_px: int = 4096
-    #: Folders the footprint browser re-scans at every window open (2026-08-28): raster headers
+    #: Folders the footprint browser re-scans at every window open: raster headers
     #: only, milliseconds per folder. A folder that no longer exists is skipped, never an error.
     footprint_folders: list[str] = dataclasses.field(default_factory=list)
     #: The master compute-engine choice: "auto" = mlx when importable, else
@@ -44,10 +44,10 @@ class Settings:
     #: ``dynamix.core.wtmm_backend.set_default_engine`` -- NEVER part of a cache key or recipe:
     #: the backends-agree-to-float32 law makes engine choice infrastructure, not physics.
     compute_engine: str = "auto"
-    #: 2026-09-22: FFT precision for EVERY FFT in the app, 32 (the default,
+    #: FFT precision for EVERY FFT in the app, 32 (the default,
     #: xsmurf's own single precision) or 64 (runs on FFTW3 -- mlx is single precision only).
-    #: Engine choices are now "auto" (mlx on Apple Silicon, else FFTW3), "mlx", "fftw"; a file
-    #: saved with the old "numpy" choice loads as the CPU engine, "fftw". Applied at STARTUP
+    #: Engine choices are "auto" (mlx on Apple Silicon, else FFTW3), "mlx", "fftw"; a file
+    #: saved with a "numpy" choice loads as the CPU engine, "fftw". Applied at STARTUP
     #: through dynamix.core.fft_policy.configure (restart to apply).
     compute_precision: int = 32
     #: The
@@ -86,7 +86,7 @@ def load_settings() -> Settings:
         center_view = "raster"
     compute_engine = d.get("compute_engine")
     if compute_engine == "numpy":
-        compute_engine = "fftw"            # the CPU engine is FFTW3 now (2026-09-22)
+        compute_engine = "fftw"            # the CPU engine is FFTW3
     if compute_engine not in ("auto", "mlx", "fftw"):
         compute_engine = "auto"
     compute_precision = d.get("compute_precision")

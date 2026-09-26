@@ -41,9 +41,8 @@ def _path_key(path: str) -> str:
         return path
 
 
-#: the design point 3, the MODEL half of typed sources: the
-#: layer panel's typed rows wait for the user's mockups, but the vocabulary is committed now so
-#: persistence and callers can start using it. "raster" (grids), "points" (catalogues),
+#: the design point 3, the MODEL half of typed sources: the vocabulary of source kinds that
+#: persistence and callers use. "raster" (grids), "points" (catalogues),
 #: "vector" (reference geometry), "object" (chain products / annotations -- e.g. a chain-product
 #: npz loaded as its own source). ``SourceRef.kind`` stays a free string on load (older projects
 #: and forward compatibility), but new call sites pick from here.
@@ -66,10 +65,10 @@ class SourceRef:
     #: opens unchanged, as ``"raster"``: every source that predates point layers WAS a raster.
     kind: str = "raster"
     #: The DATASET itself hidden (its raster drape / canvas image), its layers' products still
-    #: shown -- the source header row's own H (2026-08-29, the design: "the toggle sits on the
-    #: source"). Additive: ``.get`` on load, so older projects open with it False.
+    #: shown -- the source header row's own H (the design: "the toggle sits on the source").
+    #: Additive: ``.get`` on load, so older projects open with it False.
     hidden: bool = False
-    #: A TEMPORARY derivative dataset (2026-09-23): its file lives in this session's scratch
+    #: A TEMPORARY derivative dataset: its file lives in this session's scratch
     #: folder, and a saved project leaves it out (``Project.to_payload``) until it is saved as a
     #: file of its own. Additive (``.get`` on load).
     temporary: bool = False
@@ -142,7 +141,7 @@ class RoiRecord:
     window's offsets to what the user drew on screen. Storing the display frame instead would
     address a region nobody selected on any raster too large to load whole.
 
-    ``layer_ids`` carries the two forms the user required, both of which must exist: EMPTY is the
+    ``layer_ids`` carries two forms, both of which must exist: EMPTY is the
     GENERAL ROI -- a region of the source applicable to any layer over it -- and non-empty is the
     ROI drawn FOR those layers, the child-layer path that already exists. The record is addressable
     either way; ``roi_id`` is the id a ``Layer.roi_id`` names and an ``ObjRef``-style reference can
@@ -178,8 +177,8 @@ class RoiRecord:
 
 
 class ReferenceLayerRecord:
-    """A GIS vector file drawn OVER the data as interpretation (2026-08-29, BOEM's seafloor
-    anomaly shapefiles): the FILE is the source of truth, this record is where it is, whether it
+    """A GIS vector file drawn OVER the data as interpretation (e.g. BOEM's seafloor anomaly
+    shapefiles): the FILE is the source of truth, this record is where it is, whether it
     is shown and in what colour. Geometry is re-read on open, never serialised (DDIA: derived,
     recomputable). ``ref_id`` is ``"ref{N}"``, monotonic like the other ids here."""
 
@@ -331,7 +330,7 @@ class Project:
     #: annotation's one cross-reference is its own ``ObjRef``, which carries everything needed to
     #: re-find its object, so there is nothing for a Store class to resolve.
     annotations: list[AnnotationRecord] = dataclasses.field(default_factory=list)
-    #: reference layers (2026-08-29): additive key ``"reference_layers"``; see ReferenceLayerRecord.
+    #: reference layers: additive key ``"reference_layers"``; see ReferenceLayerRecord.
     reference_layers: list = dataclasses.field(default_factory=list)
     created: str = ""
     modified: str = ""

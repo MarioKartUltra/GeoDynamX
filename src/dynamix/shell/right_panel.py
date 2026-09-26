@@ -140,7 +140,7 @@ class RightPanel(QtWidgets.QScrollArea):
     #: values (only it knows whether that is the field or a holder_map h-map right now).
     levelsDialogRequested = QtCore.Signal()
     #: "Reconstruct…" clicked -- main_window opens the BandDialog over the result's h-map
-    #: (analysis, not display -- the 2026-09-16 split; it needs a holder/band result to exist).
+    #: (analysis, not display; it needs a holder/band result to exist).
     bandDialogRequested = QtCore.Signal()
 
     def __init__(self, display_params, parent=None):
@@ -284,19 +284,19 @@ class RightPanel(QtWidgets.QScrollArea):
         arrows_lay.addWidget(self.arrows_combo, 1)
         column.addWidget(arrows_row)
         self._relevant_items["arrows"] = arrows_row
-        # Hillshade (2026-08-29): the raster shaded by the Sun az / Sun alt / Vert. exag. knobs
+        # Hillshade: the raster shaded by the Sun az / Sun alt / Vert. exag. knobs
         # above, on the canvas and on the drape. Same styleChanged path as everything here.
         self.hillshade_check = QtWidgets.QCheckBox("Hillshade")
         self.hillshade_check.toggled.connect(
             lambda checked: self.styleChanged.emit("hillshade", checked))
         column.addWidget(self.hillshade_check)
         self._relevant_items["hillshade"] = self.hillshade_check
-        # 3-D surface (2026-08-29; 2026-09-16 user redesign): in the Vector/Globe views the
-        # raster stands up with z = a chosen HEIGHT SOURCE -- this layer's own values, or
-        # another loaded raster's (the drape case: an h(x) layer standing on a DEM). The whole
-        # choice (off / same / other+which) lives in a dialog main_window owns (it knows the
-        # layer list; this panel deliberately does not), opened from this button; the button
-        # label mirrors the current state via set_style_values.
+        # 3-D surface: in the Vector/Globe views the raster stands up with z = a chosen
+        # HEIGHT SOURCE -- this layer's own values, or another loaded raster's (the drape
+        # case: an h(x) layer standing on a DEM). The whole choice (off / same / other+which)
+        # lives in a dialog main_window owns (it knows the layer list; this panel deliberately
+        # does not), opened from this button; the button label mirrors the current state via
+        # set_style_values.
         self.surface_button = QtWidgets.QPushButton("3-D surface…")
         self.surface_button.clicked.connect(self.surfaceDialogRequested.emit)
         column.addWidget(self.surface_button)
@@ -326,7 +326,7 @@ class RightPanel(QtWidgets.QScrollArea):
         return row
 
     def _build_stretch_row(self) -> QtWidgets.QWidget:
-        """Stretch (2026-08-29): which contrast stretch colours the raster (``core.stretch``);
+        """Stretch: which contrast stretch colours the raster (``core.stretch``);
         the Clip % knob above feeds the ``percent`` mode. Same styleChanged path as the colormap."""
         row = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(row)

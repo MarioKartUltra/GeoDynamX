@@ -63,7 +63,7 @@ def test_pocs2d_meets_the_transferable_floor():
     J = 4
     S, _, maxima = _maxima_for(img, J)
     img_hat, resid, _ = mzlib.pocs2d(maxima, S, img.shape, J, n_iter=10)
-    # First-run MEASURED (2026-08-14): 26.81 dB. Floor is the fixed 26.2 dB transferable
+    # First-run MEASURED: 26.81 dB. Floor is the fixed 26.2 dB transferable
     # spec floor (NOT pinned to measured*margin the way the 1-D/script-10/20 gates are) —
     # this assertion is the floor itself, per the design.
     assert _snr(img, img_hat) >= 26.2
@@ -105,9 +105,10 @@ def test_edges_only_diverges_without_the_coarse_channel():
 
     n_iter=60 (the design's sketch value) never diverges on this composite: at J=4/N=64 the
     residual stays flat (ratio ~0.98-1.0) through 60 and is still only ~1.7x by 150 -- the
-    onset is much later than script 22's own J=6/N=256 probe. Measured (2026-08-14) crossing
-    is between 150 (x1.7) and 180 (x5.1) iterations; raised to n_iter=200 per the design's sanctioned latitude for a comfortable margin past onset. First-run MEASURED ratio at
-    n_iter=200: x11.7 (resid 1.474e+01 -> 1.725e+02), consistent with script 22's own note
+    onset is much later than script 22's own J=6/N=256 probe. Measured crossing is between 150
+    (x1.7) and 180 (x5.1) iterations; raised to n_iter=200 per the design's sanctioned latitude
+    for a comfortable margin past onset. First-run MEASURED ratio at n_iter=200: x11.7 (resid
+    1.474e+01 -> 1.725e+02), consistent with script 22's own note
     that growth is structural but the exact ratio is not (post-divergence trajectories are
     1-ulp-chaotic; the gate pins >=5x, not a tight value)."""
     img = _composite64()

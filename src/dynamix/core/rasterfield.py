@@ -385,9 +385,9 @@ class RasterField:
             raise ValueError(f"{path}: could not read GeoTIFF window ({exc})") from exc
         if nodata is not None:
             band = np.where(band == nodata, np.nan, band)      # nodata -> NaN (the mask convention)
-        # Undeclared float32-extreme fill (2026-09-22, the BOEM headers declare nodata = 0.0
-        # while the empty areas hold -3.4028235e38): |v| >= 3e38 is nodata whatever the
-        # header says -- geo.mapping._mask_sentinels' own threshold, applied at READ.
+        # Undeclared float32-extreme fill (the BOEM headers declare nodata = 0.0 while the
+        # empty areas hold -3.4028235e38): |v| >= 3e38 is nodata whatever the header says --
+        # geo.mapping._mask_sentinels' own threshold, applied at READ.
         band = np.where(np.abs(band) >= 3e38, np.nan, band)
         ny, nx = band.shape
         cols = np.arange(nx, dtype=np.float64) + 0.5           # pixel CENTRES
@@ -433,13 +433,13 @@ class RasterField:
                 _, y_axis = transform * (np.zeros_like(rows), rows)
         except Exception as exc:
             raise ValueError(f"{path}: could not read GeoTIFF ({exc})") from exc
-        # Frame by CRS KIND, mirroring from_geotiff_window's branch above (2026-08-19 fix; the
-        # recorded b8cbdfd gap): a PROJECTED CRS means x_axis/y_axis are linear units (metres,
-        # US survey feet, ...), and stamping GeographicFrame() sent them through projection.py's
-        # longitude canonicalisation — np.mod(x, 360) — folding a UTM-like axis every 360 units
+        # Frame by CRS KIND, mirroring from_geotiff_window's branch above: a PROJECTED CRS
+        # means x_axis/y_axis are linear units (metres, US survey feet, ...), and stamping
+        # GeographicFrame() would send them through projection.py's longitude
+        # canonicalisation — np.mod(x, 360) — folding a UTM-like axis every 360 units
         # (measured on the BOEM west crop: 400 real columns collapsed onto 9 distinct x values,
-        # 45 wrap-arounds — the "dateline-looking" smear on the Vector tab). The Globe path was
-        # never affected: geo.mapping keys off provenance["crs"], not field.frame.
+        # 45 wrap-arounds — the "dateline-looking" smear on the Vector tab). The Globe path is
+        # independent of this: geo.mapping keys off provenance["crs"], not field.frame.
         if crs is not None and crs.is_projected:
             frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                                dx=abs(float(transform.a)), dy=abs(float(transform.e)),

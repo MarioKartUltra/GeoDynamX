@@ -77,8 +77,8 @@ def test_transect_on_a_picture_samples_the_blocks_under_its_file_pixel_line(pic_
 
 
 def test_the_reported_misplacement_is_gone_roi_numbers_stay_file_pixels(pic_window):
-    """The 2026-09-22 bug: a box on the decimated overview landed stride-x off. On the
-    picture the box's numbers ARE file pixels -- nothing multiplies them."""
+    """On the picture the box's numbers ARE file pixels -- nothing multiplies them by the
+    stride, so a box cannot land stride-x off."""
     # Only the recipe is under test: no worker (the fixture's source does not exist, and an
     # in-flight worker's error would land in a LATER test's event loop).
     pic_window._start_worker = lambda: None
@@ -791,7 +791,7 @@ def test_the_components_window_follows_tucker_orientation(plain_window, qtbot, t
     assert cw.components is win._active_result["tucker_combined_components"]
 
 
-# ------------------------------------------- Derivative datasets (2026-09-23)
+# ------------------------------------------- Derivative datasets
 
 class _Fork:
     """Stands in for ForkDialog: accepts at once with fixed choices; records what it offered."""

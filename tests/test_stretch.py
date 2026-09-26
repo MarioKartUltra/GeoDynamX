@@ -66,7 +66,7 @@ def test_constant_field_and_unknown_mode_are_handled_honestly():
     assert set(STRETCHES) == {"linear", "percent", "stddev", "log", "histogram", "bipolar"}
 
 
-# ------------------------------------------------------- density slice (ENVI, 2026-09-16)
+# ------------------------------------------------------- density slice (ENVI)
 
 def test_parse_levels_grammar():
     from dynamix.core.stretch import parse_levels

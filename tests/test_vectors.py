@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""dynamix.geo.vectors — open GIS vector files (shapefiles) as reference layers (2026-08-29).
+"""dynamix.geo.vectors — open GIS vector files (shapefiles) as reference layers.
 
 BOEM's seafloor-anomaly package is 33 shapefiles (polygonZ / polylineZ / point) in the same
 CRS as the West bathymetry. The reader is stdlib-only (no fiona/pyogrio/shapely in the env);

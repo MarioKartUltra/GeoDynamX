@@ -193,8 +193,8 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     kx_np = np.fft.fftfreq(nx_p).astype(np.float32)
     ky_np = np.fft.fftfreq(ny_p).astype(np.float32)
     kx, ky = np.meshgrid(kx_np, ky_np)
-    # ``fft`` (2026-09-22): an fft_policy backend (FFTW3 at 32/64-bit); None keeps numpy's
-    # FFT -- the legacy/reference path, byte-identical to before.
+    # ``fft``: an fft_policy backend (FFTW3 at 32/64-bit); None keeps numpy's FFT -- the
+    # reference path.
     _F = np.fft if fft is None else fft
     image_fft = _F.fft2(padded.astype(np.complex64))
 
@@ -843,7 +843,7 @@ def _resolve_cwt2d_engine():
             return cwt_2d_f32
         except ImportError:
             pass
-    # FFTW3 at the policy precision (2026-09-22); numpy's FFT only as the policy's last resort
+    # FFTW3 at the policy precision; numpy's FFT only as the policy's last resort
     import functools
     return functools.partial(_cwt2d_numpy, fft=be if be.name != "mlx" else None)
 
@@ -965,8 +965,8 @@ class PythonWTMMBackend:
         if engine is None:
             engine = _DEFAULT_ENGINE          # the app-wide master setting, when one is set
         if engine is None:
-            # 2026-09-22: follow the FFT policy -- mlx (32-bit) on Apple Silicon, else FFTW3
-            # at the configured precision; numpy only as the policy's warned last resort.
+            # Follow the FFT policy -- mlx (32-bit) on Apple Silicon, else FFTW3 at the
+            # configured precision; numpy only as the policy's warned last resort.
             from dynamix.core import fft_policy
             engine = {"mlx": "mlx", "pyfftw": "fftw"}.get(fft_policy.active().name, "numpy")
 
@@ -993,7 +993,7 @@ class PythonWTMMBackend:
             "arg": np.asarray(raw["arg"], dtype=np.float32),
         }
         if derivs == "all":
-            # The follow detector's derivative stacks (2026-09-21) -- both engines produce the
+            # The follow detector's derivative stacks -- both engines produce the
             # same nine keys (the numpy filter bank is an exact transcription of the mlx one).
             for name in ("dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"):
                 out[name] = np.asarray(raw[name], dtype=np.float32)
@@ -1604,7 +1604,7 @@ class PythonWTMMBackend:
         """
         signal = np.asarray(signal, dtype=np.float64)
         from dynamix.core import fft_policy
-        policy = fft_policy.active().name          # 2026-09-22: mlx or FFTW3, per policy
+        policy = fft_policy.active().name          # mlx or FFTW3, per policy
         try:
             if policy != "mlx":
                 raise ImportError
@@ -1912,15 +1912,15 @@ _WTMM2D_PARAM_DEFAULTS = {
     "q_list": DEFAULT_Q,
     "pad": 32,
     "fracint_alpha": 1.0,
-    # 2026-09-20 subpixel/parity knob: parabolic refinement of each NMS maximum along its
-    # gradient direction (dynamix.core.subpixel). Off by default -- byte-identical pipeline.
+    # Subpixel/parity knob: parabolic refinement of each NMS maximum along its gradient
+    # direction (dynamix.core.subpixel). Off by default -- byte-identical pipeline.
     # Inert under detector="follow", whose crossing offset and crossing-interpolated modulus
     # ARE the interpolation (the k_edge inert-knob precedent; still keyed).
     "interpolate": False,
-    # 2026-09-21: the detection method -- "nms" (bilinear non-maxima suppression, the xsmurf
-    # wtmm2d/Malandain path and this pipeline's historical behavior) or "follow" (kappa
-    # zero-crossing with the kappa' < 0 gate, xsmurf's scalar-2D historical default; see
-    # dynamix.core.follow2d for the ported gkapa/gkapap formulas and the discretization).
+    # The detection method -- "nms" (bilinear non-maxima suppression, the xsmurf
+    # wtmm2d/Malandain path) or "follow" (kappa zero-crossing with the kappa' < 0 gate,
+    # xsmurf's scalar-2D historical default; see dynamix.core.follow2d for the ported
+    # gkapa/gkapap formulas and the discretization).
     "detector": "nms",
     "use_wavelet_hessian": True,
 }
@@ -2056,7 +2056,7 @@ def _run_stage(stage: str, key_dict: dict, out_dir, field_name: str, compute_fn,
 # --- per-stage npz (de)serialization ----------------------------------------
 
 def _save_cwt(path, cwt: dict) -> None:
-    """``kapa``/``kapap`` (the follow detector's fields, 2026-09-21) ride along when present --
+    """``kapa``/``kapap`` (the follow detector's fields) ride along when present --
     the follow variant of the cwt stage caches four stacks instead of two."""
     arrays = {"mod": np.asarray(cwt["mod"]), "arg": np.asarray(cwt["arg"])}
     if "kapa" in cwt:
@@ -2077,7 +2077,7 @@ def _load_cwt(path) -> dict:
 def _extrema_to_arrays(extrema: list) -> dict:
     """Per-scale extrema list -> CSR-flattened arrays (x/y/mod/arg/line_id + offsets).
 
-    ``x_sub``/``y_sub`` (the 2026-09-20 subpixel channels) are flattened too when present --
+    ``x_sub``/``y_sub`` (the subpixel channels) are flattened too when present --
     present on every layer or none (the refinement is a whole-stack pass), so presence on the
     first layer decides."""
     lens = [len(e["x"]) for e in extrema]
@@ -2102,9 +2102,9 @@ def _extrema_to_arrays(extrema: list) -> dict:
 def _arrays_to_extrema(d) -> list:
     """Inverse of :func:`_extrema_to_arrays`; ``d`` is any ``{"x", "y", ...}`` mapping.
 
-    ``x_sub``/``y_sub`` come back when the arrays carry them; an OLD stage-cache npz (written
-    before the 2026-09-20 subpixel channels) loads exactly as before -- npz mappings support
-    ``in`` and this never KeyErrors on their absence."""
+    ``x_sub``/``y_sub`` come back when the arrays carry them; a stage-cache npz without the
+    subpixel channels loads without them -- npz mappings support ``in`` and this never
+    KeyErrors on their absence."""
     off = np.asarray(d["off"])
     x, y, mod, arg, line_id = d["x"], d["y"], d["mod"], d["arg"], d["line_id"]
     has_sub = "x_sub" in d
@@ -2331,10 +2331,10 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
             # lifted modulus supplies the amplitudes -- the exact division of labor the NMS
             # path has). Follow's crossing offset and crossing-interpolated modulus are its
             # native channels, so the interpolate knob is inert here (keyed regardless).
-            # 2026-09-22 exact-port swap: dynamix.core.xsmurf_follow -- w2_folow_contour detection +
+            # Exact port: dynamix.core.xsmurf_follow -- w2_folow_contour detection +
             # _get_interpolated_modulus_ v1 values + search_lines chaining, parity-proven
-            # against the wrapper oracle (test_xsmurf_follow_parity). The earlier
-            # follow2d discretization stays in core, unused by this path.
+            # against the wrapper oracle (test_xsmurf_follow_parity). The follow2d
+            # discretization stays in core, unused by this path.
             from dynamix.core.xsmurf_follow import follow_extrema_scale_exact
             invalid = None
             fvals = np.asarray(field.values)

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Decomposition transforms: PCA and Tucker-HAVOK -- the common-tools additions (2026-09-21).
+"""Decomposition transforms: PCA and Tucker-HAVOK.
 
 The originating code is the author's ``aster_him.ipynb``; the engines are the efficiency-mandated rebuilds in
 :mod:`dynamix.core.pca` (covariance-trick PCA) and :mod:`dynamix.core.tucker_havok`
@@ -32,9 +32,9 @@ def _field_values(field, device_name: str, *, min_comps: int = 1):
         raise ValueError(f"{device_name} needs a 2-D or (ny, nx, nc) field; got {vals.shape}")
     nc = vals.shape[2] if vals.ndim == 3 else 1
     if nc < min_comps:
-        # 2026-09-21: never say "components" here -- that is the KEEP knob's name (how many
-        # PCs to retain), while THIS gate is about input BANDS. Same word, two meanings, one
-        # dialog: the old message read as self-contradictory next to Components=6.
+        # Never say "components" here -- that is the KEEP knob's name (how many PCs to
+        # retain), while THIS gate is about input BANDS. Same word, two meanings, one dialog:
+        # the message must not read as self-contradictory next to Components=6.
         raise ValueError(
             f"{device_name} runs across BANDS and needs a multi-band field "
             f"((ny, nx, nc), nc >= {min_comps}); this field has {nc}. The Components knob "
@@ -173,9 +173,9 @@ class TuckerHavok:
         "RANKS": ("rank_delay", "rank_time", "rank_space", "rank_band"),
     }
     params = (
-        # "delay_2d" (default, 2026-09-23) = the symmetric 2-D delay embedding: BOTH axes
+        # "delay_2d" (default) = the symmetric 2-D delay embedding: BOTH axes
         # delayed (n_delays x n_delays patches), so no image axis plays "time" -- on a 2-D field
-        # the 1-D tape's rows/cols choice biased the result. "delay" = the HAVOK Hankel
+        # the 1-D tape's rows/cols choice biases the result. "delay" = the HAVOK Hankel
         # embedding along ONE axis (a real tape, e.g. reconstructed ASTER tape: axis picks it);
         # "none" = Tucker of the raw array's own modes (rows, cols[, band]). Knobs that do not
         # apply to the chosen embedding are greyed out (``active_when``; still keyed).
@@ -307,9 +307,9 @@ _TUCKER_PARAMS = {p.name: p for p in TuckerHavok.params}
 
 
 class TuckerHOOIHOSVD(TuckerHavok):
-    """``tucker_havok`` renamed for what it computes (2026-09-23), with the algorithm as a
-    two-state toggle instead of a sweep count that meant HOSVD at 0: **HOSVD** -- one pass, each
-    mode's leading singular vectors -- or **HOOI** -- that HOSVD refined by ``sweeps``
+    """``tucker_havok`` under a name for what it computes, with the algorithm as a two-state
+    toggle where ``tucker_havok`` has a sweep count that means HOSVD at 0: **HOSVD** -- one pass,
+    each mode's leading singular vectors -- or **HOOI** -- that HOSVD refined by ``sweeps``
     alternating passes (monotone in the kept core energy). The delay embeddings make it a
     Broomhead-King SSA (Tucker-SSA) in 2-D; HAVOK's regression on the delay coordinates was never
     part of it. ``tucker_havok`` stays registered, unchanged, so saved projects resolve exactly

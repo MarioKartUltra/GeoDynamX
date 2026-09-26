@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""dynamix.core.hlines — ordered point runs of each H-line at one scale (2026-08-28).
+"""dynamix.core.hlines — ordered point runs of each H-line at one scale.
 
-The 2-D canvas joins an H-line's extrema into a polyline (``canvas.hline_polylines``); the 3-D
-scene drew them as loose points. This pure helper gives both surfaces one ordering, from the
-same ``_order_lines`` walk the topology uses."""
+The 2-D canvas joins an H-line's extrema into a polyline (``canvas.hline_polylines``). This pure
+helper gives the 2-D canvas and the 3-D scene one ordering, from the same ``_order_lines`` walk
+the topology uses."""
 from __future__ import annotations
 
 import numpy as np

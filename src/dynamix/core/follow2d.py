@@ -32,11 +32,10 @@ through the bilinear modulus samples EVALUATED AT the crossing -- the follow val
 (xsmurf default ``followVersion=1`` interpolates a cubic through 4 samples at the crossing;
 the 3-point parabola is this codebase's one sampling convention, a recorded divergence).
 
-Per the user ("at least use numba"): the kappa/kappa' combination and the per-pixel crossing
-scan are single fused numba kernels (lazy ``njit(cache=True)``, plain-python fallback -- the
-``_line_kernels`` idiom), so the nine derivative stacks never materialize eight temporaries;
-the FFT-heavy derivative stacks themselves come from the cwt engine (mlx when available,
-``derivs='all'``), never from here.
+The kappa/kappa' combination and the per-pixel crossing scan are single fused numba kernels
+(lazy ``njit(cache=True)``, plain-python fallback -- the ``_line_kernels`` idiom), so the nine
+derivative stacks never materialize eight temporaries; the FFT-heavy derivative stacks
+themselves come from the cwt engine (mlx when available, ``derivs='all'``), never from here.
 """
 from __future__ import annotations
 

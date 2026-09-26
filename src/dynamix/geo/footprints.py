@@ -280,8 +280,8 @@ def overview_field(path, max_px: int = 400, name: str | None = None):
         fill = 0.0 if ds.nodata is None else float(ds.nodata)
         transform, crs = ds.transform, ds.crs
     band[band == fill] = np.nan
-    # BOEM west declares nodata 0.0 while its border holds float32-lowest (2026-08-30): extreme
-    # sentinels are fill regardless of what the header claims -- same rule as mapping's drapes.
+    # BOEM west declares nodata 0.0 while its border holds float32-lowest: extreme sentinels
+    # are fill regardless of what the header claims -- same rule as mapping's drapes.
     from dynamix.geo.mapping import _mask_sentinels
     band = _mask_sentinels(band)
     sx, sy = w / ow, h / oh

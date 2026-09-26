@@ -18,15 +18,14 @@ PRESETS: dict[str, tuple] = {
         ("scale_select", {"scale_idx": 0}),
         ("hline_length", {}),
     ),
-    # 2026-09-20: scrubbing IS
-    # scale_select, seeded in the default wtmm chain -- the multi-scale analyzers get it
-    # from their rack instead of arriving bare and stacking every level.
+    # Scrubbing IS scale_select, seeded in the default wtmm chain -- the multi-scale analyzers
+    # get it from their rack instead of arriving bare and stacking every level.
     "CDF edges": (
         ("cdf_edges", {"n_levels": 4}),
         ("scale_select", {"scale_idx": 0}),
         ("hline_length", {}),
     ),
-    # Perona-Malik proper (2026-09-21): same multi-scale rack shape as CDF edges -- the
+    # Perona-Malik proper: same multi-scale rack shape as CDF edges -- the
     # analyzer plus seeded scale scrubbing and orphan-confetti control.
     "PM edges": (
         ("pm_edges", {"n_levels": 4}),

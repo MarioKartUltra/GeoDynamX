@@ -45,7 +45,7 @@ def field_values_2d(field, device_name: str):
 
 def holder_arrays(vals, params: dict, progress=None):
     """``(h_map, r2_map, scales)`` for the shared estimator/wavelet/scale params -- the one
-    engine both ``holder_map`` and ``band_recon`` run (2026-09-16)."""
+    engine both ``holder_map`` and ``band_recon`` run."""
     import numpy as np
 
     from dynamix.core import microcanonical as mc
@@ -70,9 +70,9 @@ def holder_arrays(vals, params: dict, progress=None):
     h_map, r2_map = mc.singularity_map_regression(T, scales, r2_min=0.0)
     if progress is not None:
         progress("holder regression", 1.0)
-    # NaN in, NaN out (2026-09-22): a nodata pixel never gets an exponent, whatever the
-    # kernel -- heavy tails used to report their own tail exponent (2beta - d) there, and even
-    # a Gaussian reports one near the nodata edge (its reach crosses to real data).
+    # NaN in, NaN out: a nodata pixel never gets an exponent, whatever the kernel -- unmasked,
+    # heavy tails report their own tail exponent (2beta - d) there, and even a Gaussian reports
+    # one near the nodata edge (its reach crosses to real data).
     nodata = ~np.isfinite(np.asarray(vals, dtype=np.float64))
     if nodata.any():
         h_map = np.asarray(h_map).copy()
@@ -85,8 +85,8 @@ def holder_arrays(vals, params: dict, progress=None):
 class HolderMap:
     name = "holder_map"
     params = (
-        # Turiel 2008's own dichotomy, named HIS way (renamed from "ricker" 2026-09-16 --
-        # user caught the conflation: the Ricker is a WAVELET, the estimator is the FUNCTIONAL):
+        # Turiel 2008's own dichotomy, named HIS way (the Ricker is a WAVELET, the estimator
+        # is the FUNCTIONAL):
         # multiaffine = |T_psi s|, the SIGNAL projected with a zero-mean wavelet (SS4.2.1;
         # smooth/function-class fields, slope = gamma); measure = positive-kernel projections
         # of ||grad s|| (SS4.2.2; measure-like fields, slope = h). Frames differ by -1
@@ -97,7 +97,7 @@ class HolderMap:
               choices=("multiaffine", "measure"), label="Estimator"),
         # Defaults are Turiel 2009's image practice: "a range of scales typically going from
         # 1 to 8 pixels non uniformly sampled" -- r1=1 (the fig-2 zero-crossing minimum),
-        # kappa=8, geometric. MEASURED (2026-09-16, fBm 256^2): the sample COUNT within a range
+        # kappa=8, geometric. MEASURED (fBm 256^2): the sample COUNT within a range
         # is nearly irrelevant (dyadic 4-pt vs geometric 6-pt over kappa=8: r=0.95) while the
         # RANGE dominates (kappa=32 vs 8: r=0.51; the prototype notebook's 2..50 grid: r=-0.06,
         # a different, coarse-dominated field) -- so n_scales stays small for scrub speed and

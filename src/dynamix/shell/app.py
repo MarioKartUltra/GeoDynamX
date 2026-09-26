@@ -48,8 +48,8 @@ def _default_raster() -> str:
 
 
 def main(argv=None) -> int:
-    # A VTK/Cocoa segfault otherwise dies with no Python frame in the crash report (two of them
-    # on 2026-08-25); faulthandler prints the Python stack to stderr first.
+    # A VTK/Cocoa segfault otherwise dies with no Python frame in the crash report;
+    # faulthandler prints the Python stack to stderr first.
     import faulthandler
     try:
         faulthandler.enable()

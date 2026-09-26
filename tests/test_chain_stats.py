@@ -147,7 +147,7 @@ def test_length_for_prefers_mod_then_log2_mod_then_log2_scales():
     assert chain_stats.length_for([{}])[0] == 0
 
 
-# --- vectorization equivalence + memo (2026-09-14 perf: Hölder-filter beach ball) --------------
+# --- vectorization equivalence + memo ----------------------------------------------------------
 
 def _chains_variety():
     """Chains covering the edge cases the vectorized path must match: empty, 1-point, clean,

@@ -79,10 +79,9 @@ def test_roi_band_and_place_origin_convert_through_the_base(qtbot):
 
 
 def test_set_colormap_resolves_matplotlib_ramps(qtbot):
-    """2026-09-22: the ramp
-    combo lists EVERY matplotlib colormap, but pg.ImageItem.setColorMap(str) resolves only
-    pyqtgraph's few local maps -- everything else raised and was swallowed. set_colormap now
-    falls back to source='matplotlib', so 'terrain'/'RdBu'/'gray' actually apply."""
+    """The ramp combo lists EVERY matplotlib colormap, but pg.ImageItem.setColorMap(str)
+    resolves only pyqtgraph's few local maps -- everything else raises. set_colormap falls
+    back to source='matplotlib', so 'terrain'/'RdBu'/'gray' actually apply."""
     canvas = Canvas()
     qtbot.addWidget(canvas)
     canvas.set_field(np.zeros((8, 8), dtype=np.float32))

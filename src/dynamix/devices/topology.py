@@ -69,15 +69,14 @@ class MinVChains:
         # caches with it). Rebuild inline only when it is absent -- an older cached result, or a
         # model asserted by hand and dropped into a result dict -- so this device keeps working
         # off any topology, just without the free lunch.
-        # Perf (2026-09-14, "even changing the scale in view is laggy"): the drop computation is
-        # a Python walk over EVERY h-chain node (~187k on a 2048 DEM -> ~120 ms, profiled) and
-        # depends ONLY on (this topology, need). resolve() re-runs the whole filter chain on every
-        # tweak, so scrubbing scale or min |W| used to pay that 120 ms each time for an identical
-        # result. Memoize it on the model, keyed by need: the model is the cached transform's own
-        # object (stable across resolves, replaced only when the transform recomputes), so this is
-        # exactly EQSelect's "cache per-layer filter state" -- a downstream tweak now skips the
-        # walk entirely. The memo holds only the small (dropped, n_dropped) summary, never a copy
-        # of any point array.
+        # Perf: the drop computation is a Python walk over EVERY h-chain node (~187k on a 2048
+        # DEM -> ~120 ms, profiled) and depends ONLY on (this topology, need). resolve() re-runs
+        # the whole filter chain on every tweak, so unmemoized, scrubbing scale or min |W| pays
+        # that 120 ms each time for an identical result. Memoize it on the model, keyed by need:
+        # the model is the cached transform's own object (stable across resolves, replaced only
+        # when the transform recomputes), so this is exactly EQSelect's "cache per-layer filter
+        # state" -- a downstream tweak skips the walk entirely. The memo holds only the small
+        # (dropped, n_dropped) summary, never a copy of any point array.
         memo = getattr(model, "_minv_drop_memo", None)
         if memo is None:
             memo = {}

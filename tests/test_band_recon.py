@@ -72,7 +72,7 @@ def test_refuses_an_upstream_result_dict():
         BandRecon().compute({"chains": []}, defaults_for(BandRecon()))
 
 
-# ------------------------------------------------------- the source split (2026-09-19, §6.3)
+# ------------------------------------------------------- the source split (§6.3)
 
 def test_split_variants_are_registered(clean_registry):
     from dynamix.devices import register_builtin_devices

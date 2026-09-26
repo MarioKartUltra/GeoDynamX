@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The noise Transform (2026-08-30): seeded dither as a CHAIN STEP before the transform.
+"""The noise Transform: seeded dither as a CHAIN STEP before the transform.
 
 Distinct from
 wtmm2d's own dither checkbox (auto half-LSB only): this one composes in the chain, has a manual
@@ -96,10 +96,10 @@ def test_chains_before_wtmm_and_refuses_to_run_on_a_result(clean_registry):
         Noise().compute({"extrema": []}, _params(amplitude=0.1))      # dropped AFTER wtmm
 
 
-# ------------------------- a chain ending on a field transform lands gracefully (2026-08-30)
-# Noise followed by the WTMM standard preset got stuck at 0: [noise] alone resolves to a
-# FIELD, and the landing crashed on result.get(...) in the Qt loop -- resolved never fired and
-# the window stayed wedged for every later edit.
+# ------------------------- a chain ending on a field transform lands gracefully
+# [noise] alone resolves to a FIELD. Landing it must not crash on result.get(...) in the Qt
+# loop: a crash there means resolved never fires, the window stays wedged for every later edit,
+# and Noise followed by the WTMM standard preset sits at 0.
 
 from tests.test_shell_roi_flow import parent_tif, _parent_field  # noqa: E402,F401
 

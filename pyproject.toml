@@ -25,7 +25,7 @@ classifiers = [
 # this test exists to prevent.)
 dependencies = [
     "numpy>=2.0",
-    # GeoDynamix_Beta (2026-09-22): the FFT engines ARE the install-time switch
+    # The FFT engines ARE the install-time switch
     # (dynamix.core.fft_policy) -- FFTW3 on every platform, mlx ONLY on Apple Silicon, so a
     # Windows/Linux/Intel-Mac install never tries to install mlx and runs every FFT on FFTW3.
     "pyfftw>=0.14",

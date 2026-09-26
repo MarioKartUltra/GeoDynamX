@@ -137,11 +137,10 @@ SEAM_COLOR = (255, 112, 67)         # seam-flagged V-chain trails
 GHOST_COLOR = (120, 120, 120)       # excluded-chain ghosts: neutral, deliberately desaturated
 
 #: The wavelet-bar DUO: theta, the smoothing function, in white; psi, the analyzing wavelet actually
-#: convolved with the field, in the "green wavelet bar" green named in the 2026-08-05 design doc's
-#: Map-panels house style. Before this slice there was one curve here, drawn in the theme's muted
-#: `ink_muted` role because it was chrome (what the analysis is doing); now there are two curves
-#: and WHICH KERNEL each one is is itself the point, so -- like the chain/extremum colors above --
-#: they are literal RGB tuples, exempt from the Theme Rule as data identity, not a theme role.
+#: convolved with the field, in the "green wavelet bar" green named in the design doc's
+#: Map-panels house style. WHICH KERNEL each curve is is itself the point, so -- like the
+#: chain/extremum colors above -- they are literal RGB tuples, exempt from the Theme Rule as data
+#: identity, not a theme role.
 SMOOTHER_COLOR = (235, 235, 235)    # theta (deriv_order=0): white-ish (same value as HCHAIN_COLOR)
 ANALYZER_COLOR = (63, 174, 90)      # psi (deriv_order=1): DESIGN.md's wavelet-bar green
 
@@ -175,7 +174,7 @@ _DEFAULT_MAX_DIM = 2048
 _MARGIN_PX = 12
 _LABEL_GAP_PX = 8
 
-#: SUPERSEDED (scale doctrine, spec 2026-08-10 sec 2). Used to be the half-width, in
+#: SUPERSEDED (scale doctrine). Used to be the half-width, in
 #: multiples of the scale ``a``, that :meth:`Canvas._update_wavelet_bar` clipped a ``wtmm``-
 #: rendered kernel to -- that kernel's numeric support ran to ~20a, which spanned most of a
 #: zoomed view as an unlabelled squiggle, so +/-3a (where a first-derivative Gaussian family has
@@ -199,8 +198,7 @@ def _resolve_cmap(name):
 
     One resolver for :meth:`Canvas.set_colormap` AND :meth:`Canvas._refresh_image`'s
     re-apply -- the two must never disagree, or a stretch/hillshade refresh silently
-    reverts a matplotlib-named ramp to whatever LUT survived (the 2026-09-22 stuck-on-
-    viridis bug, in refresh form)."""
+    reverts a matplotlib-named ramp to whatever LUT survived."""
     try:
         return pg.colormap.get(str(name))
     except Exception:
@@ -228,9 +226,8 @@ def roi_from_corners(p0, p1, shape) -> tuple[int, int, int, int]:
     else's data at worst.
     """
     ny, nx = int(shape[0]), int(shape[1])
-    # Center registration (2026-09-21): pixel j's cell spans [j - 0.5, j + 0.5), so shifting the
-    # data coordinates by +0.5 makes the original floor/ceil arithmetic compute exactly the
-    # touched-cell range under the new convention.
+    # Center registration: pixel j's cell spans [j - 0.5, j + 0.5), so shifting the data
+    # coordinates by +0.5 makes the floor/ceil arithmetic compute exactly the touched-cell range.
     row0 = max(0, min(int(np.floor(min(p0[1], p1[1]) + 0.5)), ny))
     row1 = max(0, min(int(np.ceil(max(p0[1], p1[1]) + 0.5)), ny))
     col0 = max(0, min(int(np.floor(min(p0[0], p1[0]) + 0.5)), nx))
@@ -298,7 +295,7 @@ def _hline_base_geometry(base: dict, shape, runs=None):
     (GUI) thread, which is exactly the landing freeze the stamp exists to prevent."""
     nx = int(shape[1])
     if runs is not None:
-        # Display coordinates prefer the subpixel channels (2026-09-20 interpolate knob) --
+        # Display coordinates prefer the subpixel channels (the interpolate knob) --
         # the polyline vertices move off-grid, killing the integer-center staircase at zoom.
         # ``vert_pos`` stays derived from the INTEGER support below: it is the pixel IDENTITY
         # the filter-membership gather keys on, never a drawing coordinate.
@@ -306,11 +303,11 @@ def _hline_base_geometry(base: dict, shape, runs=None):
         by = np.asarray(base.get("y_sub", base["y"]), dtype=np.float64)
         bxi = np.asarray(base["x"], dtype=np.int64)
         byi = np.asarray(base["y"], dtype=np.int64)
-        # Vectorized scatter (2026-09-14): the old ``for run in runs`` list.extend loop over
-        # ~58k runs cost ~70 ms per scale (profiled) -- the scale-scrub lag. Lay all runs into
-        # one pre-sized NaN-filled buffer, one point after each run and a NaN separator between,
-        # with the per-point output offsets computed by vectorized cumsum/repeat (no Python loop
-        # over runs beyond reading their lengths).
+        # Vectorized scatter: a ``for run in runs`` list.extend loop over ~58k runs costs ~70 ms
+        # per scale (profiled), which lags a scale scrub. Lay all runs into one pre-sized
+        # NaN-filled buffer, one point after each run and a NaN separator between, with the
+        # per-point output offsets computed by vectorized cumsum/repeat (no Python loop over runs
+        # beyond reading their lengths).
         lens = np.fromiter((r.size for r in runs), dtype=np.int64, count=len(runs))
         if lens.size == 0 or lens.sum() == 0:
             return (np.empty(0, np.float64), np.empty(0, np.float64),
@@ -365,7 +362,7 @@ def hline_polylines(ext: dict, shape) -> tuple[np.ndarray, np.ndarray]:
     y = np.asarray(ext["y"], dtype=np.int64)
     line_id = np.asarray(ext["line_id"], dtype=np.int64)
     # The walk runs on the INTEGER support (grid adjacency is what orders a line); the DRAWN
-    # vertices prefer the subpixel channels when the interpolate knob stamped them (2026-09-20).
+    # vertices prefer the subpixel channels when the interpolate knob stamped them.
     xd = np.asarray(ext.get("x_sub", x), dtype=np.float64)
     yd = np.asarray(ext.get("y_sub", y), dtype=np.float64)
     empty = (np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64))
@@ -700,7 +697,7 @@ class Canvas(pg.GraphicsLayoutWidget):
     #: :func:`roi_from_corners`). The window turns this into the precision panel; the canvas
     #: itself has no idea what an ROI is for.
     roiDrawn = QtCore.Signal(int, int, int, int)
-    #: Armed placement (2026-08-30): a click stamped the hovering footprint --
+    #: Armed placement: a click stamped the hovering footprint --
     #: ``(row, col, h, w)`` in image pixels, same shape as ``roiDrawn``.
     roiPlaced = QtCore.Signal(int, int, int, int)
     _roi_place = None            # (h, w) while placement is armed; class default = off
@@ -832,7 +829,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.extrema_raster_item = pg.ImageItem()
         self.view.addItem(self.extrema_raster_item)
 
-        # INVISIBLE in this view (2026-09-22): interpolated polylines and the line-width
+        # INVISIBLE in this view: interpolated polylines and the line-width
         # style are the VECTOR view's rendering of extrema. The items stay constructed and
         # fed -- their memoized geometry serves the selection machinery and the tests that
         # pin it -- they just do not draw in the raster view.
@@ -873,7 +870,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.view.addItem(self.selection_item)
 
         self.extrema_item = pg.ScatterPlotItem(size=3, pen=None, brush=pg.mkBrush(*EXTREMA_COLOR))
-        self.extrema_item.setVisible(False)      # raster view draws pixels, not dots (2026-09-22)
+        self.extrema_item.setVisible(False)      # raster view draws pixels, not dots
         self.view.addItem(self.extrema_item)
         # Gradient arrows (xsmurf's vector display): at the current scale, one arrow per WTMMM
         # (or per maximum) along its argument -- uphill, in the pixel frame. One pairs-connected
@@ -894,7 +891,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         # a point layer's result carries no "extrema" key at all.
         self.points_item = pg.ScatterPlotItem(size=3, pen=None, brush=pg.mkBrush(*POINTS_COLOR))
         self.view.addItem(self.points_item)
-        # Reference layers (2026-08-29): interpretation drawn OVER the data in this raster's
+        # Reference layers: interpretation drawn OVER the data in this raster's
         # pixel frame -- one item per layer, keyed by the project's ref_id (see set_reference_layers).
         self.reference_items: dict[str, object] = {}
 
@@ -1152,7 +1149,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             notes.append(f"drawing {len(v_idx)} of {v_total} V chains")
         self.cap_note = (" · ".join(notes) + " — tighten filters to see the rest"
                          if notes else None)
-        # H display prefers the subpixel columns (2026-09-20 interpolate knob); V trails stay on
+        # H display prefers the subpixel columns (the interpolate knob); V trails stay on
         # the integer chain coordinates -- chains carry no float channel yet (recorded follow-up).
         return (_gather_polylines(prod.get("h_xf", prod["h_x"]),
                                   prod.get("h_yf", prod["h_y"]), prod["h_off"], h_idx,
@@ -1161,25 +1158,24 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def _masked_hline_geometry(self, base, ext, shape, runs=None):
         """H-line polylines as the BASE layer's cached ordering with the filter applied as a NaN
-        mask (2026-08-30: slow next to EQSelect): the `_order_lines` walk over
-        millions of points is paid once per computed stack (``result["_ext_base"]`` is id-stable
-        across filter tweaks -- ``ScaleSelect``'s stamp), and every tweak after that is an O(n)
-        membership test -- EQSelect's mask-the-fixed-geometry strategy. A vertex whose point the
-        filter dropped goes NaN, so ``connect="finite"`` breaks the line exactly there -- the same
-        picture a re-walk draws (two points bridged by a dropped one are not grid-adjacent, so the
-        walk would not join them either)."""
+        mask: the `_order_lines` walk over millions of points is paid once per computed stack
+        (``result["_ext_base"]`` is id-stable across filter tweaks -- ``ScaleSelect``'s stamp),
+        and every tweak after that is an O(n) membership test -- EQSelect's
+        mask-the-fixed-geometry strategy. A vertex whose point the filter dropped goes NaN, so
+        ``connect="finite"`` breaks the line exactly there -- the same picture a re-walk draws
+        (two points bridged by a dropped one are not grid-adjacent, so the walk would not join
+        them either)."""
         nx = int(shape[1])
         ny = int(shape[0])
         hx_full, hy_full, vert_pos = self._cached_geometry(
             "hline_base", base, lambda: _hline_base_geometry(base, shape, runs))
         if ext is base or len(ext["x"]) == len(base["x"]):
             return hx_full, hy_full                       # nothing filtered away
-        # TRUE O(n) membership (2026-09-14): the docstring above always PROMISED O(n), but the
-        # implementation was a per-tweak np.sort + searchsorted -- O(n log n), measured at 144 ms
-        # on a 1M-point DEM finest scale, THE reason a scale/filter scrub lagged so badly vs
-        # EQSelect (which masks by index, not by re-hashing positions). Scatter the surviving
-        # points into a boolean raster grid once, then gather by the base ordering's own flat
-        # positions: two O(n) passes, no sort. ``vert_pos`` carries -1 at the NaN run separators,
+        # TRUE O(n) membership: scatter the surviving points into a boolean raster grid once,
+        # then gather by the base ordering's own flat positions -- two O(n) passes, no sort. A
+        # per-tweak np.sort + searchsorted is O(n log n), measured at 144 ms on a 1M-point DEM
+        # finest scale, enough to lag a scale/filter scrub well behind EQSelect (which masks by
+        # index, not by re-hashing positions). ``vert_pos`` carries -1 at the NaN run separators,
         # guarded so it never gathers a real cell.
         grid = np.zeros(ny * nx, dtype=bool)
         grid[np.asarray(ext["y"], np.int64) * nx + np.asarray(ext["x"], np.int64)] = True
@@ -1258,11 +1254,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         the name, so a lookup failure there already leaves ``image_item`` exactly as it was --
         this method's own ``try`` just keeps that failure from propagating to the caller.
         """
-        # 2026-09-22: the
-        # ramp combo lists EVERY matplotlib colormap (right_panel, 2026-09-20 request), but
-        # pyqtgraph's own registry holds only a handful of local maps -- every other name
-        # raised here and was silently swallowed, leaving viridis. Resolve local-first (the
-        # historical behavior for viridis/magma/...), then through matplotlib.
+        # The ramp combo (right_panel) lists EVERY matplotlib colormap, but pyqtgraph's own
+        # registry holds only a handful of local maps and raises for every other name, so a
+        # local-only lookup would leave the image on viridis. Resolve local-first, so the local
+        # names (viridis/magma/...) keep their pyqtgraph maps, then through matplotlib.
         cmap = _resolve_cmap(name)
         if cmap is None:
             return
@@ -1273,7 +1268,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def set_hillshade(self, enabled: bool, azimuth: float = 315.0, altitude: float = 45.0,
                       z_factor: float = 1.0) -> None:
-        """Shaded relief under the overlays (2026-08-29): the raster drawn as colormap × hillshade
+        """Shaded relief under the overlays: the raster drawn as colormap × hillshade
         (``dynamix.core.hillshade``) in RGBA, sun from ``azimuth``/``altitude``, slopes scaled by
         ``z_factor``. Uses the field frame's own pixel spacing times the display stride, so the
         shading is physical on a UTM/BLM grid; on a degrees grid the caller's ``z_factor`` is
@@ -1286,7 +1281,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._refresh_image()
 
     def set_stretch(self, mode: str = "linear", percent: float = 2.0) -> None:
-        """Contrast stretch of the raster image (``dynamix.core.stretch``, 2026-08-29): linear
+        """Contrast stretch of the raster image (``dynamix.core.stretch``): linear
         keeps the raw values under the LUT (unchanged behaviour); every other mode puts the
         stretched [0, 1] field under the LUT instead. Composes with hillshade. View state."""
         new = (str(mode), float(percent))
@@ -1296,7 +1291,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._refresh_image()
 
     def set_levels(self, spec: str = "", colors: str = "", min_island: int = 0) -> None:
-        """Density slice (ENVI, 2026-09-16): a class-count or data-unit-breaks spec
+        """Density slice (ENVI): a class-count or data-unit-breaks spec
         (``dynamix.core.stretch.parse_levels``); active it REPLACES the continuous stretch so
         the colormap paints discrete classes -- custom h ramps. ``colors`` ("#rrggbb,...", one
         per class -- the slice editor's product) paints EXPLICIT class colors instead of
@@ -1376,7 +1371,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             return
         values = np.asarray(getattr(self._field, "values", self._field), dtype=np.float64)
         if values.ndim == 3:
-            # A multi-component stack (2026-09-21 sensor ingestion): with a composite spec
+            # A multi-component stack (sensor ingestion): with a composite spec
             # (set_composite -- channel assignment, solo, mute) the stack draws as RGBA;
             # without one the canvas displays band 0. The FIELD keeps every band for
             # analysis either way (pca/tucker/tensor consume the stack).
@@ -1520,7 +1515,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.points_item.setData([], [])
 
     def arm_roi_placement(self, h: int, w: int) -> None:
-        """Enter (or resize) armed ROI placement (2026-08-30): the ``h``x``w`` footprint follows
+        """Enter (or resize) armed ROI placement: the ``h``x``w`` footprint follows
         the cursor (``mouseMoveEvent``) and a plain click stamps it (``roiPlaced``). The ⌘-drag
         gesture stays untouched -- this supersedes nothing, it adds the drop-then-place flow."""
         self._roi_place = (int(h), int(w))
@@ -1534,8 +1529,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         x -= self._base_off[1]                 # pin-in-place: the cursor is file-absolute
         y -= self._base_off[0]
         ny, nx = self._field_shape()
-        # Center registration (2026-09-21): the box's pixel centers run row .. row+h-1, so its
-        # own center is row + (h-1)/2 -- not row + h/2, which was the cell-edge convention.
+        # Center registration: the box's pixel centers run row .. row+h-1, so its own center is
+        # row + (h-1)/2 -- row + h/2 would be the cell-edge convention.
         row = int(round(y - (h - 1) / 2.0))
         col = int(round(x - (w - 1) / 2.0))
         row = max(0, min(row, max(0, ny - h)))
@@ -1548,7 +1543,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         The panel's numeric edits call through here so the drawn band always shows what the
         NUMBERS currently say -- same corner convention as the ⌘-drag release at the bottom of
         this file (x = col, y = row)."""
-        # Center registration (2026-09-21) + pin-in-place: local pixels, absolute cells.
+        # Center registration + pin-in-place: local pixels, absolute cells.
         br, bc = self._base_off
         self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
                             (col + w + bc - 0.5, row + h + br - 0.5))
@@ -1600,8 +1595,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         takes overlays OFF, it never has to know how to put them back.
         """
         self.cap_note = None
-        # 2026-09-22 (user: hiding the child layer left the extrema standing): the raster-
-        # pixel overlay is a set_result product like every item below -- it leaves with them.
+        # The raster-pixel overlay is a set_result product like every item below -- it leaves
+        # with them, so hiding a layer never leaves its extrema standing.
         self.extrema_raster_item.clear()
         self.extrema_item.setData([], [])
         self.arrow_item.setData([], [])
@@ -1843,10 +1838,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
             event.accept()
             return
         if self._roi_place is not None and self._field is not None:
-            # Armed placement (2026-08-30): the footprint rides the cursor, clamped to the field.
+            # Armed placement: the footprint rides the cursor, clamped to the field.
             h, w = self._roi_place
             row, col = self._roi_place_origin(self._data_xy(event), h, w)
-            # Center registration (2026-09-21) + pin-in-place: absolute cells.
+            # Center registration + pin-in-place: absolute cells.
             br, bc = self._base_off
             self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
                                 (col + w + bc - 0.5, row + h + br - 0.5))
@@ -1896,7 +1891,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             row, col, h, w = roi_from_corners((press[0] - bc, press[1] - br),
                                               (rel[0] - bc, rel[1] - br),
                                               self._field_shape())
-            # Center registration (2026-09-21) + pin-in-place: local pixels, absolute cells.
+            # Center registration + pin-in-place: local pixels, absolute cells.
             self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
                                 (col + w + bc - 0.5, row + h + br - 0.5))
             event.accept()
@@ -1938,7 +1933,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
                     h, w = self._roi_place
                     row, col = self._roi_place_origin(xy, h, w)
                     self._roi_place = None
-                    # Center registration (2026-09-21) + pin-in-place: absolute cells.
+                    # Center registration + pin-in-place: absolute cells.
                     br, bc = self._base_off
                     self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
                                         (col + w + bc - 0.5, row + h + br - 0.5))
@@ -1976,10 +1971,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """
         self._field = field
         self._base_off = window_offset(field)
-        # North-up for GEOGRAPHIC fields only (2026-08-19 fix): a file stored south-first
-        # (ascending latitude axis -- the demo DEM) drew upside down here while the Vector tab
-        # showed it correctly, because this view is image-convention (row 0 at top,
-        # ``invertY(True)`` at construction). Un-inverting the ViewBox flips the image AND every
+        # North-up for GEOGRAPHIC fields only: this view is image-convention (row 0 at top,
+        # ``invertY(True)`` at construction), so a file stored south-first (ascending latitude
+        # axis -- the demo DEM) would draw upside down here while the Vector tab shows it
+        # correctly. Un-inverting the ViewBox flips the image AND every
         # overlay together (all live in the same row/col data coords), so registration is
         # untouched. Everything non-geographic keeps image convention exactly -- EBSD/pixel maps
         # WANT row 0 at top, and north-first GeoTIFFs (descending y_axis, e.g. the BOEM windows)
@@ -2084,17 +2079,17 @@ a bounded gather of at most :attr:`draw_cap` chains per
             hx, hy = self._masked_hline_geometry(base, ext, shape, result.get("_ext_base_runs"))
         else:
             hx, hy = self._cached_geometry("hline", ext, lambda: hline_polylines(ext, shape))
-        # Draw cap (2026-09-14): bound the H-line points handed to pyqtgraph -- without it a dense
-        # DEM finest scale pushes >1M points per redraw (~80 ms, profiled), the reason a scale/
-        # filter scrub felt like molasses vs EQSelect. Longest lines kept; the shortfall becomes a
-        # status note below. The selection fast path (sel_geom) already caps itself.
+        # Draw cap: bound the H-line points handed to pyqtgraph -- without it a dense DEM finest
+        # scale pushes >1M points per redraw (~80 ms, profiled), enough to lag a scale/filter
+        # scrub well behind EQSelect. Longest lines kept; the shortfall becomes a status note
+        # below. The selection fast path (sel_geom) already caps itself.
         h_kept = h_total = 0
         hx_pre, hy_pre = hx, hy                  # pre-cap: the raster overlay has no point cost
         if sel_geom is None:
             hx, hy, h_kept, h_total = cap_polylines(hx, hy, self.draw_cap)
         self.hchain_item.setData(hx + col_off, hy + row_off)
 
-        # The raster-pixel extrema overlay (2026-09-22): the same visible truth the polylines
+        # The raster-pixel extrema overlay: the same visible truth the polylines
         # carried, in pixel form on the result's own grid. Members from the drawn H-line
         # vertices (pre-cap), orphans from the iso dots; the rect places it under the ROI/
         # window offset with the center registration the image itself uses.
@@ -2414,11 +2409,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
         The kernels come from :mod:`dynamix.core.scale_units` -- theta the isotropic radial
         profile, psi the along-gradient section, the wavelet's TRUE 2D shape rather than a 1D
-        g-family stand-in (the psi-formula adjudication, spec 2026-08-10 sec 2). That module is
+        g-family stand-in (the psi-formula adjudication). That module is
         pure numpy; nothing in this path imports ``wtmm``, so the bar renders identically whether
         or not the optional, private ``wtmm`` package is even installed. Cleared
-        (never raised) when: ``result`` carries no wavelet-transform params at all (the audit's
-        semantic guard -- a wavelet bar on a non-wavelet layer is misleading), or the transform's
+        (never raised) when: ``result`` carries no wavelet-transform params at all (a semantic
+        guard -- a wavelet bar on a non-wavelet layer is misleading), or the transform's
         ``wavelet`` choice can't be resolved to a kernel.
 
         WTMM2D's own ``wavelet`` param (``"mexican"``/``"gaussian"``) is passed straight through

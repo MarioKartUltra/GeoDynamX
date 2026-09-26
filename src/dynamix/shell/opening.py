@@ -95,7 +95,7 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
     resolved = resolve_openable(str(path))
     from dynamix.core.ingest import GRID_SUFFIXES
     if resolved.lower().endswith(GRID_SUFFIXES):
-        # 2026-09-21 sensor formats (netCDF / HDF5 via rasterio's GDAL; HDF4/ASTER via pyhdf):
+        # Sensor formats (netCDF / HDF5 via rasterio's GDAL; HDF4/ASTER via pyhdf):
         # subdataset choice is the CALLER's (main_window probes and asks); a container with
         # exactly one grid loads it without ceremony.
         from dynamix.core.ingest import load_grid, probe
@@ -122,7 +122,7 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
     if resolved.lower().endswith((".tif", ".tiff")):
         info = geotiff_info(resolved)
         height, width = info["height"], info["width"]
-        # Multiband GeoTIFF (2026-09-21): the frozen rasterfield reads band 1 only; a stack
+        # Multiband GeoTIFF: the frozen rasterfield reads band 1 only; a stack
         # routes through ingest so every band lands ((ny, nx, nc) -- pca/tucker-ready).
         # Whole-file only; a too-big multiband window read is a recorded follow-up.
         from dynamix.core.ingest import load_grid, multiband_count
@@ -141,10 +141,10 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
             s.name = f"{Path(path).stem}@pic{int(s.provenance['display_stride'])}"
             return _stamp_source(s, resolved, height, width)
         if height * width > max_pixels and mode == "overview":
-            # 2026-09-22: the too-big DEFAULT is now a decimated WHOLE-EXTENT
-            # overview -- display and navigation live here; NATIVE pixels come back through
-            # the ROI child tool, which reads windows straight off the source at full
-            # resolution (and through wtmm2d_roi, which always did). Nearest resampling:
+            # mode="overview": a decimated WHOLE-EXTENT overview -- display and navigation
+            # live here; NATIVE pixels come back through the ROI child tool, which reads
+            # windows straight off the source at full resolution (and through wtmm2d_roi,
+            # which does the same). Nearest resampling:
             # every kept value is a REAL pixel of the file, never an average -- the
             # no-resampling law is about ANALYSIS, and analysis on an overview is already
             # refused/mapped-to-native by every consumer via provenance["overview"].
@@ -164,14 +164,14 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
                 transform, crs, nodata = src.transform, src.crs, src.nodata
             if nodata is not None:
                 vals = np.where(vals == nodata, np.nan, vals)   # the mask convention
-            # BOEM-style undeclared fill (2026-09-22): the real tifs declare nodata = 0.0
+            # BOEM-style undeclared fill: the real tifs declare nodata = 0.0
             # but fill empty areas with float32-lowest -- |v| >= 3e38 is nodata whatever the
             # header says (the geo _mask_sentinels convention, applied at READ so the ramp,
             # the stretch and the ANALYSIS pipeline all see NaN, not a sentinel).
             vals = np.where(np.abs(vals) >= 3e38, np.nan, vals)
-            # Georeference SURVIVES the decimation (2026-09-22: the first overview cut
-            # dropped it, so the geo view listed the bathy as "no-georeference" and never
-            # draped it): axes are the PROJECTED centers of the sampled native blocks --
+            # Georeference SURVIVES the decimation (without it the geo view lists the
+            # raster as "no-georeference" and never drapes it): axes are the PROJECTED
+            # centers of the sampled native blocks --
             # the from_geotiff_window recipe with native pixel index (j + 0.5) * stride --
             # and the frame carries the metric block size, so px_to_metres reads true.
             cols = (np.arange(out_w, dtype=np.float64) + 0.5) * stride

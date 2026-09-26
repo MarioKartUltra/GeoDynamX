@@ -15,16 +15,13 @@ two Holder estimators; this module declares their parameters so the GUI can gene
 calls straight into it.
 
 ``wtmm_ebsd`` is a documented local install and is imported lazily, so the core still imports
-without it. **A later fix** changed what happens when it is absent: these
-devices used to return their input UNCHANGED -- a silent pass-through that read as "the filter is
-broken" rather than "an optional dependency is missing". They now fall back to
-:mod:`dynamix.core.chain_stats`, a numpy-only reimplementation of the same estimators (see that
-module's own docstring for exactly which reference functions it mirrors, and where it deliberately
-differs). This supersedes the old behavior by ADDING the fallback -- the ``wtmm_ebsd`` path is
-retained and preferred whenever the package is present, unchanged. The degraded mode is now real
-filtering instead of a no-op, which is strictly more honest: a user without ``wtmm_ebsd`` installed
-sees the SAME cutoff produce the SAME kind of effect (kept/dropped), computed by a different but
-equivalent estimator, rather than a control that visibly does nothing.
+without it. When it is absent these devices fall back to :mod:`dynamix.core.chain_stats`, a
+numpy-only reimplementation of the same estimators (see that module's own docstring for exactly
+which reference functions it mirrors, and where it deliberately differs); the ``wtmm_ebsd`` path is
+preferred whenever the package is present. The degraded mode is real filtering: a user without
+``wtmm_ebsd`` installed sees the SAME cutoff produce the SAME kind of effect (kept/dropped),
+computed by a different but equivalent estimator. A silent pass-through would read as "the filter
+is broken" rather than "an optional dependency is missing".
 """
 from __future__ import annotations
 
@@ -80,12 +77,11 @@ class ChainHolderFilter:
     name = "chain_holder"
     selection_aware = True
     params = (
-        # Bug triage B2: the OLD default, -2.0, sat
-        # BELOW the kam_64 fixture's entire real Hölder range (-1.28..+1.00) -- a freshly dropped
-        # filter was a true no-op, which read as "broken". -3.0 (the HARD min) is chosen instead:
-        # unambiguously "off" against the histogram's own documented (-3, 2) range, and
-        # still pass-all by construction -- the real fix is data_hints (below), which snaps this
-        # to the ACTUAL data floor the moment a result lands, so the very next drag-step prunes.
+        # -3.0 (the HARD min) is unambiguously "off" against the histogram's own documented
+        # (-3, 2) range and pass-all by construction. Any default below the data (the kam_64
+        # fixture's real Hölder range is -1.28..+1.00) leaves a freshly dropped filter a true
+        # no-op that reads as "broken", so data_hints (below) snaps this to the ACTUAL data floor
+        # the moment a result lands, and the very next drag-step prunes.
         Param("cutoff", ParamKind.FLOAT, default=-3.0, min=-10.0, max=10.0,
               soft_min=-1.0, soft_max=1.5, label="Hölder ≥"),
         Param("estimator", ParamKind.CHOICE, default="ols", choices=("ols", "max"),
@@ -106,13 +102,12 @@ class ChainHolderFilter:
                 result["chain_product"]["v_holder_ols" if estimator == "ols"
                                         else "v_holder_max"])
             return _narrow_v(result, sel, np.isfinite(vals) & (vals >= cutoff))
-        # Vectorized + memoized chain_stats always (2026-09-14): cf.filter_by_holder is a
-        # per-chain Python loop (~1 s over a 59k-chain DEM -> the "Hölder filter beach-balls"
-        # report); chain_stats.stats_for is the SAME estimator with the SAME NaN semantics
-        # (kept iff h >= cutoff), vectorized and memoized on the cached chains, so it is ~30x
-        # faster with identical output (tests/test_chain_stats.py). The stamped ``_holder_summary``
-        # lets reading()/data_hints() read the metric range instead of each recomputing the whole
-        # per-chain OLS again this same tweak (the other 2/3 of the 2.5 s).
+        # Vectorized + memoized chain_stats always: cf.filter_by_holder is a per-chain Python
+        # loop (~1 s over a 59k-chain DEM); chain_stats.stats_for is the SAME estimator with the
+        # SAME NaN semantics (kept iff h >= cutoff), vectorized and memoized on the cached chains,
+        # so it is ~30x faster with identical output (tests/test_chain_stats.py). The stamped
+        # ``_holder_summary`` lets reading()/data_hints() read the metric range instead of each
+        # recomputing the whole per-chain OLS again this same tweak (the other 2/3 of the 2.5 s).
         vals = chain_stats.stats_for(chains, estimator)
         mask = np.isfinite(vals) & (vals >= cutoff)
         kept = [c for c, keep in zip(chains, mask) if keep]
@@ -128,7 +123,7 @@ class ChainHolderFilter:
         return out
 
     def reading(self, result: dict, params: dict) -> str:
-        """"kept N/M · h ∈ [lo, hi]" (the design-B2's pinned reading format, 2 dp) -- N/M reconstructed
+        """"kept N/M · h ∈ [lo, hi]" (the pinned reading format, 2 dp) -- N/M reconstructed
         from THIS call's own ``chains``/``_chains_dropped`` (M = N + dropped), which is honest
         exactly when this device's own ``apply`` produced them (main_window's own established
         limitation for chained filters -- see workflow_zone.DeviceBox.sync_from_result). [lo, hi]
@@ -136,7 +131,7 @@ class ChainHolderFilter:
         always computed via chain_stats (not the wtmm_ebsd backend) so the reading matches
         data_hints -- both need to agree on what "the data range" means, real backend or not.
         """
-        # Prefer the stamp apply() left (2026-09-14): avoids a THIRD full per-chain OLS pass this
+        # Prefer the stamp apply() left: avoids a THIRD full per-chain OLS pass this
         # tweak. Its lo/hi are the metric range over apply's own INPUT chains (the honest "what
         # this cutoff sees"), and kept/total are apply's own counts.
         s = result.get("_holder_summary")
@@ -162,7 +157,7 @@ class ChainHolderFilter:
         only -- this dict never reaches ``cache_key`` (this is a Filter; only a Transform ever
         computes one), see ``tests/test_chain_filter_devices.py``'s dedicated assertion.
 
-        **Known limitation, recorded follow-up.** ``result`` is whatever
+        **Known limitation.** ``result`` is whatever
         ``resolve()`` handed back for the WHOLE chain -- its terminal, post-every-filter
         population -- not this box's own pre-filter input (``resolve()``'s architecture keeps no
         per-step intermediate results; see ``workflow_zone.DeviceBox.sync_from_result``'s own
@@ -175,8 +170,7 @@ class ChainHolderFilter:
         deliberately snaps only in the pass-all direction (``current < lo``, never ``current >
         hi``) so this can never silently yank a user's own deliberately-high cutoff down -- but the
         DISPLAYED range/count for a non-terminal box can still misstate that box's own effect.
-        Fixing this for real needs ``resolve()`` to expose per-step results, which is out of this
-        task's file list.
+        Fixing this for real needs ``resolve()`` to expose per-step results.
         """
         s = result.get("_holder_summary")
         if s is not None and s.get("estimator") == str(params.get("estimator", "ols")):
@@ -216,7 +210,7 @@ class ChainModulusFilter:
         if sel is not None:
             vals = np.asarray(result["chain_product"]["v_max_log2_mod"])
             return _narrow_v(result, sel, np.isfinite(vals) & (vals >= threshold))
-        # Vectorized + memoized chain_stats always (2026-09-14, same reasoning as chain_holder):
+        # Vectorized + memoized chain_stats always (same reasoning as chain_holder):
         # matches filter_by_modulus (NaN -> dropped, kept iff max log2|W| >= threshold) but
         # without the per-chain Python loop.
         vals = chain_stats.max_log2_modulus_for(chains)
@@ -229,7 +223,7 @@ class ChainModulusFilter:
 
     def reading(self, result: dict, params: dict) -> str:
         """"kept N/M · max log₂|W| ∈ [lo, hi]" -- same shape and honesty caveats as
-        ``ChainHolderFilter.reading`` (the design-B2's "same additive treatment" for this device)."""
+        ``ChainHolderFilter.reading``."""
         chains = result.get("chains") or []
         vals = chain_stats.max_log2_modulus_for(chains) if chains else np.array([])
         finite = vals[np.isfinite(vals)]
@@ -277,7 +271,7 @@ class ChainLengthFilter:
             keep = np.ones(lengths.size, dtype=bool) if min_len <= 0 \
                 else lengths >= min_len
             return _narrow_v(result, sel, keep)
-        # chain_stats always (2026-09-14): matches filter_by_length (min_len<=0 keeps all, else
+        # chain_stats always: matches filter_by_length (min_len<=0 keeps all, else
         # kept iff length >= min_len). length_for is a cheap structural read, no per-chain fit.
         if min_len <= 0:
             kept = list(chains)

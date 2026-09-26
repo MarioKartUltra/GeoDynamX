@@ -75,11 +75,11 @@ _NODATA = -9999.0
 #: 8 scales (2 octaves x 4 voices), a_min = 1.0 -> scales 6.98 .. 23.47 px, margins 18 .. 59 px.
 #: Two octaves, not the plan's three: three would need a much larger parent for the coarsest halo
 #: to sit inside it, for no extra proof -- the margins already span 3.3x here.
-# fracint_alpha=0 pinned (2026-09-15, when the lift started applying on the scalar path): these
-# are window-assembly plumbing oracles (ROI path == single-window reference under IDENTICAL
-# params), and at alpha=1 with n_voice=4 the lifted cross-scale modulus ratios push most links
-# outside the similitude band -- both sides chain to zero and the chain oracle goes vacuous
-# (its own `> 0` guard catches exactly this). The lift is orthogonal to what these tests prove
+# fracint_alpha=0 pinned, since the lift applies on the scalar path: these are window-assembly
+# plumbing oracles (ROI path == single-window reference under IDENTICAL params), and at alpha=1
+# with n_voice=4 the lifted cross-scale modulus ratios push most links outside the similitude
+# band -- both sides chain to zero and the chain oracle goes vacuous (its own `> 0` guard catches
+# exactly this). The lift is orthogonal to what these tests prove
 # (the halo path applies the identical `_apply_fracint2d`, covered by tests/test_fracint_scalar.py),
 # and several reference sides here call backend.cwt2d directly, which never lifts.
 PARAMS = {"n_oct": 2, "n_voice": 4, "a_min": 1.0, "fracint_alpha": 0.0}
@@ -630,11 +630,11 @@ def test_sliver_roi_is_refused_at_entry_naming_its_sides(interior):
 
 
 def test_roi_outside_the_parent_is_refused_at_entry_naming_the_raster_dims(interior):
-    """Final-review F3: a too-large row/col from the strip knobs (whose Params allow up to
-    1_000_000, far past any real raster -- ``dynamix/devices/wtmm_roi.py``'s ``roi_row``/
-    ``roi_col`` Params) used to reach ``read_halo_window``'s ``rasterio`` window read and die on
-    ITS internal message ("Number of columns or rows must be non-negative") once the clamped read
-    region went empty -- confusing for a user who never sees rasterio directly. Refused here, at
+    """A too-large row/col from the strip knobs (whose Params allow up to 1_000_000, far past
+    any real raster -- ``dynamix/devices/wtmm_roi.py``'s ``roi_row``/``roi_col`` Params) would
+    otherwise reach ``read_halo_window``'s ``rasterio`` window read and die on ITS internal
+    message ("Number of columns or rows must be non-negative") once the clamped read region goes
+    empty -- confusing for a user who never sees rasterio directly. Refused here, at
     entry, naming the roi and the raster it does not fit, before any read happens."""
     with pytest.raises(ValueError, match=str(N_PARENT)):
         run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT), (500_000, 500_000, 512, 512),
@@ -748,7 +748,7 @@ def test_zzz_report_measured_deviations(interior, corner):
                   f"frac_of_mod_max={r['frac_of_mod_max']:.3e}")
 
 
-# ------------------------------------------------------------------- the 2026-09-20 subpixel knob
+# ------------------------------------------------------------------------------ the subpixel knob
 
 
 def test_roi_interpolate_knob_carries_the_float_channels(interior):
@@ -784,10 +784,10 @@ def test_roi_follow_detector_produces_the_native_channels(interior):
 
 
 def test_boem_style_undeclared_sentinel_is_missing_not_data(tmp_path):
-    """2026-09-22: the BOEM tifs DECLARE nodata = 0.0 but FILL with float32-lowest. The two
-    other read paths NaN |v| >= 3e38 at read; the halo reader treated only the declared value
-    as missing, so near the coast -3.4e38 entered the wavelet transform. It is missing data:
-    zero-filled before the transform and reported, like any nodata."""
+    """The BOEM tifs DECLARE nodata = 0.0 but FILL with float32-lowest. The two other read
+    paths NaN |v| >= 3e38 at read; a halo reader that treats only the declared value as missing
+    lets -3.4e38 into the wavelet transform near the coast. It is missing data: zero-filled
+    before the transform and reported, like any nodata."""
     import rasterio
     from rasterio.transform import from_origin
 

@@ -8,8 +8,8 @@ Turiel scale grid), then takes the singularity set ``h ∈ [h_lo, h_hi)``
 manifold need not be the most singular component, demonstrated on the M-Z house where the
 best single band was h ∈ [-0.76, -0.17), NOT the MSC) and reconstructs the field from the
 gradient restricted to it (:func:`~dynamix.core.microcanonical.reconstruct_from_msc`, with
-the 2026-09-16 symmetric-extension border fix). ``h_lo``/``h_hi`` are ordinary scrubbable
-knobs, so sweeping the band and watching the reconstruction IS the workflow.
+the symmetric-extension border fix). ``h_lo``/``h_hi`` are ordinary scrubbable knobs, so
+sweeping the band and watching the reconstruction IS the workflow.
 
 Display contract: the result's ``"raster_out"`` key (the generalization of ``holder_map``'s
 ``"h_map"`` -- ``main_window._display_raster_of``) shows the RECONSTRUCTION on the canvas in

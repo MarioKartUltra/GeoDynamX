@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The fractional-order Mallat-Zhong forward (core/mz_edges.py, §6.4 of the 2026-09-19
-split plan): sign-preserving fractional refinement order over the UNTOUCHED mzlib oracle.
+"""The fractional-order Mallat-Zhong forward (core/mz_edges.py): sign-preserving fractional
+refinement order over the UNTOUCHED mzlib oracle.
 
 The oracle chain: cascade <-> analytic |psi_hat| = |w||sinc(w/4)|^(alpha+1) (tight, all
 orders) <-> frac_bspline Part A2 real-space forms (exact at the integer anchors, where the
@@ -193,7 +193,7 @@ def test_device_exposes_the_wavelet_and_order_knobs(clean_registry):
         "s", dict(base, wavelet="frac_bspline", alpha=2.0))
 
 
-# ------------------------------------------- theta_alpha(0): the slow tail (2026-09-24)
+# ------------------------------------------- theta_alpha(0): the slow tail
 
 @pytest.mark.parametrize("alpha,exact", [(1.0, 2.0), (3.0, 4.0 / 3.0)])
 def test_theta0_hits_the_exact_values_at_the_integer_anchors(alpha, exact):

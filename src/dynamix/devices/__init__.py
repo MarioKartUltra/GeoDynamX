@@ -54,18 +54,18 @@ from dynamix.model.device import DEVICES, register_device
 #: `MZEdges` is the Mallat-Zhong dyadic transform -- a peer of the
 #: wtmm pair, never a mode of it: its own per-scale extrema bundle, dyadic (not geometric) scales,
 #: and `chains: []` stamped deliberately since cross-scale M-Z chaining is reserved script 11.
-#: `CDFEdges` (2026-09-20) is complex cross-diffusion filtering as an analyzer (linear
+#: `CDFEdges` is complex cross-diffusion filtering as an analyzer (linear
 #: LCDF + nonlinear NCDF behind the Variant knob -- named for the family) -- one
 #: LCDF/NCDF evolution, a dyadic M-Z-convention edge pyramid out (the Ricker-CWT identity
 #: makes the evolution a scale space); lifted verbatim from the research scripts.
-#: `WaveletSkeleton` (2026-09-19) is the Tang-You/You-2006 medial-axis extractor -- the CWT
+#: `WaveletSkeleton` is the Tang-You/You-2006 medial-axis extractor -- the CWT
 #: gradient-modulus machinery with the method's OWN constructed wavelet, modulus MINIMA as
 #: intrinsic skeletons; a peer of wtmm2d/mz_edges, never a mode of either.
-#: `PMEdges` (2026-09-21) is Perona-Malik 1990 anisotropic diffusion proper (the paper's
+#: `PMEdges` is Perona-Malik 1990 anisotropic diffusion proper (the paper's
 #: scheme, real gradient-driven conduction, both g's) -- a peer of cdf_edges, never a mode
 #: of it: edge-sharpening backward diffusion under the discrete max principle, so edges
 #: stay sharp and in place across the stack (immediate localization, pinned as behavior).
-#: `HolderMeasure`/`HolderMultiaffine` (2026-09-19 split) are the per-method microcanonical
+#: `HolderMeasure`/`HolderMultiaffine` are the per-method microcanonical
 #: tools -- one device per method, each with only the wavelet class its method admits.
 #: `HolderMap` (the conflated predecessor) STAYS registered: saved projects name it, and the
 #: never-delete rule holds -- the browser routes it to the Dev category instead.

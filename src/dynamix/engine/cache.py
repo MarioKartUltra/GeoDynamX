@@ -47,11 +47,10 @@ def _jsonable(o: Any):
 
 
 class Cache:
-    """In-memory store, bounded LRU (2026-08-30). The original was deliberately unbounded --
-    "a WTMM stack is large but there are few of them" -- an assumption the ``noise`` transform's
-    seed/amplitude scrubs broke: each step minted a full-raster field clone plus a complete WTMM
-    result, retained forever ("the app was not responding": memory pressure on a 4096-px window).
-    ``maxsize`` bounds the UNPINNED entry count; a hit refreshes recency, so the entries a user
+    """In-memory store, bounded LRU. A scrub such as the ``noise`` transform's seed/amplitude
+    mints a full-raster field clone plus a complete WTMM result per step; an unbounded store
+    retains every one of them, which on a 4096-px window is enough memory pressure to stall the
+    app. ``maxsize`` bounds the UNPINNED entry count; a hit refreshes recency, so the entries a user
     is actively scrubbing between are the last to go, and the capacity is generous enough that a
     multi-layer arrangement's working set never thrashes into recomputes.
 

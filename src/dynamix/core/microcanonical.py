@@ -53,8 +53,8 @@ import functools
 
 import numpy as np
 
-# Every FFT TRANSFORM goes through the app-wide engine policy (2026-09-22: mlx or FFTW3
-# at the configured 32/64-bit precision, never numpy's FFT by default).
+# Every FFT TRANSFORM goes through the app-wide engine policy (mlx or FFTW3 at the
+# configured 32/64-bit precision, never numpy's FFT by default).
 from dynamix.core.fft_policy import active as _fft  # noqa: E402
 
 __all__ = [
@@ -73,10 +73,10 @@ _WAVELETS = ("gaussian", "lorentzian", "q_gaussian", "frac_gaussian")
 #: band-limited instead of sampled -- for comparing the two.
 _CONSTRUCTIONS = ("real", "fourier")
 
-#: The multiaffine route's own wavelet names (2026-09-19 split -- the wavelet family is a
-#: property of the METHOD, so the split devices name kernels the method's way): g2 /
-#: q_mexican / lorentzian_marr are method-true aliases of the original envelope names;
-#: g1 / g3 are the integer orders of the fractional family below.
+#: The multiaffine route's own wavelet names (the wavelet family is a property of the METHOD,
+#: so the split devices name kernels the method's way): g2 / q_mexican / lorentzian_marr are
+#: method-true aliases of the original envelope names; g1 / g3 are the integer orders of the
+#: fractional family below.
 _MARR_ALIASES = {"g2": "gaussian", "lorentzian_marr": "lorentzian",
                  "g1": ("frac_gaussian", 1.0), "g3": ("frac_gaussian", 3.0)}
 
@@ -194,7 +194,7 @@ def _radial_kernel(shape: tuple, r: float, wavelet: str, beta: float,
     Unit DISCRETE mass, so the projection is a local average of the measure and
     ``T ~ r^h(x)`` directly (the 1/r^d normalization is absorbed, as in the prototype).
     ``q_beta`` is the q-Gaussian's width ``e_q^(-q_beta rho^2/r^2)``; None is 1/2 (sigma = r
-    at q = 1), the kernel as it always was."""
+    at q = 1)."""
     ny, nx = shape
     y = np.arange(ny, dtype=np.float64) - ny // 2
     x = np.arange(nx, dtype=np.float64) - nx // 2
@@ -213,11 +213,11 @@ def _radial_kernel(shape: tuple, r: float, wavelet: str, beta: float,
             base = np.clip(1.0 + b * (q_tsallis - 1.0) * rho2, 0.0, None)
             k = base ** (-1.0 / (q_tsallis - 1.0))
     elif wavelet == "frac_gaussian":
-        # 2026-09-19 split: the measure route's fractional Gaussian fractionalizes the
-        # ENVELOPE, exp(-rho^n/2) -- never a ||k||^n weighting (a kernel whose FT vanishes
-        # at k=0 has zero mean and cannot be positive, and log T must exist). n=2 is
-        # byte-for-byte the gaussian branch; n < 2 fattens the tail toward Lorentzian-like
-        # localization, n > 2 flattens the top toward a disk.
+        # The measure route's fractional Gaussian fractionalizes the ENVELOPE, exp(-rho^n/2)
+        # -- never a ||k||^n weighting (a kernel whose FT vanishes at k=0 has zero mean and
+        # cannot be positive, and log T must exist). n=2 is byte-for-byte the gaussian branch;
+        # n < 2 fattens the tail toward Lorentzian-like localization, n > 2 flattens the top
+        # toward a disk.
         k = np.exp(-0.5 * rho2 ** (0.5 * float(frac_n)))
     else:
         raise ValueError(f"unknown wavelet {wavelet!r}; expected one of {_WAVELETS}")
@@ -225,13 +225,13 @@ def _radial_kernel(shape: tuple, r: float, wavelet: str, beta: float,
     return np.fft.ifftshift(k)
 
 
-#: 2026-09-22 (FFT precision is now a user setting -- 32 or 64-bit): the no-support decision
+#: FFT precision is a user setting (32 or 64-bit), so the no-support decision
 #: must not depend on FFT round-off. A pixel has support at scale r when some pixel of the
 #: measure (|grad s| > 0) lies within the kernel's REACH -- the radius holding all but
 #: ``_SUPPORT_TOL`` of its 2-D |mass|, measured on the kernel itself (Turiel 2008's
 #: mu(B_r(x)) > 0, with the ball the kernel actually integrates over). Unsupported pixels get
 #: T = 0 EXACTLY, which :func:`no_support_mask` flags at any precision. The tolerance matches
-#: the old 64-bit relative floor, so a Gaussian's reach is its 6.4-sigma 1e-9 tail.
+#: the 64-bit relative floor, so a Gaussian's reach is its 6.4-sigma 1e-9 tail.
 _SUPPORT_TOL = 1e-9
 _SUPPORT_CAP = 32                       # heavy tails never converge: reach <= 32 r
 
@@ -324,10 +324,10 @@ def measure_projections(measure: np.ndarray, scales, *, wavelet: str = "gaussian
 
 def _marr_kernel(rho2, r, wavelet, beta, q_tsallis, frac_n, u0, stretch=1.0):
     """The multiaffine route's zero-crossing-at-r kernel on the squared-radius grid ``rho2``
-    (before the zero-mean / L1 normalisation) -- extracted verbatim from
-    :func:`ricker_projections` (2026-09-22) so :func:`_support_reach` measures the SAME
-    kernel the projections use. ``stretch`` scales the q-Gaussian branch's ``u`` (the
-    q-Mexican hat's width, :func:`_q_mexican_stretch`); 1 is the kernel as it always was."""
+    (before the zero-mean / L1 normalisation) -- shared by :func:`ricker_projections` and
+    :func:`_support_reach`, so the reach is measured on the SAME kernel the projections use.
+    ``stretch`` scales the q-Gaussian branch's ``u`` (the q-Mexican hat's width,
+    :func:`_q_mexican_stretch`); 1 is the unstretched kernel."""
     if wavelet == "gaussian":
         sigma2 = float(r) ** 2 / 2.0                 # zero crossing at rho = r
         k = (1.0 - rho2 / (2.0 * sigma2)) * np.exp(-rho2 / (2.0 * sigma2))
@@ -464,17 +464,16 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
       q-INDEPENDENT (the ``a*m = 1/2`` cancellation), so the crossing sits at
       ``rho = sqrt(2) sigma`` for every q and ``q -> 1`` recovers the Ricker exactly. Tail
       ``rho^(-2/(q-1) - 2)`` -- the GROWING ``(1 - u)`` prefactor costs two envelope powers
-      (2026-09-19 review correction; measured slope -6.00 at q = 1.5) -- so the Appendix-A
-      truncation is ``gamma >= 2/(q-1)``.
+      (measured slope -6.00 at q = 1.5) -- so the Appendix-A truncation is ``gamma >= 2/(q-1)``.
     * ``"lorentzian"`` -- the Lorentzian-Marr, Laplacian of ``(1 + rho^2/sigma^2)^(-beta)``:
       ``(1 - beta rho^2/sigma^2)(1 + rho^2/sigma^2)^(-beta-2)``, crossing at
       ``rho = sigma/sqrt(beta)`` (so ``sigma = r sqrt(beta)``). Tail ``rho^(-2 beta - 2)``,
       NOT the envelope's ``-2 beta - 4`` -- the growing ``(1 - beta u)`` prefactor costs two
-      powers (2026-09-19 review correction; measured slopes -4.00/-5.00/-7.00 at
-      beta = 1/1.5/2.5) -- so truncation is ``gamma >= 2 beta``; the slow tail is the
-      sharp-localization end of Turiel 2008 SS4.2.2's trade-off. (Cross-check: the
-      q = 1.5 == L2 family identity holds for the corrected bounds too, 4 == 4.)
-    * ``"frac_gaussian"`` (2026-09-19 split) -- the fractional-order family: the isotropic
+      powers (measured slopes -4.00/-5.00/-7.00 at beta = 1/1.5/2.5) -- so truncation is
+      ``gamma >= 2 beta``; the slow tail is the sharp-localization end of Turiel 2008
+      SS4.2.2's trade-off. (Cross-check: the q = 1.5 == L2 family identity holds for these
+      bounds, 4 == 4.)
+    * ``"frac_gaussian"`` -- the fractional-order family: the isotropic
       inverse FT of ``||k||^n exp(-sigma^2 k^2 / 2)``, whose exact radial form is
       ``1F1((n+2)/2; 1; -rho^2/2 sigma^2)`` -- a CONTINUOUS (Riesz) differentiation order
       ``frac_n`` generalizing the derivative ladder: ``psi_hat ~ |k|^n`` at low frequency, so
@@ -502,7 +501,7 @@ def ricker_projections(signal: np.ndarray, scales, *, wavelet: str = "gaussian",
     L1-normalized, so prefactors are scale-consistent and slopes untouched.
 
     ``q_beta`` (``"q_mexican"`` only) is the Borges width: None -- or the paired
-    :func:`paired_q_beta` -- is the kernel as it always was, the zero crossing at r for every q;
+    :func:`paired_q_beta` -- keeps the zero crossing at r for every q;
     a fixed width keeps r the zero crossing at q = 1, beta = 1/2 and lets it drift with q
     (``r / sqrt(2 beta (2 - q))``).
 
@@ -563,29 +562,27 @@ def no_support_mask(T: np.ndarray) -> np.ndarray:
     """Pixels with NO measure/signal support at some scale in the stack ``T`` -- flat
     boolean of length ``ny*nx``, True where an exponent would be fabricated, not measured.
 
-    The 2026-09-18 log-floor guard (user: measure-route h on BOEM spanned +-200), extracted
-    verbatim (2026-09-19 split review): a pixel with no support at some scale (a
-    flat/quantized/nodata-filled patch: ``||grad s|| = 0``, so the projection is ~0 until
-    the kernel reaches real gradients) gets the log floor at that scale -- a -69 in the
-    regression that manufactures slopes of +-hundreds. Those pixels have no honest exponent:
-    NaN, not garbage. (Dither "fixes" this by giving flats random tiny gradients -- which is
-    exactly the snow the sieve then has to clean.) Relative floor: exact zeros AND numerical
-    dust (FFT leakage ~1e-16 of the signal) both count as "no support" -- an absolute cutoff
-    misses the dust, whose log still swings tens of e-folds and fabricates slopes.
+    The log-floor guard: a pixel with no support at some scale (a flat/quantized/nodata-filled
+    patch: ``||grad s|| = 0``, so the projection is ~0 until the kernel reaches real gradients)
+    gets the log floor at that scale -- a -69 in the regression that manufactures slopes of
+    +-hundreds. Those pixels have no honest exponent: NaN, not garbage. (Dither "fixes" this by
+    giving flats random tiny gradients -- which is exactly the snow the sieve then has to
+    clean.) Relative floor: exact zeros AND numerical dust (FFT leakage ~1e-16 of the signal)
+    both count as "no support" -- an absolute cutoff misses the dust, whose log still swings
+    tens of e-folds and fabricates slopes.
 
-    Shared by BOTH estimators (the split review's estimator-orthogonality finding: the
-    punctual estimator read the one badly-sampled finest scale, where the multiaffine
-    kernel's discrete mean-subtraction DC-couples a flat patch to the whole image at ~1e-3
-    of the mean -- a uniform fabricated h the single-scale dust floor cannot see; the
-    CROSS-scale floor can, because well-sampled scales drop to dust on the same pixels).
-    Support is a property of the DATA, so the estimators agree on WHERE an exponent exists
-    and differ only in HOW it is estimated."""
+    Shared by BOTH estimators (the punctual estimator reads the one badly-sampled finest
+    scale, where the multiaffine kernel's discrete mean-subtraction DC-couples a flat patch to
+    the whole image at ~1e-3 of the mean -- a uniform fabricated h the single-scale dust floor
+    cannot see; the CROSS-scale floor can, because well-sampled scales drop to dust on the same
+    pixels). Support is a property of the DATA, so the estimators agree on WHERE an exponent
+    exists and differ only in HOW it is estimated."""
     flat = np.asarray(T, dtype=np.float64).reshape(T.shape[0], -1)
     scale_mag = np.nanmean(np.where(flat > 0, flat, np.nan), axis=1, keepdims=True)
     scale_mag = np.where(np.isfinite(scale_mag) & (scale_mag > 0), scale_mag, 1.0)
-    # 2026-09-22: the relative floor follows the FFT precision -- 32-bit round-off (~1e-7 of
-    # the peak) would otherwise pass a 1e-9 floor and fabricate slopes. Structural no-support
-    # is decided exactly upstream (_zero_unsupported); this catches round-off dust only.
+    # The relative floor follows the FFT precision -- 32-bit round-off (~1e-7 of the peak)
+    # would otherwise pass a 1e-9 floor and fabricate slopes. Structural no-support is decided
+    # exactly upstream (_zero_unsupported); this catches round-off dust only.
     rel = 1e-9 if getattr(_fft(), "precision", 64) == 64 else 1e-6
     return (flat <= np.maximum(1e-25, rel * scale_mag)).any(axis=0)
 
@@ -643,10 +640,10 @@ def singularity_map_point(T0: np.ndarray, r0_rel: float) -> np.ndarray:
     ``r0_rel`` is the RELATIVE resolution of the finest scale (:func:`relative_scale`);
     anything outside (0, 1) is refused -- the same convention bug guard as
     :func:`dh_histogram`. No-support projections give NaN: not just non-positive values but
-    numerical dust below the RELATIVE floor of :func:`singularity_map_regression` (its
-    2026-09-18 fix) -- FFT leakage keeps a nodata-flat pixel "positive" at ~1e-16 of the
-    signal, and the plain ``> 0`` gate then fabricated a uniform, plausible-looking h across
-    the whole flat (adversarial review, 2026-09-19). Same floor, single scale.
+    numerical dust below the RELATIVE floor of :func:`singularity_map_regression` -- FFT
+    leakage keeps a nodata-flat pixel "positive" at ~1e-16 of the signal, and a plain ``> 0``
+    gate would fabricate a uniform, plausible-looking h across the whole flat. Same floor,
+    single scale.
     """
     if not 0.0 < r0_rel < 1.0:
         raise ValueError(f"r0_rel must be the RELATIVE resolution in (0, 1), got {r0_rel!r} "
@@ -656,7 +653,7 @@ def singularity_map_point(T0: np.ndarray, r0_rel: float) -> np.ndarray:
     if not pos.any():
         return np.full(T0.shape, np.nan, dtype=np.float32)
     scale_mag = T0[pos].mean()
-    rel = 1e-9 if getattr(_fft(), "precision", 64) == 64 else 1e-6   # 2026-09-22: per precision
+    rel = 1e-9 if getattr(_fft(), "precision", 64) == 64 else 1e-6   # per precision
     pos &= T0 > np.maximum(1e-25, rel * scale_mag)
     if not pos.any():
         return np.full(T0.shape, np.nan, dtype=np.float32)
@@ -805,13 +802,13 @@ def reconstruct_from_msc(signal: np.ndarray, msc_mask: np.ndarray, *,
     the SAME field the h-map was computed on (integrated, if fracint was applied) -- see the
     module docstring's frame note.
 
-    **Border handling (2026-09-16 fix).** The Fourier kernel assumes periodicity; on any
+    **Border handling.** The Fourier kernel assumes periodicity; on any
     non-periodic field (every real image/DEM) the wrap-around gradient mismatch corrupts the
     inversion GLOBALLY -- measured 14.8 dB full-mask on the M-Z house vs 44 dB on (periodic)
     fBm; symmetric extension recovers 34.7 dB at half-size padding. Signal AND mask are
     symmetric-extended by ``pad`` (default: half the larger dimension), inverted on the
-    extended domain, cropped back; metrics are on the crop. ``pad=0`` restores the raw
-    periodic inversion (the pre-fix behavior, kept reachable for periodic synthetics).
+    extended domain, cropped back; metrics are on the crop. ``pad=0`` gives the raw
+    periodic inversion (kept reachable for periodic synthetics).
 
     Returns ``(recon float32, psnr_db, rel_err)`` -- PSNR against the signal's own range.
     """

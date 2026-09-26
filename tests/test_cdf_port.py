@@ -3,7 +3,7 @@
 """Port guard + functional gates for dynamix.core.cdf against its research origins.
 
 The bodies are lifted from research/reconstruction scripts 24/25/27 (rescued probes
-17-20, 2026-08-17). The ONLY permitted differences are the recorded edits below (the
+17-20). The ONLY permitted differences are the recorded edits below (the
 extrema_io pattern: the scripts' module constants THETA/DT become theta/dt parameters,
 and 25's ``lcdf`` is named ``lcdf_per`` here) -- reversing them must reproduce the
 origin byte-for-byte, so a recorded change never becomes a blanket exemption.

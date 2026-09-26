@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""dynamix.geo.footprints -- metadata-only raster footprints for the data browser (2026-08-28).
+"""dynamix.geo.footprints -- metadata-only raster footprints for the data browser.
 
-The user's ASTER GDEM folder: 1x1-degree EPSG:4326 tiles, each with a ``_dem`` and a ``_num``
+An ASTER GDEM folder: 1x1-degree EPSG:4326 tiles, each with a ``_dem`` and a ``_num``
 raster sharing one footprint. Scanning must read headers only (bounds/CRS/shape), never pixels;
 the footprint's corners are carried in WGS84 lon/lat so any display mode can place them.
 """
@@ -112,7 +112,7 @@ def test_a_raster_without_a_crs_is_skipped_not_fatal(folder):
     assert "nocrs" not in names and len(names) == 4
 
 
-# ------------------------------------------------------------ scene labels (2026-08-28, AST_07XT)
+# ------------------------------------------------------------ scene labels (AST_07XT)
 
 from dynamix.geo.footprints import band_label, scene_label  # noqa: E402
 
@@ -143,7 +143,7 @@ def test_band_label_is_the_part_after_the_scenes_common_prefix():
 
 def test_group_key_joins_a_granules_vnir_and_swir_files_despite_their_different_bounds():
     """One AST_07XT granule: VNIR at 15 m and SWIR at 30 m have bounds a few metres apart
-    (582237 vs 582243 E in the user's Pilbara download), so stack_key differs; the granule id
+    (582237 vs 582243 E in a Pilbara granule), so stack_key differs; the granule id
     must still put them in one group. GDEM tiles keep the geometric key."""
     from dynamix.geo.footprints import group_key
     def fp(name, west):
@@ -159,7 +159,7 @@ def test_group_key_joins_a_granules_vnir_and_swir_files_despite_their_different_
     assert group_key(dem) == group_key(num) == dem.stack_key
 
 
-# ------------------------------------------------------------- true swaths (2026-08-28, AST_07XT)
+# ------------------------------------------------------------- true swaths (AST_07XT)
 
 def _swath_tile(path, n=64, overviews=True, dtype="int16"):
     """A north-up 1x1 degree grid holding a rotated parallelogram of valid data (the ASTER
@@ -227,8 +227,7 @@ def test_band_sort_key_orders_bands_numerically_then_qa_planes():
 
 def test_scan_ignores_appledouble_sidecars_and_other_dotfiles(folder):
     """An exFAT drive gets a hidden ``._name.tif`` (4 KB of extended attributes) beside every
-    file the Finder copies; they are not rasters and doubled the scan's work on the user's
-    drive (3 285 real + 3 285 sidecars, 2026-08-28)."""
+    file the Finder copies; they are not rasters and would double the scan's work."""
     d = folder / "Aster_DEM/batch1"
     (d / "._ASTGTMV003_S22E119_dem.tif").write_bytes(b"\x00\x05\x16\x07" + b"\x00" * 4092)
     (d / ".hidden.tif").write_bytes(b"not a raster")
@@ -236,7 +235,7 @@ def test_scan_ignores_appledouble_sidecars_and_other_dotfiles(folder):
     assert len(names) == 4 and not any(n.startswith(".") for n in names)
 
 
-# ------------------------------------------------------------- previews (2026-08-28)
+# ------------------------------------------------------------- previews
 
 from dynamix.core.frames import GeographicFrame, LocalFrame  # noqa: E402
 from dynamix.core.rasterfield import RasterField  # noqa: E402
@@ -272,8 +271,8 @@ def test_overview_field_without_overviews_still_works_by_decimated_read(tmp_path
 
 
 def test_overview_field_masks_float32_extreme_fill_even_when_nodata_lies(tmp_path):
-    # BOEM west (2026-08-30): declared nodata 0.0, actual border fill float32 lowest -> the
-    # levels crushed to a flat colour. Extreme sentinels are NaN regardless of the declaration.
+    # BOEM west: declared nodata 0.0, actual border fill float32 lowest -> unmasked, the fill
+    # crushes the levels to a flat colour. Extreme sentinels are NaN regardless of the declaration.
     import numpy as np
     import rasterio
     from rasterio.transform import from_origin

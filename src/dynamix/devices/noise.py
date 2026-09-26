@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Noise: seeded dither as a CHAIN STEP, ahead of the analysing transform (2026-08-30).
+"""Noise: seeded dither as a CHAIN STEP, ahead of the analysing transform.
 
 Distinct from ``wtmm2d``'s own Dither checkbox (auto half-LSB, no knobs): this is a Transform
 that hands the NEXT transform a noised clone of the field, so it composes in the chain, caches

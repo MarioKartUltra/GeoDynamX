@@ -153,9 +153,9 @@ def test_group_spectra_overlay_is_gated_and_matches_the_core_subsets(qtbot):
 
 
 def test_focus_fit_modes_and_the_honesty_readout(qtbot):
-    """2026-09-22: the Fit combo (naive / fixed focus / focus) drives fit_spectra's
-    fit_mode; the readout shows branch, x0 and the Delta-h naive->focus pair side by
-    side (the price display). Without log2_L the combo is disabled."""
+    """The Fit combo (naive / fixed focus / focus) drives fit_spectra's fit_mode; the
+    readout shows branch, x0 and the Delta-h naive->focus pair side by side (the price
+    display). Without log2_L the combo is disabled."""
     hd_std, hd_cmax = _pair()
     window = SpectrumWindow(hd_std, hd_cmax, log2_L=8.0)
     qtbot.addWidget(window)

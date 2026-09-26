@@ -98,9 +98,9 @@ class Param:
     def _check_default(self) -> None:
         """A declaration must describe a device completely, and that includes its own default.
 
-        ``Param("n", INT, default=99, min=1, max=8)`` used to construct happily, and 99 then flowed
-        straight into ``cache_key`` and ``compute`` because ``validate_params`` fills an absent
-        param from ``default`` without validating it. Phase 3 hand-writes ~10 declarations.
+        Without this check ``Param("n", INT, default=99, min=1, max=8)`` would construct happily,
+        and 99 would flow straight into ``cache_key`` and ``compute`` because ``validate_params``
+        fills an absent param from ``default`` without validating it.
 
         The default is put through ``validate`` rather than range-checked raw, so it is coerced the
         same way a user-supplied value would be -- an ANGLE wraps, an INT-valued float narrows.

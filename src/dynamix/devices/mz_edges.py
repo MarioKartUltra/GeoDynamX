@@ -19,15 +19,15 @@ class MZEdges:
         Param("coarse", ParamKind.CHOICE, default="full",
               choices=("full", "thumbnail"), label="Coarse"),
         Param("dither", ParamKind.BOOL, default=False, label="Dither"),
-        # 2026-09-19 split (§6.4): the M-Z tool's own wavelet menu -- the paper's dyadic
-        # spline, or the Unser-Blu fractional order (SMOOTHNESS knob; one vanishing moment
-        # always -- maxima-are-edges is the method). alpha binds only for frac_bspline
-        # (the inert-knob precedent); 3.0 IS the paper's wavelet.
+        # The M-Z tool's own wavelet menu -- the paper's dyadic spline, or the Unser-Blu
+        # fractional order (SMOOTHNESS knob; one vanishing moment always -- maxima-are-edges
+        # is the method). alpha binds only for frac_bspline (the inert-knob precedent); 3.0 IS
+        # the paper's wavelet.
         Param("wavelet", ParamKind.CHOICE, default="mz_spline",
               choices=("mz_spline", "frac_bspline"), label="Wavelet"),
-        # 2026-09-21: the wtmm2d subpixel/value refinement, on the dyadic maxima. POCS
-        # input (mz_maxima) stays integer-supported regardless -- reconstruction is
-        # pixel-exact by the papers' own numerics (the recorded split).
+        # The wtmm2d subpixel/value refinement, on the dyadic maxima. POCS input (mz_maxima)
+        # stays integer-supported regardless -- reconstruction is pixel-exact by the papers'
+        # own numerics.
         Param("interpolate", ParamKind.BOOL, default=False, label="Interpolate"),
         Param("alpha", ParamKind.FLOAT, default=3.0, min=0.1, max=8.0,
               soft_min=2.0, soft_max=5.0, units="", label="α"),

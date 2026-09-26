@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""WTMM2D's dither option (2026-08-30): the M-Z devices' seeded half-LSB dither, on the main
+"""WTMM2D's dither option: the M-Z devices' seeded half-LSB dither, on the main
 WTMM path -- so processing noise is broken up before chaining.
 Same core helpers (dynamix.core.mz_edges.measure_lsb/_dithered), same fail-toward-no-op rule."""
 from __future__ import annotations

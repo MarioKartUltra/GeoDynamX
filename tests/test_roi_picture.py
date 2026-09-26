@@ -4,8 +4,7 @@
 
 A raster too big to load opens as a PICTURE: exact block-centre samples of the file, drawn
 over exactly their native blocks, never analysed. These pin the sampling rule and the
-georeference -- the registration the user lost a day to when the old overview was a second
-coordinate system.
+georeference -- the registration that breaks when an overview is a second coordinate system.
 """
 from __future__ import annotations
 

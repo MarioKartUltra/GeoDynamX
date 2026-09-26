@@ -191,7 +191,7 @@ def test_the_measure_route_reproduces_the_whole_field_hmap_inside_the_roi(builti
 def test_the_multiaffine_route_agrees_in_the_bulk_its_zero_mean_is_domain_coupled(builtins,
                                                                                   name,
                                                                                   extra):
-    """KNOWN PROPERTY (2026-09-22, measured): the multiaffine kernels are made exactly
+    """KNOWN PROPERTY (measured): the multiaffine kernels are made exactly
     zero-mean over the WHOLE analysed domain (ricker_projections), which DC-couples T to the
     domain's mean -- so h differs where |T| ~ 0 (zero crossings, where h is ill-conditioned
     anyway: the whole-field h spans -4..7.5 there). Bulk agreement measured: median |dh|

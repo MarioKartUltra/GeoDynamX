@@ -40,10 +40,10 @@ def test_cache_unpin_nonexistent_key():
     assert not c.is_pinned("nonexistent")
 
 
-# ------------------------------------------------- bounded LRU (2026-08-30, "not responding")
-# The unbounded store assumed "few WTMM stacks"; the noise device's seed/amplitude scrubs mint
-# a ~134 MB field clone plus a full WTMM result PER STEP, retained forever -> memory pressure,
-# beachball. Bounded LRU, pins exempt (the frozen-layer contract the docstring promised).
+# ------------------------------------------------- bounded LRU
+# The noise device's seed/amplitude scrubs mint a ~134 MB field clone plus a full WTMM result PER
+# STEP; an unbounded store retains them all -> memory pressure, beachball. Bounded LRU, pins
+# exempt (the frozen-layer contract the docstring states).
 
 def test_capacity_evicts_the_least_recently_used_unpinned_entry():
     c = Cache(maxsize=3)

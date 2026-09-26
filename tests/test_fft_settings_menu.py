@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Settings > Compute engine / Precision (2026-09-22): persisted, applied at STARTUP through
+"""Settings > Compute engine / Precision: persisted, applied at STARTUP through
 fft_policy.configure (changes apply after a restart)."""
 from __future__ import annotations
 

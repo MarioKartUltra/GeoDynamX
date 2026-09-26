@@ -3,11 +3,11 @@
 """Every module in the package must at least COMPILE -- no test subset may leave a syntax
 error undetected.
 
-Exists because of 2026-09-16: a docstring edit left ``shell/arrangement/scene.py`` with an
-unterminated string literal, both offscreen gates stayed green (the pyvista-backed arrangement
-modules are excluded from them and imported lazily), and the app died at launch the moment the
-Vector view activated. ``compileall`` costs ~a second and catches that class forever -- it
-needs no Qt, no pyvista, no display: syntax only.
+The pyvista-backed arrangement modules are excluded from both offscreen gates and imported
+lazily, so a syntax error there (an unterminated string literal in ``shell/arrangement/scene.py``,
+say) leaves the gates green and kills the app at launch the moment the Vector view activates.
+``compileall`` costs ~a second and catches that class of error -- it needs no Qt, no pyvista,
+no display: syntax only.
 """
 from __future__ import annotations
 

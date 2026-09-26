@@ -63,8 +63,8 @@ import functools
 
 import numpy as np
 
-# Every FFT TRANSFORM goes through the app-wide engine policy (2026-09-22: mlx or FFTW3
-# at the configured 32/64-bit precision, never numpy's FFT by default).
+# Every FFT TRANSFORM goes through the app-wide engine policy (mlx or FFTW3 at the
+# configured 32/64-bit precision, never numpy's FFT by default).
 from dynamix.core.fft_policy import active as _fft  # noqa: E402
 
 from dynamix.core import mzlib
@@ -89,19 +89,18 @@ def _dithered(values, lsb):
 def _torus_components_unionfind(rows, cols, shape2):
     """Label wrap-merged 8-connected components of a maxima point set on the torus.
 
-    THE REFERENCE IMPLEMENTATION, superseded 2026-09-19 by :func:`_torus_components`
-    below (the O(points) python union-find loop was the mz_edges hot spot: measured 61 s
-    of the 106 s total at the 4096-px overview size, 15.8M level-0 maxima). Kept intact
+    THE REFERENCE IMPLEMENTATION for the fast :func:`_torus_components` below, which
+    replaces it in the analysis path (this O(points) python union-find loop measured 61 s
+    of a 106 s mz_edges run at the 4096-px overview size, 15.8M level-0 maxima). Kept intact
     as the equivalence oracle -- tests/test_mz_edges_core.py checks the fast labeller
     produces the same partitions.
 
-    Direct modulo-indexed neighbor lookup (the earlier ``np.roll``
-    version materialized a full ``shape2``-sized grid copy per offset -- ~1.6 GB transient
-    at 4096x4096 -- for no reason, since only the ``rows``/``cols`` positions are ever read
-    back out of it; indexing ``grid`` at ``(rows+dr) % ny2, (cols+dc) % nx2`` gets the same
-    wrapped neighbor values with no grid-sized copies, O(points) instead) + union-find over
-    pairs; numpy + O(points) python only. Returns int64 labels (dense, 0-based) aligned with
-    ``rows``/``cols``.
+    Direct modulo-indexed neighbor lookup (an ``np.roll`` per offset would materialize a
+    full ``shape2``-sized grid copy -- ~1.6 GB transient at 4096x4096 -- although only the
+    ``rows``/``cols`` positions are ever read back out of it; indexing ``grid`` at
+    ``(rows+dr) % ny2, (cols+dc) % nx2`` gets the same wrapped neighbor values with no
+    grid-sized copies, O(points)) + union-find over pairs; numpy + O(points) python only.
+    Returns int64 labels (dense, 0-based) aligned with ``rows``/``cols``.
     """
     n2y, n2x = shape2
     grid = np.full(shape2, -1, dtype=np.int64)
@@ -135,8 +134,8 @@ def _torus_components(rows, cols, shape2):
 
     ``scipy.ndimage.label`` does the grid labelling vectorized; the torus wrap then only
     needs the SEAM adjacencies merged -- at most ``3*(ny+nx)`` pairs instead of a python
-    union-find over every point pair (the 2026-09-19 profiling fix: 61 s -> ~2 s at the
-    overview size). Roots resolve vectorized by iterated parent-jumping."""
+    union-find over every point pair (61 s -> ~2 s at the overview size). Roots resolve
+    vectorized by iterated parent-jumping."""
     from scipy import ndimage
 
     if rows.size == 0:
@@ -202,7 +201,7 @@ def _fourier_upsample_torus(t, factor):
     cy, cx = nfy // 2, nfx // 2
     B[cy - ry: cy + ry + 1, cx - rx: cx + rx + 1] = T
     up = np.real(_fft().ifft2(np.fft.ifftshift(B))) * factor * factor
-    # sample-exact to the FFT precision (2026-09-22: 32 or 64-bit is a user setting)
+    # sample-exact to the FFT precision (32 or 64-bit is a user setting)
     tol = 1e-8 if getattr(_fft(), "precision", 64) == 64 else 1e-5 * max(1.0, np.abs(t).max())
     assert np.max(np.abs(up[::factor, ::factor] - t)) < tol, (
         "trig interpolation lost sample-exactness -- Nyquist split is wrong"
@@ -210,7 +209,7 @@ def _fourier_upsample_torus(t, factor):
     return up
 
 
-# --- fractional-order forward (2026-09-19) -----------------------------------------------
+# --- fractional-order forward ------------------------------------------------------------
 #
 # The M-Z scheme generalized to a REAL spline order (Unser-Blu, SIAM Review 2000), built
 # entirely here so the verbatim-ported ``mzlib`` oracle stays untouched. The refinement
@@ -259,8 +258,8 @@ def _hf_frac(w, alpha: float):
 def _theta0_frac(alpha: float) -> float:
     """``theta_alpha(0) = (1/2pi) int |sinc(w/4)|^(alpha+1) dw`` -- the continuum unit-step
     response peak (alpha=3: 4/3, mzlib's THETA0; alpha=1: 2). Computed by
-    :func:`_theta0_integral` (finite part + analytic tail); a bare cutoff at w = 2000, used
-    until 2026-09-24, dropped the slow tail: 45% low at alpha = 0.1, 2% at 0.5."""
+    :func:`_theta0_integral` (finite part + analytic tail); a bare cutoff at w = 2000 drops
+    the slow tail: 45% low at alpha = 0.1, 2% at 0.5."""
     alpha = _check_alpha(alpha)
     t0 = _THETA0_CACHE.get(alpha)
     if t0 is None:
@@ -333,11 +332,11 @@ def atrous2d_forward_frac(img, J: int, alpha: float, use_lambda: bool = True):
 @functools.lru_cache(maxsize=64)
 def mz_impulse_reach(n_levels: int, wavelet: str = "mz_spline", alpha: float = 3.0) -> int:
     """How far (px) any level's (W1, W2) response to a single-pixel impulse reaches -- the
-    ROI runner's margin for this transform (spec 2026-09-22 §5), measured from the SAME
-    forward the analysis runs (never a restated filter length). The radius holding all but
-    ``tol`` of each level's |W| mass, maximised over levels; tol = 1e-9 for the compact dyadic
-    spline (its whole support), 1e-3 for the fractional order's algebraic tail, capped at a
-    quarter of the probe grid."""
+    ROI runner's margin for this transform, measured from the SAME forward the analysis
+    runs (never a restated filter length). The radius holding all but ``tol`` of each
+    level's |W| mass, maximised over levels; tol = 1e-9 for the compact dyadic spline (its
+    whole support), 1e-3 for the fractional order's algebraic tail, capped at a quarter of
+    the probe grid."""
     L = min(4096, max(64, 16 * 2 ** int(n_levels)))
     img = np.zeros((L, L))
     c = L // 2
@@ -413,8 +412,8 @@ def analyze(values, n_levels, *, coarse="full", dither=False,
             "line_id": line_id,
         }
         if interpolate:
-            # 2026-09-21: the same parabolic refinement wtmm2d's knob applies, on the TORUS
-            # modulus raster (probes crossing into mirror halves read correct data -- that is
+            # The same parabolic refinement wtmm2d's knob applies, on the TORUS modulus
+            # raster (probes crossing into mirror halves read correct data -- that is
             # what the torus is for). ``mz_maxima`` below keeps raw integer positions and raw
             # w1/w2: the POCS constraint support stays pixel-exact (the M-Z split, explicit).
             from dynamix.core.subpixel import refine_scale
@@ -457,8 +456,8 @@ def _coarse_for(values, bundle, n_levels):
         if bundle["lsb"] is not None:
             # analyze() built its maxima constraints from the dithered field, not the raw
             # one -- reproduce that exact field (fixed seed => bit-identical) so S and the
-            # maxima it's pinned against are never a field/field mismatch (controller ruling,
-            # mz-edges-port review; see the module docstring's dither/coarse-consistency note).
+            # maxima it's pinned against are never a field/field mismatch (see the module
+            # docstring's dither/coarse-consistency note).
             v = _dithered(v, bundle["lsb"])
         S, _ = mzlib.atrous2d_forward(v, n_levels)
         return S

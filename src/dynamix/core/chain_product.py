@@ -25,9 +25,9 @@ One dict, built worker-side by the transform, immutable afterwards (the engine c
   ``v_scale``/``v_arg`` per point, ``v_off``, and per-chain ``v_persist``/``v_mod_finest``/
   ``v_mod_sup``/``v_holder_ols``/``v_holder_max``/``v_max_log2_mod``/``v_arg_finest``. The chain
   dicts drop ``arg`` (the verbatim backend's ``chains2d`` never carried it -- EQSelect's
-  2026-08-01 spec, Phase B), so the argument is JOINED here from the extrema layers: chain point
-  ``j`` sits at scale index ``j`` (chains are finest-anchored), and its ``(x, y)`` is looked up in
-  ``extrema[j]``. NaN where the join finds nothing.
+  extrema-layers spec, Phase B), so the argument is JOINED here from the extrema layers: chain
+  point ``j`` sits at scale index ``j`` (chains are finest-anchored), and its ``(x, y)`` is
+  looked up in ``extrema[j]``. NaN where the join finds nothing.
 
 Metric columns must agree with the estimators the filter devices already trust
 (``dynamix.core.chain_stats``) to float tolerance: a filter switching from the dict path to this
@@ -114,7 +114,7 @@ def build_chain_product(extrema, chains, scales, shape, *, runs=None) -> dict:
     ny, nx = int(shape[0]), int(shape[1])
 
     # --- H: ordered runs per scale, flattened; the leftovers become the iso side -------------
-    # ``has_sub``: the 2026-09-20 interpolate knob stamped float subpixel positions on every
+    # ``has_sub``: the interpolate knob stamps float subpixel positions on every
     # extrema layer (all-or-nothing -- the refinement is a whole-stack pass); the product then
     # carries parallel FLOAT display columns (h_xf/h_yf, iso_xf/iso_yf) alongside the integer
     # identity columns, which every mask/pick/projection keeps using untouched.
@@ -341,7 +341,7 @@ def stub_capped_chains(chains, cap=DRAW_CAP):
     return capped, note
 
 
-#: DISABLED 2026-09-14 — do NOT flip back to False without a redesign. The
+#: DISABLED — do NOT flip back to False without a redesign. The
 #: filters-as-index-selections mechanism this gates (``narrow_selection`` in the filter devices,
 #: ``materialize_selection`` in ``engine.resolve``, the canvas/scene fast paths) was unsound when
 #: a selection-aware filter interleaves with a non-aware one that rewrites ``extrema`` (min_vchains):
@@ -481,7 +481,7 @@ def export_chain_product_npz(path, product, *, field, params) -> dict:
     in memory and on disk, so labels attach to the saved dataset).
 
     v4 is v3's exact CSR layout (``wtmm_backend.export_chains_npz``, the verbatim EQSelect copy)
-    plus per-point ``h_arg``/``v_arg`` -- EQSelect's own 2026-08-01 extrema-layers spec, Phase B.
+    plus per-point ``h_arg``/``v_arg`` -- EQSelect's own extrema-layers spec, Phase B.
     Coordinates convert to frame units through ``field.x_axis``/``y_axis`` at THIS boundary only
     (z always 0.0, the v3 convention). The ``px_*`` keys are DynamiX-additive pixel columns for
     :func:`load_chain_product_npz`'s exact reconstruction; every EQSelect loader reads keys by

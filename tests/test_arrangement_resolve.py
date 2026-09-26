@@ -275,9 +275,8 @@ def test_display_style_change_resyncs_arrangement_for_colormap_vtrail_and_points
     win._on_display_style_changed("show_trails", True)
     assert calls == []
 
-    # 2026-08-30 ("controls only work in the raster view"): a colormap change on a PLAIN drape
-    # is an in-place LUT swap (ArrangementView.set_colormap), never a resync; only a hillshaded
-    # drape (baked RGBA) still needs the rebuild.
+    # A colormap change on a PLAIN drape is an in-place LUT swap (ArrangementView.set_colormap),
+    # never a resync; only a hillshaded drape (baked RGBA) still needs the rebuild.
     win._on_display_style_changed("colormap", "magma")
     assert calls == []
 
@@ -446,9 +445,10 @@ def test_a_filter_edit_during_a_background_compute_reaches_the_canvas_once_it_la
         qtbot, arranged_window):
     """IMPORTANT: a FILTER edit (not a transform) on the active layer, made
     while the shared worker thread is busy with a background arrangement layer, must reach the
-    canvas once that background compute lands -- with NO further user event needed. Pre-fix this
-    was healed only by the NEXT unrelated user action (or never, if none came): the knob showed
-    0.5 while the canvas kept showing the unfiltered (0.0) result indefinitely."""
+    canvas once that background compute lands -- with NO further user event needed. The failure
+    guarded: the edit is healed only by the NEXT unrelated user action (or never, if none comes),
+    and the knob shows 0.5 while the canvas keeps showing the unfiltered (0.0) result
+    indefinitely."""
     win, cached, pending, nogeoref = arranged_window
     unfiltered = len(_stub_stack(_FIELD, 3)["extrema"][0]["x"])
 

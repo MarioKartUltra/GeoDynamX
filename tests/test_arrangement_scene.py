@@ -736,10 +736,9 @@ def test_points_entry_adds_exactly_one_points_actor():
 
 def test_points_entry_drapes_at_surface_z_ignoring_depth():
     """The display law: (lon, lat, ~surface), depth column ignored -- a wildly different depth
-    changes nothing about where the point lands. (2026-08-19 supersession: "surface" is now the
-    constant ``_VECTOR_LIFT_KM`` above the drape rather than exactly 0 -- coplanar vector actors
-    lost the depth test to the opaque raster under a top-down view; the depth-INDEPENDENCE this
-    test exists for is unchanged.)"""
+    changes nothing about where the point lands. "Surface" is the constant ``_VECTOR_LIFT_KM``
+    above the drape: coplanar vector actors lose the depth test to the opaque raster under a
+    top-down view. The depth-INDEPENDENCE is what this test exists for."""
     from dynamix.shell.arrangement.scene import _VECTOR_LIFT_KM
 
     scene = Scene(_plotter())
@@ -1194,8 +1193,8 @@ def test_frame_mode_extrema_and_roi_place_via_the_frame_not_lonlat(tmp_path):
     ext_pts = np.asarray(scene._plotter.actors["layer-1-extrema"].mapper.dataset.points)
     expected = np.asarray(field.frame.to_scene(field.x_axis[[1, 2, 3]],
                                                field.y_axis[[1, 2, 3]]), dtype=np.float64)
-    # 2026-08-19 supersession: vector actors ride _frame_vector_lift above the drape (top-down
-    # depth-tie fix); x/y placement is unchanged.
+    # Vector actors ride _frame_vector_lift above the drape (breaks the top-down depth tie);
+    # x/y placement is the frame's own.
     expected[:, 2] += Scene._frame_vector_lift(field)
     np.testing.assert_allclose(ext_pts, expected)
     roi_grid = scene._plotter.actors["layer-1-roi"].mapper.dataset
@@ -1221,15 +1220,15 @@ def test_frame_mode_raster_places_points_via_the_frame_not_lonlat(tmp_path):
 
 
 def test_frame_mode_is_planar_for_geographic_frames_no_world_map_wrap():
-    """2026-08-19 fix (the demo-DEM smear): frame mode places a GeographicFrame field's own
-    CONTINUOUS axes as planar coordinates -- never through ``frame.to_scene``, whose
-    ``projection.project`` branch applies the world-map ``mod 360`` longitude canonicalisation.
-    Under "pacific" a lon range crossing 0 (here -30..+12.5, the demo DEM's own span) used to
-    tear into two edge strips (0..12.5 far left, 330..360 far right) with the bridging cells
-    smeared across the whole width. The assertions pin the planar contract directly: raster x
-    strictly monotonic, spanning exactly the axes' own range -- a wrap is impossible, not just
-    absent. Chains placed through ``_scene_points`` must land in the SAME planar frame as the
-    drape (the drape/vector agreement the raster docstring now names)."""
+    """Frame mode places a GeographicFrame field's own CONTINUOUS axes as planar coordinates --
+    never through ``frame.to_scene``, whose ``projection.project`` branch applies the world-map
+    ``mod 360`` longitude canonicalisation. Through that branch, under "pacific" a lon range
+    crossing 0 (here -30..+12.5, the demo DEM's own span) tears into two edge strips (0..12.5
+    far left, 330..360 far right) with the bridging cells smeared across the whole width. The
+    assertions pin the planar contract directly: raster x strictly monotonic, spanning exactly
+    the axes' own range -- a wrap is impossible, not just absent. Chains placed through
+    ``_scene_points`` must land in the SAME planar frame as the drape (the drape/vector
+    agreement the raster docstring names)."""
     from dynamix.core.frames import GeographicFrame
 
     scene = Scene(_plotter())
@@ -1570,10 +1569,10 @@ def test_remembered_camera_round_trips_through_export_import_and_restores():
 
 def test_scale_space_disabled_z_is_zero_geo_mode_byte_identical(tmp_path):
     """Geo mode + checkbox off: the SCALE-SPACE z-lift must never leak into the disabled path
-    (default Scene state; set_scale_space is never called here). (2026-08-19 supersession: the
-    constant per-vector drape lift -- ``_VECTOR_LIFT_KM`` through ``project`` -- IS present now,
-    so "no scale-space lift" means a single shared constant z across every point, not literal
-    zero; scale-VARYING z is what this test forbids.)"""
+    (default Scene state; set_scale_space is never called here). The constant per-vector drape
+    lift -- ``_VECTOR_LIFT_KM`` through ``project`` -- IS present, so "no scale-space lift" means
+    a single shared nonzero constant z across every point; scale-VARYING z is what this test
+    forbids."""
     scene = Scene(_plotter())
     layer = Layer(layer_id=1, name="A", source_id="mem:a")
     field = _geo_field(tmp_path, "a.tif")
@@ -1607,8 +1606,7 @@ def test_scale_space_enabled_z_matches_stretch_times_log2a_minus_amin_frame_mode
     pts = np.asarray(scene._plotter.actors["layer-1-chains"].mapper.dataset.points)
     all_log2a = np.concatenate([chain_a["log2_scales"], chain_b["log2_scales"]])
     a_min = float(np.min(all_log2a))
-    # 2026-08-19 supersession: + the constant drape lift (top-down depth-tie fix); the
-    # scale-space law itself is unchanged.
+    # The scale-space law plus the constant drape lift (breaks the top-down depth tie).
     lift = Scene._frame_vector_lift(field)
     expected_z = stretch * (all_log2a - a_min) + lift
     assert pts[:, 2] == pytest.approx(expected_z, abs=1e-12)
@@ -1632,7 +1630,7 @@ def test_scale_space_disabled_after_being_enabled_returns_to_zero():
     scene.set_scale_space(False, 4.0)
 
     pts = np.asarray(scene._plotter.actors["layer-1-chains"].mapper.dataset.points)
-    # 2026-08-19 supersession: OFF retracts to the constant drape lift, not literal zero.
+    # OFF retracts to the constant drape lift.
     assert np.allclose(pts[:, 2], Scene._frame_vector_lift(field))
 
 
@@ -1651,8 +1649,8 @@ def test_scale_space_stretch_change_rebuilds_with_a_different_z_span():
     scene.set_scale_space(True, 10.0)
 
     z_after = np.asarray(scene._plotter.actors["layer-1-chains"].mapper.dataset.points)[:, 2]
-    # 2026-08-19 supersession: compare SPANS (lift-invariant) -- the constant drape lift shifts
-    # both renders identically, so the stretch relation holds on max - min, not on raw max.
+    # Compare SPANS (lift-invariant) -- the constant drape lift shifts both renders identically,
+    # so the stretch relation holds on max - min, not on raw max.
     span_before = z_before.max() - z_before.min()
     span_after = z_after.max() - z_after.min()
     assert span_after == pytest.approx(span_before * 10.0)
@@ -1834,7 +1832,7 @@ def test_palette_constants_match_canvas_session_palette():
     assert ROI_BOUNDS_COLOR == canvas.ROI_BOUNDS_COLOR
 
 
-# --------------------------------------------------------------------- footprints (2026-08-28)
+# --------------------------------------------------------------------- footprints
 
 from dynamix.geo.footprints import Footprint  # noqa: E402
 from dynamix.shell.arrangement.scene import _FOOTPRINT_NAME  # noqa: E402
@@ -1919,7 +1917,7 @@ def test_footprints_of_one_granule_draw_one_loop_and_hit_as_a_group():
     assert [h.name for h in hits] == [b01.name, b04.name]
 
 
-# ------------------------------------------------------------------- previews (2026-08-28)
+# ------------------------------------------------------------------- previews
 
 from dynamix.core.frames import GeographicFrame  # noqa: E402
 from dynamix.shell.arrangement.scene import _PREVIEW_PREFIX  # noqa: E402
@@ -1959,7 +1957,7 @@ def test_previews_survive_a_mode_switch_and_hide_in_frame_mode():
     assert len(_preview_actors(p)) == 1
 
 
-# ------------------------------------------------------------ H-lines in the world (2026-08-28)
+# ------------------------------------------------------------ H-lines in the world
 
 def _hline_result():
     ext0 = {"x": np.array([5, 3, 4, 10, 11, 20], np.int64), "y": np.array([2, 2, 2, 7, 7, 9], np.int64),
@@ -1992,7 +1990,7 @@ def test_no_h_line_actor_when_nothing_is_labelled():
     assert "layer-0-hlines" not in p.renderer.actors
 
 
-# ------------------------------------------------------------------ hillshade drape (2026-08-29)
+# ------------------------------------------------------------------ hillshade drape
 
 def _sloped_field(n=24):
     y, x = np.mgrid[0:n, 0:n]
@@ -2020,7 +2018,7 @@ def test_hillshade_entry_drapes_rgb_colours_instead_of_a_lut():
     assert "value" in p.renderer.actors["layer-0-raster"].mapper.dataset.point_data
 
 
-# -------------------------------------------------------------- 3-D surface (2026-08-29)
+# -------------------------------------------------------------- 3-D surface
 
 def _surface_entry(field, on, negate=False, result=None):
     return {"layer": Layer(layer_id=0, name="s", source_id="s0"), "field": field, "result": result,
@@ -2058,7 +2056,7 @@ def test_surface_option_moves_extrema_and_h_lines_onto_the_surface():
     assert hl[:, 2].min() > lift and not np.allclose(hl[:, 2], hl[0, 2])
 
 
-# ------------------------------------------------------------ reference layers (2026-08-29)
+# ------------------------------------------------------------ reference layers
 
 from dynamix.shell.arrangement.scene import _REFERENCE_PREFIX  # noqa: E402
 
@@ -2108,11 +2106,11 @@ def test_zoom_to_reference_frames_the_layer_not_the_raster():
     assert np.allclose(p.camera.focal_point, centre, atol=1e-3)     # framed on the layer's bounds
 
 
-# ------------------------------------------------ globe framing follows the DATA (2026-08-29)
-# The raster vanished from the globe view with BOEM but not ASTER -- the globe camera was remembered per MODE, so the first dataset seen (ASTER, Pilbara)
-# kept its camera when BOEM (Gulf of Mexico) replaced it: the Gulf sat on the far side of the
-# Earth. And the first-ever fit framed EVERY actor -- a world-spanning reference layer
-# (BOEM's website/states) shrinks a 12 km raster to nothing.
+# ------------------------------------------------ globe framing follows the DATA
+# A geo dataset swap refits the globe camera to the new data. A camera remembered per MODE keeps
+# the first dataset's framing (ASTER, Pilbara) when BOEM (Gulf of Mexico) replaces it, and the
+# Gulf sits on the far side of the Earth. The first fit frames the data: a fit to EVERY actor
+# lets a world-spanning reference layer (BOEM's website/states) shrink a 12 km raster to nothing.
 
 def _lonlat_field(tmp_path, name, lon0, lat0, deg=0.1, n=16):
     import rasterio
@@ -2165,9 +2163,10 @@ def test_geo_dataset_swap_refits_to_the_new_data_but_adding_a_layer_keeps_the_ca
     assert tuple(scene._plotter.camera.position) == before
 
 
-# ------------------------------------------ reference layers ride a 3-D surface (2026-08-29)
-# Reference layers rendered UNDER a raster shown as a surface: a raster shown as a surface rises above the fixed vector lift. Chains/H-lines already ride the
-# surface (_surface_ride); reference layers must too, from their pixel-frame vertices.
+# ------------------------------------------ reference layers ride a 3-D surface
+# A raster shown as a surface rises above the fixed vector lift, so a reference layer at that lift
+# renders UNDER it. Reference layers ride the surface as chains/H-lines do (_surface_ride), from
+# their pixel-frame vertices.
 
 def test_reference_layer_rides_a_3d_surface_instead_of_sitting_under_it():
     scene = Scene(_plotter())
@@ -2208,7 +2207,7 @@ def test_entry_show_raster_false_hides_the_drape_and_survives_a_mode_switch(tmp_
     assert scene._plotter.renderer.actors["layer-1-raster"].GetVisibility()
 
 
-# ------------------------------ filter-only resync, in place (2026-08-30, "controls laggy")
+# ------------------------------ filter-only resync, in place
 
 def _ext_result(n_keep=None, sig="sigA"):
     x = np.arange(10, dtype=np.int64); y = np.zeros(10, dtype=np.int64)

@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """wavelet_skeleton device: the Tang-You/You-2006 medial-axis extractor as a peer primary
-analyzer (the third representation next to wtmm2d and mz_edges — each method its own tool,
-the 2026-09-19 design law). Emits the skeleton in the app's per-scale extrema schema so the
-existing display path renders it unchanged (the mz_edges precedent)."""
+analyzer (the third representation next to wtmm2d and mz_edges — each method its own tool).
+Emits the skeleton in the app's per-scale extrema schema so the existing display path renders
+it unchanged (the mz_edges precedent)."""
 from __future__ import annotations
 
 import numpy as np

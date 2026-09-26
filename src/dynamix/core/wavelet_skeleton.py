@@ -9,12 +9,12 @@ reference semantics, never a copy of anything, so no drift guard applies):
 * Tang & You 2003 (``tang_you_2003_ribbon_skeleton_wavelet``): the constructed wavelet --
   1-D odd psi with COMPACT SUPPORT [-1, 1] in piecewise log/sqrt closed form (eq 4-5), even
   primitive phi, isotropic 2-D smoothing ``theta = phi(sqrt(x^2+y^2))``, wavelet pair
-  ``(psi1, psi2) = grad theta`` (eq 5), modulus ``|grad W_s f|`` (eq 7). Verified here
-  numerically before implementation (2026-09-19): the three 1/x singularities cancel
-  exactly at 0, each piece vanishes at the breakpoint where its root goes imaginary
-  (machine-exact continuity), and the paper's OWN theorem holds on synthetic ribbons --
-  the two maxima contours sit ~s apart with positions EXACTLY equal across stroke widths
-  4/8/12 (the width-invariance neither the Gaussian nor the quadratic spline delivers).
+  ``(psi1, psi2) = grad theta`` (eq 5), modulus ``|grad W_s f|`` (eq 7). Verified
+  numerically: the three 1/x singularities cancel exactly at 0, each piece vanishes at the
+  breakpoint where its root goes imaginary (machine-exact continuity), and the paper's OWN
+  theorem holds on synthetic ribbons -- the two maxima contours sit ~s apart with positions
+  EXACTLY equal across stroke widths 4/8/12 (the width-invariance neither the Gaussian nor
+  the quadratic spline delivers).
 * You, Chen, Fang & Tang 2006 (``you_etal_2006_thinning_modulus_minima``): the modulus
   MINIMA of the same transform are scale-independent and sit on the medial axis --
   Algorithm 1: first WT -> threshold low modulus -> initial skeleton; second WT on the
@@ -60,8 +60,8 @@ import functools
 
 import numpy as np
 
-# Every FFT TRANSFORM goes through the app-wide engine policy (2026-09-22: mlx or FFTW3
-# at the configured 32/64-bit precision, never numpy's FFT by default).
+# Every FFT TRANSFORM goes through the app-wide engine policy (mlx or FFTW3 at the
+# configured 32/64-bit precision, never numpy's FFT by default).
 from dynamix.core.fft_policy import active as _fft  # noqa: E402
 
 __all__ = ["psi_radial", "phi_radial", "theta_kernel", "gradient_wt", "modulus_minima",
@@ -160,7 +160,7 @@ def theta_kernel(shape: tuple, s: float, kernel: str = "tang_you") -> np.ndarray
 def theta_reach(s: float, kernel: str = "tang_you", tol: float = 1e-9) -> int:
     """How far (px) ``theta_kernel(s)`` reaches: the radius holding all but ``tol`` of its
     discrete mass, measured on the kernel itself (compact profiles give their exact support;
-    the Gaussian its 1e-9 tail). The ROI runner's margin building block (spec 2026-09-22)."""
+    the Gaussian its 1e-9 tail). The ROI runner's margin building block."""
     L = int(np.ceil(8.0 * float(s))) + 4
     n = 2 * L + 1
     k = np.fft.fftshift(theta_kernel((n, n), float(s), kernel))
@@ -214,9 +214,8 @@ def modulus_minima(W1: np.ndarray, W2: np.ndarray, *, reach: int = 6,
     the symmetry point between a pair of contours): ``min(R+, R-)`` -- each side's running
     max over 1..reach -- must clear ``edge_frac`` of the PEAK modulus (significance;
     peak-relative because quantiles over a mostly-flat raster are background-dominated)
-    and exceed the valley by 1/t_frac (contrast). Adversarial review (2026-09-19) showed
-    the one-sided gates this replaced were structural failures off the axis-aligned
-    noiseless axis: the compact kernel's support/dust boundary at ~s+d/2 is a
+    and exceed the valley by 1/t_frac (contrast). One-sided gates fail structurally off the
+    axis-aligned noiseless axis: the compact kernel's support/dust boundary at ~s+d/2 is a
     one-sided-ridge minimum (68% ghost pixels on a 45-degree stripe), slope-rasterization
     ripple makes shallow high-modulus dips (killed here by t_frac against their own
     flanks), and background noise valleys have flanks far below edge_frac * peak.
@@ -238,7 +237,7 @@ def modulus_minima(W1: np.ndarray, W2: np.ndarray, *, reach: int = 6,
     for dy, dx in dirs:
         half[(dy, dx)] = _dir_ridge(M, dy, dx, reach)
         half[(-dy, -dx)] = _dir_ridge(M, -dy, -dx, reach)
-    # Pair DOMINANCE (adversarial review, the ring's inner-tail circle): a valley on a
+    # Pair DOMINANCE (the ring's inner-tail circle): a valley on a
     # curved slope can flank itself with its own chord (measured: angular ripple at
     # r ~ ridge - reach paired at 0.17 peak while the true ridge loomed at 0.98 seven px
     # away in another direction). The pair that flanks a REAL medial point is comparable
@@ -275,8 +274,8 @@ def skeletonize(signal: np.ndarray, *, s1: float = 6.0, s2: float = 6.0,
     Support distrust (one policy, two causes): the raster border AND every non-finite
     region grow a band of one kernel support in which no skeleton is reported -- reflect
     padding and mean-filling both manufacture structure there (the wtmm valid_ranges /
-    extrema2d NaN-dilation doctrine; adversarial review 2026-09-19: a NaN disk on a
-    structureless ramp fabricated a 149-px phantom ribbon).
+    extrema2d NaN-dilation doctrine; without it a NaN disk on a structureless ramp
+    fabricates a 149-px phantom ribbon).
 
     POLARITY-BLIND by construction (documented consequence of dropping the paper's
     figure/ground step): a dark corridor between two bright strokes -- a stroke GAP

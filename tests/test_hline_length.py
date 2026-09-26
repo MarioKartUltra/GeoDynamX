@@ -69,9 +69,9 @@ def test_input_result_is_not_mutated():
 
 
 def test_scale_select_stamps_the_unfiltered_layer_for_geometry_reuse():
-    # 2026-08-30: downstream filters mint a NEW extrema dict per tweak, so
-    # geometry caches keyed on identity always miss. ScaleSelect stamps the id-stable UNFILTERED
-    # layer so the canvas can order H-lines once and mask per tweak.
+    # Downstream filters mint a NEW extrema dict per tweak, so geometry caches keyed on identity
+    # always miss. ScaleSelect stamps the id-stable UNFILTERED layer so the canvas can order
+    # H-lines once and mask per tweak.
     import numpy as np
     from dynamix.devices.filters import ScaleSelect
     from dynamix.model.device import defaults_for
@@ -82,10 +82,9 @@ def test_scale_select_stamps_the_unfiltered_layer_for_geometry_reuse():
 
 
 def test_wtmm_stamps_the_hline_ordering_and_scale_select_picks_it():
-    # 2026-08-30: the H-line ordering walk ran on the MAIN thread at every
-    # landing -- with noise in the chain every run mints a new result, so it ran every time. The
-    # transform now pays the walk ONCE, on the worker, cached with the result; ScaleSelect hands
-    # the selected scale's runs to the views.
+    # The transform pays the H-line ordering walk ONCE, on the worker, cached with the result;
+    # ScaleSelect hands the selected scale's runs to the views. On the MAIN thread the walk would
+    # run at every landing -- with noise in the chain every run mints a new result.
     import numpy as np
     from pathlib import Path
     from dynamix.core.rasterfield import RasterField
@@ -102,8 +101,8 @@ def test_wtmm_stamps_the_hline_ordering_and_scale_select_picks_it():
 
 
 def test_hline_length_reads_its_line_count_and_range():
-    """2026-09-15: the H-line LENGTH filter now shows live feedback (it exists as 'Min points';
-    the missing reading made it feel absent vs the V-chain filters)."""
+    """The H-line LENGTH filter ('Min points') shows live feedback as the V-chain filters do: a
+    reading of its line count and point range."""
     import numpy as np
     from dynamix.core.chain_product import attach_chain_product
     from dynamix.devices.filters import HLineLength

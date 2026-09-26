@@ -39,7 +39,7 @@ class ResolveWorker(QtCore.QObject):
     progress = QtCore.Signal(str, float)
     finished = QtCore.Signal(object)
     error = QtCore.Signal(str)
-    #: Progressive compute (design 2026-09-14 §3): distinct from ``error`` -- a cancelled run is
+    #: Progressive compute (design §3): distinct from ``error`` -- a cancelled run is
     #: not a failure, it is a superseded compute the window asked to abandon. The consumer tears
     #: the thread down and dispatches the next need, without an error notice.
     cancelled = QtCore.Signal()

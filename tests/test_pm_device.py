@@ -144,7 +144,7 @@ def test_refusals_are_the_shared_contract():
 
 
 def test_follow_detector_on_pm(qtbot=None):
-    """detector='follow' (2026-09-22): xsmurf's own four-images design -- kapa/kapap from
+    """detector='follow': xsmurf's own four-images design -- kapa/kapap from
     FD derivative stacks of the DIFFUSED snapshot, the exact ported detector on top."""
     field = _step_field()
     dev = PMEdges()

@@ -71,8 +71,8 @@ class RoiPanel(QtWidgets.QFrame):
 
     #: The fields currently describe a legal ROI (same dict shape as ``createRequested``).
     #: Emitted from every edit that leaves :meth:`values` non-None, so the canvas can keep the
-    #: drawn band tracking the NUMBERS -- typing a row/col with no visual echo left the user
-    #: setting coordinates blind (2026-08-09 first-use report).
+    #: drawn band tracking the NUMBERS -- typing a row/col with no visual echo leaves the user
+    #: setting coordinates blind.
     valuesEdited = QtCore.Signal(dict)
 
     #: Save ROI was pressed -- the same dict shape as
@@ -154,8 +154,8 @@ class RoiPanel(QtWidgets.QFrame):
         self.create_button.clicked.connect(self._on_create_clicked)
         column.addWidget(self.create_button)
 
-        # 2026-09-21: the SECOND thing a drawn box can become -- a plain windowed CHILD DATASET (native-pixel crop,
-        # empty chain, any tool). Deliberately NOT gated on ``_blocked``: that block is about
+        # The SECOND thing a drawn box can become -- a plain windowed CHILD DATASET (native-pixel
+        # crop, empty chain, any tool). Deliberately NOT gated on ``_blocked``: that block is about
         # nesting the wtmm2d_roi ANALYSIS, and a child crop is legal wherever the box itself is.
         # NO margin knob here: the ROI defines the CORE only.
         # However much surrounding context an analysis needs is a property of the TOOL
@@ -190,8 +190,8 @@ class RoiPanel(QtWidgets.QFrame):
         self.deselect_button = QtWidgets.QPushButton("Deselect")
         self.deselect_button.clicked.connect(self._on_deselect_clicked)
         column.addWidget(self.deselect_button)
-        # Superseded 2026-09-23: selecting the DATASET row in the layer list means the whole
-        # field (and an ROI row, that ROI). Hidden, handler kept.
+        # Selecting the DATASET row in the layer list means the whole field (and an ROI row,
+        # that ROI), so this button stays hidden; its handler is kept.
         self.deselect_button.setVisible(False)
         self._saved_ids: list[str] = []
         self._setting_saved = False

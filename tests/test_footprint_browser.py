@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The footprint browser in the shell (2026-08-28): scan a folder, outline every raster on the
+"""The footprint browser in the shell: scan a folder, outline every raster on the
 world, right-click a footprint -> Import. Qt-only offscreen (no pyvista needed: the arrangement
 view is never built here; the MainWindow half is tested through its own methods)."""
 from __future__ import annotations
@@ -116,7 +116,7 @@ def test_footprint_menu_keeps_a_granules_vnir_and_swir_bands_in_one_submenu(wind
                                                             "SWIR_B04  (int16, 2490×2100)"]
 
 
-# ------------------------------------------------------------------- previews (2026-08-28)
+# ------------------------------------------------------------------- previews
 
 def test_footprint_menu_offers_preview_per_scene_and_clear_when_previews_exist(window, monkeypatch):
     import dynamix.shell.main_window as mw

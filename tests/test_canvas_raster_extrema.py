@@ -85,9 +85,9 @@ def test_scale_select_narrows_the_closed_flags():
 
 
 def test_clear_overlays_takes_the_pixel_overlay_off_too(qtbot):
-    """2026-09-22 (user: hiding the child layer "does not toggle" the extrema, and removing
-    the parent leaves them standing): clear_overlays is the hide/removal path's sweep -- the
-    raster-pixel overlay must leave with everything else set_result draws."""
+    """clear_overlays is the hide/removal path's sweep: hiding the child layer must take the
+    extrema off, and removing the parent must not leave them standing -- the raster-pixel
+    overlay must leave with everything else set_result draws."""
     canvas = Canvas()
     qtbot.addWidget(canvas)
     canvas.set_field(np.zeros((16, 16), dtype=np.float32))

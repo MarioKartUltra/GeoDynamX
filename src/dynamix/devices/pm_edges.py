@@ -51,10 +51,10 @@ class PMEdges:
               soft_min=0.1, soft_max=0.25, units="", label="λ"),
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "filtered"), label="Show", view=True),
-        # 2026-09-22: xsmurf's follow takes four IMAGES --
-        # detector="follow" feeds it this device's own smoothed snapshots via FD derivative
-        # stacks (dynamix.core.xsmurf_follow.kapa_from_field) and runs the exact ported
-        # detector; edge_mode/interpolate are inert under it (follow's channels are native).
+        # xsmurf's follow takes four IMAGES -- detector="follow" feeds it this device's own
+        # smoothed snapshots via FD derivative stacks (dynamix.core.xsmurf_follow.kapa_from_field)
+        # and runs the exact ported detector; edge_mode/interpolate are inert under it (follow's
+        # channels are native).
         Param("detector", ParamKind.CHOICE, default="nms",
               choices=("nms", "follow"), label="Detector"),
         # Subpixel refinement: the wtmm2d parabola along the gradient (the "mz"-mode
@@ -82,8 +82,8 @@ class PMEdges:
         snaps, I, done = {}, np.asarray(vals, dtype=np.float64), 0
         total = max(iters.values())
         for s in sigmas:
-            # Cooperative stop (2026-09-22): the same stage-boundary contract run_wtmm2d
-            # honors -- checked before each evolution chunk.
+            # Cooperative stop: the same stage-boundary contract run_wtmm2d honors -- checked
+            # before each evolution chunk.
             if cancel is not None and cancel():
                 from dynamix.core.wtmm_backend import ComputeCancelled
                 raise ComputeCancelled()

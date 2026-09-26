@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Finest-scale progressive preview (design 2026-09-14 §3): the worker emits a finest-scale
+"""Finest-scale progressive preview: the worker emits a finest-scale
 ``partial`` before the full ``finished`` when ``preview=True``, and the window draws it so the
 canvas shows the finest lines while the full stack is still computing.
 """

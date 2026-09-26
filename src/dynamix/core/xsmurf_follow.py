@@ -4,8 +4,7 @@
 # Bordeaux, France (N. Decoster, P. Kestener, S. Roux, A. Arneodo), GPL-2.0 -- see NOTICE.
 """EXACT ports of xsmurf's live follow pipeline -- pure numpy/python, NO GUI.
 
-Ported 2026-09-22 from the tree the
-XSmurfWrapper oracle actually runs, ``xSmurfMacPorts/xsmurf``:
+Ported from the tree the XSmurfWrapper oracle actually runs, ``xSmurfMacPorts/xsmurf``:
 
 - ``follow_contour``/``near_contour_line``: ``wt2d/Extrema.c:1105/1083`` -- the DETECTION the
   ``follow`` Tcl command always uses (every ``followVersion`` routes here): a pixel is an

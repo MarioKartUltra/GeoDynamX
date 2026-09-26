@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Shaded relief of a 2-D field — the classic hillshade, headless (2026-08-29).
+"""Shaded relief of a 2-D field — the classic hillshade, headless.
 
 ESRI/Horn convention over a NORTH-UP array (row index increases southward, column index
 eastward): ``dz/dx`` from east minus west, ``dz/dy`` from south minus north, slope from the

@@ -3,8 +3,7 @@
 """cdf_edges — complex cross-diffusion filtering as the fourth peer analyzer.
 
 (Named for the FAMILY, the scripts' own convention — 25_cdf_edges.py: the linear LCDF
-and nonlinear NCDF variants both live behind the Variant knob; "lcdf_edges" briefly
-named this device and misread as linear-only within the hour, 2026-09-20.)
+and nonlinear NCDF variants both live behind the Variant knob.)
 
 One LCDF/NCDF evolution (:mod:`dynamix.core.cdf` — lifted verbatim from the
 research/reconstruction scripts, port-guarded), snapshotted at script 26's dyadic
@@ -22,7 +21,7 @@ v in "the role of edge detector", and Gilboa's small-theta identity is why (Im ~
 * smoothed Laplacian: the LoG/Marr lineage; the nonlinear variants steer their
 diffusivity by that same channel). So ``"marr"`` is the authors' reading -- and even its
 zero-crossing extraction is our operationalization of "edge detector". ``"mz"``
-(grad-Re NMS) is OURS entirely, born in the rescued probes: the symbol gate proves the
+(grad-Re NMS) is OURS entirely: the symbol gate proves the
 Re channel is a Gaussian-smoothing semigroup, and along-gradient modulus maxima of a
 Gaussian-smoothed image at dyadic scales is the Mallat-Zhong DEFINITION -- so nothing is
 attributed to the CDF authors; their evolution is used as an alternative GENERATOR of
@@ -77,10 +76,10 @@ class CDFEdges:
               soft_min=0.1, soft_max=0.22, units="", label="dt"),
         Param("edge_mode", ParamKind.CHOICE, default="mz",
               choices=("mz", "marr"), label="Edges"),
-        # 2026-09-22: xsmurf's follow takes four IMAGES --
-        # detector="follow" feeds it this device's own smoothed snapshots via FD derivative
-        # stacks (dynamix.core.xsmurf_follow.kapa_from_field) and runs the exact ported
-        # detector; edge_mode/interpolate are inert under it (follow's channels are native).
+        # xsmurf's follow takes four IMAGES -- detector="follow" feeds it this device's own
+        # smoothed snapshots via FD derivative stacks (dynamix.core.xsmurf_follow.kapa_from_field)
+        # and runs the exact ported detector; edge_mode/interpolate are inert under it
+        # (follow's channels are native).
         Param("detector", ParamKind.CHOICE, default="nms",
               choices=("nms", "follow"), label="Detector"),
         # What the canvas SHOWS. "filtered" = the final Re (the denoised field
@@ -89,7 +88,7 @@ class CDFEdges:
         # The extrema pyramid still computes and overlays either way (hide with H if unwanted).
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "filtered", "edge_channel"), label="Show", view=True),
-        # 2026-09-21: subpixel refinement, both conventions -- "mz" mode gets the wtmm2d
+        # Subpixel refinement, both conventions -- "mz" mode gets the wtmm2d
         # parabola along the gradient (dynamix.core.subpixel); "marr" mode gets the
         # zero-crossing offset t = -Im/||grad Im|| along the gradient (first-order root of the
         # crossing), clamped to half a pixel. Positions land in x_sub/y_sub; integer support
@@ -113,7 +112,7 @@ class CDFEdges:
         if params["variant"] == "nonlinear":
             snaps, I, done = {}, vals, 0
             for s in sigmas:
-                # Cooperative stop (2026-09-22): the run_wtmm2d stage-boundary contract.
+                # Cooperative stop: the run_wtmm2d stage-boundary contract.
                 if cancel is not None and cancel():
                     from dynamix.core.wtmm_backend import ComputeCancelled
                     raise ComputeCancelled()
@@ -127,7 +126,7 @@ class CDFEdges:
             # Chunked between snapshot counts -- the SAME op sequence as one call (the
             # port test pins pyramid equality), but with a progress tick per segment: the
             # single-call form was one 0.0 tick then 30+ s of silence at the 4096-px
-            # window (measured 2026-09-20; the mz silence disease). The guarded core is
+            # window (measured; the mz silence disease). The guarded core is
             # untouched -- continuation is exact for the autonomous scheme.
             snaps, I, done = {}, vals, 0
             total = max(iters.values())

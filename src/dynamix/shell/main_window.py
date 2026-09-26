@@ -187,15 +187,13 @@ _CHILD_PREFIX = "  ↳ "
 #: analysis over a smaller window, so these ride across unchanged; everything else about the two
 #: devices differs (the ROI window and boundary knobs are ``wtmm2d_roi``-only).
 #:
-#: This used to stop at the original five (``n_oct``..``min_chain_len``),
-#: so a parent tuned away from the new defaults (``smooth``, ``thresh``, ``dist2_max``,
-#: ``box_ratio``, ``similitude``) silently lost that tuning on every ROI child -- the child ran a
-#: DIFFERENT analysis than the parent while being presented (by name, by chain lineage) as the same
-#: one over a smaller window, which is exactly what ``roi_chain``'s own docstring says an ROI must
-#: never do.
-#: 2026-09-20, same bug class found again by the ROI-machinery census: ``fracint_alpha`` was
-#: applied by the ROI engine (``run_wtmm2d_roi`` resolves it to the backend default) but neither
-#: declared on ``wtmm2d_roi`` nor carried here, so a parent tuned off η = 1.0 silently lost it.
+#: A param missing here is silently lost on every ROI child: a parent tuned away from its
+#: default (``smooth``, ``thresh``, ``dist2_max``, ``box_ratio``, ``similitude``) would make the
+#: child run a DIFFERENT analysis than the parent while being presented (by name, by chain
+#: lineage) as the same one over a smaller window, which is exactly what ``roi_chain``'s own
+#: docstring says an ROI must never do. ``fracint_alpha`` rides here too: the ROI engine applies
+#: it (``run_wtmm2d_roi`` resolves it to the backend default), so a parent tuned off η = 1.0
+#: must carry that tuning into the child.
 _SHARED_WTMM_PARAMS = ("n_oct", "n_voice", "a_min", "wavelet", "min_chain_len",
                       "smooth", "thresh", "dist2_max", "box_ratio", "similitude",
                       "fracint_alpha", "interpolate", "detector")
@@ -211,7 +209,7 @@ _DISPLAY_PARAMS = (
           soft_min=1.0, soft_max=8.0, label="Point size"),
     Param("line_width", ParamKind.FLOAT, default=1.0, min=0.05, max=50.0,
           soft_min=0.5, soft_max=3.0, label="Line width"),
-    # Hillshade (2026-08-29): the sun and the vertical exaggeration of the shaded relief the
+    # Hillshade: the sun and the vertical exaggeration of the shaded relief the
     # canvas and the drape show under the chains when ``ui.hillshade`` is on. Display only.
     Param("sun_azimuth", ParamKind.FLOAT, default=315.0, min=0.0, max=360.0,
           soft_min=0.0, soft_max=360.0, units="deg", label="Sun az"),
@@ -219,7 +217,7 @@ _DISPLAY_PARAMS = (
           soft_min=5.0, soft_max=90.0, units="deg", label="Sun alt"),
     Param("z_factor", ParamKind.FLOAT, default=1.0, min=0.001, max=10000.0,
           soft_min=0.1, soft_max=20.0, label="Vert. exag."),
-    # Stretch (2026-08-29): the percent-clip for ui.stretch == "percent" (core.stretch).
+    # Stretch: the percent-clip for ui.stretch == "percent" (core.stretch).
     Param("stretch_pct", ParamKind.FLOAT, default=2.0, min=0.0, max=49.0,
           soft_min=0.5, soft_max=10.0, units="%", label="Clip %"),
 )
@@ -293,13 +291,13 @@ def _display_style_of(layer) -> dict:
     out["hillshade"] = tags.get("ui.hillshade") == "True"
     raw = tags.get("ui.stretch")
     out["stretch"] = raw if raw in STRETCHES else "linear"
-    out["levels"] = tags.get("ui.levels", "")   # density slice (2026-09-16): "" = off
+    out["levels"] = tags.get("ui.levels", "")   # density slice: "" = off
     out["levels_colors"] = tags.get("ui.levels_colors", "")   # "#rrggbb,..." per class; "" = LUT
     try:
         out["levels_sieve"] = int(tags.get("ui.levels_sieve", "0") or 0)
     except ValueError:
         out["levels_sieve"] = 0
-    out["surface"] = tags.get("ui.surface") == "True"                 # 3-D surface (2026-08-29)
+    out["surface"] = tags.get("ui.surface") == "True"                 # 3-D surface
     # Surface HEIGHT source: "same" (this layer's own values -- the
     # pre-existing behavior and the default) or another loaded raster layer's layer_id.
     out["surface_source"] = tags.get("ui.surface_source", "same")
@@ -315,11 +313,11 @@ _PRIMARY_ANALYZERS = ("wtmm2d", "mz_edges", "wavelet_skeleton", "cdf_edges", "pm
                       "holder_map", "holder_measure", "holder_multiaffine", "band_recon",
                       "band_recon_measure", "band_recon_multiaffine")
 
-#: The band-reconstruction devices, newest first (2026-09-19 split), and the variant each
+#: The band-reconstruction devices, newest first, and the variant each
 #: h-map producer's band fork commits -- the variant whose engine params are the producer's
 #: VERBATIM (shared by identity), so the h-map the band was picked from is the h-map the
-#: reconstruction uses. ``holder_map`` keeps its conflated ``band_recon`` (the old path,
-#: unchanged for saved projects).
+#: reconstruction uses. ``holder_map`` keeps its conflated ``band_recon``, which saved projects
+#: rely on.
 _BAND_DEVICES = ("band_recon_measure", "band_recon_multiaffine", "band_recon")
 _BAND_FOR_ANALYZER = {"holder_measure": "band_recon_measure",
                       "holder_multiaffine": "band_recon_multiaffine",
@@ -525,8 +523,8 @@ def _roi_display_field(result, raster, field, name):
 
 def _display_raster_of(result) -> "np.ndarray | None":
     """The derived raster a result wants shown IN PLACE of the field: ``raster_out`` (the
-    general contract -- band_recon's reconstruction) first, else ``h_map`` (holder_map's own,
-    the original 2026-09-16 contract). None -> the raw field stays up."""
+    general contract -- band_recon's reconstruction) first, else ``h_map`` (holder_map's own).
+    None -> the raw field stays up."""
     if not isinstance(result, dict):
         return None
     out = result.get("raster_out")
@@ -734,8 +732,8 @@ def _expand_reference_paths(paths) -> list:
     ``commondata`` tree (BOEM's anomaly package: ``v10/<name>.lyr`` + ``commondata/<folders>/*.shp``;
     the ``.lyr`` names those folders as ``..\\commondata\\<folder>`` and nothing else readable),
     so opening it opens them all; a directory is every shapefile under it; a ``.zip`` holding
-    shapefile members (the standard GIS-portal download, e.g. BOEM's gcfaultsg fault traces,
-    2026-09-18) is extracted once beside itself (``<stem>_shp/``, reused if already there --
+    shapefile members (the standard GIS-portal download, e.g. BOEM's gcfaultsg fault traces)
+    is extracted once beside itself (``<stem>_shp/``, reused if already there --
     the sidecar .dbf/.prj/.shx must be real files for the stdlib reader) and contributes
     every ``.shp`` inside."""
     import zipfile
@@ -793,7 +791,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # layer's own ``backproject`` result's ``_target`` against this to decide whether its
         # scatter overlay belongs on the raster actually on screen right now.
         self._displayed_layer_name: str | None = None
-        # holder_map display (2026-09-16): ``(id(h_map), h_map)`` for the exponent raster
+        # holder_map display: ``(id(h_map), h_map)`` for the exponent raster
         # currently shown IN PLACE of the raw field, or ``None`` when the raw field is up.
         # Identity-keyed like the canvas's own geometry cache (results are immutable; a new
         # compute mints a new array), with the strong ref so a reused id() can never alias a
@@ -802,7 +800,7 @@ class MainWindow(QtWidgets.QMainWindow):
         #: (layer_id, field) when the active row's chain ends on a field stage (noise alone,
         #: a band row, a bus) -- what that row shows, and what a fork takes from it.
         self._active_field: "tuple | None" = None
-        # Live band-reconstruction session (2026-09-16): (key, BandReconstructor) -- the
+        # Live band-reconstruction session: (key, BandReconstructor) -- the
         # mask-independent half of the inversion, cached on (field values, h_map) identity so
         # a histogram drag pays only ~20 ms/tick. Strong refs via the reconstructor itself.
         self._band_preview: "tuple | None" = None
@@ -811,7 +809,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # via File > Export Derived Raster; usable as a 3-D surface height source. Pruned with
         # the layer.
         self._derived_fields: dict = {}
-        # Live-slice vector fidelity (2026-09-17): when the drape is RGBA-baked (hillshade /
+        # Live-slice vector fidelity: when the drape is RGBA-baked (hillshade /
         # custom class colors) the per-tick LUT swap can't apply, so live ticks fall back to
         # a 300 ms-throttled FULL apply (tags + resync -- the same per-change path the
         # hillshade sliders already take). Pending payload + its timer.
@@ -836,7 +834,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # exactly (one at a time, fresh instance per click, previous one closed first) -- kept
         # only so the next click can close its predecessor.
         self._multifractal_window: MultifractalWindow | None = None
-        # 2026-09-20: the singularity-spectrum CONSTRUCTION window (SpectrumWindow), the fitter's
+        # The singularity-spectrum CONSTRUCTION window (SpectrumWindow), the fitter's
         # sibling -- same lifecycle. When both are open the fitter's scale window drives this one
         # (the workbook's cell-49-inherits-cell-47 coupling).
         self._spectrum_construction_window: SpectrumWindow | None = None
@@ -894,11 +892,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._scales: tuple[float, ...] = ()
         self._thread: QtCore.QThread | None = None
         self._worker: ResolveWorker | None = None
-        # (layer_id, transform signature) the running/just-finished worker was dispatched for -- the shared worker thread serves either the ACTIVE layer (today's path,
-        # unchanged) or a background arrangement-queue layer, so the landing handlers need to
-        # know WHOSE compute this was, not only what it computed.
+        # (layer_id, transform signature) the running/just-finished worker was dispatched for --
+        # the shared worker thread serves either the ACTIVE layer or a background
+        # arrangement-queue layer, so the landing handlers need to know WHOSE compute this was,
+        # not only what it computed.
         self._dispatched = None
-        # §5e hybrid (2026-09-14): the CHAIN the active layer's worker was dispatched with
+        # §5e hybrid: the CHAIN the active layer's worker was dispatched with
         # (``_dispatched_chain``), promoted to ``_committed_chain`` on a successful landing. While
         # a transform edit is pending, a filter edit re-resolves the committed transforms (cached)
         # + the CURRENT filters, so "filter edits stay live against the last run" is real rather
@@ -925,17 +924,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # The ``frame_mode`` the LAST ``_sync_arrangement`` call
         # actually used. ``_sync_arrangement(frame_mode=None)`` (its own default -- every call
         # site that does not itself know "vector or geo" right now calls it with NO argument at
-        # all, exactly as before this task) resolves ``None`` to THIS attribute rather than to a
-        # plain ``False``, so an async completion while the Vector tab is showing does not
-        # silently re-admit every layer under the geo (``has_georeference``) gate. Set at the top
-        # of every ``_sync_arrangement`` call, resolved or not; the two call sites that actually
-        # KNOW which view is being entered (``_set_center_view``'s ``"vector"``/``"geo"``
-        # branches) pass an explicit ``True``/``False``, which is what seeds this for every later
-        # argument-less call to reuse. See ``_sync_arrangement``'s own docstring for why a plain
-        # ``bool = False`` default was rejected: several argument-less call sites are monkeypatched
-        # with ZERO-argument fakes by the pre-existing arrangement-view test suite (outside this
-        # task's own file list), which a positional/keyword ``frame_mode`` at those call sites
-        # would break.
+        # all) resolves ``None`` to THIS attribute rather than to a plain ``False``, so an async
+        # completion while the Vector tab is showing does not silently re-admit every layer under
+        # the geo (``has_georeference``) gate. Set at the top of every ``_sync_arrangement`` call,
+        # resolved or not; the two call sites that actually KNOW which view is being entered
+        # (``_set_center_view``'s ``"vector"``/``"geo"`` branches) pass an explicit
+        # ``True``/``False``, which is what seeds this for every later argument-less call to
+        # reuse. See ``_sync_arrangement``'s own docstring for why a plain ``bool = False``
+        # default was rejected: several argument-less call sites are monkeypatched with
+        # ZERO-argument fakes by the arrangement-view test suite, which a positional/keyword
+        # ``frame_mode`` at those call sites would break.
         self._arr_frame_mode: bool = False
         # Layer_ids ACTUALLY written by _on_groups_committed
         # during the current Commit-button click (never a locked refusal, never an empty groups
@@ -949,7 +947,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # (``_reresolve``'s busy branch) -- "compute" (dominates) or "resolve". Consumed,
         # unconditionally, at the top of ``_dispatch_next`` -- unconditionally because the cache
         # probe that runs after it cannot tell "already resolved" from "was marked computing and
-        # never actually redispatched", which is exactly the bug this fixes.
+        # never actually redispatched", which is exactly the failure this guards against.
         self._active_pending: str | None = None
         self._t0 = 0.0
         self._stage = ""                    # last progress stage, for the close-during-compute
@@ -1014,16 +1012,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Zone tree: two nested QSplitters, not a fixed QVBox/QHBox pair. Every
         # boundary is a drag handle and every zone collapses to zero
-        # (``setChildrenCollapsible`` below) -- this replaces the old fixed geometry
-        # (``setFixedWidth(_PANEL_WIDTH)`` on the left panel, ``setFixedHeight(BOX_HEIGHT + 28)``
-        # on the rack row). ``self._work_split`` is the horizontal work area -- left panel |
-        # center stack | right-panel placeholder; ``self._main_split`` stacks that work area
-        # over the bottom rack row. Sizes persist under the ``"work"``/``"main"`` keys of
-        # ``Settings.splitter_sizes`` (``closeEvent`` below writes them) and restore here on
-        # open. All the WIDGETS below are unchanged from before this tree existed -- only what
-        # they get re-parented into changed.
+        # (``setChildrenCollapsible`` below). ``self._work_split`` is the horizontal work area --
+        # left panel | center stack | right-panel placeholder; ``self._main_split`` stacks that
+        # work area over the bottom rack row. Sizes persist under the ``"work"``/``"main"`` keys
+        # of ``Settings.splitter_sizes`` (``closeEvent`` below writes them) and restore here on
+        # open.
         panel = QtWidgets.QWidget()
-        panel.setMinimumWidth(160)      # was setFixedWidth(_PANEL_WIDTH) -- drags open/shut now
+        panel.setMinimumWidth(160)      # drags open/shut
         panel_column = QtWidgets.QVBoxLayout(panel)
         self.open_button = QtWidgets.QPushButton("Open…")
         self.open_button.clicked.connect(self._on_open_clicked)
@@ -1048,7 +1043,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # resolve, no polling.
         self.layer_list.inspectorToggled.connect(self._on_inspector_toggled)
         self.layer_list.sourceHideToggled.connect(self._on_source_hide_toggled)
-        # Saved ROIs are rows of their dataset (2026-09-23): selecting one makes it the region
+        # Saved ROIs are rows of their dataset: selecting one makes it the region
         # the next tool runs on; its H hides only its outline.
         self.layer_list.roiSelected.connect(self._on_roi_row_selected)
         self.layer_list.roiHideToggled.connect(self._on_roi_hide_toggled)
@@ -1067,7 +1062,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self._left_split.addWidget(self.browser)
         self._left_split.addWidget(self.layer_list)
-        # Reference layers (2026-08-29): interpretation over the data, listed under the layers.
+        # Reference layers: interpretation over the data, listed under the layers.
         self.reference_panel = ReferencePanel()
         self.reference_panel.visibilityToggled.connect(self._on_reference_visibility)
         self.reference_panel.zoomRequested.connect(self._on_reference_zoom)
@@ -1080,7 +1075,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._active_roi_id = None
         self._roi_scene_memo: dict = {}      # layer_id -> (result, roi field, scene result)
         # Canvas overlay deferred while the Vector view was up (_apply / flip-back). Set here
-        # too: a fresh window flipping back before any landing used to raise AttributeError.
+        # too: a fresh window flipping back before any landing would otherwise raise
+        # AttributeError.
         self._canvas_overlay_dirty = False
         self.roi_panel.saveRequested.connect(self._on_roi_save)
         self.roi_panel.roiActivated.connect(self._on_roi_activated)
@@ -1089,10 +1085,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi_panel.valuesEdited.connect(self._on_roi_values_edited)
         self.roi_panel.closeRequested.connect(self._on_roi_panel_closed)
         # The per-layer display controls (EQSelect matrix: "layer display controls —
-        # cheap table stakes") that used to live here as ``display_row`` moved into the right
-        # panel's Display section -- see ``self.right_panel`` below. The left column is now Open,
-        # browser/layers split, ROI panel only.
-        # 2026-09-21: the panel's second entry point -- no drag
+        # cheap table stakes") live in the right panel's Display section -- see
+        # ``self.right_panel`` below. The left column holds Open, the browser/layers split and
+        # the ROI panel.
+        # The ROI… button is the panel's second entry point -- no drag
         # required, the numbers are typed. Same panel, same band-tracking, same Create/Child
         # buttons; the ⌘-drag remains the gestural way in.
         self.roi_tool_button = QtWidgets.QPushButton("ROI…")
@@ -1108,20 +1104,20 @@ class MainWindow(QtWidgets.QMainWindow):
         # LABEL is the one part it cannot: only the window knows the field's physical units. A
         # bound method, per the same rule the worker signals follow.
         self.canvas.viewChanged.connect(self._update_scale_bar)
-        # Center zone: Ableton's session/arrangement Tab flip. Index 0 is the canvas, exactly as it was added before this stack
-        # existed; index 1 is the arrangement view, added lazily on first Tab
-        # (``_toggle_center_view``) so a window that never flips never even imports
-        # ``dynamix.shell.arrangement.view`` (or anything ``view.py`` itself imports -- ``scene``,
-        # ``camera``). ``mask_row`` and ``group_palette`` are two deliberate exceptions (Tasks 4/5): both pure Qt, no pyvista of their own (see each module's own
-        # docstring) -- and, unlike those others, both are now HOSTED by ``MainWindow`` rather than
-        # the view, so ``self._mask_row``/``self._group_palette`` below are built eagerly and
-        # unconditionally, same as every other right-panel control, through their own
-        # always-present module-level imports. ``view_dialog`` is a THIRD such exception,
-        # for the identical reason -- see ``self._view_dialog``'s own comment below.
+        # Center zone: Ableton's session/arrangement Tab flip. Index 0 is the canvas; index 1 is
+        # the arrangement view, added lazily on first Tab (``_toggle_center_view``) so a window
+        # that never flips never even imports ``dynamix.shell.arrangement.view`` (or anything
+        # ``view.py`` itself imports -- ``scene``, ``camera``). ``mask_row`` and
+        # ``group_palette`` are two deliberate exceptions: both pure Qt, no pyvista of their own
+        # (see each module's own docstring) -- and, unlike those others, both are HOSTED by
+        # ``MainWindow`` rather than the view, so ``self._mask_row``/``self._group_palette``
+        # below are built eagerly and unconditionally, same as every other right-panel control,
+        # through their own always-present module-level imports. ``view_dialog`` is a THIRD such
+        # exception, for the identical reason -- see ``self._view_dialog``'s own comment below.
         self._center_stack = QtWidgets.QStackedWidget()
         self._center_stack.addWidget(self.canvas)
         self._arrangement = None
-        self._footprints: list = []   # dynamix.geo.footprints records (data browser, 2026-08-28)
+        self._footprints: list = []   # dynamix.geo.footprints records (data browser)
         self._previews: dict = {}     # group_key -> (name, preview RasterField) draped on the world
         self._reference_layers: dict = {}   # ref_id -> geo.vectors.VectorLayer (native CRS)
         self._reference_inside: dict = {}   # ref_id -> (features inside this raster, total)
@@ -1139,12 +1135,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # ``view_dialog.py``'s own module docstring), so its CLASS is imported at module level,
         # same as ``MaskRow``/``GroupPalette``; only the INSTANCE waits for the first click.
         self._view_dialog = None
-        # Third work-split slot: the selected dataset's controls, sectioned. It holds the relocated Display knobs; other sections are added through ``RightPanel.add_section`` without this file needing to know their shape.
-        # ``styleChanged`` replaces the per-control lambda ``display_row`` used to wire straight
-        # into ``_on_display_style_changed`` -- same handler, now reached through one signal
-        # instead of three separate connections. ``self._display_controls`` keeps its old name
-        # and shape (name -> control widget) so every existing consumer keeps working unchanged
-        # -- it is now an ALIAS onto the panel's own registry, not a dict this file builds itself.
+        # Third work-split slot: the selected dataset's controls, sectioned. It holds the Display
+        # knobs; other sections are added through ``RightPanel.add_section`` without this file
+        # needing to know their shape. ``styleChanged`` reaches ``_on_display_style_changed``
+        # through one signal for every control. ``self._display_controls`` (name -> control
+        # widget) is an ALIAS onto the panel's own registry, not a dict this file builds itself.
         self.right_panel = RightPanel(_DISPLAY_PARAMS)
         self.right_panel.styleChanged.connect(self._on_display_style_changed)
         self.right_panel.surfaceDialogRequested.connect(self._on_surface_dialog_requested)
@@ -1197,15 +1192,14 @@ class MainWindow(QtWidgets.QMainWindow):
         groups_layout.setContentsMargins(0, 0, 0, 0)
         groups_layout.addWidget(self._group_palette)
         groups_layout.addWidget(self._commit_button)
-        # NO LONGER view-scoped. Groups used to be
-        # relevant only to the arrangement view's own pick gesture; the raster canvas's
-        # click/box/lasso picking (wired just below) feeds this exact same palette regardless of
+        # Not view-scoped: the arrangement view's own pick gesture and the raster canvas's
+        # click/box/lasso picking (wired just below) feed this exact same palette regardless of
         # which center-stack page is showing, so a divider line implying "only matters in
-        # Vector/Globe" would misdescribe it now -- "a selection must never mutate an invisible
-        # widget". The section was ALREADY drawn regardless of `_center_view`
+        # Vector/Globe" would misdescribe it -- "a selection must never mutate an invisible
+        # widget". The section is drawn regardless of `_center_view` either way
         # (`RightPanel.add_section`'s `view_scoped` only ever adds a divider line -- see that
-        # method's own docstring; there is no visibility-gating consumer anywhere, confirmed by
-        # grep), so this is a truthful-labeling fix, not a behavior change.
+        # method's own docstring; there is no visibility-gating consumer anywhere), so the flag
+        # sets the label only.
         self.right_panel.add_section("Groups", groups_body, view_scoped=False)
         # The RASTER canvas's own pick gesture (click/shift-click/
         # ⌥-lasso, and now box) feeds this SAME palette -- one shared
@@ -1243,8 +1237,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._topology_panel.set_code_choices("line", "line", 2)
         self.right_panel.add_section("Topology", self._topology_panel)
 
-        # The user's own most-requested missing display (spec
-        # Mission) -- the log-log coefficient-vs-scale plot. A single button, its own small
+        # The log-log coefficient-vs-scale plot (spec Mission). A single button, its own small
         # section (beside Topology, per the design) -- everything else lives in the dialog itself
         # (``skeleton_dialog.py``). Starts disabled; ``_refresh_skeleton_button`` (called
         # alongside ``_refresh_topology_panel`` at every one of ITS OWN call sites -- both read
@@ -1256,13 +1249,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_skeleton_button()
 
         # The interactive multifractal-spectrum fitter -- the Skeleton
-        # section's shape exactly (a single button; everything else lives in the floating window,
-        # ``multifractal_window.py`` -- the user's explicit "new floating windows, not the center
-        # view" requirement). Gated on the PARTITION TABLES rather than chains: a finest-scale
-        # preview stamps ``hd_std=None`` and a points-layer result carries neither table.
+        # section's shape exactly (a single button; everything else lives in its own floating
+        # window, ``multifractal_window.py``, outside the center view). Gated on the PARTITION
+        # TABLES rather than chains: a finest-scale preview stamps ``hd_std=None`` and a
+        # points-layer result carries neither table.
         self._spectrum_button = QtWidgets.QPushButton("Multifractal spectrum…")
         self._spectrum_button.clicked.connect(self._on_spectrum_button_clicked)
-        # 2026-09-20: the construction window's own button, same section -- gated more loosely
+        # The construction window's own button, same section -- gated more loosely
         # (an h_map-bearing holder result can show the microcanonical histogram with no tables).
         self._dh_button = QtWidgets.QPushButton("D(h) construction…")
         self._dh_button.clicked.connect(self._on_dh_button_clicked)
@@ -1565,8 +1558,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # Applied immediately (set_default_engine) AND persisted -- engine choice never touches
         # cache keys (backends agree to float32 tolerance), so flipping it mid-session keeps
         # every stage cache valid and only changes who does the next FFT.
-        # 2026-09-22: engine + precision for EVERY FFT in the
-        # app, persisted and applied at STARTUP (restart to apply) through fft_policy.
+        # Engine + precision cover EVERY FFT in the app, persisted and applied at STARTUP
+        # (restart to apply) through fft_policy; the immediate apply described above is the
+        # legacy path (``_on_engine_selected_legacy``), which the menu's own values bypass.
         engine_menu = settings_menu.addMenu("Compute engine")
         engine_group = QtGui.QActionGroup(self)
         engine_group.setExclusive(True)
@@ -1600,9 +1594,9 @@ class MainWindow(QtWidgets.QMainWindow):
         set_default_engine(None)          # the wavelet transform follows the FFT policy
         self._restore_footprint_folders()
 
-    # -- reference layers (2026-08-29) -----------------------------------------------------
+    # -- reference layers ------------------------------------------------------------------
     def _on_open_overview_clicked(self) -> None:
-        """The WHOLE raster, decimated to display resolution (2026-08-30: opening the full BOEM West file still clipped it) -- ``Settings.open_window_px`` windows
+        """The WHOLE raster, decimated to display resolution -- ``Settings.open_window_px`` windows
         every fresh native-resolution open, and the full BOEM west is 800 Mpx, so full extent
         means the OVERVIEW: :func:`~dynamix.geo.footprints.overview_field` at a 4096-px long
         side, provenance stamped ``overview``/``preview`` and ``@ov`` in the name. Context and
@@ -1685,7 +1679,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_reference_zoom(self, ref_id: str) -> None:
         """Double-click on a Reference row: fit the view to the layer's whole extent -- the
-        layers are always drawn whole; only the view was fitted to the raster (2026-08-29). Canvas from its own pixel-frame item; world from the scene's actor."""
+        layers are always drawn whole. Canvas from its own pixel-frame item; world from the
+        scene's actor."""
         item = self.canvas.reference_items.get(ref_id)
         if item is not None:
             x, y = (item.getData() if hasattr(item, "getData") else (item.data["x"], item.data["y"]))
@@ -1748,8 +1743,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                      "status")
                         continue
                     parts = [f.parts for f in px.features]
-                    # How much of the layer this raster can show at all (2026-08-29: "it doesn't
-                    # actually show" -- a 12 km window holds 3 of BOEM's 20 980 seep polygons).
+                    # How much of the layer this raster can show at all (a 12 km window holds 3
+                    # of BOEM's 20 980 seep polygons).
                     ny, nx = native_shape(self.field)  # FILE pixels (a picture's own extent)
                     n_in = sum(1 for f in px.features if any(
                         np.any((pt[:, 0] >= -0.5) & (pt[:, 0] <= nx - 0.5) & (pt[:, 1] >= -0.5) & (pt[:, 1] <= ny - 0.5))
@@ -1799,7 +1794,7 @@ class MainWindow(QtWidgets.QMainWindow):
                             "pixels": self._reference_pixels.get(ref_id)})
         return entries
 
-    # -- footprint browser (2026-08-28) ----------------------------------------------------
+    # -- footprint browser -----------------------------------------------------------------
     def _on_scan_footprints_clicked(self) -> None:
         folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Scan folder for raster footprints")
         if not folder:
@@ -1886,7 +1881,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _preview_footprints(self, members) -> None:
         """Drape one representative band of a footprint group on the world (the data browser's
-        preview, 2026-08-28): the coarsest overview via :func:`overview_field`, view state only.
+        preview): the coarsest overview via :func:`overview_field`, view state only.
         Re-previewing a group replaces its entry; the world shows every current preview."""
         members = list(members)
         if not members:
@@ -1925,7 +1920,7 @@ class MainWindow(QtWidgets.QMainWindow):
             load_points(self, path)
             return
         # A shapefile or an Esri layer file is a REFERENCE layer, whichever dialog it came through
-        # (2026-08-29: "in the products folders the shp are greyed out too" -- the raster dialog).
+        # (the raster dialog included).
         if Path(path).suffix.lower() in (".shp", ".lyr"):
             self._open_reference_layers([path])
             return
@@ -1940,8 +1935,8 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         subdataset = None
         # A too-big GeoTIFF opens as a centred window; ``Settings.open_window_px`` sets its edge
-        # (default 4096, the value that used to be hard-coded). Fresh opens only -- the project
-        # reopen path below keeps the window a saved project was made with.
+        # (default 4096). Fresh opens only -- the project reopen path below keeps the window a
+        # saved project was made with.
         settings = load_settings()
         self.load_field(open_field(path, window_size=settings.open_window_px,
                                    max_pixels=settings.open_max_pixels,
@@ -1990,10 +1985,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # path never goes through it -- see the selection comment below.)
         self._reset_roi_selection()
         source = self.project.add_source(path, bands=bands)
-        # Devloop-rebuild adoption (2026-09-19): a rebuilt window is handed the RESTORED
-        # project, and this method used to add ANOTHER master for a source whose family
-        # already exists -- duplicating the master and stranding every existing layer (the
-        # rebuilt panel only shows rows added through add_layer_row). The rebuild
+        # Devloop-rebuild adoption: a rebuilt window is handed the RESTORED project, and
+        # adding ANOTHER master for a source whose family already exists would duplicate the
+        # master and strand every existing layer (the rebuilt panel only shows rows added
+        # through add_layer_row). The rebuild
         # signature is a window that knows NO rows for an already-populated source; adopt
         # the family instead: rebuild every row (parents precede children in
         # ``project.layers``, so grouping lands right; adopted rows resolve against the
@@ -2001,7 +1996,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # and take the first root as the active layer. The constructor already seeded the
         # recipe from SESSION["steps"], so the inert-open branch must not wipe it. Opening
         # the same file again in a LIVE window (windowed open then the @ov overview) still
-        # adds masters as before: that window already shows rows for the source.
+        # adds masters: that window already shows rows for the source.
         _existing = [l for l in self.project.layers if l.source_id == source.source_id]
         _adopt = bool(_existing) and not any(
             l.layer_id in self._layer_by_id for l in _existing)
@@ -2236,10 +2231,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # resync on the next flip-in.
         if name == "colormap" and self._center_view != "raster" \
                 and not _display_style_of(self.layer)["hillshade"]:
-            # In-place LUT swap (2026-08-30, "the controls only work in the raster view"): a
-            # colormap change on a plain drape never needs the full set_layers rebuild the sync
-            # runs -- Scene.set_colormap swaps mapper LUTs and renders. Hillshade bakes RGBA, so
-            # that case (and every geometry-shaping key below) still resyncs.
+            # In-place LUT swap: a colormap change on a plain drape never needs the full
+            # set_layers rebuild the sync runs -- Scene.set_colormap swaps mapper LUTs and
+            # renders. Hillshade bakes RGBA, so that case (and every geometry-shaping key below)
+            # still resyncs.
             if self._arrangement is not None:
                 self._arrangement.set_colormap(str(value))
         elif (name in ("colormap", "color_vtrail", "color_points",
@@ -2272,7 +2267,7 @@ off / z from this layer's own values / z from another loaded
                 shape = getattr(getattr(f, "values", None), "shape", None)
                 if shape is not None and shape[:2] == own_shape[:2]:
                     eligible.append((layer.layer_id, layer.name))
-            # Derived datasets (2026-09-16): an h-map or band reconstruction is a real
+            # Derived datasets: an h-map or band reconstruction is a real
             # same-grid raster -- offer it as a height source too ("recon as relief under h
             # colors" is a legitimate pairing). Keyed "derived:<layer_id>".
             for lid, dfield in self._derived_fields.items():
@@ -2301,9 +2296,9 @@ off / z from this layer's own values / z from another loaded
 
     def _on_levels_dialog_requested(self) -> None:
         """"Slice…" (right panel) -- the color-slice editor over the DISPLAYED raster's values
-        (the derived h-map/reconstruction when one is up, else the raw field): DISPLAY only,
-        per the 2026-09-16 split -- it files the ``ui.levels``/``ui.levels_colors`` tags
-        through the ordinary styleChanged path and never touches the chain; the h-band mask
+        (the derived h-map/reconstruction when one is up, else the raw field): DISPLAY only --
+        it files the ``ui.levels``/``ui.levels_colors`` tags through the ordinary styleChanged
+        path and never touches the chain; the h-band mask
         for reconstruction is :meth:`_on_band_dialog_requested`'s separate dialog."""
         if self.layer is None or self.field is None:
             return
@@ -2330,7 +2325,7 @@ off / z from this layer's own values / z from another loaded
         FULL h-map (holder_map's and band_recon's results both carry one, unmasked -- the
         histogram always shows every exponent). Analysis only: live drags render the
         reconstruction preview, Reconstruct commits the band_recon step; no display tag is
-        ever written, so the color ramp cannot move (the 2026-09-16 split). Seeds from an
+        ever written, so the color ramp cannot move. Seeds from an
         active band_recon step's own knobs."""
         if self.layer is None or self.field is None:
             return
@@ -2729,11 +2724,11 @@ both ``Canvas`` signals report the
                 "Topology: no cached geometry for one of the picked chains", 4000)
             return
 
-        # Final branch review, item 2: ``scale`` is stored on the link EXACTLY as
-        # ``_current_scale_px`` reports it -- ``None`` stays ``None`` ("not yet measured", the design; ``TopologyPanel.set_rows`` already renders that as ``@a=?``). Only the GEOMETRY
-        # call needs an actual number -- ``suggest_code``'s ``contact_scale`` is a distance
-        # threshold, not a record of what was measured -- so a missing scale falls back to 1.0px
-        # there alone, never in what gets stored.
+        # ``scale`` is stored on the link EXACTLY as ``_current_scale_px`` reports it -- ``None``
+        # stays ``None`` ("not yet measured", the design; ``TopologyPanel.set_rows`` already
+        # renders that as ``@a=?``). Only the GEOMETRY call needs an actual number --
+        # ``suggest_code``'s ``contact_scale`` is a distance threshold, not a record of what was
+        # measured -- so a missing scale falls back to 1.0px there alone, never in what gets stored.
         scale = self._current_scale_px()
         if code is None:
             code = suggest_code(pts_a, pts_b, contact_scale=scale if scale is not None else 1.0)
@@ -2809,13 +2804,12 @@ both ``Canvas`` signals report the
         the same array ``_scale_reading`` reads for the transport's own label -- so the current
         index into it is the contact scale with no conversion at all.
 
-        Final branch review, item 2: this used to fabricate ``1.0`` px whenever no real scale was
-        available -- a made-up number that looked like a measurement. Returns ``None`` instead
-        when there is no ``scale_select`` step in the chain, or nothing has been resolved yet;
-        callers that need an actual float for geometry (``suggest_code``'s ``contact_scale``) are
-        the ones that decide on a fallback, and ``LinkStore``'s own ``scale_first_contact`` stores
-        the ``None`` honestly -- the design's "not yet measured", which the panel already renders
-        as ``@a=?`` rather than a fabricated px reading."""
+        Returns ``None`` when there is no ``scale_select`` step in the chain, or nothing has been
+        resolved yet -- a fabricated ``1.0`` px would be a made-up number that looks like a
+        measurement; callers that need an actual float for geometry (``suggest_code``'s
+        ``contact_scale``) are the ones that decide on a fallback, and ``LinkStore``'s own
+        ``scale_first_contact`` stores the ``None`` honestly -- the design's "not yet measured",
+        which the panel already renders as ``@a=?`` rather than a fabricated px reading."""
         i = self._index_of("scale_select")
         if i is None or not self._scales:
             return None
@@ -2954,7 +2948,7 @@ both ``Canvas`` signals report the
         window.raise_()
         window.activateWindow()
 
-    # -- singularity-spectrum construction window (2026-09-20) ----------------------------------
+    # -- singularity-spectrum construction window -----------------------------------------------
     def _refresh_panel_relevance(self) -> None:
         """Show only the right-panel controls that apply to what is on screen -- keyed on what
         the active RESULT carries (maxima, chains, an h-map, partition tables, a decomposition),
@@ -3080,7 +3074,7 @@ both ``Canvas`` signals report the
         window.raise_()
         window.activateWindow()
 
-    # -- decomposition grouping aids (2026-09-23) ----------------------------------------------
+    # -- decomposition grouping aids -----------------------------------------------------------
     def _decomposition_of(self, result) -> "dict | None":
         """The result's decomposition as the grouping window takes it -- ssa2d's eigentriples and
         w-correlations, or tucker's components in the numbering its Orientation knob picks -- or
@@ -3165,7 +3159,7 @@ both ``Canvas`` signals report the
                 self.strips.strip(i)._on_control_changed("group", text)
                 return
 
-    # -- derivative datasets (2026-09-23) ------------------------------------------------------
+    # -- derivative datasets -------------------------------------------------------------------
     def _on_fork_derivative(self, layer_id: int) -> None:
         """"Fork derivative dataset…": what a result holds -- the rasters picked as bands and/or
         the extrema and maxima lines it shows -- written ONCE as a dataset of its own and opened
@@ -3677,7 +3671,7 @@ both ``Canvas`` signals report the
         if self.layer is not None and self._names[:1] == ["bus"]:
             self._params[0] = dict(self.layer.chain.steps[0].params)
 
-    # -- holder_map raster display (2026-09-16) ------------------------------------------------
+    # -- holder_map raster display -------------------------------------------------------------
     def _sync_holder_raster(self, result: dict) -> None:
         """When the ACTIVE layer's result carries ``"h_map"`` (the holder_map transform's own
         contract -- no other device stamps that key, the ``backproject``/``points_px``
@@ -3717,9 +3711,8 @@ both ``Canvas`` signals report the
                 if result.get("raster_out") is not None:
                     # Name WHAT the derived raster is from the producer's own params -- the
                     # band devices write the band, pca the component, tucker its show mode;
-                    # anything else says "derived" rather than faking a band note (the
-                    # 2026-09-20 census wrinkle: this used to read "recon[0,0)" for any
-                    # non-band producer).
+                    # anything else says "derived" rather than faking a band note such as
+                    # "recon[0,0)" for a non-band producer.
                     pp = result.get("params", {})
                     if result.get("_view_note"):
                         note = str(result["_view_note"])        # the tool's own label
@@ -3906,7 +3899,7 @@ both ``Canvas`` signals report the
         missing = set(missing_sources(project, path))
         drifted = set(changed_sources(project, path))
         self.project = project
-        self._reload_reference_layers()        # reference layers ride the project (2026-08-29)
+        self._reload_reference_layers()        # reference layers ride the project
         self._project_path = path
         self._row_layers = []
         self._layer_by_id = {}
@@ -3914,9 +3907,9 @@ both ``Canvas`` signals report the
         self._recipes = {}
         self.layer = None
         self._active_result = None
-        # Double-update guard (2026-09-14): True when a result landed while the raster canvas was
-        # hidden (3-D view on screen), so its overlay draw was deferred; _set_center_view redraws
-        # it on flip back to raster.
+        # Double-update guard: True when a result landed while the raster canvas was hidden
+        # (3-D view on screen), so its overlay draw was deferred; _set_center_view redraws it on
+        # flip back to raster.
         self._canvas_overlay_dirty = False
         self.layer_list.reset_project(project)
         # Restore the transect list + drawn lines --
@@ -3993,7 +3986,7 @@ both ``Canvas`` signals report the
         update_settings(auto_run_wtmm=checked)
 
     def _on_precision_selected(self, precision: int) -> None:
-        """Settings > FFT precision: persisted; applied at the next start (2026-09-22)."""
+        """Settings > FFT precision: persisted; applied at the next start."""
         from dynamix.core.fft_policy import precision_note
 
         saved = update_settings(compute_precision=int(precision))
@@ -4003,8 +3996,8 @@ both ``Canvas`` signals report the
                      "apply" + (f". {warn}" if warn else ""), "status")
 
     def _on_engine_selected(self, engine: str) -> None:
-        """Settings > Compute engine (2026-09-22): persisted; applied at the next start
-        through fft_policy (restart to apply). The legacy immediate-apply body below stays
+        """Settings > Compute engine: persisted; applied at the next start through fft_policy
+        (restart to apply). The legacy immediate-apply body below stays
         for the old values (never-delete); the new values return before it."""
         if engine in ("auto", "mlx", "fftw"):
             from dynamix.core.fft_policy import precision_note
@@ -4058,8 +4051,8 @@ both ``Canvas`` signals report the
     def _on_layer_selected(self, layer_id: int) -> None:
         layer = self._layer_by_id.get(layer_id)
         if layer is not None and layer.parent_id is None and self._active_roi_id is not None:
-            # The dataset row means the WHOLE field (2026-09-23): selecting it deactivates
-            # the ROI a previous ROI-row selection made active -- it replaces the panel's Deselect.
+            # The dataset row means the WHOLE field: selecting it deactivates the ROI a
+            # previous ROI-row selection made active -- it replaces the panel's Deselect.
             self._active_roi_id = None
             if layer is self.layer:
                 self._refresh_saved_rois()
@@ -4282,7 +4275,7 @@ both ``Canvas`` signals report the
             # would be reading against -- nothing left on screen to pick.
             self.canvas.set_pick_chains(None)
             # A derived raster (h-map / band reconstruction) is a PRODUCT: hiding the layer
-            # restores the raw dataset raster and the row's plain name (the H previously left the derived raster up with no control over it).
+            # restores the raw dataset raster and the row's plain name.
             self._sync_holder_raster(self._active_result
                                      if isinstance(self._active_result, dict) else {})
         else:
@@ -4540,9 +4533,9 @@ both ``Canvas`` signals report the
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
         # Removing a whole DATASET changes the subject: resync the 3-D view and refit its
-        # camera to what remains (the load_field-autoRange analog for the vector view;
-        # 2026-09-20, user: after removing BOEM the camera stayed on its extent -- "super
-        # far zoomed out and hard to control", orbit speeds scale with camera distance).
+        # camera to what remains (the load_field-autoRange analog for the vector view). Without
+        # the refit the camera stays on the removed dataset's extent, far zoomed out and hard to
+        # control, since orbit speeds scale with camera distance.
         if self._arrangement is not None:
             self._sync_arrangement()
             self._arrangement.reset_camera()
@@ -4717,13 +4710,13 @@ both ``Canvas`` signals report the
         the first of those writes would persist a freshly-built window's defaults over the state
         still being restored.
 
-        **A remembered geometry is replayed only where a screen can show it** (review of
-        ``33b870b``). Settings are per MACHINE and a machine's screens are not: a window saved on
-        a desk monitor restores off-screen on the laptop alone, and the layer list's "I" button
-        would then read "open" over a window nobody can see -- the same two-opinions-about-one-
-        state failure sec 5b exists to prevent, arrived at from the other side. When no screen
-        contains the saved rectangle's centre the geometry is simply not applied and the platform
-        places the window, which is what a window that has never been moved gets anyway.
+        **A remembered geometry is replayed only where a screen can show it.** Settings are per
+        MACHINE and a machine's screens are not: a window saved on a desk monitor restores
+        off-screen on the laptop alone, and the layer list's "I" button would then read "open"
+        over a window nobody can see -- the same two-opinions-about-one-state failure sec 5b
+        exists to prevent, arrived at from the other side. When no screen contains the saved
+        rectangle's centre the geometry is simply not applied and the platform places the window,
+        which is what a window that has never been moved gets anyway.
 
         **NAMED LIMITATION -- source ids are PROJECT-LOCAL.** ``src0`` is the first source of
         EVERY project and sub-layer keys are ``"0:0"``, ``"0:1"``..., while this state lives in
@@ -4761,7 +4754,7 @@ both ``Canvas`` signals report the
             self._restoring_inspectors = False
 
     def _on_source_hide_toggled(self, source_id: str, hidden: bool) -> None:
-        """The source header's H (2026-08-29): hide the DATASET -- the canvas image when the
+        """The source header's H: hide the DATASET -- the canvas image when the
         active layer is over this source, and every raster drape of its layers in the world --
         while the layers' products (extrema, chains) stay exactly as they are. ``SourceRef.hidden``
         is the flag; persisted with the project."""
@@ -4775,8 +4768,8 @@ both ``Canvas`` signals report the
 
     def _resolve_surface_source(self, text) -> "object | None":
         """A ``ui.surface_source`` tag value -> the field it names, or None. Tags are strings
-        while ``_fields`` keys are int layer_ids -- the str/int mismatch silently broke every
-        "other dataset" lookup until 2026-09-16; ``derived:<id>`` names a derived dataset."""
+        while ``_fields`` keys are int layer_ids -- an unconverted str key silently misses every
+        "other dataset" lookup; ``derived:<id>`` names a derived dataset."""
         s = str(text)
         if s.startswith("derived:"):
             try:
@@ -4880,13 +4873,12 @@ both ``Canvas`` signals report the
         the layer-list toggle un-checks under ``blockSignals`` (``LayerPanel.set_inspector_open``),
         so pushing it back can never echo a second toggle at the window that just closed.
 
-        **Shutdown is not a gesture** (review of ``33b870b``). ``open: False`` is written only
-        while :attr:`_shutting_down` is False. cmd-Q closes every top-level window, this one
-        included, and writing "the user closed it" for a window the QUIT closed is what made the
-        acceptance sentence's first clause -- "quit with an inspector open ... reopen and the
-        inspector reappears" -- false in the first round. The geometry/scale/row capture still
-        runs on the way out, because where the window WAS is worth remembering either way; the
-        one field that is suppressed is the one the shutdown has no opinion about.
+        **Shutdown is not a gesture.** ``open: False`` is written only while
+        :attr:`_shutting_down` is False. cmd-Q closes every top-level window, this one included,
+        and writing "the user closed it" for a window the QUIT closed would make "quit with an
+        inspector open ... reopen and the inspector reappears" false. The geometry/scale/row
+        capture still runs on the way out, because where the window WAS is worth remembering
+        either way; the one field that is suppressed is the one the shutdown has no opinion about.
         """
         inspector = self._inspectors.pop(source_id, None)
         self.layer_list.set_inspector_open(source_id, False)
@@ -4924,24 +4916,24 @@ both ``Canvas`` signals report the
         -- its slider freezes while the master keeps moving, so the two windows visibly stop
         agreeing about which scale index they are on.
 
-        **What this does NOT yet buy (named at the review of ``1b405f2``).** Sec 5d's use case is
-        the comparison of two extrema SETS at two scales, and that is not what un-checking "M"
-        delivers today: the picture in an inspector is the chain's own resolved result, which is
-        post-``scale_select`` (ONE extrema layer), so a window driven to another index has no
-        other scale in it to draw. It says so instead (``InspectorWindow.redraw_at`` ->
-        ``SCALE_NOT_SHOWN_TEXT``). Delivering the divergent PICTURE needs a per-source result at
-        a per-source scale -- the pre-filter stack kept per source, or a cached re-filter -- and
-        that is a sec 5b "no new compute path" decision for the user, not one to take here.
+        **What this does NOT yet buy.** Sec 5d's use case is the comparison of two extrema SETS
+        at two scales, and that is not what un-checking "M" delivers today: the picture in an
+        inspector is the chain's own resolved result, which is post-``scale_select`` (ONE extrema
+        layer), so a window driven to another index has no other scale in it to draw. It says so
+        instead (``InspectorWindow.redraw_at`` -> ``SCALE_NOT_SHOWN_TEXT``). Delivering the
+        divergent PICTURE needs a per-source result at a per-source scale -- the pre-filter stack
+        kept per source, or a cached re-filter -- and that is an open sec 5b "no new compute
+        path" decision.
 
         Called from every place the master's index actually SETTLES, not from
-        ``Transport.scaleChanged`` alone (the second half of the same review): that signal is
-        emitted by ``_set_index`` only -- a scrub or a playback tick -- while the strip knob
-        (``_on_param_changed``) and a layer switch (``_sync_transport``) settle the master
-        through the SILENT ``sync_to``, and a follower those never reached sat at a stale index
-        with its "M" still checked. The ``_syncing`` guard below is ``_on_scale_changed``'s, for
-        ``_on_scale_changed``'s reason: while ``_sync_transport`` is re-ranging, this signal
-        carries the transport's own stale position echoed out of ``set_n_scales``' clamp, not a
-        settled index -- and pushing THAT into a follower is the divergence, not the fix.
+        ``Transport.scaleChanged`` alone: that signal is emitted by ``_set_index`` only -- a
+        scrub or a playback tick -- while the strip knob (``_on_param_changed``) and a layer
+        switch (``_sync_transport``) settle the master through the SILENT ``sync_to``, and a
+        follower those never reached would sit at a stale index with its "M" still checked. The
+        ``_syncing`` guard below is ``_on_scale_changed``'s, for ``_on_scale_changed``'s reason:
+        while ``_sync_transport`` is re-ranging, this signal carries the transport's own stale
+        position echoed out of ``set_n_scales``' clamp, not a settled index -- and pushing THAT
+        into a follower is the divergence, not the fix.
         """
         if self._syncing:
             return
@@ -4950,8 +4942,7 @@ both ``Canvas`` signals report the
                 inspector.set_scale_index(int(idx))
 
     def _on_inspector_scale_changed(self, source_id: str, idx: int) -> None:
-        """One inspector's OWN scale control moved (the route, added at the review of
-        ``1b405f2``).
+        """One inspector's OWN scale control moved.
 
         Into that inspector's display only -- never ``_params``, never ``layer.chain``, never the
         master. An inspector must not be able to move the ACTIVE layer's chain behind the user's
@@ -5024,7 +5015,7 @@ both ``Canvas`` signals report the
 
         One direction only -- the canvas never writes back into the panel -- so a drag and a
         numeric edit cannot fight. The band and the fields now always agree, which is the whole
-        reading: before this, typing a row/col had no visual echo and the user was aiming blind."""
+        reading: without it, typing a row/col has no visual echo and the user is aiming blind."""
         if self.canvas._roi_place is not None:       # armed placement: edits resize the ghost
             self.canvas.arm_roi_placement(spec["roi_h"], spec["roi_w"])
             return
@@ -5073,22 +5064,22 @@ both ``Canvas`` signals report the
             self._on_roi_values_edited(spec)
 
     def _on_roi_place_arm(self, h: int, w: int) -> None:
-        """The panel's "Place box" (2026-09-21): arm the same hover ghost the wtmm2d_roi drop
-        uses, but in REPOSITION mode -- the click updates the panel's row/col (and the band),
-        it never creates a layer. The armed-drop path keeps its create-on-click behavior."""
+        """The panel's "Place box": arm the same hover ghost the wtmm2d_roi drop uses, but in
+        REPOSITION mode -- the click updates the panel's row/col (and the band), it never
+        creates a layer. The armed-drop path keeps its create-on-click behavior."""
         if self.field is None:
             return
         self._roi_place_reposition = True
         self.canvas.arm_roi_placement(int(h), int(w))
 
     def _on_roi_placed(self, row: int, col: int, h: int, w: int) -> None:
-        """The armed footprint was clicked down (2026-08-30): stamp the ROI and run -- the exact
-        create path the precision panel's button takes (_on_roi_create), so window-offset
-        translation, minting and selection stay one implementation. Boundary comes from the
-        panel when it holds a legal spec, else the device default.
+        """The armed footprint was clicked down: stamp the ROI and run -- the exact create path
+        the precision panel's button takes (_on_roi_create), so window-offset translation,
+        minting and selection stay one implementation. Boundary comes from the panel when it
+        holds a legal spec, else the device default.
 
-        REPOSITION mode (2026-09-21, the panel's "Place box"): the click only re-aims the
-        panel's numbers -- nothing is created, nothing runs."""
+        REPOSITION mode (the panel's "Place box"): the click only re-aims the panel's numbers
+        -- nothing is created, nothing runs."""
         if getattr(self, "_roi_place_reposition", False):
             self._roi_place_reposition = False
             self._on_roi_drawn(row, col, h, w)
@@ -5212,8 +5203,8 @@ both ``Canvas`` signals report the
             self.layer_list.select_layer(self.layer.layer_id)
 
     def _on_roi_row_selected(self, roi_id: str) -> None:
-        """A saved-ROI row became current (2026-09-23): show its dataset and make the ROI
-        active, so the next tool dropped runs on it (the drop path itself is unchanged)."""
+        """A saved-ROI row became current: show its dataset and make the ROI active, so the
+        next tool dropped runs on it (the drop path itself is unchanged)."""
         roi = next((r for r in self.project.rois if r.roi_id == roi_id), None)
         if roi is None:
             return
@@ -5264,11 +5255,10 @@ both ``Canvas`` signals report the
             return                              # the panel's own legality gate already said no
         ov = int(prov.get("overview", 1) or 1)
         if ov != 1:
-            # 2026-09-22: a box on a
-            # whole-extent OVERVIEW cuts native pixels by reading the window straight off the
-            # source at full resolution -- display -> native is r*ov + off, the same mapping
-            # _on_roi_create below applies for wtmm2d_roi. The old refusal stays only for a
-            # field with no source path to read from.
+            # A box on a whole-extent OVERVIEW cuts native pixels by reading the window straight
+            # off the source at full resolution -- display -> native is r*ov + off, the same
+            # mapping _on_roi_create below applies for wtmm2d_roi. Only a field with no source
+            # path to read from is refused.
             src_path = prov.get("source")
             if not src_path:
                 self._notify("a child dataset cuts NATIVE pixels — this overview carries no "
@@ -5573,9 +5563,8 @@ both ``Canvas`` signals report the
         self._notify("transform edited — press Run (⌘↩) to compute", "status")
 
     def _run_transforms(self) -> None:
-        """Run answers EVERY click (2026-08-30: Run used to do nothing in some states):
-        pending edits dispatch; an errored or never-computed chain dispatches too; a fully
-        computed chain says so instead of silently ignoring the click."""
+        """Run answers EVERY click: pending edits dispatch; an errored or never-computed chain
+        dispatches too; a fully computed chain says so instead of silently ignoring the click."""
         if self.layer is None:
             self._notify("no layer to run — open a dataset first", "status")
             return
@@ -5644,7 +5633,7 @@ both ``Canvas`` signals report the
             # change still has to follow it, or the slider and its reading contradict the canvas
             # and the next playback tick snaps back to the stale position.
             self.transport.sync_to(int(value))
-            # ... and so does every FOLLOWING inspector (review of ``1b405f2``):
+            # ... and so does every FOLLOWING inspector:
             # ``sync_to`` is silent by design, so the master's second connection never fires on
             # this path and a follower would be left behind by an ordinary knob turn.
             self._drive_follower_inspectors(int(value))
@@ -5705,11 +5694,10 @@ both ``Canvas`` signals report the
                          "status")
             return
         if self.layer.tags.get("roi.window"):
-            # 2026-09-22: an ROI-holder
-            # child NEVER forks. A drop that introduces a DIFFERENT primary analyzer
-            # replaces the one already in the proposal, in place -- the child is a region
-            # plus one representation at a time, filters kept. The zone is resynced to the
-            # transformed proposal after this signal unwinds (the armed-roi revert idiom).
+            # An ROI-holder child NEVER forks. A drop that introduces a DIFFERENT primary
+            # analyzer replaces the one already in the proposal, in place -- the child is a
+            # region plus one representation at a time, filters kept. The zone is resynced to
+            # the transformed proposal after this signal unwinds (the armed-roi revert idiom).
             enabled = [d["device"] for d in descriptors if not d.get("bypassed")]
             primaries = [n for n in enabled if n in _PRIMARY_ANALYZERS]
             if len(primaries) > 1:
@@ -5868,8 +5856,8 @@ both ``Canvas`` signals report the
         self._names, self._params, self._bypassed, self._rack = names, params, bypassed, rack
         self.layer.chain = chain
         self._snapshot_recipe()
-        # Master-row collapse follows the chain (2026-09-18): a first step on a lone master
-        # un-hides its row; emptying it back re-collapses.
+        # Master-row collapse follows the chain: a first step on a lone master un-hides its
+        # row; emptying it back re-collapses.
         self.layer_list.refresh_master_rows()
         if self._transform_signature() != before:
             if self._auto_run_action.isChecked():
@@ -5884,13 +5872,12 @@ both ``Canvas`` signals report the
         """The transport writes ``scale_select``'s param and takes the filter path -- the same one
         the knob takes. Scrub, playback and the strip control cannot be allowed to diverge.
 
-        The ``_syncing`` guard comes FIRST, and that placement is the whole of fix C-2. While
-        ``_sync_transport`` is re-ranging the slider, this signal does not carry a user's
+        The ``_syncing`` guard comes FIRST, ahead of the params write as well as the resolve.
+        While ``_sync_transport`` is re-ranging the slider, this signal does not carry a user's
         intention -- it carries the transport's own stale position, echoed back out of
-        ``set_n_scales``' clamp. Writing it into the params (which is what used to happen: the
-        flag suppressed only the resolve, one line lower) discarded whatever scale the chain had
-        actually been built with. A window opened at scale 4 -- from a project file, a devloop
-        rebuild, or DEMO_CHAIN -- silently displayed scale 0 on its first frame.
+        ``set_n_scales``' clamp. Writing it into the params would discard whatever scale the chain
+        had actually been built with: a window opened at scale 4 -- from a project file, a
+        devloop rebuild, or DEMO_CHAIN -- would silently display scale 0 on its first frame.
         """
         if self._syncing:
             return
@@ -5924,15 +5911,14 @@ both ``Canvas`` signals report the
           inside a signal handler, where the exception has nowhere to go). It is the worker's
           job, exactly as a transform change is.
 
-        "the finish handler re-resolves the CURRENT chain" above used to be
-        true unconditionally, because the ONLY thing that could ever occupy ``self._thread`` was
-        the active layer's own worker. Now a busy thread may belong to a BACKGROUND
-        arrangement layer instead, whose landing never calls ``_resolve_now()`` for the active
-        layer at all -- so the filter change this method is about would sit unapplied on screen
-        until some UNRELATED later event happened to trigger a resolve, if ever. Recording the
-        intent here (unless a stronger "compute" is already pending -- a transform edit already
-        implies a fresh resolve once it lands) is what ``_dispatch_next`` consumes once the thread
-        is actually free, closing that gap.
+        "the finish handler re-resolves the CURRENT chain" above holds only when the busy thread
+        is the active layer's own worker. A busy thread may belong to a BACKGROUND arrangement
+        layer instead, whose landing never calls ``_resolve_now()`` for the active layer at all
+        -- so the filter change this method is about would sit unapplied on screen until some
+        UNRELATED later event happened to trigger a resolve, if ever. Recording the intent here
+        (unless a stronger "compute" is already pending -- a transform edit already implies a
+        fresh resolve once it lands) is what ``_dispatch_next`` consumes once the thread is
+        actually free, closing that gap.
 
         Recording "resolve" is scoped to EXACTLY that gap -- a busy thread
         that belongs to a DIFFERENT (background/previously-active) layer, checked via
@@ -5941,7 +5927,7 @@ both ``Canvas`` signals report the
         chain unconditionally on success (``_on_finished``'s active-match body, which reads
         ``self._params``/``self.field`` fresh, so this filter change is picked up there for
         free), or reports the error honestly on failure (``_on_error``'s active-match body) --
-        recording "resolve" in EITHER of those cases used to fire ``_dispatch_next``'s
+        recording "resolve" in EITHER of those cases would fire ``_dispatch_next``'s
         unconditional ``_resolve_now()`` a second time on success (a duplicate ``resolved``
         emission for one user action), or, worse, on an error landing where ``_errored`` is now
         ``True`` and nothing is cached for the raising chain -- exactly the synchronous,
@@ -5951,8 +5937,8 @@ both ``Canvas`` signals report the
             # Manual-run pending: the live chain's NEW transform tail is
             # uncached by DESIGN, so resolving IT here would be the GUI-thread catch-up compute
             # this method's docstring forbids. But §5e also says "filter edits stay live against
-            # the last run" -- so instead of dropping the edit (the 2026-09-14 bug: filters felt
-            # dead / 'slaved to Run'), re-resolve the HYBRID: the last-run committed transforms
+            # the last run" -- so instead of dropping the edit (which leaves filters dead,
+            # 'slaved to Run'), re-resolve the HYBRID: the last-run committed transforms
             # (cached -> no compute) + the CURRENT filters. Only once a run exists to hybridize
             # against, and only when the thread is free (an in-flight landing re-resolves anyway).
             if self._committed_chain is not None and self._thread is None:
@@ -5970,7 +5956,7 @@ both ``Canvas`` signals report the
     def _resolve_now(self, committed_chain=None) -> None:
         """Synchronous resolve on the GUI thread -- filters only, by construction.
 
-        ``committed_chain`` (§5e hybrid, 2026-09-14): when given, resolve the last-run transforms
+        ``committed_chain`` (§5e hybrid): when given, resolve the last-run transforms
         from it + the current filters instead of ``self.layer.chain`` -- the pending-state path,
         where the live chain's transform tail is deliberately uncached. ``None`` is the ordinary
         path (the whole current chain, whose transforms are cache hits).
@@ -5980,10 +5966,10 @@ both ``Canvas`` signals report the
         A filter that raises therefore lands in the same visible error path as a transform that
         raises (``devices/chain_filters.py`` documents the same hazard from its own side).
 
-        **Error routing.** ``_on_param_changed``'s filter branch,
-        ``_on_chain_edited`` and ``_on_scale_changed`` all route a filter edit through
-        ``_reresolve`` to here -- but NONE of them used to touch the arrangement, so a filter
-        tightened while flipped left the zone interactive against a session result the scene never
+        **Error routing.** ``_on_param_changed``'s filter branch, ``_on_chain_edited`` and
+        ``_on_scale_changed`` all route a filter edit through ``_reresolve`` to here, and NONE of
+        them touches the arrangement on its own. Without a resync here, a filter tightened while
+        flipped would leave the zone interactive against a session result the scene never
         re-rendered: the on-screen chain indices could shift (a filter admitting a different,
         equal-sized set) while the arrangement kept showing the OLD chains, and a pick made against
         that stale geometry could commit against the WRONG chain with no stale flag to catch it (an
@@ -5991,9 +5977,9 @@ both ``Canvas`` signals report the
         point every synchronous filter-resolve success reaches, active layer or not (also covers
         ``_on_finished``'s own call here, and ``_dispatch_next``'s "resolve"-pending branch) -- one
         ``_sync_arrangement()`` call while flipped re-derives every visible layer's entry with the
-        SAME positional-digest fingerprint (``scene.py``'s own Critical 1c/round-2 fix) that already
-        prunes stale selection/preview/palette membership honestly, so a picked-then-shifted chain
-        is pruned before a commit naming it is even possible. See ``_sync_arrangement``'s own
+        SAME positional-digest fingerprint (``scene.py``'s own) that already prunes stale
+        selection/preview/palette membership honestly, so a picked-then-shifted chain is pruned
+        before a commit naming it is even possible. See ``_sync_arrangement``'s own
         docstring for the reentrancy guard this can trip (``_dispatch_next``, called at THIS
         method's OTHER call sites, can call back into ``_resolve_now`` from inside an
         already-running ``_sync_arrangement``)."""
@@ -6061,7 +6047,7 @@ both ``Canvas`` signals report the
         """
         result = renderable.result
         if not isinstance(result, dict):
-            # Field-producing chain tail (noise alone; see _on_finished's own guard, 2026-08-30):
+            # Field-producing chain tail (noise alone; see _on_finished's own guard):
             # nothing to overlay -- land quietly with the hint instead of crashing on result.get.
             self._active_result = {}
             self.canvas.clear_overlays()
@@ -6082,13 +6068,13 @@ both ``Canvas`` signals report the
         self._refresh_panel_relevance()
         self._refresh_components_button()
         self._sync_holder_raster(result)
-        # A landing while the Vector/Globe tab is up must reach the scene (forked wtmm computed with the Vector tab showing -- extrema absent until a manual
-        # flip-out/in; before the fork feature every compute started from the raster tab, so
-        # the gap never showed). _sync_arrangement's own diffing keeps repeat landings cheap
+        # A landing while the Vector/Globe tab is up must reach the scene (a forked wtmm computed
+        # with the Vector tab showing otherwise has its extrema absent until a manual
+        # flip-out/in). _sync_arrangement's own diffing keeps repeat landings cheap
         # (the filter-only fast path), same as the visibility-toggle resync just above it.
         if self._center_stack.currentIndex() == 1 and self._arrangement is not None:
             self._sync_arrangement()
-        # Honesty notice (same session): extrema drawn while the DATASET raster is hidden
+        # Honesty notice: extrema drawn while the DATASET raster is hidden
         # (the source row's H) reads as "I can see the extrema but not the DEM" -- say so.
         src = self.project.sources.get(self.layer.source_id) if self.layer is not None else None
         if src is not None and src.hidden and isinstance(result, dict) \
@@ -6124,11 +6110,11 @@ both ``Canvas`` signals report the
             if "extrema" in result and "_shape" in result and result["extrema"]:
                 layers = result["extrema"]
                 idx = 0 if len(layers) == 1 else int(result.get("_scale_idx", 0))
-                # Double-update guard (2026-09-14, user-flagged): when the 3-D view is the one on
-                # screen, the raster canvas is hidden -- redrawing its (heavy) overlay every tweak
-                # was pure waste on top of the scene rebuild. Skip it and mark the canvas dirty;
-                # _set_center_view's flip-back-to-raster branch redraws it then, from the same
-                # _active_result. When the canvas IS on screen, draw as before.
+                # Double-update guard: when the 3-D view is the one on screen, the raster canvas
+                # is hidden -- redrawing its (heavy) overlay every tweak is pure waste on top of
+                # the scene rebuild. Skip it and mark the canvas dirty; _set_center_view's
+                # flip-back-to-raster branch redraws it then, from the same _active_result. When
+                # the canvas IS on screen, draw it now.
                 if self._center_stack.currentIndex() == 0:
                     self.canvas.set_result(result, min(idx, len(layers) - 1))
                     self._canvas_overlay_dirty = False
@@ -6260,9 +6246,9 @@ both ``Canvas`` signals report the
         would be wrong -- ``_dispatch_next`` is what decides whether the active layer or a queued
         layer gets the thread next.
 
-        Review fold-in: the ``field is None`` bail-out is checked BEFORE anything touches the
-        transport -- checking it after would leave a disabled transport with no compute ever
-        dispatched to re-enable it.
+        The ``field is None`` bail-out is checked BEFORE anything touches the transport --
+        checking it after would leave a disabled transport with no compute ever dispatched to
+        re-enable it.
         """
         is_active = layer is self.layer
         field = self.field if is_active else self._fields.get(layer.layer_id)
@@ -6285,24 +6271,24 @@ both ``Canvas`` signals report the
             # or an error leaves it dead.
             self.transport.setEnabled(False)
         if self._thread is not None:
-            # No cancellation in v1. If it's the active layer trying to preempt, mark the intent
-            # in ITS OWN UI *and* record it in ``self._active_pending`` -- the signature-mismatch redispatch this comment used to promise only fires for the
-            # dispatched layer's OWN later landing, but a landing can now belong to an unrelated
-            # (background, or previously active) layer entirely, whose routing in ``_on_finished``
-            # never even looks at ``self._transform_signature()``. Dropping the intent here (as
-            # before this fix) meant a layer SWITCH mid-compute to an already-cached layer never
-            # redispatched at all -- ``_dispatch_next``'s cache probe saw a hit and did nothing,
+            # If it's the active layer trying to preempt, mark the intent in ITS OWN UI *and*
+            # record it in ``self._active_pending`` -- the signature-mismatch redispatch only
+            # fires for the dispatched layer's OWN later landing, but a landing can belong to an
+            # unrelated (background, or previously active) layer entirely, whose routing in
+            # ``_on_finished`` never even looks at ``self._transform_signature()``. Dropping the
+            # intent here would leave a layer SWITCH mid-compute to an already-cached layer never
+            # redispatched -- ``_dispatch_next``'s cache probe sees a hit and does nothing,
             # wedging the transport/strips/canvas indefinitely. ``_dispatch_next`` consumes this
             # unconditionally, regardless of what the cache probe would have said on its own.
             if is_active:
                 self._set_transform_states("computing")
                 self._active_pending = "compute"
-                # Progressive compute (design 2026-09-14 §3): the active layer is preempting with
-                # a fresh recipe -- KILL the in-flight run instead of waiting it out. The old
-                # worker checks the flag at its next WTMM stage boundary, raises ComputeCancelled,
-                # and lands in _on_cancelled, which dispatches this pending "compute". Replaces
-                # the old "no cancellation in v1 -- let it finish and discard" waste (the ~22 s
-                # the user felt). Only the ACTIVE layer's own preempt cancels; a background
+                # Progressive compute (progressive-compute design §3): the active layer is
+                # preempting with a fresh recipe -- KILL the in-flight run instead of waiting it
+                # out. The old worker checks the flag at its next WTMM stage boundary, raises
+                # ComputeCancelled, and lands in _on_cancelled, which dispatches this pending
+                # "compute", so a preempted run is never computed to the end only to be
+                # discarded. Only the ACTIVE layer's own preempt cancels; a background
                 # arrangement compute is left to finish (its result is still wanted).
                 if self._worker is not None:
                     self._worker.cancel()
@@ -6320,9 +6306,9 @@ both ``Canvas`` signals report the
         self._t0 = time.perf_counter()
         if is_active:
             self._set_transform_states("computing")
-        # Finest-scale preview (design 2026-09-14 §3) only for the ACTIVE layer's own compute --
-        # the one whose canvas the user is waiting on. A background arrangement-queue layer gets
-        # no preview (nobody is staring at a blank canvas for it).
+        # Finest-scale preview (progressive-compute design §3) only for the ACTIVE layer's own
+        # compute -- the one whose canvas the user is waiting on. A background
+        # arrangement-queue layer gets no preview (nobody is staring at a blank canvas for it).
         worker = ResolveWorker(layer, field, self.cache, layer.source_id, preview=is_active,
                                prelude=prelude)
         # BOUND METHODS ONLY (worker.py's documented trap): Qt can only place a call on the GUI
@@ -6412,9 +6398,9 @@ both ``Canvas`` signals report the
             return
         # A real result is back -- scrubbing means something again -- UNLESS the active layer is
         # locked/frozen, in which case the transport must stay exactly as read-only as the zone.
-        # A blind ``setEnabled(True)`` here (the old behaviour) would silently undo a lock that
-        # took effect (or was already in effect) while this very compute was running: nothing
-        # else re-asserts it once a worker's own finish handler has blown it away.
+        # A blind ``setEnabled(True)`` here would silently undo a lock that took effect (or was
+        # already in effect) while this very compute was running: nothing else re-asserts it
+        # once a worker's own finish handler has blown it away.
         if self.layer is not None:
             self._sync_lock_ui(self.layer)
         else:
@@ -6426,11 +6412,11 @@ both ``Canvas`` signals report the
         elapsed_ms = (time.perf_counter() - self._t0) * 1000.0
         self._set_compute_reading(f"{elapsed_ms:.0f} ms")
         if not isinstance(renderable.result, dict):
-            # A chain ending on a field-producing transform (noise, 2026-08-30) resolves to a
-            # FIELD, not a result dict. Landing used to crash right here (result.get on a
-            # RasterField) inside a worker-signal slot -- Qt swallowed the traceback, `resolved`
-            # never fired, and the window stayed wedged (stuck at 0). Land quietly:
-            # nothing to overlay, a hint says what to add.
+            # A chain ending on a field-producing transform (noise) resolves to a FIELD, not a
+            # result dict. result.get on a RasterField would crash right here inside a
+            # worker-signal slot -- Qt swallows the traceback, `resolved` never fires, and the
+            # window stays wedged (stuck at 0). Land quietly: nothing to overlay, a hint says
+            # what to add.
             self._scales = ()
             self.canvas.clear_overlays()
             self._land_field_result(renderable.result)
@@ -6508,7 +6494,7 @@ both ``Canvas`` signals report the
         cancellation is deliberate), no lock UI churn (the preempt did not change lock state)."""
         self._teardown_thread()
         if self._user_stopped:
-            # USER stop (2026-09-22), not a preempt: restore the UI and stand down --
+            # USER stop, not a preempt: restore the UI and stand down --
             # never redispatch, and suppress the cache-probe redispatch for this recipe.
             self._user_stopped = False
             dispatched_layer_id = self._dispatched[0] if self._dispatched else None
@@ -6700,15 +6686,15 @@ both ``Canvas`` signals report the
         every time). This is deliberately NOT a plain ``bool = False`` default: every resync call
         site that does not itself know "vector or geo" right now -- a hide-toggle, a layer
         switch, a display-style edit, a landed background compute, a group commit -- calls this
-        method with NO argument at all, exactly as it always has (several of those call sites are
-        monkeypatched with zero-argument fakes by the pre-existing arrangement-view test suite,
-        which this task does not touch -- see ``tests/test_arrangement_commit.py``'s and
-        ``tests/test_arrangement_resolve.py``'s own ``_sync_arrangement`` spies), so a plain
-        ``False`` default would silently re-admit every layer under the geo (``has_georeference``)
-        gate the instant the Vector tab is showing and one of those call sites fires. The two call
-        sites that actually KNOW which view is being entered (``_set_center_view``'s
-        ``"vector"``/``"geo"`` branches) pass an explicit ``True``/``False`` instead, which is
-        what seeds ``self._arr_frame_mode`` for every later argument-less call to reuse.
+        method with NO argument at all (several of those call sites are monkeypatched with
+        zero-argument fakes by the arrangement-view test suite -- see
+        ``tests/test_arrangement_commit.py``'s and ``tests/test_arrangement_resolve.py``'s own
+        ``_sync_arrangement`` spies), so a plain ``False`` default would silently re-admit every
+        layer under the geo (``has_georeference``) gate the instant the Vector tab is showing and
+        one of those call sites fires. The two call sites that actually KNOW which view is being
+        entered (``_set_center_view``'s ``"vector"``/``"geo"`` branches) pass an explicit
+        ``True``/``False`` instead, which is what seeds ``self._arr_frame_mode`` for every later
+        argument-less call to reuse.
         """
         if self._arr_syncing:
             return
@@ -6724,14 +6710,14 @@ both ``Canvas`` signals report the
             # the single place "the active layer's own frame" is derived.
             active_field = self._fields.get(self.layer.layer_id) if self.layer is not None else None
             active_frame = getattr(active_field, "frame", None)
-            # AC3 (final branch review, item 1): the shape half of the vector admission gate,
-            # computed once alongside ``active_frame`` above. ``getattr(..., "values", None)``
-            # first -- a bare ndarray sibling (same guard as ``layer_frame`` below) has no
-            # ``.values`` at all, so this is ``None`` for it, not an ``AttributeError``.
+            # AC3: the shape half of the vector admission gate, computed once alongside
+            # ``active_frame`` above. ``getattr(..., "values", None)`` first -- a bare ndarray
+            # sibling (same guard as ``layer_frame`` below) has no ``.values`` at all, so this is
+            # ``None`` for it, not an ``AttributeError``.
             active_shape = getattr(getattr(active_field, "values", None), "shape", None)
             for layer in self.project.layers:
                 src = self.project.sources.get(layer.source_id)
-                # roi.window children are exempt from the source hide (2026-09-22) --
+                # roi.window children are exempt from the source hide --
                 # their crop is the ROI gesture's own product, not 'the dataset'.
                 show_raster = (bool(layer.tags.get("roi.window"))
                                or not (src is not None and src.hidden))
@@ -6748,7 +6734,7 @@ both ``Canvas`` signals report the
                 stretch = (style["stretch"], style["stretch_pct"])
                 levels = (style["levels"], style["levels_colors"], style["levels_sieve"])
                 surface = (style["surface"], style["depth_positive"])
-                # Surface HEIGHT source (2026-09-16): resolve ui.surface_source to that layer's
+                # Surface HEIGHT source: resolve ui.surface_source to that layer's
                 # loaded field, admitted only on an identical grid shape -- never resampled.
                 # A stale id (source layer since removed or reshaped) falls back silently to
                 # this layer's own values; the dialog only ever OFFERS same-shape sources, so
@@ -6786,26 +6772,25 @@ both ``Canvas`` signals report the
                     # section. No has_georeference gate: that check is exactly what a native-frame
                     # display exists to not need.
                     #
-                    # Fix round 1: ``field`` here may be a BARE ndarray, not a
-                    # RasterField -- ``load_field``'s own docstring allows it ("a RasterField or a
-                    # bare array"), and a visible ROI/refined-run sibling (or one round-tripped
-                    # through the devloop reload) can leave such a layer next to a real,
-                    # RasterField active layer. ``field.frame`` was accessed UNGUARDED here, so a
-                    # bare-ndarray sibling raised ``AttributeError`` the instant this loop tried to
-                    # admit it. Mirrors ``active_frame``'s own already-safe pattern one line above
-                    # (``getattr(..., "frame", None)``): a frameless field -- the ACTIVE layer's
-                    # own included -- has nothing for ``Scene``'s frame-mode placement
-                    # (``field.frame.to_scene``) to call, so it is excluded entirely rather than
-                    # admitted toward a crash one layer deeper. When the ACTIVE layer's own field
-                    # is frameless, every OTHER raster layer is excluded too (nothing to compare a
-                    # ``frames_compatible`` check against) -- the net result is zero raster entries
-                    # this sync, not a crash; the active layer's non-arrangement session canvas
-                    # still shows it exactly as before, unaffected by any of this.
+                    # ``field`` here may be a BARE ndarray, not a RasterField -- ``load_field``'s
+                    # own docstring allows it ("a RasterField or a bare array"), and a visible
+                    # ROI/refined-run sibling (or one round-tripped through the devloop reload) can
+                    # leave such a layer next to a real, RasterField active layer; an unguarded
+                    # ``field.frame`` would raise ``AttributeError`` for such a sibling the instant
+                    # this loop tried to admit it. Mirrors ``active_frame``'s own already-safe
+                    # pattern one line above (``getattr(..., "frame", None)``): a frameless field --
+                    # the ACTIVE layer's own included -- has nothing for ``Scene``'s frame-mode
+                    # placement (``field.frame.to_scene``) to call, so it is excluded entirely
+                    # rather than admitted toward a crash one layer deeper. When the ACTIVE layer's
+                    # own field is frameless, every OTHER raster layer is excluded too (nothing to
+                    # compare a ``frames_compatible`` check against) -- the net result is zero
+                    # raster entries this sync, not a crash; the active layer's non-arrangement
+                    # session canvas still shows it exactly as before, unaffected by any of this.
                     #
-                    # AC3 (final branch review, item 1): frame compatibility alone is not enough
-                    # to admit a non-active raster sibling -- two BARE rasters both carry the
-                    # identical default ``LocalFrame(dx=1, dy=1, units=px)`` (``rasterfield.py``'s
-                    # own ``_from_bare_array`` default), so frame equality alone would overlay two
+                    # AC3: frame compatibility alone is not enough to admit a non-active raster
+                    # sibling -- two BARE rasters both carry the identical default
+                    # ``LocalFrame(dx=1, dy=1, units=px)`` (``rasterfield.py``'s own
+                    # ``_from_bare_array`` default), so frame equality alone would overlay two
                     # entirely unrelated grids on top of each other. Grid SHAPE is the tiebreaker
                     # the spec's sec 2 "same grid shape for raster layers" clause mandates --
                     # checked here via the same safe-getattr pattern as ``layer_frame`` above (a
@@ -6875,7 +6860,7 @@ both ``Canvas`` signals report the
                                 self._roi_scene_memo[layer.layer_id] = memo
                         if memo is not None and memo[0] is res:
                             field, res = memo[1], memo[2]
-                    # Drape (2026-09-16): a holder_map result's h(x) colors the surface; z stays
+                    # Drape: a holder_map result's h(x) colors the surface; z stays
                     # the height source above -- the "h over elevation" view. Shape-guarded again
                     # in the scene (belt-and-braces); identity stamps feed _STYLE_KEYS diffing.
                     drape = _display_raster_of(res)
@@ -6961,10 +6946,9 @@ both ``Canvas`` signals report the
                 self.transport.set_n_scales(n)
             finally:
                 self._syncing = False
-            # Followers adopt where the clamp actually LEFT the master (review of
-            # ``1b405f2``). The clamp's own echo cannot carry them any more -- it fires while
-            # ``_syncing`` is up, holding the transport's stale position, which is the whole
-            # reason ``_drive_follower_inspectors`` now refuses it.
+            # Followers adopt where the clamp actually LEFT the master. The clamp's own echo
+            # cannot carry them -- it fires while ``_syncing`` is up, holding the transport's
+            # stale position, which is why ``_drive_follower_inspectors`` refuses it.
             self._drive_follower_inspectors(self.transport.slider.value())
             return
         target = max(0, min(int(self._params[i].get("scale_idx", 0)), n - 1))
@@ -6977,9 +6961,9 @@ both ``Canvas`` signals report the
         self.layer.chain = self._chain()
         self._snapshot_recipe()
         self.transport.sync_to(target)
-        # The index that SETTLES, pushed to the followers (review of ``1b405f2``). This
-        # is the second silent settle: a layer restored at scale 2 moved the master here and left
-        # every following inspector on whatever it had -- the divergence with the "M" still lit.
+        # The index that SETTLES, pushed to the followers. This is the second silent settle:
+        # without the push, a layer restored at scale 2 moves the master here and leaves every
+        # following inspector on whatever it had -- the divergence with the "M" still lit.
         self._drive_follower_inspectors(target)
 
     def _toggle_transport(self) -> None:
@@ -7227,8 +7211,7 @@ both ``Canvas`` signals report the
         self._center_stack.setCurrentIndex(1)
         self._arrangement.activate()
         # Push the panel's current mask values into the just-activated view -- the view
-        # no longer has a row of its own to read (see ArrangementView.set_mask's own docstring);
-        # this replaces what used to be the view's self-read of it inside its own activate().
+        # has no row of its own to read (see ArrangementView.set_mask's own docstring).
         # Pushed in BOTH "vector" and "geo" -- the mask (modulus/scale range) filters which chains
         # are visible independently of placement, so it applies to a native-frame display exactly
         # as much as a georeferenced one.
@@ -7265,18 +7248,16 @@ both ``Canvas`` signals report the
             self._arrangement.set_graticule(opts["graticule"])
             self._arrangement.set_vertical_exaggeration(opts["vexag"])
         self._arrangement.set_background(opts["background"])
-        # CONDITION: originally pushed inside the ``if not frame_mode:`` block above, mirroring vexag's own gated placement. That created a real gap: a SESSION RESTORE landing directly on a saved
-        # ``center_view == "vector"`` (``load_field``'s own one-shot restore call, near the top of
-        # this file) never runs the geo branch at all, so a persisted ``scale_space: True`` would
-        # silently never reach the freshly-built ``Scene`` -- the live-dialog push (``ViewDialog``
-        # calling ``view.set_scale_space`` directly on every edit) and the tab-AWAY-then-back path
-        # (which passes back through this same method while already in "geo") both still worked;
-        # only the fresh-into-"vector" restore was broken. Fixed by pushing UNCONDITIONALLY,
-        # alongside ``set_background`` immediately above -- scale-space is placement-independent
-        # (chain points lift identically in geo or frame mode, ``Scene``'s own module docstring),
-        # unlike mode/graticule/vexag, which genuinely feed a CRS/projection dialog with nothing
-        # meaningful to show in a native frame (``ArrangementView.set_frame_mode``'s own
-        # docstring) -- so, unlike those three, there was never a real reason to gate this one.
+        # CONDITION: pushed UNCONDITIONALLY, alongside ``set_background`` immediately above. A
+        # SESSION RESTORE landing directly on a saved ``center_view == "vector"``
+        # (``load_field``'s own one-shot restore call, near the top of this file) never runs the
+        # geo branch at all, so gated inside ``if not frame_mode:`` a persisted
+        # ``scale_space: True`` would silently never reach the freshly-built ``Scene``.
+        # Scale-space is placement-independent (chain points lift identically in geo or frame
+        # mode, ``Scene``'s own module docstring), unlike mode/graticule/vexag, which genuinely
+        # feed a CRS/projection dialog with nothing meaningful to show in a native frame
+        # (``ArrangementView.set_frame_mode``'s own docstring) -- so, unlike those three, there
+        # is no reason to gate this one.
         self._arrangement.set_scale_space(opts["scale_space"], opts["scale_space_stretch"])
         self._sync_arrangement(frame_mode)
         self._sync_view_switcher()
@@ -7494,10 +7475,9 @@ both ``Canvas`` signals report the
         if "group_paint" in names:
             i = names.index("group_paint")
             params[i] = step_params
-            # Fold-in fix (review): a commit un-bypasses its own painter -- a re-commit onto a
-            # step the user had bypassed used to leave it bypassed, silently discarding the just-
-            # committed groups from every future resolve until someone happened to un-bypass it
-            # by hand.
+            # A commit un-bypasses its own painter -- a re-commit onto a step the user had
+            # bypassed must not leave it bypassed, or the just-committed groups are silently
+            # discarded from every future resolve until someone happens to un-bypass it by hand.
             bypassed[i] = False
         else:
             names = names + ["group_paint"]
@@ -7532,8 +7512,8 @@ both ``Canvas`` signals report the
         a deferred one: while a close is deferred for an in-flight compute the window is still
         fully alive and Tab must keep working, and this method runs again (accepting that time)
         once the compute lands. Leaving a closed window's filter installed on ``qApp`` would
-        have it keep intercepting Tab presses meant for whatever window opens next -- exactly
-        the cross-window leak the review flagged.
+        have it keep intercepting Tab presses meant for whatever window opens next -- a
+        cross-window leak.
 
         The splitter tree's current sizes are persisted on the SAME branch, for the
         same reason: a close deferred mid-compute must not snapshot sizes that may still change

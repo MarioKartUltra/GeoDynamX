@@ -32,9 +32,8 @@ def _registry(clean_registry, stub_transform):
 def _project_with_data(tmp_path):
     """A project saved beside its raster, as a user would organise it.
 
-    Deliberately calls ``add_source`` the ordinary way, with no hash: every drift test used to
-    pre-hash by hand here, which is exactly why ``save_project`` never hashing anything survived
-    six reviews. The hash must come from the save.
+    Deliberately calls ``add_source`` the ordinary way, with no hash: a drift test that pre-hashes
+    by hand hides a ``save_project`` that never hashes anything. The hash must come from the save.
     """
     data = tmp_path / "data"
     data.mkdir()
@@ -467,9 +466,7 @@ DECLARATION_KEYS = ("soft_min", "soft_max", "units", "wrap", "choices", "label",
 
 
 def test_a_saved_chain_carries_values_only_never_declaration_keys(tmp_path, clean_registry):
-    """THE invariant of this branch, and until now nothing enforced it.
-
-    A project is a recipe: it stores the VALUE a user chose for each knob, never the declaration
+    """A project is a recipe: it stores the VALUE a user chose for each knob, never the declaration
     that generated the knob. A slider's soft range, units and label are view state. If any of them
     reached the params dict it would feed cache_key -- and retuning a slider, a purely visual
     change, would invalidate an expensive cached WTMM stack.

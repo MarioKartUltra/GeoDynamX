@@ -24,10 +24,10 @@ _CATEGORIES = ("Transforms", "Filters", "Dev", "Racks")
 #: Naming convention for stub devices — routed to the "Dev" category, not a registry change.
 _DEV_PREFIX = "stub_"
 
-#: Superseded devices (2026-09-19 split): still registered — saved projects name them and the
-#: never-delete rule holds — but the palette shows their per-method successors instead, so
-#: these join the stubs in the collapsed "Dev" category. tucker_havok (2026-09-23) is shown as
-#: tucker_HOOI_HOSVD, its algorithm a toggle.
+#: Superseded devices: still registered — saved projects name them and the never-delete rule
+#: holds — but the palette shows their per-method successors instead, so these join the stubs in
+#: the collapsed "Dev" category. tucker_havok is shown as tucker_HOOI_HOSVD, its algorithm a
+#: toggle.
 _SUPERSEDED = ("holder_map", "band_recon", "tucker_havok")
 
 #: Devices only the shell places (a derivative dataset's vector loader): never dropped by hand,

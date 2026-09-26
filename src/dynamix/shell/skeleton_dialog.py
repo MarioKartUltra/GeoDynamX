@@ -5,11 +5,11 @@ Hölder slope, with the "Normalize at finest scale" convergence fan and h-range 
 (EQSelect's own ``_WtmmSkeletonDialog``, EQ§4/§5a; the
 notebook log-log conventions).
 
-This is the user's most-requested missing display: EQSelect's answer to "no log-log plot of
-coeff vs scale" (spec Mission). The shape below follows EQSelect's own Hölder-lines view as
-closely as DynamiX's simpler, single-view scope allows -- there is no cascade-tree view here (the
-spec's own non-goals list it as deferred); every chain this dialog is given is drawn (up to the
-cap) as one leaf-to-root maxima-line polyline, colored by its own OLS slope.
+This display is EQSelect's answer to "no log-log plot of coeff vs scale" (spec Mission). The
+shape below follows EQSelect's own Hölder-lines view as closely as DynamiX's simpler,
+single-view scope allows -- there is no cascade-tree view here (the spec's own non-goals list it
+as deferred); every chain this dialog is given is drawn (up to the cap) as one leaf-to-root
+maxima-line polyline, colored by its own OLS slope.
 
 **Figure construction.** One ``matplotlib.figure.Figure(constrained_layout=True)`` -- EQSelect's
 own colorbar-ratchet lesson (without ``constrained_layout``, adding/removing the colorbar

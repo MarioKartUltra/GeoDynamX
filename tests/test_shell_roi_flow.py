@@ -227,7 +227,7 @@ def test_the_band_is_live_during_the_drag_and_snaps_to_the_emitted_rect(qtbot, c
 
     row, col, h, w = sig.args
     band_x, band_y = canvas.roi_band_item.getData()
-    # Center registration (2026-09-21): the snapped band ENCLOSES the named pixels' cells.
+    # Center registration: the snapped band ENCLOSES the named pixels' cells.
     assert (band_x.min(), band_x.max()) == (col - 0.5, col + w - 0.5)
     assert (band_y.min(), band_y.max()) == (row - 0.5, row + h - 0.5)
 
@@ -368,7 +368,7 @@ def test_display_offset_is_zero_for_a_non_roi_result_on_a_windowed_field():
 
 
 def test_a_windowed_parents_roi_draws_at_image_coordinates(qtbot):
-    """F1 end to end at the canvas: window at (20, 12), ROI at file (30, 22) -- so the box and
+    """End to end at the canvas: window at (20, 12), ROI at file (30, 22) -- so the box and
     everything in it belong at image (10, 10), which is where the user drew it."""
     from dynamix.shell.canvas import Canvas
 
@@ -378,7 +378,7 @@ def test_a_windowed_parents_roi_draws_at_image_coordinates(qtbot):
 
     canvas.set_result(_overlay_result(roi=(30, 22, 16, 16)), 0)
 
-    # pin-in-place (2026-09-22): the data space is FILE-ABSOLUTE -- the window's image sits
+    # pin-in-place: the data space is FILE-ABSOLUTE -- the window's image sits
     # at its offset, so the box draws at file coordinates: still exactly over the same pixels.
     bx, by = canvas.roi_bounds_item.getData()
     assert (bx.min(), bx.max()) == (22, 38)
@@ -480,8 +480,8 @@ def test_physical_readouts_follow_an_edit_live(panel):
 
 
 def test_a_legal_edit_emits_values_edited_and_an_illegal_one_does_not(panel):
-    """Typing coordinates had no visual echo (2026-08-09 first-use report) -- the panel now
-    announces every edit that describes a legal box so the canvas can move the drawn band."""
+    """Typed coordinates get a visual echo: the panel announces every edit that describes a
+    legal box so the canvas can move the drawn band."""
     panel.show_roi(16, 24, 32, 40, (None, "px"))
     seen = []
     panel.valuesEdited.connect(seen.append)
@@ -670,10 +670,10 @@ def test_roi_chain_carries_the_task_6_params_from_a_tuned_parent(clean_registry)
 
 
 def test_roi_chain_carries_a_tuned_fracint_alpha(clean_registry):
-    """2026-09-20, the same bug class a third time: ``run_wtmm2d_roi`` always APPLIES the
-    ``a**fracint_alpha`` lift (it resolves the backend default), but the knob was neither
-    declared on ``wtmm2d_roi`` nor in ``_SHARED_WTMM_PARAMS`` -- so a parent tuned to η ≠ 1
-    got a child computed at η = 1 while presenting as the same analysis over a window."""
+    """``run_wtmm2d_roi`` always APPLIES the ``a**fracint_alpha`` lift (it resolves the backend
+    default), so the knob must be declared on ``wtmm2d_roi`` and in ``_SHARED_WTMM_PARAMS`` --
+    otherwise a parent tuned to η ≠ 1 gets a child computed at η = 1 while presenting as the
+    same analysis over a window."""
     from dynamix.shell.main_window import roi_chain
 
     register_builtin_devices()
@@ -937,7 +937,7 @@ def test_a_windowed_parent_offsets_the_roi_into_source_coordinates(qtbot, clean_
     assert win.project.layers[1].name.endswith("ROI 30,22")
     assert win.project.layers[1].chain.steps[0].params["roi_h"] == 16
 
-    # ... and on screen (pin-in-place, 2026-09-22): the data space is file-absolute, so the
+    # ... and on screen (pin-in-place): the data space is file-absolute, so the
     # box draws at FILE coordinates -- still over the same pixels, the image moved with it.
     bx, by = win.canvas.roi_bounds_item.getData()
     assert (bx.min(), bx.max()) == (22, 38)
@@ -1181,9 +1181,9 @@ def test_real_boem_west_roi_resolves_with_honest_margins(qtbot, clean_registry):
         win.open_path(_WEST_ZIP)
 
     parent = win.layer
-    # Contract update 2026-09-22 (evening): the default open is the
-    # display PICTURE -- whole extent, and the canvas speaks FILE pixels, so the ROI spec is
-    # in file pixels with no stride mapping at all: the same 512x512 native window as before.
+    # The default open is the display PICTURE -- whole extent, and the canvas speaks FILE
+    # pixels, so the ROI spec is in file pixels with no stride mapping at all: a 512x512
+    # native window.
     from dynamix.roi.picture import native_shape
 
     assert "overview" not in win.field.provenance
@@ -1286,8 +1286,8 @@ def test_placing_the_armed_footprint_mints_the_roi_layer_and_runs(roi_window, qt
 
 
 def test_roi_chain_carries_interpolate_and_detector(clean_registry):
-    """The 2026-09-20/21 knobs join the shared set: an ROI child runs the parent's detector
-    and refinement or it is a different analysis presented as the same one."""
+    """The interpolate and detector knobs join the shared set: an ROI child runs the parent's
+    detector and refinement or it is a different analysis presented as the same one."""
     from dynamix.shell.main_window import roi_chain
 
     register_builtin_devices()
@@ -1299,7 +1299,7 @@ def test_roi_chain_carries_interpolate_and_detector(clean_registry):
     assert chain.steps[0].params["detector"] == "follow"
 
 
-# ----------------------------------------------------------- the child dataset (2026-09-21)
+# ------------------------------------------------------------------------ the child dataset
 
 
 def test_child_button_is_enabled_even_when_roi_create_is_blocked(panel):
@@ -1387,9 +1387,9 @@ def test_roi_tool_with_no_field_notifies_and_stays_hidden(qtbot, clean_registry)
 
 
 def test_child_is_a_core_only_crop_with_parent_linkage(roi_window):
-    """The 2026-09-21 correction: the ROI defines the CORE; no crop-time margin exists. The
-    child's provenance keeps source + absolute window + full dims -- the linkage a future
-    per-TOOL apron sampler (COI/kernel-support margins at compute time) will consume."""
+    """The ROI defines the CORE; no crop-time margin exists. The child's provenance keeps
+    source + absolute window + full dims -- the linkage a future per-TOOL apron sampler
+    (COI/kernel-support margins at compute time) will consume."""
     win = roi_window
     win._on_roi_child_create({"roi_row": 8, "roi_col": 6, "roi_h": 24, "roi_w": 20,
                               "boundary": "auto"})
@@ -1419,7 +1419,7 @@ def test_place_box_repositions_the_panel_and_never_creates(roi_window):
 
 
 def test_show_roi_band_encloses_its_pixels_under_center_registration(qtbot):
-    """2026-09-21 half-pixel fix: a box over pixels [row, row+h) x [col, col+w) must DRAW from
+    """A box over pixels [row, row+h) x [col, col+w) must DRAW from
     (col-0.5, row-0.5) to (col+w-0.5, row+h-0.5) -- enclosing the cells whose centers are the
     integer coordinates every overlay draws at."""
     from dynamix.shell.canvas import Canvas

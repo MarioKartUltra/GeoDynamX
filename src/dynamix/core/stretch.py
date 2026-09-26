@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Contrast stretches for DISPLAY: map a field onto [0, 1] for colouring (2026-08-29).
+"""Contrast stretches for DISPLAY: map a field onto [0, 1] for colouring.
 
-Linear (min/max) was the only stretch the shell had; a single outlier crushed everything else
-to black. These are the standard remote-sensing choices (ENVI's menu): percent clip, standard
+Under a linear (min/max) stretch a single outlier crushes everything else to black. These
+are the standard remote-sensing choices (ENVI's menu): percent clip, standard
 deviation, logarithmic, histogram equalisation. NaN stays NaN so masked cells stay
 transparent. Nothing here is analysis -- the WTMM never sees a stretched value.
 """
@@ -140,8 +140,8 @@ def parse_class_colors(text) -> "list | None":
     """``"#rrggbb,none,..."`` -> a list of (r, g, b, a) ints, or ``None`` for empty/blank.
 
     ``none`` (or ``-``) is a TRANSPARENT class -- alpha 0 -- which is what turns a density
-    slice into Turiel's set display: one band colored, the rest invisible (2026-09-16, the
-    MSM-figure workflow). Raises ``ValueError`` on malformed entries -- user-typed/persisted
+    slice into Turiel's set display: one band colored, the rest invisible (the MSM-figure
+    workflow). Raises ``ValueError`` on malformed entries -- user-typed/persisted
     display data, parsed here (no Qt) so the canvas and the pyvista scene share one reading."""
     s = str(text or "").strip()
     if not s:

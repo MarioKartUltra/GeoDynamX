@@ -137,7 +137,7 @@ def test_q_subrange_masks_the_display_but_not_the_fit(qtbot):
     np.testing.assert_array_equal(x, [0.0, 2.0])
 
 
-# --------------------------------------- three families + phase transition (2026-09-20)
+# --------------------------------------- three families + phase transition
 
 def _hd_q(q, slopes_tau, n_sc=8):
     """Exact-line tables over an arbitrary q grid; tau slope per q is ``slopes_tau``."""

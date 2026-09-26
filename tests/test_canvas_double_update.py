@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Double-update guard (2026-09-14): when the 3-D view is on screen, a filter tweak must NOT
+"""Double-update guard: when the 3-D view is on screen, a filter tweak must NOT
 redraw the hidden raster canvas -- it defers the overlay draw and marks it dirty, then redraws
 once on flip back to raster. 
 Driven offscreen with a plain dummy widget standing in at stack index 1, so the real (pyvista)

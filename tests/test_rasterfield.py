@@ -227,11 +227,11 @@ def test_projected_geotiff_yields_a_metre_local_frame(tmp_path):
 
 def test_full_projected_geotiff_load_frames_by_crs_kind_too(tmp_path):
     """The FULL-file loader (`from_file` -> `_from_geotiff`) must frame by CRS kind exactly like
-    the windowed loader above -- the 2026-08-19 fix. Before it, a projected GeoTIFF got a
-    ``GeographicFrame`` whose ``to_scene`` fed UTM-scale coordinates through projection.py's
-    ``np.mod(x, 360)`` longitude canonicalisation: a 400-column, 12.192 m grid folded every ~30
-    columns, smearing the Vector-tab raster into horizontal streaks (measured on the real BOEM
-    crop: 400 columns -> 9 distinct x values). The assertions pin both the frame kind and the
+    the windowed loader above. A projected GeoTIFF given a ``GeographicFrame`` feeds UTM-scale
+    coordinates through projection.py's ``np.mod(x, 360)`` longitude canonicalisation in
+    ``to_scene``: a 400-column, 12.192 m grid folds every ~30 columns, smearing the Vector-tab
+    raster into horizontal streaks (measured on the real BOEM crop: 400 columns -> 9 distinct x
+    values). The assertions pin both the frame kind and the
     fold-impossibility (scene x strictly monotonic and spanning the FULL metric width)."""
     p = tmp_path / "utm.tif"; _utm_tif(p)
     rf = RasterField.from_file(p)
@@ -246,7 +246,7 @@ def test_full_projected_geotiff_load_frames_by_crs_kind_too(tmp_path):
 
 
 def test_full_geographic_geotiff_still_gets_a_geographic_frame(tmp_path):
-    """Control for the fix: a genuinely geographic (EPSG:4326) GeoTIFF keeps GeographicFrame --
+    """Control: a genuinely geographic (EPSG:4326) GeoTIFF keeps GeographicFrame --
     the branch keys on ``crs.is_projected``, not on being a GeoTIFF."""
     rio = pytest.importorskip("rasterio", reason="rasterio not installed")
     from rasterio.transform import from_origin

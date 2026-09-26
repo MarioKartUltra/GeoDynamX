@@ -20,10 +20,10 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 PYPROJECT = REPO / "pyproject.toml"
 
-#: Deliberately undeclared, with the reason. Empty since 2026-09-22: wtmm and wtmm_ebsd, the
-#: former entries, are vendored under dynamix/_vendor, so their imports resolve inside the
-#: package and no local editable install remains. The guard test below keeps this list honest
-#: if a new local-install debt ever appears.
+#: Deliberately undeclared, with the reason. Empty: wtmm and wtmm_ebsd are vendored under
+#: dynamix/_vendor, so their imports resolve inside the package and no local editable install
+#: remains. The guard test below keeps this list honest if a new local-install debt ever
+#: appears.
 UNDECLARABLE: dict = {}
 
 #: Import name -> distribution name, where they differ. mpl_toolkits (mplot3d, axes_grid1,
@@ -84,8 +84,8 @@ def test_every_import_is_declared_or_known_debt():
 
 def test_base_dependencies_are_numpy_plus_the_fft_engines():
     """The analysis core must IMPORT with numpy alone (every other core import is lazy or
-    guarded), but the base INSTALL deliberately carries the FFT engines since the platform
-    switch (2026-09-22): pyfftw on every platform, mlx only behind its Apple Silicon marker.
+    guarded), but the base INSTALL deliberately carries the FFT engines: pyfftw on every
+    platform, mlx only behind its Apple Silicon marker.
     If this fails, either a dependency crept into the base list or the mlx marker was lost --
     losing it would make every Windows/Linux/Intel-Mac install try to fetch mlx."""
     cfg = tomllib.loads(PYPROJECT.read_text())["project"]

@@ -92,8 +92,7 @@ def source_identity(layer, source_id: str | None = None) -> str:
     fingerprint = _mapping_fingerprint(layer)
     if fingerprint:
         sid = f"{sid}|{fingerprint}"
-    # 2026-09-21 ROI child datasets ("use the ROI tool to make a child subset of a dataset for
-    # use with any tool"): a windowed-child layer analyzes a CROP of its source, so its window
+    # ROI child datasets: a windowed-child layer analyzes a CROP of its source, so its window
     # must join the resolve identity -- two different windows on one source (or a window vs the
     # whole) must never share a cache line. Same tags-as-truth fold as the mapping fingerprint.
     window = layer.tags.get("roi.window") if layer is not None else None

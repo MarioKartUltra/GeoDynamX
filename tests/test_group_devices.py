@@ -130,8 +130,8 @@ def test_group_paint_out_of_range_indices_flag_group_stale_and_are_not_painted()
 # --- GroupPaint: identity-preserving no-op (the scrub-cache bug) ---
 #
 # `dynamix.shell.canvas.Canvas`'s geometry cache (the 147x scrub fix) keys its trail-polyline
-# memoization on `id(result["chains"])`. `apply()` used to copy that list UNCONDITIONALLY, even
-# when nothing was actually painted -- breaking the identity on every redraw of a committed layer
+# memoization on `id(result["chains"])`. `apply()` must not copy that list when nothing was
+# actually painted -- a copy breaks the identity on every redraw of a committed layer
 # regardless of whether anything about the chains had changed. These pin the two honest cases:
 # nothing to report at all (full `result` identity, same as the empty-`spec_json` passthrough
 # above) vs. something to report but nothing to paint (`_stale_groups` must land on a NEW dict --

@@ -847,14 +847,13 @@ def test_real_app_smoke_never_flipped_path_still_renders(tmp_path):
     """The design's real-app smoke command, run as a genuine subprocess (not an in-process
     ``dynamix.shell.app.main()`` call) -- launches the real launcher script exactly as a user
     would, with a fresh, isolated settings file. Tab is never pressed, so ``self._arrangement``
-    stays ``None`` and ``dynamix.shell.arrangement``/``pyvista`` are never even imported ("the app must run identically with the arrangement view never instantiated") -- this
-    is the regression check that every change this task made to ``view.py`` costs the ordinary
-    session path nothing.
+    stays ``None`` and ``dynamix.shell.arrangement``/``pyvista`` are never even imported ("the
+    app must run identically with the arrangement view never instantiated") -- this is the
+    regression check that ``view.py`` costs the ordinary session path nothing.
 
-    **Not covered here (see the task report): the REAL-DISPLAY Tab-flip smoke** -- an actual
-    ``QtInteractor`` on the real ``cocoa`` QPA platform, which this offscreen-mandated harness
-    cannot run at all (the segfault guard, ``tests/test_arrangement_flip.py``). That is the one
-    thing deferred to the user's first real launch.
+    **Not covered here: the REAL-DISPLAY Tab-flip smoke** -- an actual ``QtInteractor`` on the
+    real ``cocoa`` QPA platform, which this offscreen-mandated harness cannot run at all (the
+    segfault guard, ``tests/test_arrangement_flip.py``). That check needs a real launch.
     """
     out_png = tmp_path / "arr_smoke.png"
     settings_path = tmp_path / "settings.json"
@@ -873,7 +872,7 @@ def test_real_app_smoke_never_flipped_path_still_renders(tmp_path):
 
 
 # ==================================================================================================
-# 6. First-flip framing -- the blank-view regression (real-display finding, 2026-08-13)
+# 6. First-flip framing -- the blank-view regression
 # ==================================================================================================
 #
 # The live first-Tab sequence is: activate() builds Scene + MomentumCamera and calls
@@ -881,8 +880,8 @@ def test_real_app_smoke_never_flipped_path_still_renders(tmp_path):
 # ``_sync_arrangement`` deliver the first entries via ``set_layers`` -- whose every actor is
 # added with ``reset_camera=False`` by design. ``reset()``'s bounds-fit on emptiness parks the
 # camera on VTK's default unit cube at the origin; the drape then lands hundreds of Mercator
-# degrees away, out of frame: a themed, dark, EMPTY view on real glass, reproduced pixel-for-
-# pixel off_screen (0.0000 non-background fraction before the fix). The fix lives in
+# degrees away, out of frame: a themed, dark, EMPTY view on real glass, reproducible pixel-for-
+# pixel off_screen (0.0000 non-background fraction without a re-frame). The guard lives in
 # ``Scene.set_layers``: the empty -> non-empty transition re-frames via ``reset_camera()``,
 # which preserves the current projection AND orientation (top-down stays top-down) and only
 # re-fits bounds -- so it can never fight the user's navigation on later relayerings.

@@ -1301,7 +1301,7 @@ def test_canvas_module_does_not_import_wtmm_at_top_level():
 
 
 def test_geographic_south_first_field_displays_north_up(qtbot):
-    """2026-08-19 fix: a GEOGRAPHIC field stored south-first (ascending latitude axis -- the
+    """A GEOGRAPHIC field stored south-first (ascending latitude axis -- the
     demo DEM) un-inverts the ViewBox so north draws at the top, matching the Vector tab; every
     other field keeps image convention (row 0 top). The ViewBox flip carries image AND overlays
     together, so registration needs no separate assertion -- the single inversion flag IS the
@@ -1331,7 +1331,7 @@ def test_geographic_south_first_field_displays_north_up(qtbot):
     assert canvas.view.state["yInverted"] is True           # EBSD/pixel maps: image convention
 
 
-# --------------------------- filter tweaks mask cached H-line geometry (2026-08-30, "laggy")
+# --------------------------- filter tweaks mask cached H-line geometry
 
 def _big_lines_result(keep=None):
     import numpy as np
@@ -1372,7 +1372,7 @@ def test_a_filtered_result_masks_the_cached_base_geometry_instead_of_rewalking(q
 
 def test_stamped_runs_spare_the_canvas_the_landing_walk(qtbot):
     """With _ext_base_runs stamped by the transform, the canvas builds its base geometry from
-    them -- hline_polylines (the main-thread _order_lines walk) is never called (2026-08-30)."""
+    them -- hline_polylines (the main-thread _order_lines walk) is never called."""
     import numpy as np
     from dynamix.core.hlines import hline_runs
     from dynamix.shell import canvas as canvas_mod
@@ -1469,7 +1469,7 @@ def test_selection_fast_path_caps_v_trails_and_says_so(qtbot):
     assert canvas.cap_note is None
 
 
-# --- perf-critical geometry correctness (2026-09-14) -------------------------------------------
+# --- perf-critical geometry correctness --------------------------------------------------------
 
 def test_hline_base_geometry_vectorized_matches_the_loop():
     """The vectorized run scatter must be byte-identical to the old per-run list.extend loop --
@@ -1513,7 +1513,7 @@ def test_cap_polylines_keeps_the_longest_and_reports_totals():
     assert (k, t) == (3, 3) and same_x is x
 
 
-# ------------------------------------------------------- subpixel display (2026-09-20 knob)
+# ---------------------------------------------------------------------------- subpixel display
 
 
 def test_hline_polylines_prefers_the_subpixel_channels():

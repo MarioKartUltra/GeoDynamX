@@ -41,15 +41,15 @@ round trip rather than recomputing a WTMM stack. Reusing the same ``Project`` ma
 reason: ``Project.add_source`` is idempotent by path, so the rebuilt layer gets the identical
 ``source_id`` and therefore the identical cache key.
 
-**Why no ``synchronous=True`` mode.** EQSelect's ``_WtmmWorker`` (2.3 and 7.4) carries an inline-execution mode that runs the worker's finish/fail slots
-directly, without a real ``QThread`` or event loop -- the audit recommends porting it so the
+**Why no ``synchronous=True`` mode.** EQSelect's ``_WtmmWorker`` carries an inline-execution mode
+that runs the worker's finish/fail slots directly, without a real ``QThread`` or event loop, so the
 result path is testable headlessly. DynamiX's dev loop does not need it, for a structural reason:
 this harness never hot-swaps code inside a running compute. A shell edit tears the window down
 and rebuilds it; it never reaches into ``ResolveWorker`` mid-flight. There is therefore no REPL
 call site here that needs a synchronous ``resolve()`` -- ``--ipython`` runs under ``%gui qt``,
 which keeps a REAL Qt event loop pumping in the background, so a queued worker signal is delivered
 exactly as it would be under ``app.exec()``; there is nothing for an inline mode to unblock. And
-headless testability, the audit's actual motivation, is already solved a different way in this
+headless testability, that mode's actual motivation, is already solved a different way in this
 codebase: ``app.py``'s ``--render`` mode pumps ``processEvents()`` until the window reports itself
 idle, which exercises the identical queued-signal path a real user's session takes -- the tests in
 ``tests/test_shell_window.py`` do the same via ``qtbot.waitSignal``. Adding a second, parallel
@@ -174,14 +174,14 @@ _DEPENDS_ON = {
     # whose single-color needs didn't earn the edge) plus ``dynamix.core.spectra``; no other
     # ``dynamix.shell.*`` module.
     "multifractal_window": ("theme",),
-    # 2026-09-20: the singularity-spectrum construction window -- imports theme (same precedent)
+    # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
     # core.spectra/core.chain_groups/core.microcanonical.
     "spectrum_window": ("theme", "multifractal_window"),
-    # 2026-09-16: the 3-D surface-source dialog -- pure Qt, self-contained (the
+    # The 3-D surface-source dialog -- pure Qt, self-contained (the
     # topology_panel/transect_panel shape).
     "surface_dialog": (),
-    # 2026-09-16: the density-slice editor -- imports theme (canvas.py precedent) + core.stretch.
+    # The density-slice editor -- imports theme (canvas.py precedent) + core.stretch.
     "levels_dialog": ("theme",),
     # "inspector" joins the list because main_window.py now imports
     # InspectorWindow at module level (it opens/closes them and fans ``resolved`` out to them).
@@ -416,8 +416,8 @@ def _run_ipython(app, loop: "DevLoop") -> int:
 
 
 def main(argv=None) -> int:
-    # A VTK/Cocoa segfault otherwise dies with no Python frame in the crash report (two of them
-    # on 2026-08-25); faulthandler prints the Python stack to stderr first.
+    # A VTK/Cocoa segfault otherwise dies with no Python frame in the crash report;
+    # faulthandler prints the Python stack to stderr first.
     import faulthandler
     try:
         faulthandler.enable()
@@ -445,9 +445,9 @@ def main(argv=None) -> int:
         try:
             _open(window, path)
         except Exception as exc:
-            # A bad path must not kill the loop (2026-09-20: a placeholder path took the
-            # whole launch down with a rasterio traceback) -- the window is already up;
-            # say what failed and let File > Open do its job.
+            # A bad path must not kill the loop (a rasterio traceback would otherwise take the
+            # whole launch down) -- the window is already up; say what failed and let
+            # File > Open do its job.
             print(f"devloop: could not open {path!r}: {exc}", file=sys.stderr)
 
     loop = DevLoop(app, window)

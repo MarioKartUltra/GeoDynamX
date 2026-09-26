@@ -21,9 +21,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-# DISABLED 2026-09-14: the index-selection filter mechanism these pin was unsound (froze the app
-# on min |W| / scale scrub) and is gated off at
-# ``chain_product._SELECTION_ENABLED``. Retained (not deleted) as the spec for the progressive (finest-first) compute redesign that will re-enable it. Unskip when that flag flips.
+# DISABLED: the index-selection filter mechanism these pin was unsound (froze the app on
+# min |W| / scale scrub) and is gated off at ``chain_product._SELECTION_ENABLED``. Retained (not
+# deleted) as the spec for the progressive (finest-first) compute redesign that will re-enable
+# it. Unskip when that flag flips.
 pytest.skip("selection mechanism disabled 2026-09-14 pending progressive-compute redesign",
             allow_module_level=True)
 

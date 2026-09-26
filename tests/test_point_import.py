@@ -208,7 +208,7 @@ def test_layer_panel_groups_a_point_layer_under_its_own_source_header():
     assert panel.topLevelItemCount() == 1
     header = panel.topLevelItem(0)
     assert header.text(0) == "quakes"
-    # The dataset's first layer IS its row (2026-09-23) -- no second "quakes" row under it.
+    # The dataset's first layer IS its row -- no second "quakes" row under it.
     assert header.childCount() == 0
     assert panel._layer_items[layer.layer_id] is header
     assert panel.count() == 1

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Reference layers on the 2-D canvas and in the 3-D scene (2026-08-29): interpretation drawn
-over the data -- BOEM's anomaly polygons over the bathymetry they were mapped from."""
+"""Reference layers on the 2-D canvas and in the 3-D scene: interpretation drawn over the
+data -- BOEM's anomaly polygons over the bathymetry they were mapped from."""
 from __future__ import annotations
 
 import numpy as np
@@ -48,7 +48,7 @@ def test_setting_a_new_list_replaces_old_items(qtbot):
     assert set(c.reference_items) == {"ref1"}
 
 
-# ------------------------------------------------------------------- the window (2026-08-29)
+# ---------------------------------------------------------------------------------- the window
 
 from pathlib import Path  # noqa: E402
 
@@ -102,8 +102,8 @@ def test_reopening_a_project_re_reads_reference_files_and_reports_a_missing_one(
 
 
 def test_status_reports_how_many_features_fall_inside_the_raster(loaded, tmp_path):
-    # 2026-08-29: a shapefile opened but showed nothing -- the layer had nothing
-    # inside the 12 km window. The status line must say so instead of leaving the user guessing.
+    # A layer with no features inside the raster's window opens and shows nothing. The status
+    # line must say so instead of leaving the user guessing.
     from rasterio.crs import CRS
     far = tmp_path / "far_away"
     ring = [(500.0, 500.0), (600.0, 500.0), (600.0, 600.0), (500.0, 500.0)]
@@ -114,8 +114,8 @@ def test_status_reports_how_many_features_fall_inside_the_raster(loaded, tmp_pat
 
 
 def test_open_path_routes_a_shapefile_to_the_reference_layers_and_keeps_the_field(loaded, tmp_path):
-    # 2026-08-29: "in the products folders the shp are greyed out too" -- the user was in the
-    # raster Open dialog. Whichever dialog a shapefile comes through, it is a reference layer.
+    # A shapefile can arrive through the raster Open dialog too. Whichever dialog a shapefile
+    # comes through, it is a reference layer.
     before = loaded.field
     loaded.open_path(str(_shp(tmp_path)))
     assert [r.name for r in loaded.project.reference_layers] == ["anomaly_slumps"]
@@ -134,8 +134,8 @@ def test_opening_a_lyr_opens_every_shapefile_under_the_packages_commondata(loade
     assert sorted(r.name for r in loaded.project.reference_layers) == ["anomaly_slumps", "plumes"]
 
 
-# ------------------------------------------------------ zoom to a layer's full extent (2026-08-29)
-# The layers were always drawn whole; the VIEW was fitted to the raster. Double-click a row.
+# ------------------------------------------------------------------ zoom to a layer's full extent
+# The layers are drawn whole; the VIEW is fitted to the raster. Double-click a row.
 
 def test_double_clicking_a_reference_row_asks_to_zoom_to_it(qtbot):
     from dynamix.model.project import ReferenceLayerRecord
@@ -165,8 +165,7 @@ def test_scene_entries_carry_the_layer_in_the_fields_pixel_frame_for_surface_rid
 
 
 def test_multi_select_unchecks_every_selected_row_at_once(qtbot):
-    """2026-09-22 (user: a shp package opens many layers; "no option to do the classic
-    shift+click or ctrl click ... uncheck them at the same time"): rows are extended-select,
+    """A shp package opens many layers: rows are extended-select (shift+click, ctrl+click),
     and toggling one selected row's checkbox propagates to every selected row (one
     visibilityToggled per row)."""
     from PySide6 import QtCore

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""ResolveWorker cancellation (progressive compute, design 2026-09-14 §3).
+"""ResolveWorker cancellation (progressive compute).
 
 A cancel requested before/while the resolve runs must land on the ``cancelled`` signal, never
 ``finished`` or ``error`` -- a superseded compute is not a failure. Exercised on a real QThread

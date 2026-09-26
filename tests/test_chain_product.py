@@ -196,7 +196,7 @@ def test_scales_and_shape_ride_along():
 
 
 # ---------------------------------------------------------------------------------------------
-# npz persistence: schema v4 (EQSelect 2026-08-01 spec Phase B -- v3 layout + h_arg/v_arg),
+# npz persistence: schema v4 (EQSelect extrema-layers spec Phase B -- v3 layout + h_arg/v_arg),
 # plus additive pixel columns for an exact DynamiX round-trip. The SAME bundle is
 # the on-disk product. Compatibility gate: dynamix.core.wtmm_backend.load_chains_npz is the
 # VERBATIM EQSelect loader, so it loading our file IS the interop check.
@@ -344,7 +344,7 @@ def test_stub_capped_chains_keeps_positions_for_picking():
     assert same is chains and note is None                   # under the cap: untouched, no copy
 
 
-# ------------------------------------------------------- subpixel columns (2026-09-20 knob)
+# ------------------------------------------------------------------------- subpixel columns
 
 
 def test_float_display_columns_ride_alongside_the_integer_identity():

@@ -93,8 +93,8 @@ class _FakeArrangement:
     def set_scale_space(self, enabled: bool, stretch: float) -> None:
         self.scale_space_calls.append((bool(enabled), stretch))
 
-    # 2026-08-29: the window now pushes footprints/previews/reference layers into whatever
-    # arrangement it holds; a double that stands in for it accepts them silently.
+    # The window pushes footprints/previews/reference layers into whatever arrangement it
+    # holds; a double that stands in for it accepts them silently.
     def set_footprints(self, footprints):
         self.footprints = list(footprints)
 
@@ -465,11 +465,10 @@ def test_same_frame_and_shape_still_admitted(qtbot, stub_devices):
 
 
 def test_bare_ndarray_sibling_field_is_excluded_without_crashing_in_vector_mode(qtbot, stub_devices):
-    """Reviewer-reproduced Critical: ``field.frame`` was accessed unguarded in the vector
-    admission gate, so a visible NON-active layer whose field is a bare ndarray raised
-    ``AttributeError`` the instant ``_set_center_view("vector")`` tried to classify it. Must not
-    raise; the frameless layer is simply excluded (no entry), while the real, framed active
-    layer's own entry is unaffected."""
+    """The vector admission gate guards ``field.frame``: unguarded, a visible NON-active layer
+    whose field is a bare ndarray raised ``AttributeError`` the instant
+    ``_set_center_view("vector")`` tried to classify it. Must not raise; the frameless layer is
+    simply excluded (no entry), while the real, framed active layer's own entry is unaffected."""
     from dynamix.shell.main_window import MainWindow
 
     win = MainWindow(steps=STUB_CHAIN)

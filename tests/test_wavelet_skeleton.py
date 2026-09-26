@@ -5,10 +5,9 @@ compact-support wavelet (Tang & You 2003, eq 4-5) and the modulus-minima thinnin
 (You/Chen/Fang/Tang 2006, Algorithm 1), reimplemented against the corpus papers
 (tang_you_2003_ribbon_skeleton_wavelet, you_etal_2006_thinning_modulus_minima).
 
-The acceptance tests ARE the papers' own theorems, measured 2026-09-19 on synthetic
-ribbons: maxima separation == the SCALE (width-invariant -- positions exactly equal across
-stroke widths 4/8/12 at fixed s), modulus minimum on the centerline within 1 px at every
-(d, s) tested."""
+The acceptance tests ARE the papers' own theorems, measured on synthetic ribbons: maxima
+separation == the SCALE (width-invariant -- positions exactly equal across stroke widths
+4/8/12 at fixed s), modulus minimum on the centerline within 1 px at every (d, s) tested."""
 from __future__ import annotations
 
 import numpy as np
@@ -146,15 +145,14 @@ def test_skeletonize_result_carries_the_stage_record():
     assert res["mod"].shape == res["skeleton"].shape                 # stage-1 field modulus
 
 
-# --------------------------------------------------- the adversarial-review suite (pinned)
+# --------------------------------------------------- the adversarial-geometry suite (pinned)
 
 def test_adversarial_geometries_are_ghost_free():
-    """The 2026-09-19 adversarial review's failure suite, pinned after the ridge-pair
-    redesign: the one-sided gates it condemned gave 68% ghost pixels on a 45-deg stripe,
-    95% with 1% noise, and support-boundary bands at ~s+d/2; the pair test with pair
-    DOMINANCE (a valley whose flanking pair is under half the strongest reachable ridge is
-    on someone else's slope -- the ring's inner-tail chord self-pairing) measures 0% >2px
-    on all four geometries, max deviation <= 1 px."""
+    """Adversarial geometries, pinned against the ridge-pair test: one-sided gates gave 68%
+    ghost pixels on a 45-deg stripe, 95% with 1% noise, and support-boundary bands at
+    ~s+d/2; the pair test with pair DOMINANCE (a valley whose flanking pair is under half the
+    strongest reachable ridge is on someone else's slope -- the ring's inner-tail chord
+    self-pairing) measures 0% >2px on all four geometries, max deviation <= 1 px."""
     n = 129
     yy, xx = np.mgrid[:n, :n].astype(float)
     rr = np.hypot(xx - 64, yy - 64)
@@ -176,10 +174,10 @@ def test_adversarial_geometries_are_ghost_free():
 
 
 def test_nan_regions_grow_a_distrust_band_not_phantoms():
-    """Adversarial review: mean-filling a NaN disk on a structureless ramp fabricated a
-    149-px phantom ribbon, 42 px of it INSIDE the data-free region. The wtmm extrema2d
-    NaN-dilation doctrine now applies -- one kernel support around every non-finite pixel
-    is distrusted, same policy as the raster border."""
+    """Mean-filling a NaN disk on a structureless ramp fabricated a 149-px phantom ribbon, 42 px
+    of it INSIDE the data-free region. The wtmm extrema2d NaN-dilation doctrine applies -- one
+    kernel support around every non-finite pixel is distrusted, same policy as the raster
+    border."""
     n = 129
     yy, xx = np.mgrid[:n, :n].astype(float)
     rr = np.hypot(xx - 64, yy - 64)

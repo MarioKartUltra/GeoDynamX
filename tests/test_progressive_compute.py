@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Headless primitives for progressive finest-first compute (spec 2026-09-14 §2).
+"""Headless primitives for progressive finest-first compute.
 
 Two things, both pure/headless (the GUI streaming + cancel wiring is a separate devloop slice):
 

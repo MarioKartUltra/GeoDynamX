@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Tests for the SPLIT microcanonical tools (devices/holder_methods.py) -- holder_measure and
-holder_multiaffine, one device per method with only the wavelet family that method admits
-(2026-09-19 design LAW). The conflated
-holder_map stays registered for saved projects; these are its successors."""
+holder_multiaffine, one device per method with only the wavelet family that method admits. The
+conflated holder_map stays registered for saved projects; these are its successors."""
 from __future__ import annotations
 
 import numpy as np
@@ -102,13 +101,12 @@ def test_punctual_estimator_is_ponts_single_finest_scale():
 
 
 def test_punctual_flat_patches_are_nan_on_both_methods():
-    """The fabricated-exponent guard, device edition (adversarial review, 2026-09-19): a
-    nodata flat has no honest exponent under EITHER estimator. The measure route's flat is
-    dust (caught by the function-level floor); the MULTIAFFINE route's flat carries a
-    uniform ~1e-3-of-mean response at badly-sampled fine scales (the discrete kernel's
-    mean-subtraction DC-couples every pixel to the whole image), which only the cross-scale
-    mask catches -- the same mask that NaNs it under regression, so the two estimators
-    agree on WHERE an exponent exists and differ only in HOW it is estimated."""
+    """The fabricated-exponent guard, device edition: a nodata flat has no honest exponent under
+    EITHER estimator. The measure route's flat is dust (caught by the function-level floor); the
+    MULTIAFFINE route's flat carries a uniform ~1e-3-of-mean response at badly-sampled fine
+    scales (the discrete kernel's mean-subtraction DC-couples every pixel to the whole image),
+    which only the cross-scale mask catches -- the same mask that NaNs it under regression, so
+    the two estimators agree on WHERE an exponent exists and differ only in HOW it is estimated."""
     rng = np.random.default_rng(0)
     vals = rng.normal(0.0, 1.0, (128, 128)).cumsum(axis=1)   # textured half
     vals[:, :64] = 3.7                                        # exactly flat half

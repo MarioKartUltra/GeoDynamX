@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""holder_measure / holder_multiaffine — the SPLIT microcanonical tools (2026-09-19 design
-LAW): one device per method, each
-exposing ONLY the wavelet class its method admits, under the method's own names.
+"""holder_measure / holder_multiaffine — the SPLIT microcanonical tools: one device per method,
+each exposing ONLY the wavelet class its method admits, under the method's own names.
 
 The smell these fix: the conflated ``holder_map`` crossed ``estimator`` with ``wavelet`` as
 if they were orthogonal, but "gaussian" named a POSITIVE Gaussian under ``measure`` and the
@@ -16,8 +15,8 @@ family is a property of the METHOD:
   fields): g1/g2/g3 (the derivative-order axis; g2 IS the conflated device's default
   Ricker), q-Mexican, Lorentzian-Marr, fractional Gaussian (continuous order ``frac_n``).
 
-Both expose the Pont 2006 estimator pair (the left limb answer, 2026-09-19): ``regression``
-(multiscale local-singularity — resolves BOTH limbs of D(h); the default) and ``punctual``
+Both expose the Pont 2006 estimator pair: ``regression`` (multiscale local-singularity —
+resolves BOTH limbs of D(h); the default) and ``punctual``
 (:func:`~dynamix.core.microcanonical.singularity_map_point` — single finest scale, the LEFT
 limb / most-singular-set extractor with the sharpest spatial localization; the full scale
 grid is still projected for the estimator-orthogonal no-support mask -- see
@@ -72,8 +71,8 @@ def method_arrays(vals, method: str, params: dict, progress=None):
     if punctual:
         # h from the FINEST scale alone (Pont's estimator), but the no-support mask from
         # the whole stack: support is a data-quality property both estimators share (see
-        # no_support_mask -- the fabricated-h finding of the 2026-09-19 split review), so
-        # the full grid is still projected and kappa/n_scales shape only the mask.
+        # no_support_mask), so the full grid is still projected and kappa/n_scales shape only
+        # the mask.
         h_map = mc.singularity_map_point(T[0], mc.relative_scale(scales[0], vals.shape))
         h_map[mc.no_support_mask(T).reshape(vals.shape)] = np.nan
         r2_map = np.full(vals.shape, np.nan, dtype=np.float32)
@@ -81,9 +80,9 @@ def method_arrays(vals, method: str, params: dict, progress=None):
         h_map, r2_map = mc.singularity_map_regression(T, scales, r2_min=0.0)
     if progress is not None:
         progress("holder estimate", 1.0)
-    # NaN in, NaN out (2026-09-22): a nodata pixel never gets an exponent, whatever the
-    # kernel -- heavy tails used to report their own tail exponent (2beta - d) there, and even
-    # a Gaussian reports one near the nodata edge (its reach crosses to real data).
+    # NaN in, NaN out: a nodata pixel never gets an exponent, whatever the kernel -- unmasked,
+    # heavy tails report their own tail exponent (2beta - d) there, and even a Gaussian reports
+    # one near the nodata edge (its reach crosses to real data).
     nodata = ~np.isfinite(np.asarray(vals, dtype=np.float64))
     if nodata.any():
         h_map = np.asarray(h_map).copy()

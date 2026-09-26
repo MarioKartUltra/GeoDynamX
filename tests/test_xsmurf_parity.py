@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""End-to-end parity against the REAL xsmurf C, via XSmurfWrapper (2026-09-21).
+"""End-to-end parity against the REAL xsmurf C, via XSmurfWrapper.
 
-Whether the chaining results match xsmurf's on real datasets was, until this file, answered only by
-semantics-level pins (behavioral tests written from reading the C). This file runs the SAME
+Complements the semantics-level pins (behavioral tests written from reading the C) with an
+end-to-end check of whether the chaining results match xsmurf's: this file runs the SAME
 derivative images through both stacks in-process and pins the agreement:
 
 - ``xsmurf_wrapper.wtmm2d`` wraps ``Extract_Gradient_Maxima_2D`` (edge/extrema.c -- the exact
@@ -11,7 +11,7 @@ derivative images through both stacks in-process and pins the agreement:
 - ``xsmurf_wrapper.chain``/``extract_vertical_chains`` drive the real ``vchain`` C
   (wt2d/chain2.c -- what ``chains2d`` transcribes).
 
-Measured on first run (fbm 96^2, H=0.6, seed 7, n_oct=2, n_voice=2, thresh=0):
+Measured (fbm 96^2, H=0.6, seed 7, n_oct=2, n_voice=2, thresh=0):
 
 - NMS: every interior position identical except knife-edge ties (<= 5 per scale, both
   directions combined); moduli agree to float32 (~1.2e-7 rel). Our extrema are a strict SUPERSET whose

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Tests for dynamix.core.ingest + the opening route -- the 2026-09-21 sensor-format support.
+"""Tests for dynamix.core.ingest + the opening route -- the sensor-format support.
 
 Fixtures are GENERATED (tiny netCDF via netCDF4, HDF5 via h5py, multiband GeoTIFF via
 rasterio); HDF4 writing needs pyhdf's SD create path and is exercised only when it works on
