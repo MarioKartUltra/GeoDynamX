@@ -399,3 +399,155 @@ class RightPanel(QtWidgets.QScrollArea):
         else:
             label = "3-D surface: other dataset…"
         self.surface_button.setText(label)
+
+
+class CompositePanel(QtWidgets.QWidget):
+    """The multiband composite mixer: one row per band with its channel assignment (R/G/B)
+    and DAW-style Solo / Mute buttons. Emits ``compositeChanged`` with the canvas's
+    ``set_composite`` spec; :meth:`set_bands` rebuilds silently from stored state. A channel
+    feeds from at most one band -- assigning it steals it from whichever band held it."""
+
+    compositeChanged = QtCore.Signal(dict)
+    _CHANNELS = ("—", "R", "G", "B")
+    #: The composite's OWN stretch (not the Display section's): one type for every channel,
+    #: each channel computed from its own band. (mode, label, value it uses)
+    _STRETCH_MODES = (("linear", "linear (min–max)", None),
+                      ("percent", "percent clip", "pct"),
+                      ("stddev", "std-dev", "k"),
+                      ("log", "log", None),
+                      ("histogram", "histogram equalize", None),
+                      ("bipolar", "bipolar (about 0)", "pct"))
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Stretch"))
+        self.stretch_combo = QtWidgets.QComboBox()
+        for mode, label, _v in self._STRETCH_MODES:
+            self.stretch_combo.addItem(label, mode)
+        self.stretch_value = QtWidgets.QDoubleSpinBox()
+        self.stretch_value.setDecimals(1)
+        self.stretch_value.setSingleStep(0.5)
+        row.addWidget(self.stretch_combo, 1)
+        row.addWidget(self.stretch_value)
+        outer.addLayout(row)
+        self._grid = QtWidgets.QGridLayout()
+        outer.addLayout(self._grid)
+        self._rows: list = []
+        self._loading = False
+        self._pct, self._k = 2.0, 2.0
+        self.stretch_combo.currentIndexChanged.connect(self._on_stretch_mode)
+        self.stretch_value.valueChanged.connect(self._on_stretch_value)
+        self._sync_value_box()
+
+    def _value_kind(self) -> "str | None":
+        mode = self.stretch_combo.currentData()
+        return next(v for m, _l, v in self._STRETCH_MODES if m == mode)
+
+    def _sync_value_box(self) -> None:
+        """The one value box shows the percent (percent clip, bipolar) or k (std-dev) the
+        current type uses, and hides for the types that use none."""
+        kind = self._value_kind()
+        self.stretch_value.blockSignals(True)
+        if kind == "pct":
+            self.stretch_value.setRange(0.0, 49.9)
+            self.stretch_value.setSuffix(" %")
+            self.stretch_value.setValue(self._pct)
+        elif kind == "k":
+            self.stretch_value.setRange(0.1, 10.0)
+            self.stretch_value.setSuffix(" σ")
+            self.stretch_value.setValue(self._k)
+        self.stretch_value.blockSignals(False)
+        self.stretch_value.setVisible(kind is not None)
+
+    def _on_stretch_mode(self, *_a) -> None:
+        self._sync_value_box()
+        self._emit()
+
+    def _on_stretch_value(self, value: float) -> None:
+        if self._value_kind() == "k":
+            self._k = float(value)
+        else:
+            self._pct = float(value)
+        self._emit()
+
+    def set_bands(self, names, spec: dict) -> None:
+        """One row per band, seeded from ``spec`` (non-emitting)."""
+        self._loading = True
+        self._pct = float(spec.get("stretch_pct", 2.0) if spec.get("stretch_pct") is not None
+                          else 2.0)
+        self._k = float(spec.get("stretch_k", 2.0) if spec.get("stretch_k") is not None
+                        else 2.0)
+        mode_idx = self.stretch_combo.findData(spec.get("stretch") or "percent")
+        self.stretch_combo.blockSignals(True)
+        self.stretch_combo.setCurrentIndex(max(mode_idx, 0))
+        self.stretch_combo.blockSignals(False)
+        self._sync_value_box()
+        while self._grid.count():
+            item = self._grid.takeAt(0)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+        self._rows = []
+        chan_of = {}
+        for c in ("r", "g", "b"):
+            b = spec.get(c)
+            if isinstance(b, int):
+                chan_of.setdefault(b, c.upper())
+        solo = set(spec.get("solo") or ())
+        mute = set(spec.get("mute") or ())
+        for i, name in enumerate(names):
+            label = QtWidgets.QLabel(str(name))
+            combo = QtWidgets.QComboBox()
+            combo.addItems(self._CHANNELS)
+            combo.setCurrentText(chan_of.get(i, "—"))
+            combo.currentTextChanged.connect(
+                lambda text, row=i: self._on_channel_changed(row, text))
+            s_btn = QtWidgets.QToolButton()
+            s_btn.setText("S")
+            s_btn.setCheckable(True)
+            s_btn.setChecked(i in solo)
+            s_btn.setToolTip("Solo — show only this band (grayscale when it is the only one)")
+            m_btn = QtWidgets.QToolButton()
+            m_btn.setText("M")
+            m_btn.setCheckable(True)
+            m_btn.setChecked(i in mute)
+            m_btn.setToolTip("Mute — silence this band's channel in the composite")
+            s_btn.toggled.connect(self._emit)
+            m_btn.toggled.connect(self._emit)
+            self._grid.addWidget(label, i, 0)
+            self._grid.addWidget(combo, i, 1)
+            self._grid.addWidget(s_btn, i, 2)
+            self._grid.addWidget(m_btn, i, 3)
+            self._rows.append((combo, s_btn, m_btn))
+        self._loading = False
+
+    def _on_channel_changed(self, row: int, text: str) -> None:
+        if self._loading:
+            return
+        if text != "—":                       # a channel feeds from at most one band
+            self._loading = True
+            for i, (combo, _s, _m) in enumerate(self._rows):
+                if i != row and combo.currentText() == text:
+                    combo.setCurrentText("—")
+            self._loading = False
+        self._emit()
+
+    def spec(self) -> dict:
+        out = {"r": None, "g": None, "b": None, "solo": [], "mute": [],
+               "stretch": self.stretch_combo.currentData(), "stretch_pct": self._pct,
+               "stretch_k": self._k}
+        for i, (combo, s_btn, m_btn) in enumerate(self._rows):
+            text = combo.currentText()
+            if text != "—":
+                out[text.lower()] = i
+            if s_btn.isChecked():
+                out["solo"].append(i)
+            if m_btn.isChecked():
+                out["mute"].append(i)
+        return out
+
+    def _emit(self, *_a) -> None:
+        if not self._loading:
+            self.compositeChanged.emit(self.spec())

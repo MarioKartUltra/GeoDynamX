@@ -99,6 +99,12 @@ def source_identity(layer, source_id: str | None = None) -> str:
     window = layer.tags.get("roi.window") if layer is not None else None
     if window:
         sid = f"{sid}|win:{window}"
+    # A band removed from a stack dataset: the source keeps its id but not its content, so
+    # the band set joins the identity (same tags-as-truth fold) -- a result computed on the
+    # full stack must never answer for the reduced one.
+    bands = layer.tags.get("data.bands") if layer is not None else None
+    if bands:
+        sid = f"{sid}|bands:{bands}"
     return sid
 
 

@@ -491,3 +491,16 @@ def test_remove_reference_layer_forgets_the_record_and_round_trips(_registry):
     assert p.remove_reference_layer("ref0") is False               # already gone: says so
     q = Project.from_payload(p.to_payload())
     assert [x.path for x in q.reference_layers] == [keep.path]
+
+
+def test_a_band_list_joins_the_source_identity_and_round_trips(_registry):
+    p = Project()
+    whole = p.add_source("/data/granule.hdf")
+    vnir = p.add_source("/data/granule.hdf", bands=["VNIR_Band1/ImageData"], label="vnir")
+    swir = p.add_source("/data/granule.hdf", bands=["SWIR_Band4/ImageData"])
+    assert len({whole.source_id, vnir.source_id, swir.source_id}) == 3
+    assert p.add_source("/data/granule.hdf", bands=["VNIR_Band1/ImageData"]) is vnir
+    assert p.add_source("/data/granule.hdf") is whole
+    q = Project.from_payload(p.to_payload())
+    assert q.sources[vnir.source_id].bands == ["VNIR_Band1/ImageData"]
+    assert q.sources[whole.source_id].bands is None

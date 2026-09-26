@@ -506,6 +506,50 @@ def classify_chains(chains) -> tuple[list, list, dict[tuple, list]]:
     return plain, seam, grouped
 
 
+def _composite_rgba(stack, spec: dict):
+    """A multiband stack ``(my, mx, nc)`` as display RGBA under the composite law.
+
+    ``spec``: ``r``/``g``/``b`` = 0-based band index feeding that channel (or ``None``),
+    ``mute`` silences a band's channels, ``solo`` (DAW semantics) shows only the soloed
+    bands -- ONE solo draws that band grayscale in all three channels, several keep each in
+    its assigned channel. ``stretch`` (a :data:`~dynamix.core.stretch.STRETCHES` mode, default
+    ``percent``) with its ``stretch_pct`` / ``stretch_k`` is ONE choice for all channels, each
+    computed from its OWN band's statistics (the ENVI RGB convention). Alpha is 0 where no
+    used band is finite. Returns pyqtgraph's (x, y) orientation, uint8."""
+    from dynamix.core.stretch import STRETCHES, stretch
+
+    my, mx, nc = stack.shape
+    mode = spec.get("stretch") if spec.get("stretch") in STRETCHES else "percent"
+    pct = float(spec.get("stretch_pct", 2.0) if spec.get("stretch_pct") is not None else 2.0)
+    k = float(spec.get("stretch_k", 2.0) if spec.get("stretch_k") is not None else 2.0)
+    solo = [b for b in (spec.get("solo") or []) if isinstance(b, int) and 0 <= b < nc]
+    mute = {b for b in (spec.get("mute") or []) if isinstance(b, int)}
+    assign = {c: spec.get(c) for c in ("r", "g", "b")}
+    assign = {c: (b if isinstance(b, int) and 0 <= b < nc else None)
+              for c, b in assign.items()}
+
+    def norm(b):
+        return np.clip(np.nan_to_num(stretch(stack[..., b], mode, percent=pct, k=k),
+                                     nan=0.0), 0.0, 1.0)
+
+    zeros = np.zeros((my, mx))
+    if len(solo) == 1:
+        plane = norm(solo[0])
+        channels = [plane, plane, plane]
+        used = set(solo)
+    else:
+        def keep(b):
+            return b is not None and b not in mute and (not solo or b in solo)
+
+        channels = [norm(assign[c]) if keep(assign[c]) else zeros for c in ("r", "g", "b")]
+        used = {assign[c] for c in ("r", "g", "b") if keep(assign[c])}
+    finite = np.zeros((my, mx), dtype=bool)
+    for b in used:
+        finite |= np.isfinite(stack[..., b])
+    rgba = np.stack(channels + [finite.astype(np.float64)], axis=-1)
+    return (rgba * 255.0).astype(np.uint8).transpose(1, 0, 2)
+
+
 def lod_stride(shape, max_dim: int = _DEFAULT_MAX_DIM) -> int:
     """Display decimation stride so the larger raster dimension is <= ``max_dim`` (1 = full res).
 
@@ -680,6 +724,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._wavelet_curve = None
         self._field = None                 # set by set_field(); None until a layer is loaded
         self._image_stride = 1             # set_field's decimation, reused by _refresh_image
+        self._composite = None             # multiband display law (set_composite); None = band 1
         self._hillshade = (False, 315.0, 45.0, 1.0)   # (on, sun azimuth, sun altitude, z_factor)
         self._stretch = ("linear", 2.0)             # (core.stretch mode, percent clip)
         self._levels = ""                            # density-slice spec text ("" = off)
@@ -1287,6 +1332,14 @@ a bounded gather of at most :attr:`draw_cap` chains per
             return stretch(small, mode, percent=pct)
         return None
 
+    def set_composite(self, spec: "dict | None") -> None:
+        """The multiband display law: ``{"r"/"g"/"b": band index or None, "solo": [...],
+        "mute": [...], "stretch_pct": float}`` (:func:`_composite_rgba`), or ``None`` to fall
+        back to band 1 through the scalar pipeline. View state only -- analysis never reads
+        it."""
+        self._composite = dict(spec) if spec else None
+        self._refresh_image()
+
     def _refresh_image(self) -> None:
         """Put the current field on ``image_item`` -- plain values through the LUT, or the
         hillshaded RGBA -- at ``set_field``'s decimation."""
@@ -1294,8 +1347,15 @@ a bounded gather of at most :attr:`draw_cap` chains per
             return
         values = np.asarray(getattr(self._field, "values", self._field), dtype=np.float64)
         if values.ndim == 3:
-            # A multi-component stack (2026-09-21 sensor ingestion): the canvas displays band
-            # 0; the FIELD keeps every band for analysis (pca/tucker/tensor consume the stack).
+            # A multi-component stack (2026-09-21 sensor ingestion): with a composite spec
+            # (set_composite -- channel assignment, solo, mute) the stack draws as RGBA;
+            # without one the canvas displays band 0. The FIELD keeps every band for
+            # analysis either way (pca/tucker/tensor consume the stack).
+            if self._composite:
+                s = self._image_stride
+                self.image_item.setImage(
+                    _composite_rgba(values[::s, ::s, :], self._composite), levels=None)
+                return
             values = values[..., 0]
         s = self._image_stride
         small = values[::s, ::s]

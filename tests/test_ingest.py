@@ -112,3 +112,141 @@ def test_single_variable_container_needs_no_ceremony(h5_file):
 
     field = open_field(str(h5_file))
     assert field.values.shape == (4, 5)
+
+
+# ------------------------------------------- HDF4 name collisions (the ASTER layout)
+
+def _aster_like(tmp_path):
+    """Two HDF-EOS-style swaths whose image SDS share one NAME -- the ASTER layout: every
+    band's array is called ImageData, distinguished only by its swath Vgroup."""
+    from pyhdf import V  # noqa: F401 -- vgstart() needs the submodule linked
+    from pyhdf.HDF import HC, HDF
+    from pyhdf.SD import SD, SDC
+
+    p = tmp_path / "aster_like.hdf"
+    sd = SD(str(p), SDC.WRITE | SDC.CREATE)
+    refs = {}
+    for swath, shape, base in (("VNIR_Band1", (12, 10), 100.0),
+                               ("VNIR_Band2", (12, 10), 500.0),
+                               ("SWIR_Band4", (6, 8), 900.0)):
+        sds = sd.create("ImageData", SDC.FLOAT64, shape)
+        sds[:] = base + np.arange(np.prod(shape), dtype=np.float64).reshape(shape)
+        refs[swath] = sds.ref()
+        sds.endaccess()
+    lone = sd.create("Cloud_Table", SDC.FLOAT64, (4, 4))
+    lone[:] = np.zeros((4, 4))
+    lone.endaccess()
+    sd.end()
+    h = HDF(str(p), HC.WRITE)
+    v = h.vgstart()
+    for swath, ref in refs.items():
+        outer = v.attach(-1, 1)
+        outer._name, outer._class = swath, "SWATH"
+        inner = v.attach(-1, 1)
+        inner._name, inner._class = "Data Fields", "SWATH Vgroup"
+        inner.add(getattr(HC, "DFTAG_NDG", 720), ref)
+        outer.insert(inner)
+        inner.detach()
+        outer.detach()
+    v.end()
+    h.close()
+    return p
+
+
+@pytest.fixture
+def aster_like_hdf4(tmp_path):
+    pytest.importorskip("pyhdf")
+    try:
+        return _aster_like(tmp_path)
+    except Exception as exc:                              # pragma: no cover - env guard
+        pytest.skip(f"pyhdf cannot create HDF4 groups here: {exc}")
+
+
+def test_hdf4_same_named_bands_probe_as_swath_qualified_grids(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    subs = ingest.probe(aster_like_hdf4)["subdatasets"]
+    ids = [s for s, _d in subs]
+    assert "VNIR_Band1/ImageData" in ids and "SWIR_Band4/ImageData" in ids
+    assert ids.index("VNIR_Band1/ImageData") < ids.index("Cloud_Table")  # images list first
+    desc = dict(subs)
+    assert "(12, 10)" in desc["VNIR_Band1/ImageData"]
+
+
+def test_hdf4_qualified_id_loads_that_swaths_band(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    f = ingest.load_grid(aster_like_hdf4, subdataset="SWIR_Band4/ImageData")
+    assert f.values.shape == (6, 8) and f.values[0, 0] == 900.0
+    assert f.provenance["subdataset"] == "SWIR_Band4/ImageData"
+
+
+def test_hdf4_bare_name_still_selects_the_first_match(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    f = ingest.load_grid(aster_like_hdf4, subdataset="ImageData")
+    assert f.values.shape == (12, 10)                     # how it always resolved
+
+
+def test_hdf4_picture_and_window_read_follow_the_qualified_id(aster_like_hdf4):
+    from dynamix.roi.picture import read_picture_hdf4
+    from dynamix.roi.runner import _read_hdf4
+
+    pic = read_picture_hdf4(aster_like_hdf4, "SWIR_Band4/ImageData", max_dim=4)
+    assert pic.provenance["full_dims"] == (6, 8)
+    vals, _t = _read_hdf4(aster_like_hdf4, "SWIR_Band4/ImageData", 0, 0, 2, 3)
+    assert vals[0, 0] == 900.0 and vals.shape == (2, 3)
+
+
+def test_probe_reports_hdf4_dims_per_id(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    info = ingest.probe(aster_like_hdf4)
+    assert info["dims"]["VNIR_Band1/ImageData"] == (12, 10)
+    assert info["dims"]["SWIR_Band4/ImageData"] == (6, 8)
+
+
+def test_same_grid_bands_stack_in_the_given_order(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    f = ingest.load_grid_stack(aster_like_hdf4,
+                               ["VNIR_Band2/ImageData", "VNIR_Band1/ImageData"],
+                               name="vnir")
+    assert f.values.shape == (12, 10, 2)
+    assert f.values[0, 0, 0] == 500.0 and f.values[0, 0, 1] == 100.0
+    assert f.provenance["bands"] == ["VNIR_Band2/ImageData", "VNIR_Band1/ImageData"]
+    assert f.provenance["subdataset"] is None
+
+
+def test_bands_on_different_grids_refuse_to_stack(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    with pytest.raises(ValueError, match="different grids"):
+        ingest.load_grid_stack(aster_like_hdf4,
+                               ["VNIR_Band1/ImageData", "SWIR_Band4/ImageData"])
+
+
+def test_a_single_id_stack_is_a_plain_load(aster_like_hdf4):
+    from dynamix.core import ingest
+
+    f = ingest.load_grid_stack(aster_like_hdf4, ["SWIR_Band4/ImageData"], name="one")
+    assert f.values.shape == (6, 8) and f.name == "one"
+
+
+def test_band_index_tokens_reopen_a_subset_of_a_multiband_file(tmp_path):
+    from dynamix.core import ingest
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    v = np.stack([np.full((4, 5), float(k)) for k in range(3)], axis=-1)
+    p = tmp_path / "stack.npz"
+    RasterField(name="stack", values=v, frame=LocalFrame(), x_axis=np.arange(5.0),
+                y_axis=np.arange(4.0)).save_npz(p)
+    two = ingest.load_grid_stack(p, ["#0", "#2"])
+    assert two.values.shape == (4, 5, 2)
+    assert two.values[0, 0, 0] == 0.0 and two.values[0, 0, 1] == 2.0
+    assert two.provenance["bands"] == ["#0", "#2"]
+    one = ingest.load_grid_stack(p, ["#1"])
+    assert one.values.shape == (4, 5) and one.values[0, 0] == 1.0
+    with pytest.raises(ValueError, match="do not exist"):
+        ingest.load_grid_stack(p, ["#7"])

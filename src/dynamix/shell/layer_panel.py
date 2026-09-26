@@ -50,6 +50,10 @@ _SOURCE_ID_ROLE = QtCore.Qt.UserRole + 1
 #: A saved-ROI row (2026-09-23) carries its ``roi_id`` here -- and no layer id: an ROI is a pixel
 #: window on its dataset, drawn as an outline, not a layer.
 _ROI_ID_ROLE = QtCore.Qt.UserRole + 2
+#: A band row under a stack dataset: the band's 0-based index (-1 on the "Bands" row
+#: itself), with its dataset's source id under _BAND_SOURCE_ROLE.
+_BAND_ROLE = QtCore.Qt.UserRole + 3
+_BAND_SOURCE_ROLE = QtCore.Qt.UserRole + 4
 
 #: The chip-hover feedback:
 #: "chip hover emits chipHovered(parent_layer_id) -> LayerPanel.flash_row(layer_id) (temporary
@@ -227,6 +231,14 @@ class LayerPanel(QtWidgets.QTreeWidget):
     forkDerivativeRequested = QtCore.Signal(int)
     #: "Save derivative as…" on a TEMPORARY derivative's dataset row.
     saveDerivativeRequested = QtCore.Signal(str)
+    #: "Route bands to a new bus…" -- a layer of the dataset that will host the bus.
+    busRequested = QtCore.Signal(int)
+    #: "Edit bus sends…" on a layer whose rack starts with a bus.
+    busEditRequested = QtCore.Signal(int)
+    #: "Remove band from project" / Delete on a band row: the band LAYER's id.
+    removeBandRequested = QtCore.Signal(int)
+    #: "Build band stack from N selected layers": the selected layer ids, in tree order.
+    stackRequested = QtCore.Signal(list)
 
     def __init__(self, project=None, parent=None):
         super().__init__(parent)
@@ -259,6 +271,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         #: dataset row (2026-09-23).
         self._masters: dict[str, int] = {}
         self._roi_items: dict[str, QtWidgets.QTreeWidgetItem] = {}
+        self._band_groups: dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._roi_rows: dict[str, _RoiRow] = {}
 
         self.currentItemChanged.connect(self._on_current_item_changed)
@@ -322,6 +335,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
                 parent_item = roi_item
         if parent_item is None:
             parent_item = header
+        band_row = self._is_band_layer(layer)
+        if band_row:
+            parent_item = self._band_group(layer.source_id) or parent_item
 
         # Built DETACHED (no tree/parent argument) and given its flags and _LAYER_ID_ROLE data
         # BEFORE ``addChild`` puts it in the tree -- ``setData`` on an item that
@@ -343,6 +359,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
         row.freezeToggled.connect(lambda checked, lid=lid: self.freezeToggled.emit(lid, checked))
         self.setItemWidget(item, 1, row)
         self._row_widgets[lid] = row
+        if band_row:
+            item.setExpanded(False)
+            self.sync_band_rows(layer.source_id)
 
         self.refresh_master_rows()
 
@@ -388,6 +407,46 @@ class LayerPanel(QtWidgets.QTreeWidget):
         self.setItemWidget(item, 1, row)
         self._source_rows[source_id] = row
         return item
+
+    # -- band rows (a stack dataset's bands) ---------------------------------------------------
+    def _is_band_layer(self, layer) -> bool:
+        """A band row: a layer tagged ``band.id`` directly under its dataset's master."""
+        return bool(layer.tags.get("band.id")) and layer.parent_id is not None \
+            and self._masters.get(layer.source_id) == layer.parent_id
+
+    def _band_group(self, source_id: str):
+        """The collapsed "Bands (n)" row first under the dataset row, created on demand."""
+        group = self._band_groups.get(source_id)
+        header = self._source_headers.get(source_id)
+        if group is not None or header is None:
+            return group
+        self.blockSignals(True)          # detached build: the add_layer_row itemChanged trap
+        try:
+            group = QtWidgets.QTreeWidgetItem(["Bands"])
+            group.setData(0, _BAND_ROLE, -1)
+            group.setData(0, _BAND_SOURCE_ROLE, source_id)
+            group.setToolTip(0, "this dataset's bands — drop a tool on one to run it on that "
+                                "band; right-click / Delete removes a band from the project")
+            header.insertChild(0, group)
+            group.setExpanded(False)
+        finally:
+            self.blockSignals(False)
+        self._band_groups[source_id] = group
+        return group
+
+    def sync_band_rows(self, source_id: str, _names=None) -> None:
+        """Keep the "Bands (n)" row honest: its count, and gone when no band rows are left.
+        (The band rows themselves are layers, added and removed like any row.)"""
+        group = self._band_groups.get(source_id)
+        if group is None:
+            return
+        if group.childCount() == 0 or _names == []:
+            self._band_groups.pop(source_id, None)
+            parent = group.parent()
+            if parent is not None:
+                parent.removeChild(group)
+            return
+        group.setText(0, f"Bands ({group.childCount()})")
 
     def _attach_master(self, header, layer) -> None:
         """Make ``header`` the row of ``layer``, its source's master (2026-09-23): a dataset
@@ -528,6 +587,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
                     # goes below only if nothing else is left under it.
                     item.setData(0, _LAYER_ID_ROLE, None)
                     self._masters.pop(source_id, None)
+                    self.sync_band_rows(str(source_id), [])      # the bands go with it
                     row = self._source_rows.get(source_id)
                     if row is not None:
                         row.detach_master()
@@ -539,6 +599,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
                     continue
                 parent.removeChild(item)
                 touched_headers.add(parent)
+                band_source = parent.data(0, _BAND_SOURCE_ROLE)
+                if band_source is not None:
+                    self.sync_band_rows(str(band_source))
             for source_id, header in list(self._source_headers.items()):
                 # A dataset row still carrying its master is not empty -- it IS a layer row.
                 if (header in touched_headers and header.childCount() == 0
@@ -756,6 +819,12 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if roi_id is not None:
             self.roiSelected.emit(str(roi_id))
             return
+        band_source = current.data(0, _BAND_SOURCE_ROLE)
+        if band_source is not None:
+            master = self._masters.get(str(band_source))   # the Bands row shows its dataset
+            if master is not None:
+                self.layerSelected.emit(int(master))
+            return
         layer_id = current.data(0, _LAYER_ID_ROLE)
         if layer_id is not None:
             self.layerSelected.emit(int(layer_id))
@@ -809,6 +878,17 @@ class LayerPanel(QtWidgets.QTreeWidget):
         the same reason none of ``knob_widgets.py``'s own ``contextMenuEvent`` gestures are driven
         end-to-end in that module's tests either."""
         menu = QtWidgets.QMenu(self)
+        layer = next((l for l in (self._project.layers if self._project is not None else [])
+                      if l.layer_id == layer_id), None)
+        if layer is not None and self._is_band_layer(layer):
+            # A band row: removing it removes the BAND from the dataset (never the file).
+            band_action = menu.addAction("Remove band from project")
+            band_action.triggered.connect(lambda: self.removeBandRequested.emit(layer_id))
+            fork_action = menu.addAction("Fork derivative dataset…")
+            fork_action.triggered.connect(lambda: self.forkDerivativeRequested.emit(layer_id))
+            bus_action = menu.addAction("Route bands to a new bus…")
+            bus_action.triggered.connect(lambda: self.busRequested.emit(layer_id))
+            return menu
         rename_action = menu.addAction("Rename")
         rename_action.triggered.connect(lambda: self.editItem(item, 0))
         # "Remove" became the two deletes (2026-09-23): this layer alone (its
@@ -823,6 +903,14 @@ class LayerPanel(QtWidgets.QTreeWidget):
         # its own -- unlike a child, it never re-processes.
         fork_action = menu.addAction("Fork derivative dataset…")
         fork_action.triggered.connect(lambda: self.forkDerivativeRequested.emit(layer_id))
+        layer = next((l for l in (self._project.layers if self._project is not None else [])
+                      if l.layer_id == layer_id), None)
+        steps = layer.chain.steps if layer is not None else []
+        if steps and steps[0].device == "bus":
+            edit_bus = menu.addAction("Edit bus sends…")
+            edit_bus.triggered.connect(lambda: self.busEditRequested.emit(layer_id))
+        bus_action = menu.addAction("Route bands to a new bus…")
+        bus_action.triggered.connect(lambda: self.busRequested.emit(layer_id))
         return menu
 
     def _build_source_context_menu(self, source_id: str) -> QtWidgets.QMenu:
@@ -833,8 +921,48 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if source is not None and source.temporary:
             save_action = menu.addAction("Save derivative as…")
             save_action.triggered.connect(lambda: self.saveDerivativeRequested.emit(source_id))
+        master = next((l for l in (self._project.layers if self._project is not None else [])
+                       if l.source_id == source_id and l.parent_id is None), None)
+        if master is not None:
+            bus_action = menu.addAction("Route bands to a new bus…")
+            bus_action.triggered.connect(lambda: self.busRequested.emit(master.layer_id))
         remove_src = menu.addAction("Remove dataset")
         remove_src.triggered.connect(lambda: self.removeSourceRequested.emit(source_id))
+        return menu
+
+    def _sort_selection(self, items) -> tuple:
+        """``(layer_ids, roi_ids, source_ids, band_layer_ids)`` of a multi-selection (a
+        dataset row counts as its source; band rows apart -- removing one removes a band)."""
+        layer_ids, roi_ids, source_ids = [], [], []
+        for it in items:
+            if it.data(0, _SOURCE_ID_ROLE) is not None:
+                source_ids.append(str(it.data(0, _SOURCE_ID_ROLE)))
+            elif it.data(0, _ROI_ID_ROLE) is not None:
+                roi_ids.append(str(it.data(0, _ROI_ID_ROLE)))
+            elif it.data(0, _LAYER_ID_ROLE) is not None:
+                layer_ids.append(int(it.data(0, _LAYER_ID_ROLE)))
+        by_id = {l.layer_id: l for l in (self._project.layers
+                                         if self._project is not None else [])}
+        bands = [i for i in layer_ids if i in by_id and self._is_band_layer(by_id[i])]
+        return [i for i in layer_ids if i not in bands], roi_ids, source_ids, bands
+
+    def _remove_selection(self, items) -> None:
+        layer_ids, roi_ids, source_ids, bands = self._sort_selection(items)
+        if layer_ids or roi_ids or source_ids:
+            self.removeManyRequested.emit(layer_ids, roi_ids, source_ids)
+        for i in bands:
+            self.removeBandRequested.emit(i)
+
+    def _build_multi_context_menu(self, items) -> QtWidgets.QMenu:
+        """Right-click on a row inside a multi-selection: act on ALL selected rows."""
+        menu = QtWidgets.QMenu(self)
+        stackable = [int(it.data(0, _LAYER_ID_ROLE)) for it in items
+                     if it.data(0, _LAYER_ID_ROLE) is not None]
+        if len(stackable) >= 2:
+            stack = menu.addAction(f"Build band stack from {len(stackable)} selected layers")
+            stack.triggered.connect(lambda: self.stackRequested.emit(stackable))
+        delete = menu.addAction(f"Delete {len(items)} selected rows")
+        delete.triggered.connect(lambda: self._remove_selection(items))
         return menu
 
     def _build_roi_context_menu(self, roi_id: str) -> QtWidgets.QMenu:
@@ -848,10 +976,16 @@ class LayerPanel(QtWidgets.QTreeWidget):
         item = self.itemAt(pos)
         if item is None:
             return
+        selected = self.selectedItems()
+        if item in selected and len(selected) > 1:
+            self._build_multi_context_menu(selected).exec(self.viewport().mapToGlobal(pos))
+            return
         roi_id = item.data(0, _ROI_ID_ROLE)
         if roi_id is not None:
             self._build_roi_context_menu(str(roi_id)).exec(self.viewport().mapToGlobal(pos))
             return
+        if item.data(0, _BAND_SOURCE_ROLE) is not None:
+            return                                        # the Bands row: nothing to do
         layer_id = item.data(0, _LAYER_ID_ROLE)
         if layer_id is None or item.data(0, _SOURCE_ID_ROLE) is not None:
             # A source header names a raster, not a layer -- so it gets the DATASET action:
@@ -881,21 +1015,20 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if event.key() in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
             selected = self.selectedItems()
             if len(selected) > 1:
-                # Several rows: one batch, one confirmation in the shell.
-                layer_ids, roi_ids, source_ids = [], [], []
-                for it in selected:
-                    if it.data(0, _SOURCE_ID_ROLE) is not None:
-                        source_ids.append(str(it.data(0, _SOURCE_ID_ROLE)))
-                    elif it.data(0, _ROI_ID_ROLE) is not None:
-                        roi_ids.append(str(it.data(0, _ROI_ID_ROLE)))
-                    elif it.data(0, _LAYER_ID_ROLE) is not None:
-                        layer_ids.append(int(it.data(0, _LAYER_ID_ROLE)))
-                self.removeManyRequested.emit(layer_ids, roi_ids, source_ids)
+                self._remove_selection(selected)     # one batch, one confirmation
                 return
             item = self.currentItem()
             roi_id = item.data(0, _ROI_ID_ROLE) if item is not None else None
             if roi_id is not None:
                 self.removeRoiRequested.emit(str(roi_id))
+                return
+            if item is not None and item.data(0, _BAND_SOURCE_ROLE) is not None:
+                return                                    # the Bands row itself
+            layer_id = self.current_layer_id()
+            layer = next((l for l in (self._project.layers if self._project is not None
+                                      else []) if l.layer_id == layer_id), None)
+            if layer is not None and self._is_band_layer(layer):
+                self.removeBandRequested.emit(int(layer_id))
                 return
             source_id = item.data(0, _SOURCE_ID_ROLE) if item is not None else None
             if source_id is not None:

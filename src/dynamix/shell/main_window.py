@@ -86,6 +86,8 @@ from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, POINTS_CO
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
 from dynamix.shell.fork_dialog import ForkDialog
+from dynamix.shell.bus_dialog import BusDialog
+from dynamix.shell.import_dialog import ImportGridsDialog
 # Module-level, like every other pure-Qt shell widget above (the lazy-import discipline in this
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
 # existing Transport, both of which this module already imports eagerly anyway.
@@ -97,7 +99,7 @@ from dynamix.shell.opening import open_field
 from dynamix.shell.spectrum_window import SpectrumWindow
 from dynamix.shell.point_import import load_points
 from dynamix.shell.profile_dialog import ProfileDialog
-from dynamix.shell.right_panel import RightPanel
+from dynamix.shell.right_panel import CompositePanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
 from dynamix.shell.settings import Settings, load_settings, save_settings, update_settings
 from dynamix.shell.skeleton_dialog import SkeletonDialog
@@ -457,7 +459,43 @@ def _inherited_window(parent, **extra) -> dict:
     window = parent.tags.get("roi.window")
     if window:
         tags["roi.window"] = window
+    bands = parent.tags.get("data.bands")          # a stack with a band removed: same rule
+    if bands:
+        tags["data.bands"] = bands
     return tags
+
+
+def _field_choices(field, note: str) -> list:
+    """A produced field as fork choices ``[(label, 2-D array)]``: the field itself when it is
+    one band, else one choice per band (tick them all for a multiband derivative)."""
+    values = np.asarray(field.values, dtype=np.float64)
+    if values.ndim == 2:
+        return [(f"as shown ({note})", values)]
+    names = list((getattr(field, "provenance", None) or {}).get("bands") or [])
+    return [((str(names[k]).split("/", 1)[0] if k < len(names) else f"band {k + 1}")
+             + f" ({note})", values[..., k]) for k in range(values.shape[-1])]
+
+
+def _composite_without_band(raw: str, k: int) -> dict:
+    """A stored composite spec after band ``k`` left the stack: a channel it fed goes empty,
+    solo/mute forget it, and every later band's index shifts down by one."""
+    import json
+
+    try:
+        spec = json.loads(raw)
+    except ValueError:
+        return {}
+
+    def shift(b):
+        return None if b == k else (b - 1 if isinstance(b, int) and b > k else b)
+
+    out = {c: shift(spec.get(c)) for c in ("r", "g", "b")}
+    for key in ("solo", "mute"):
+        out[key] = [shift(b) for b in spec.get(key) or [] if b != k]
+    for key in ("stretch", "stretch_pct", "stretch_k"):
+        if key in spec:
+            out[key] = spec[key]
+    return out
 
 
 def _roi_display_field(result, raster, field, name):
@@ -758,6 +796,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # compute mints a new array), with the strong ref so a reused id() can never alias a
         # dead array. See ``_sync_holder_raster``.
         self._holder_raster_ref: "tuple | None" = None
+        #: (layer_id, field) when the active row's chain ends on a field stage (noise alone,
+        #: a band row, a bus) -- what that row shows, and what a fork takes from it.
+        self._active_field: "tuple | None" = None
         # Live band-reconstruction session (2026-09-16): (key, BandReconstructor) -- the
         # mask-independent half of the inversion, cached on (field values, h_map) identity so
         # a histogram drag pays only ~20 ms/tick. Strong refs via the reconstructor itself.
@@ -1014,6 +1055,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.layer_list.removeManyRequested.connect(self._on_remove_many_requested)
         # Derivative datasets: fork what a result shows; keep a temporary one as a file.
         self.layer_list.forkDerivativeRequested.connect(self._on_fork_derivative)
+        self.layer_list.removeBandRequested.connect(self._on_remove_band_layer)
+        self.layer_list.busRequested.connect(self._on_bus_requested)
+        self.layer_list.stackRequested.connect(self._on_stack_requested)
+        self.layer_list.busEditRequested.connect(self._on_bus_edit_requested)
         self.layer_list.saveDerivativeRequested.connect(self._on_save_derivative)
         self.resolved.connect(self._fan_out_to_inspectors)
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
@@ -1112,6 +1157,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # reaches ``ArrangementView.set_mask`` through ``_on_mask_row_changed``; on every flip-in,
         # ``_toggle_center_view`` also PUSHES the row's then-current values into the freshly
         # activated view, replacing the view's former self-read of its own (now-removed) row.
+        # The multiband composite mixer (one row per band: R/G/B assignment, Solo, Mute).
+        # Hosted like every section but VISIBLE only while the active dataset is a stack --
+        # _sync_composite_panel shows/hides the hosting frame and pushes the spec (persisted
+        # per layer as the ui.composite tag) onto the canvas.
+        self.composite_panel = CompositePanel()
+        self.composite_panel.compositeChanged.connect(self._on_composite_changed)
+        self.right_panel.add_section("Composite", self.composite_panel)
+        self._composite_frame = self.composite_panel.parentWidget()
+        self._composite_frame.setVisible(False)
         self._mask_row = MaskRow()
         self._mask_row.maskChanged.connect(self._on_mask_row_changed)
         self.right_panel.add_section(
@@ -1481,6 +1535,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Minimal Settings menu: one checkable action, read fresh at every open rather than
         # cached on the window, so a setting changed in one window's menu is honoured the next
         # time ANY window opens a file -- including this one, without a restart.
+        view_menu = self.menuBar().addMenu("View")
+        # ⌘0 and F ("frame"): WindowShortcut like Space / c / v, so a focused text field keeps
+        # its own typing first.
+        self._zoom_action = QtGui.QAction("Zoom to Dataset", self)
+        self._zoom_action.setShortcuts([QtGui.QKeySequence("Ctrl+0"),
+                                        QtGui.QKeySequence(QtCore.Qt.Key_F)])
+        self._zoom_action.setShortcutContext(QtCore.Qt.WindowShortcut)
+        self._zoom_action.triggered.connect(self._zoom_to_dataset)
+        view_menu.addAction(self._zoom_action)
         settings_menu = self.menuBar().addMenu("Settings")
         self._auto_run_action = QtGui.QAction("Auto-run transforms", self, checkable=True)
         self._auto_run_action.setChecked(load_settings().auto_run_wtmm)
@@ -1854,10 +1917,16 @@ class MainWindow(QtWidgets.QMainWindow):
         if Path(path).suffix.lower() in (".shp", ".lyr"):
             self._open_reference_layers([path])
             return
-        # A multi-grid container (netCDF/HDF, 2026-09-21) asks which grid; cancel = no open.
-        subdataset = self._pick_subdataset(path)
-        if subdataset is False:
+        # A multi-grid container (netCDF/HDF) asks WHICH rasters to import, grouped by
+        # sensor/resolution -- each group one multiband dataset. Cancel = no open; None =
+        # not a container (or a single grid), the ordinary open below handles it.
+        groups = self._pick_container_grids(path)
+        if groups is False:
             return
+        if groups is not None:
+            self._open_container_groups(path, groups)
+            return
+        subdataset = None
         # A too-big GeoTIFF opens as a centred window; ``Settings.open_window_px`` sets its edge
         # (default 4096, the value that used to be hard-coded). Fresh opens only -- the project
         # reopen path below keeps the window a saved project was made with.
@@ -1866,8 +1935,12 @@ class MainWindow(QtWidgets.QMainWindow):
                                    max_pixels=settings.open_max_pixels,
                                    subdataset=subdataset), path)
 
-    def load_field(self, field, path: str, *, inert: bool = False) -> None:
+    def load_field(self, field, path: str, *, inert: bool = False,
+                   bands: "list | None" = None) -> None:
         """Take ``field`` (a ``RasterField`` or a bare array) as a new layer and resolve it.
+
+        ``bands``: the band list when ``field`` is a SUBSET of ``path`` (an imported sensor
+        group) -- it joins the source's identity, so each group is its own dataset.
 
         ``inert`` forces the inert open whatever the auto-run setting says (a derivative
         dataset: raw data the user decides what to run on -- with auto-run the new layer would
@@ -1904,7 +1977,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # image that is no longer on screen. (``_select_layer`` does the same for a switch; this
         # path never goes through it -- see the selection comment below.)
         self._reset_roi_selection()
-        source = self.project.add_source(path)
+        source = self.project.add_source(path, bands=bands)
         # Devloop-rebuild adoption (2026-09-19): a rebuilt window is handed the RESTORED
         # project, and this method used to add ANOTHER master for a source whose family
         # already exists -- duplicating the master and stranding every existing layer (the
@@ -1947,6 +2020,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.layer = self.project.add_layer(Path(path).stem or path, source.source_id,
                                                 chain)
             self.add_layer_row(self.layer, field)
+            self._ensure_band_layers(self.layer, field)
         # ``self.layer`` is already this layer, so the selection handler recognises the row as the
         # one it is on and stands aside -- the rest of this method IS the switch.
         self.layer_list.select_layer(self.layer.layer_id)
@@ -1961,6 +2035,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # fits them all -- opening would zoom to the vectors instead of the dataset.
         self.canvas.view.autoRange(items=[self.canvas.image_item])
         self._update_scale_bar()
+        self._sync_composite_panel()
         if auto_run:
             self._start_worker()
         if not self._center_view_restored:
@@ -1982,9 +2057,63 @@ class MainWindow(QtWidgets.QMainWindow):
         if path:
             self.open_path(path)
 
+    def _pick_container_grids(self, path: str) -> "list | None | bool":
+        """When a container holds several grids, ask WHICH rasters to import
+        (:class:`ImportGridsDialog`: sensor groups with a checkbox per band). Returns
+        ``[(dataset label, [subdataset ids])]``, ``None`` (not a multi-grid container --
+        the ordinary open path applies), or ``False`` (cancelled / nothing ticked)."""
+        from dynamix.core.ingest import GRID_SUFFIXES, probe
+
+        if not str(path).lower().endswith(GRID_SUFFIXES):
+            return None
+        try:
+            info = probe(path)
+        except ValueError as exc:
+            self._notify(str(exc), "status")
+            return False
+        subs = info["subdatasets"]
+        if len(subs) <= 1:
+            return None
+        dialog = ImportGridsDialog(Path(path).name, subs, info.get("dims") or {}, parent=self)
+        if not dialog.exec():
+            return False
+        groups = dialog.groups()
+        if not groups:
+            self._notify("nothing ticked — nothing imported", "status")
+            return False
+        return groups
+
+    def _open_container_groups(self, path: str, groups) -> None:
+        """Import each ``(label, [ids])`` as its own dataset: one band loads plain, several
+        stack ``(ny, nx, nc)`` (same grid only -- :func:`~dynamix.core.ingest.load_grid_stack`
+        refuses mixed resolutions). Every dataset keys the same source ``path``, exactly like
+        re-opening the file, so each lands as its own master row."""
+        from dynamix.core.ingest import load_grid_stack
+        from dynamix.shell.opening import _stamp_source
+
+        stem = Path(path).stem
+        opened = []
+        for label, ids in groups:
+            try:
+                field = load_grid_stack(path, ids, name=f"{stem} · {label}")
+            except ValueError as exc:
+                self._notify(f"{label}: {exc}", "status")
+                continue
+            ny, nx = np.asarray(field.values).shape[:2]
+            # Its OWN source (file + band list): its own dataset row, cache lines and reopen.
+            self.project.add_source(path, label=field.name, bands=list(ids))
+            self.load_field(_stamp_source(field, str(path), ny, nx), path, bands=list(ids))
+            self.layer.name = field.name            # load_field names a layer by the file stem
+            self.layer_list.set_layer_name(self.layer.layer_id, field.name)
+            opened.append(label)
+        if opened:
+            self._notify(f"{Path(path).name}: imported {', '.join(opened)}", "status")
+
     def _pick_subdataset(self, path: str) -> "str | None | bool":
         """When a container holds several grids (netCDF/HDF variables), ask which one. Returns
-        the subdataset id, ``None`` (no choice needed), or ``False`` (user cancelled)."""
+        the subdataset id, ``None`` (no choice needed), or ``False`` (user cancelled).
+        Superseded by :meth:`_pick_container_grids` on the open path; kept for callers that
+        want exactly one grid."""
         from dynamix.core.ingest import GRID_SUFFIXES, probe
 
         if not str(path).lower().endswith(GRID_SUFFIXES):
@@ -2388,6 +2517,53 @@ off / z from this layer's own values / z from another loaded
         # A point layer's own styling never reaches the canvas's raster/overlay state
         # -- see ``_apply_display_style``'s own docstring.
         self._apply_display_style(style, points_only=self._is_point_layer(layer))
+        self._sync_composite_panel()
+
+    def _default_composite(self, nc: int) -> dict:
+        return {"r": 0 if nc >= 1 else None, "g": 1 if nc >= 2 else None,
+                "b": 2 if nc >= 3 else None, "solo": [], "mute": [],
+                "stretch": "percent", "stretch_pct": 2.0, "stretch_k": 2.0}
+
+    def _sync_composite_panel(self, field=None) -> None:
+        """Show the Composite section iff the displayed field (``field``, default the active
+        dataset's) is a multiband stack, seeded from the layer's ``ui.composite`` tag (else the
+        first-three-bands default), and push the spec onto the canvas. Band rows label from
+        ``provenance["bands"]``; a bus's sends keep their dataset so same-named bands from two
+        datasets stay apart."""
+        import json
+
+        field = self.field if field is None else field
+        values = np.asarray(getattr(field, "values", np.empty(0)))
+        if values.ndim != 3:
+            self._composite_frame.setVisible(False)
+            self.canvas.set_composite(None)
+            return
+        nc = int(values.shape[-1])
+        spec = None
+        raw = self.layer.tags.get("ui.composite") if self.layer is not None else None
+        if raw:
+            try:
+                spec = json.loads(raw)
+            except ValueError:
+                spec = None
+        if not isinstance(spec, dict):
+            spec = self._default_composite(nc)
+        prov = getattr(field, "provenance", {}) or {}
+        if prov.get("bus"):
+            names = [" · ".join(str(n).split(" · ")[-2:]) for n in prov.get("bands") or []]
+        else:
+            names = [str(n).split("/", 1)[0] for n in prov.get("bands") or []]
+        names += [f"band {i + 1}" for i in range(len(names), nc)]
+        self.composite_panel.set_bands(names, spec)
+        self._composite_frame.setVisible(True)
+        self.canvas.set_composite(spec)
+
+    def _on_composite_changed(self, spec: dict) -> None:
+        import json
+
+        if self.layer is not None:
+            self.layer.tags["ui.composite"] = json.dumps(spec)
+        self.canvas.set_composite(spec)
 
     # -- arrangement mask -----------------------------------------
     def _on_mask_row_changed(self, payload: dict) -> None:
@@ -2913,8 +3089,12 @@ both ``Canvas`` signals report the
         if self.layer is None or self.layer.layer_id != layer_id:
             self.layer_list.select_layer(layer_id)
         layer, result = self.layer, self._active_result
-        if (layer is None or layer.layer_id != layer_id or not result or self.is_computing
-                or layer_id in self._pending_layers):
+        # A chain ending on a field stage (noise, a band row, a bus) shows a produced FIELD,
+        # not a result: the fork takes that field's bands, on its own grid.
+        produced = (self._active_field[1] if self._active_field is not None and layer is not None
+                    and self._active_field[0] == layer.layer_id and not result else None)
+        if (layer is None or layer.layer_id != layer_id or (not result and produced is None)
+                or self.is_computing or layer_id in self._pending_layers):
             self._notify("fork a derivative from a result that is on screen — run it first",
                          "status")
             return
@@ -2923,7 +3103,8 @@ both ``Canvas`` signals report the
         row = self.layer_list.layer_text(layer_id) or layer.name
         prefix = f"{layer.name} · "              # the row reads "<layer name> · <view note>"
         note = row[len(prefix):] if row.startswith(prefix) else "shown"
-        rasters = raster_choices(result, shown_label=f"as shown ({note})")
+        rasters = (_field_choices(produced, note) if produced is not None
+                   else raster_choices(result, shown_label=f"as shown ({note})"))
         dialog = ForkDialog(name=f"{dataset} · {row}", raster_labels=[l for l, _a in rasters],
                             vector_counts=vector_counts(result), parent_name=dataset,
                             parent=self)
@@ -2934,7 +3115,10 @@ both ``Canvas`` signals report the
         if path is None:
             return
         field = self._fields.get(layer_id, self.field)
-        frame, x_axis, y_axis = result_grid(result, field)
+        if produced is not None:
+            frame, x_axis, y_axis = produced.frame, produced.x_axis, produced.y_axis
+        else:
+            frame, x_axis, y_axis = result_grid(result, field)
         derived = {"from_dataset": src.path if src is not None else None,
                    "from_sha256": src.sha256 if src is not None else None,
                    "from_layer": layer.name,
@@ -2955,7 +3139,7 @@ both ``Canvas`` signals report the
                              x_axis=x_axis, y_axis=y_axis, name=choice["name"],
                              units=str(getattr(field, "units", "") or ""),
                              provenance=provenance,
-                             vectors=result if choice["vectors"] else None)
+                             vectors=result if choice["vectors"] and result else None)
         except ValueError as exc:
             self._notify(f"fork refused: {exc}", "status")
             return
@@ -3017,6 +3201,7 @@ both ``Canvas`` signals report the
         if not path.lower().endswith(".npz"):
             path += ".npz"
         shutil.copy2(source.path, path)
+        old_path = source.path
         source.path, source.temporary, source.sha256 = path, False, sha256_of(path)
         for layer in self.project.layers:
             if layer.source_id == source_id:
@@ -3030,6 +3215,374 @@ both ``Canvas`` signals report the
                             for n, p in zip(self._names, self._params)]
             self.layer.chain = self._chain()
             self._start_worker()
+        self._repoint_bus_sends(old_path, path)
+
+    def _zoom_to_dataset(self) -> None:
+        """Fit the raster view to the selected row: its ROI window when it runs on one, else
+        the raster on screen (the same framing an open does)."""
+        window = self.layer.tags.get("roi.window") if self.layer is not None else None
+        if window:
+            r, c, h, w = (int(v) for v in window.split(","))
+            self.canvas.view.setRange(xRange=(c - 0.5, c + w - 0.5),
+                                      yRange=(r - 0.5, r + h - 0.5), padding=0.02)
+            return
+        self.canvas.view.autoRange(items=[self.canvas.image_item])
+
+    # -- band rows: removing a band from a stack dataset --------------------------------------
+    def _ensure_band_layers(self, master, field) -> None:
+        """A STACK dataset's bands as child rows, once: each a layer whose rack starts with
+        ``band_select`` naming its band (by name, so removing another band never shifts
+        it) -- drop any tool on a band row to run it on that band. A stack whose provenance
+        does not name its bands gets ``"#k"`` names (the multiband-file band tokens)."""
+        values = np.asarray(getattr(field, "values", None)) if field is not None else None
+        if values is None or values.ndim != 3 or master.parent_id is not None:
+            return
+        if any(l.parent_id == master.layer_id and l.tags.get("band.id")
+               for l in self.project.layers):
+            return
+        nc = int(values.shape[-1])
+        names = list((field.provenance or {}).get("bands") or [])
+        if len(names) != nc:
+            names = [f"#{k}" for k in range(nc)]
+            field.provenance["bands"] = names
+        for k, band_id in enumerate(names):
+            chain = Chain((DeviceRef("band_select", {"band": k + 1,
+                                                     "_band_id": str(band_id)}),)).materialized()
+            layer = self.project.add_layer(
+                str(band_id).split("/", 1)[0], master.source_id, chain,
+                parent_id=master.layer_id,
+                tags=_inherited_window(master, **{"band.id": str(band_id)}))
+            self.add_layer_row(layer, field)
+
+    def _on_remove_band_layer(self, layer_id: int) -> None:
+        """A band row's "Remove band from project" / Delete: the row goes (with any results
+        under it -- one confirmation, the ordinary delete) and its band leaves the dataset.
+        The last band cannot go: remove the dataset instead."""
+        layer = self._layer_by_id.get(layer_id)
+        master = self._layer_by_id.get(layer.parent_id) if layer is not None else None
+        field = self._fields.get(master.layer_id) if master is not None else None
+        if layer is None or field is None or not layer.tags.get("band.id"):
+            return
+        names = list((field.provenance or {}).get("bands") or [])
+        band_id = layer.tags["band.id"]
+        if np.asarray(field.values).ndim != 3 or band_id not in names:
+            self._notify(f"{layer.name}: the dataset's last band — remove the dataset instead",
+                         "status")
+            return
+        self._on_remove_requested(layer_id)
+        if layer_id in self._layer_by_id:           # refused (locked) or cancelled
+            return
+        self._on_remove_band(master.source_id, names.index(band_id))
+
+    def _on_remove_band(self, source_id: str, k: int) -> None:
+        """"Remove band from project": band ``k`` leaves the dataset -- never the file. The
+        stack is sliced in memory, the source's band list shrinks (a saved project reopens
+        exactly the bands left), and every layer of the dataset takes a ``data.bands``
+        identity tag so no result computed on the fuller stack answers for this one; those
+        layers recompute when next shown. The last band cannot go: remove the dataset."""
+        import dataclasses
+        import hashlib
+        import json
+
+        source = self.project.sources.get(source_id)
+        master = next((l for l in self.project.layers
+                       if l.source_id == source_id and l.parent_id is None), None)
+        field = self._fields.get(master.layer_id) if master is not None else None
+        values = np.asarray(getattr(field, "values", None)) if field is not None else None
+        if source is None or values is None or values.ndim != 3:
+            return
+        nc = int(values.shape[-1])
+        if not 0 <= k < nc:
+            return
+        bands = list(source.bands) if source.bands else [f"#{i}" for i in range(nc)]
+        names = list((field.provenance or {}).get("bands") or bands)
+        gone = str(names[k]).split("/", 1)[0] if k < len(names) else f"band {k + 1}"
+        kept = np.delete(values, k, axis=-1)
+        prov = {**(field.provenance or {}),
+                "bands": [n for i, n in enumerate(names) if i != k]}
+        new = dataclasses.replace(field, values=kept[..., 0] if kept.shape[-1] == 1 else kept,
+                                  provenance=prov)
+        source.bands = [b for i, b in enumerate(bands) if i != k]
+        tag = hashlib.sha1(json.dumps(source.bands).encode()).hexdigest()[:10]
+        for layer in self.project.layers:
+            if layer.source_id != source_id:
+                continue
+            layer.tags["data.bands"] = tag
+            if self._fields.get(layer.layer_id) is field:
+                self._fields[layer.layer_id] = new
+            raw = layer.tags.get("ui.composite")
+            if raw:
+                layer.tags["ui.composite"] = json.dumps(_composite_without_band(raw, k))
+        if self.field is field:
+            self.field = new
+        self.layer_list.sync_band_rows(source_id)
+        if self.layer is not None and self.layer.source_id == source_id:
+            self._select_layer(self.layer)
+        self._notify(f"{gone}: removed from the project — the file is untouched", "status")
+
+    # -- band buses (rack-head routing) --------------------------------------------------------
+    def _root_layer(self, layer):
+        """The dataset (master) row ``layer`` descends from."""
+        by_id = {l.layer_id: l for l in self.project.layers}
+        while layer is not None and layer.parent_id is not None:
+            layer = by_id.get(layer.parent_id)
+        return layer
+
+    def _bus_candidates(self, host_field) -> list:
+        """Every loaded raster dataset as a routing candidate for a bus on ``host_field``'s
+        grid: its bands as sends, or greyed out with the reason it cannot send (another
+        grid, or no file to read the raw band back from)."""
+        from dynamix.core.bus import grid_mismatch, native_grid, sends_for_field
+
+        host = native_grid(host_field)
+        out = []
+        for layer in self.project.layers:
+            if layer.parent_id is not None or self._is_point_layer(layer):
+                continue
+            field = self._fields.get(layer.layer_id)
+            if field is None or np.asarray(getattr(field, "values", None)).ndim not in (2, 3):
+                continue
+            src = self.project.sources.get(layer.source_id)
+            path = src.path if src is not None else None
+            if not path or not Path(path).is_file():
+                out.append({"label": layer.name, "sends": [],
+                            "reason": "in memory only — no file to read raw bands from"})
+                continue
+            reason = grid_mismatch(host, native_grid(field))
+            out.append({"label": layer.name, "sends": sends_for_field(field, path, layer.name),
+                        "reason": f"another grid: {reason}" if reason else None})
+        return out
+
+    def _on_bus_requested(self, layer_id: int) -> None:
+        """"Route bands to a new bus…": pick raw bands on this dataset's grid; the bus lands as
+        a CHILD of the dataset whose rack starts with it (on the active ROI when there is one,
+        like any tool child). Drop a tool on it to consume the bus; its results are the
+        returns."""
+        root = self._root_layer(next((l for l in self.project.layers
+                                      if l.layer_id == layer_id), None))
+        host = self._fields.get(root.layer_id) if root is not None else None
+        if host is None:
+            return
+        dialog = BusDialog(self._bus_candidates(host), parent=self)
+        if not dialog.exec():
+            return
+        sends = dialog.sends()
+        if not sends:
+            self._notify("no bands routed — nothing to build", "status")
+            return
+        label = f"bus ({len(sends)} band{'s' if len(sends) != 1 else ''})"
+        self._add_bus_child(root, host, sends, label)
+
+    def _add_bus_child(self, root, host, sends: list, label: str) -> None:
+        """A bus-headed child of dataset ``root`` (on its active ROI when there is one, like
+        any tool child), selected so it resolves."""
+        import json
+
+        chain = Chain((DeviceRef("bus", {"_sends": json.dumps(sends)}),)).materialized()
+        roi = self._active_roi_for(root.source_id)
+        tags = _inherited_window(root)
+        if roi is not None:
+            tags["roi.window"] = f"{roi.row},{roi.col},{roi.h},{roi.w}"
+        name = f"{label} @{roi.label}" if roi is not None else f"{root.name} · {label}"
+        layer = self.project.add_layer(name, root.source_id, chain,
+                                       parent_id=root.layer_id, tags=tags)
+        if roi is not None:
+            layer.roi_id = roi.roi_id
+        self.add_layer_row(layer, host)
+        self.layer_list.select_layer(layer.layer_id)
+        self._notify(f"{label} routed — drop pca, tucker or another multi-band tool on it",
+                     "status")
+
+    # -- live layer sends -------------------------------------------------------------------
+    def _layer_stamp(self, ref) -> str:
+        """The fingerprint of what layer ``ref`` shows: its resolve identity, its predicted
+        cache keys and its whole chain (view choices included). Any upstream change changes
+        it, and with it the key of every bus that sends ``ref``."""
+        import hashlib
+        import json
+
+        payload = [source_identity(ref), self._cache_keys_for(ref),
+                   [(r.device, r.params) for r in ref.chain.steps]]
+        return hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode()
+                            ).hexdigest()[:16]
+
+    def _refresh_bus_stamps(self, layer, _visiting: tuple = ()) -> bool:
+        """Bring ``layer``'s LAYER sends' stamps up to date (a bus it sends from first, so
+        stamps nest); ``True`` when anything changed. A locked / frozen bus keeps its stamps
+        (its cache is pinned). Raises on a routing loop."""
+        import json
+
+        from dynamix.core.bus import parse_sends
+
+        steps = list(layer.chain.steps)
+        if not steps or steps[0].device != "bus" or _lock_notice(layer) is not None:
+            return False
+        if layer.layer_id in _visiting:
+            raise ValueError(f"routing loop: {layer.name} feeds itself through a stack")
+        sends = parse_sends(steps[0].params.get("_sends"))
+        changed = False
+        for send in sends:
+            ref = self._layer_by_id.get(int(send["layer"])) if "layer" in send else None
+            if ref is None:
+                continue
+            self._refresh_bus_stamps(ref, _visiting + (layer.layer_id,))
+            stamp = self._layer_stamp(ref)
+            if send.get("stamp") != stamp:
+                send["stamp"], changed = stamp, True
+        if not changed:
+            return False
+        text = json.dumps(sends)
+        steps[0] = DeviceRef("bus", {**steps[0].params, "_sends": text})
+        layer.chain = Chain(tuple(steps)).materialized()
+        recipe = self._recipes.get(layer.layer_id)
+        if recipe and recipe[0].get("device") == "bus":
+            recipe[0] = {**recipe[0], "params": {**recipe[0].get("params", {}), "_sends": text}}
+        if layer is self.layer and self._names[:1] == ["bus"]:
+            self._params[0] = dict(self._params[0], _sends=text)
+        return True
+
+    def _bus_plan(self, layer, _visiting: tuple = ()) -> list:
+        """``[(ref_layer, ref_field, stamp)]`` the worker must resolve BEFORE ``layer`` -- its
+        layer sends whose shown raster is not filed yet, dependencies first. Raises (with the
+        send named) for a deleted referenced layer or a routing loop."""
+        from dynamix.core.bus import _PLANES, parse_sends
+
+        steps = layer.chain.steps
+        if not steps or steps[0].device != "bus":
+            return []
+        if layer.layer_id in _visiting:
+            raise ValueError(f"routing loop: {layer.name} feeds itself through a stack")
+        plan, seen = [], set()
+        for send in parse_sends(steps[0].params.get("_sends")):
+            if "layer" not in send:
+                continue
+            ref = self._layer_by_id.get(int(send["layer"]))
+            if ref is None:
+                raise ValueError(f"{send.get('label') or 'a send'}: its layer was deleted — "
+                                 f"right-click the stack, Edit bus sends…")
+            for item in self._bus_plan(ref, _visiting + (layer.layer_id,)):
+                if item[2] not in seen:
+                    seen.add(item[2])
+                    plan.append(item)
+            stamp = str(send.get("stamp"))
+            if stamp not in _PLANES and stamp not in seen:
+                seen.add(stamp)
+                plan.append((ref, self._fields.get(ref.layer_id), stamp))
+        return plan
+
+    def _on_stack_requested(self, layer_ids) -> None:
+        """"Build band stack from N selected layers": a stack child of their dataset whose
+        rack starts with a bus of LIVE layer sends -- what each layer shows, referenced, never
+        copied: change one and the stack follows. Same grid only; an ROI result has its own
+        grid and is refused (build on whole-grid layers)."""
+        from dynamix.core.bus import grid_mismatch, native_grid
+
+        layers = [self._layer_by_id[i] for i in layer_ids if i in self._layer_by_id]
+        if len(layers) < 2:
+            self._notify("select two or more layers to build a band stack", "status")
+            return
+        root = self._root_layer(layers[0])
+        host = self._fields.get(root.layer_id) if root is not None else None
+        if host is None:
+            return
+        refused = []
+        for lay in layers:
+            field = self._fields.get(lay.layer_id)
+            if lay.tags.get("roi.window"):
+                refused.append(f"{lay.name}: an ROI result (its own grid)")
+            elif field is None:
+                refused.append(f"{lay.name}: not loaded")
+            else:
+                why = grid_mismatch(native_grid(host), native_grid(field))
+                if why:
+                    refused.append(f"{lay.name}: another grid ({why})")
+        if refused:
+            self._notify("band stack refused — " + "; ".join(refused), "status")
+            return
+        sends = [{"layer": lay.layer_id, "label": lay.name, "stamp": self._layer_stamp(lay)}
+                 for lay in layers]
+        self._add_bus_child(root, host, sends, f"stack ({len(sends)} layers)")
+
+    def _on_bus_edit_requested(self, layer_id: int) -> None:
+        """"Edit bus sends…": re-open the routing with the bus's current sends pre-ticked, in
+        order; OK writes the new list through the ordinary parameter path (locks honoured,
+        recompute, cache hit when routed back)."""
+        import json
+
+        from dynamix.core.bus import parse_sends
+
+        layer = next((l for l in self.project.layers if l.layer_id == layer_id), None)
+        if layer is None or not layer.chain.steps or layer.chain.steps[0].device != "bus":
+            return
+        root = self._root_layer(layer)
+        host = self._fields.get(root.layer_id) if root is not None else None
+        if host is None:
+            return
+        current = parse_sends(layer.chain.steps[0].params.get("_sends"))
+        dialog = BusDialog(self._bus_candidates(host), current, title="Edit bus sends",
+                           parent=self)
+        if not dialog.exec():
+            return
+        sends = dialog.sends()
+        if not sends:
+            self._notify("a bus needs at least one send — unchanged", "status")
+            return
+        if self.layer is None or self.layer.layer_id != layer_id:
+            self.layer_list.select_layer(layer_id)
+        self._on_param_changed(self._names.index("bus"), "_sends", json.dumps(sends))
+
+    def _land_field_result(self, result) -> None:
+        """A chain that ENDS on a field stage produced a field, not a result -- and you see
+        what the chain makes, the way an inserted effect is heard at once: the produced field
+        goes on the canvas (a stack through the Composite mixer), so noise shows its noise, a
+        band row its band, a bus its sends. Bypass the stage to A/B against the dry data. The
+        field is what "Fork derivative dataset…" takes from this row."""
+        self._active_result = {}               # never a previous layer's result, for the fork
+        self._active_field = None
+        if not hasattr(result, "values"):
+            self._notify("chain ends on a field transform (noise) — add wtmm2d after it to "
+                         "analyse", "status")
+            return
+        self.canvas.set_field(result)
+        values = np.asarray(result.values)
+        self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
+        self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
+        self._sync_composite_panel(result)
+        tail = self._names[-1] if self._names else ""
+        if self._names == ["bus"]:
+            self._notify("bus: drop pca, tucker or another multi-band tool after it to "
+                         "analyse its sends", "status")
+        elif tail == "noise":
+            self._notify("showing the noised field — add wtmm2d (or any tool) after it to "
+                         "analyse; bypass noise to compare with the raw data", "status")
+        elif tail != "band_select":
+            self._notify(f"showing what {tail} produces — add an analysing tool after it",
+                         "status")
+
+    def _repoint_bus_sends(self, old_path: str, new_path: str) -> None:
+        """A temporary derivative saved elsewhere: every bus sending from its old file follows
+        it (the temporary file goes with the session)."""
+        import json
+
+        from dynamix.core.bus import parse_sends
+
+        for layer in self.project.layers:
+            steps = list(layer.chain.steps)
+            if not steps or steps[0].device != "bus":
+                continue
+            sends = parse_sends(steps[0].params.get("_sends"))
+            if not any(s.get("path") == old_path for s in sends):
+                continue
+            moved = [{**s, "path": new_path} if s.get("path") == old_path else s
+                     for s in sends]
+            steps[0] = DeviceRef("bus", {**steps[0].params, "_sends": json.dumps(moved)})
+            layer.chain = Chain(tuple(steps)).materialized()
+            recipe = self._recipes.get(layer.layer_id)
+            if recipe and recipe[0].get("device") == "bus":
+                recipe[0] = {**recipe[0], "params": {**recipe[0].get("params", {}),
+                                                     "_sends": json.dumps(moved)}}
+        if self.layer is not None and self._names[:1] == ["bus"]:
+            self._params[0] = dict(self.layer.chain.steps[0].params)
 
     # -- holder_map raster display (2026-09-16) ------------------------------------------------
     def _sync_holder_raster(self, result: dict) -> None:
@@ -3300,11 +3853,23 @@ both ``Canvas`` signals report the
                 if is_points:
                     mapping = json.loads(raw_mapping) if raw_mapping else None
                     fields_by_source[key] = read_csv_points(resolved_path, mapping=mapping)
+                elif project.sources[sid].bands:
+                    # An imported group / a stack with a band removed: exactly its bands.
+                    from dynamix.core.ingest import load_grid_stack
+                    from dynamix.shell.opening import _stamp_source
+
+                    src = project.sources[sid]
+                    stack = load_grid_stack(resolved_path, src.bands, name=src.label or None)
+                    ny, nx = np.asarray(stack.values).shape[:2]
+                    fields_by_source[key] = _stamp_source(stack, resolved_path, ny, nx)
                 else:
                     fields_by_source[key] = open_field(resolved_path)
             self.add_layer_row(layer, fields_by_source[key])
             if first_id is None:
                 first_id = layer.layer_id
+        for layer in list(project.layers):
+            if layer.parent_id is None and layer.layer_id in self._fields:
+                self._ensure_band_layers(layer, self._fields[layer.layer_id])
         self.setWindowTitle(f"{TITLE} — {path.stem}")
         if first_id is not None:
             self.layer_list.select_layer(first_id)
@@ -3466,6 +4031,16 @@ both ``Canvas`` signals report the
             self._stamp_backproject(self._names, self._params)
             self.layer.chain = self._chain()
             self._snapshot_recipe()
+        # A bus with LIVE layer sends: re-fingerprint what it sends, so a referenced layer
+        # edited since shows up here (its stamp moves the bus's cache key). Same moment as
+        # backproject's re-stamp above, for the same reason.
+        if self._names[:1] == ["bus"] and _lock_notice(layer) is None:
+            try:
+                if self._refresh_bus_stamps(layer):
+                    self.layer.chain = self._chain()
+                    self._snapshot_recipe()
+            except ValueError as exc:
+                self._notify(str(exc), "status")
         self.setWindowTitle(f"{TITLE} — {layer.name}")
         self._build_strips()
         # Locked/frozen: the CHAIN still displays (built normally, above) but the whole zone AND
@@ -4473,9 +5048,11 @@ both ``Canvas`` signals report the
                                    source_id=parent.source_id,
                                    label=self._next_roi_label(parent.source_id))
         self._active_roi_id = roi.roi_id
+        bands = parent.tags.get("data.bands")
         layer = self.project.add_layer(
             f"{parent.name} ROI {roi_params['roi_row']},{roi_params['roi_col']}",
-            parent.source_id, roi_chain(parent.chain, roi_params), parent_id=parent.layer_id)
+            parent.source_id, roi_chain(parent.chain, roi_params), parent_id=parent.layer_id,
+            tags={"data.bands": bands} if bands else None)
         layer.roi_id = roi.roi_id
         self.add_layer_row(layer, field)
         self.layer_list.select_layer(layer.layer_id)   # -> _select_layer -> worker
@@ -5391,8 +5968,7 @@ both ``Canvas`` signals report the
             # nothing to overlay -- land quietly with the hint instead of crashing on result.get.
             self._active_result = {}
             self.canvas.clear_overlays()
-            self._notify("chain ends on a field transform (noise) — add wtmm2d after it to "
-                         "analyse", "status")
+            self._land_field_result(result)
             self.resolved.emit(renderable)
             return
         # The ACTIVE layer's own latest result, for _refresh_topology_panel's "chain
@@ -5593,6 +6169,14 @@ both ``Canvas`` signals report the
         field = self.field if is_active else self._fields.get(layer.layer_id)
         if field is None:
             return
+        try:
+            # A bus's LIVE layer sends: fresh stamps, then the layers to compute first.
+            self._refresh_bus_stamps(layer)
+            prelude = self._bus_plan(layer)
+        except ValueError as exc:
+            if is_active:
+                self._report_error(str(exc))
+            return
         if is_active:
             # The scale stack is being rebuilt, so there is no honest answer to a scrub: the
             # canvas still holds the last good frame, the slider would move to an index the new
@@ -5640,7 +6224,8 @@ both ``Canvas`` signals report the
         # Finest-scale preview (design 2026-09-14 §3) only for the ACTIVE layer's own compute --
         # the one whose canvas the user is waiting on. A background arrangement-queue layer gets
         # no preview (nobody is staring at a blank canvas for it).
-        worker = ResolveWorker(layer, field, self.cache, layer.source_id, preview=is_active)
+        worker = ResolveWorker(layer, field, self.cache, layer.source_id, preview=is_active,
+                               prelude=prelude)
         # BOUND METHODS ONLY (worker.py's documented trap): Qt can only place a call on the GUI
         # thread if the receiver is a QObject it can ask for a thread affinity.
         worker.progress.connect(self._on_progress)
@@ -5749,8 +6334,7 @@ both ``Canvas`` signals report the
             # nothing to overlay, a hint says what to add.
             self._scales = ()
             self.canvas.clear_overlays()
-            self._notify("chain ends on a field transform (noise) — add wtmm2d after it to "
-                         "analyse", "status")
+            self._land_field_result(renderable.result)
             self.resolved.emit(renderable)
             self._land_after_worker()
             return

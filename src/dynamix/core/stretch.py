@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-STRETCHES = ("linear", "percent", "stddev", "log", "histogram")
+STRETCHES = ("linear", "percent", "stddev", "log", "histogram", "bipolar")
 
 
 def _scale(v: np.ndarray, lo: float, hi: float) -> np.ndarray:
@@ -31,6 +31,9 @@ def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.
     - ``log``: ``log1p`` over the range shifted to start at 0, then min..max -- lifts the dark end.
     - ``histogram``: equalisation -- each cell's rank among the finite cells, so every grey
       level is used equally.
+    - ``bipolar``: symmetric about ZERO for signed data (PCs, residuals, anomalies): −m..+m
+      with m the ``100 - percent``-th percentile of ``|v|``, clipped -- zero lands mid-scale,
+      so positive and negative read as opposites.
     """
     if mode not in STRETCHES:
         raise ValueError(f"unknown stretch {mode!r}; one of {', '.join(STRETCHES)}")
@@ -51,6 +54,11 @@ def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.
         shifted = v - float(f.min())
         lg = np.log1p(np.where(finite, shifted, 0.0))
         out = _scale(lg, 0.0, float(np.log1p(float(f.max()) - float(f.min()))))
+    elif mode == "bipolar":
+        m = float(np.percentile(np.abs(f), 100.0 - percent))
+        if m <= 0.0:
+            m = float(np.abs(f).max())
+        out = _scale(v, -m, m) if m > 0.0 else np.full(v.shape, 0.5)   # all zero: mid-scale
     else:  # histogram
         order = np.argsort(f, kind="stable")
         ranks = np.empty(f.size, dtype=np.float64)

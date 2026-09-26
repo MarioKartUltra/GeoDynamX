@@ -83,6 +83,8 @@ SESSION: dict = {
     "layer": None,       # the current dynamix.model.layer.Layer, for inspection (not rebuild input)
     "steps": None,      # (device_name, params) per chain step -- what a rebuilt window opens with
     "view": None,       # [[x0, x1], [y0, y1]] -- the canvas camera, so a rebuild lands where you were
+    "bands": None,      # the active dataset's band list (an imported group is file + bands)
+    "fields": None,     # layer_id -> field for EVERY row, so a rebuild keeps every dataset
 }
 
 _SHELL_DIR = Path(__file__).resolve().parent / "shell"
@@ -264,12 +266,14 @@ def _capture(window) -> None:
     SESSION["cache"] = window.cache
     SESSION["project"] = window.project
     SESSION["layer"] = window.layer
+    SESSION["fields"] = dict(window._fields)
     if window.layer is not None:
         SESSION["steps"] = tuple((ref.device, dict(ref.params))
                                  for ref in window.layer.chain.steps)
         source = window.project.sources.get(window.layer.source_id)
         if source is not None:
             SESSION["path"] = source.path
+            SESSION["bands"] = list(source.bands) if source.bands else None
         # else: no matching source (should not happen -- add_layer requires one) -- keep whatever
         # SESSION["path"] already held rather than clobbering it with a guess.
 
@@ -313,9 +317,27 @@ def _build_window(app):
     window.show()
 
     if SESSION["field"] is not None and SESSION["path"] is not None:
-        window.load_field(SESSION["field"], SESSION["path"])
+        window.load_field(SESSION["field"], SESSION["path"], bands=SESSION.get("bands"))
+        _restore_rows(window, SESSION.get("fields") or {}, SESSION.get("layer"))
         _restore_view(window)
     return window
+
+
+def _restore_rows(window, fields: dict, layer) -> None:
+    """Give every restored row its OWN field back, and rebuild the rows of every OTHER
+    dataset too: ``load_field``'s adoption rebuilds only the active dataset's family, all on
+    the one session field -- with several datasets loaded, a rebuild used to drop the rest
+    from the panel and draw the active field under every row. Re-selects the captured layer."""
+    for lay in window.project.layers:
+        field = fields.get(lay.layer_id)
+        if field is None:
+            continue
+        if lay.layer_id in window._layer_by_id:
+            window._fields[lay.layer_id] = field
+        else:
+            window.add_layer_row(lay, field)
+    if layer is not None and layer.layer_id in window._layer_by_id:
+        window.layer_list.select_layer(layer.layer_id)
 
 
 def _open(window, path: str) -> None:

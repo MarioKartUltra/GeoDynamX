@@ -48,8 +48,12 @@ class ResolveWorker(QtCore.QObject):
     #: result dict the canvas draws; the later ``finished`` replaces it with the full stack.
     partial = QtCore.Signal(object)
 
-    def __init__(self, layer, field, cache, source_id, *, preview=False):
+    def __init__(self, layer, field, cache, source_id, *, preview=False, prelude=()):
         super().__init__()
+        #: ``[(ref_layer, ref_field, stamp)]`` a bus's LAYER sends need first, dependencies
+        #: before dependents: each is resolved here, on this thread, and the raster it shows
+        #: filed under its stamp (``core.bus.register_plane``) for the bus to read.
+        self._prelude = list(prelude)
         self._layer = layer
         self._field = field
         self._cache = cache
@@ -93,6 +97,17 @@ class ResolveWorker(QtCore.QObject):
                     prev = None
                 if prev is not None and not self._cancel.is_set():
                     self.partial.emit(prev)
+            if self._prelude:
+                from dynamix.core.bus import register_plane, shown_plane
+
+                for ref_layer, ref_field, stamp in self._prelude:
+                    ref = resolve(ref_layer, ref_field, self._cache,
+                                  source_id=ref_layer.source_id, progress=self._on_progress,
+                                  cancel=self._cancel.is_set)
+                    try:
+                        register_plane(stamp, shown_plane(ref.result, ref_field))
+                    except ValueError as exc:
+                        raise ValueError(f"{ref_layer.name}: {exc}") from exc
             renderable = resolve(
                 self._layer, self._field, self._cache,
                 source_id=self._source_id, progress=self._on_progress,

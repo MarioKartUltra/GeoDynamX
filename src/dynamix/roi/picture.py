@@ -159,9 +159,11 @@ def read_picture_hdf4(path, dsname: str, *, max_dim: int = PICTURE_MAX_DIM,
     from dynamix.core.frames import LocalFrame
     from dynamix.core.rasterfield import RasterField
 
+    from dynamix.core.ingest import hdf4_select
+
     sd = SD(str(path), SDC.READ)
     try:
-        ds = sd.select(dsname)
+        ds = hdf4_select(path, sd, dsname)
         _n, rank, dims, _t, _na = ds.info()
         if rank != 2:
             raise ValueError(f"{path}:{dsname}: a picture needs a 2-D dataset, got rank {rank}")

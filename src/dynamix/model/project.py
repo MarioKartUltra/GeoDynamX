@@ -76,12 +76,18 @@ class SourceRef:
     #: Show this dataset's row nested INSIDE the row of source ``nest_under`` (a derivative
     #: placed under the dataset it came from). Display only; additive (``.get`` on load).
     nest_under: str | None = None
+    #: The bands this dataset is made of when it is NOT the file as a whole -- a container's
+    #: grid ids (an imported sensor group) or ``"#k"`` band indices of a multiband file (a
+    #: stack a band was removed from). ``None`` = the whole file. Part of the source's
+    #: IDENTITY (``Project.add_source`` dedups on path AND bands): two groups imported from
+    #: one file are two datasets. Additive (``.get`` on load).
+    bands: list | None = None
 
     def to_payload(self) -> dict:
         return {"source_id": self.source_id, "path": self.path,
                 "sha256": self.sha256, "label": self.label, "collapsed": self.collapsed,
                 "kind": self.kind, "hidden": self.hidden, "temporary": self.temporary,
-                "nest_under": self.nest_under}
+                "nest_under": self.nest_under, "bands": self.bands}
 
     @classmethod
     def from_payload(cls, d: dict) -> "SourceRef":
@@ -89,7 +95,8 @@ class SourceRef:
                    sha256=d.get("sha256"), label=d.get("label", ""),
                    collapsed=d.get("collapsed", False), kind=d.get("kind", "raster"),
                    hidden=bool(d.get("hidden", False)),
-                   temporary=bool(d.get("temporary", False)), nest_under=d.get("nest_under"))
+                   temporary=bool(d.get("temporary", False)), nest_under=d.get("nest_under"),
+                   bands=list(d["bands"]) if d.get("bands") else None)
 
 
 @dataclasses.dataclass
@@ -336,7 +343,8 @@ class Project:
     _next_ref_id: int = 0
 
     def add_source(self, path: str, *, label: str = "",
-                   sha256: str | None = None, kind: str = "raster") -> SourceRef:
+                   sha256: str | None = None, kind: str = "raster",
+                   bands: "list | None" = None) -> SourceRef:
         """Register a source, reusing an existing entry when the path already names the same file.
 
         Two layers over one raster must share a source, or relocating it means N edits and the
@@ -348,17 +356,22 @@ class Project:
         (deduped) source -- a path's kind cannot legitimately change between two opens of it, so
         there is nothing to reconcile there, unlike ``sha256``/``label`` which a later open may
         legitimately update.
+
+        ``bands`` (a container group's grid ids, or ``"#k"`` indices) joins the identity: the
+        same file with a different band list is a different dataset (its own row, its own
+        cache lines).
         """
         key = _path_key(path)
+        want = list(bands) if bands else None
         for existing in self.sources.values():
-            if _path_key(existing.path) == key:
+            if _path_key(existing.path) == key and (existing.bands or None) == want:
                 if sha256:
                     existing.sha256 = sha256
                 if label:
                     existing.label = label
                 return existing
         ref = SourceRef(source_id=f"src{self._next_source_id}", path=path,
-                        sha256=sha256, label=label, kind=kind)
+                        sha256=sha256, label=label, kind=kind, bands=want)
         self._next_source_id += 1
         self.sources[ref.source_id] = ref
         return ref

@@ -451,7 +451,7 @@ def test_context_menu_has_rename_remove_and_refined_run(panel, project):
     titles = [a.text() for a in menu.actions()]
     # "Remove" became the two deletes (2026-09-23).
     assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run",
-                      "Fork derivative dataset…"]
+                      "Fork derivative dataset…", "Route bands to a new bus…"]
 
 
 def test_context_menu_remove_action_emits_removeRequested(panel, project, qtbot):
@@ -1356,7 +1356,7 @@ def test_a_result_rows_menu_offers_delete_layer_and_delete_layer_and_children(pa
     menu = panel._build_context_menu(panel._layer_items[layer.layer_id], layer.layer_id)
     titles = [a.text() for a in menu.actions()]
     assert titles == ["Rename", "Delete layer", "Delete layer and children", "New refined run",
-                      "Fork derivative dataset…"]
+                      "Fork derivative dataset…", "Route bands to a new bus…"]
     only = next(a for a in menu.actions() if a.text() == "Delete layer")
     with qtbot.waitSignal(panel.removeLayerOnlyRequested, timeout=1000) as sig:
         only.trigger()
@@ -1471,10 +1471,11 @@ def test_a_temporary_derivative_row_offers_save_as(panel, project, qtbot):
     source = project.add_source("/data/dataset.tif")
     _layer(project, "dataset", source.source_id)
     assert [a.text() for a in panel._build_source_context_menu(source.source_id).actions()] \
-        == ["Remove dataset"]
+        == ["Route bands to a new bus…", "Remove dataset"]
     source.temporary = True
     menu = panel._build_source_context_menu(source.source_id)
-    assert [a.text() for a in menu.actions()] == ["Save derivative as…", "Remove dataset"]
+    assert [a.text() for a in menu.actions()] == ["Save derivative as…", "Route bands to a new bus…",
+                                             "Remove dataset"]
     with qtbot.waitSignal(panel.saveDerivativeRequested) as blocker:
         menu.actions()[0].trigger()
     assert blocker.args == [source.source_id]

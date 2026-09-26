@@ -28,6 +28,8 @@ from dynamix.devices.groups import GroupFilter, GroupPaint
 from dynamix.devices.holder_map import HolderMap
 from dynamix.devices.cdf_edges import CDFEdges
 from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
+from dynamix.devices.band_select import BandSelect
+from dynamix.devices.bus import Bus
 from dynamix.devices.noise import Noise
 from dynamix.devices.mz_edges import MZEdges
 from dynamix.devices.pm_edges import PMEdges
@@ -69,6 +71,8 @@ from dynamix.model.device import DEVICES, register_device
 #: never-delete rule holds -- the browser routes it to the Dev category instead.
 BUILTIN_DEVICES = (
     Noise,
+    BandSelect,
+    Bus,
     WTMM2D,
     WTMM2DROI,
     MZEdges,

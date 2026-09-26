@@ -32,7 +32,7 @@ _SUPERSEDED = ("holder_map", "band_recon", "tucker_havok")
 
 #: Devices only the shell places (a derivative dataset's vector loader): never dropped by hand,
 #: so they sit in "Dev" too.
-_SHELL_PLACED = ("derived_vectors",)
+_SHELL_PLACED = ("derived_vectors", "bus")
 
 #: Item-data role holding the mime type a row's ``mimeData()`` should encode under. Unset (``None``)
 #: on the category headers -- that absence is what makes a header undraggable.

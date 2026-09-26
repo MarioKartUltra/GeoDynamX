@@ -63,7 +63,7 @@ def test_constant_field_and_unknown_mode_are_handled_honestly():
     assert np.all(stretch(flat, "linear") == 0.0)
     with pytest.raises(ValueError, match="stretch"):
         stretch(flat, "cubist")
-    assert set(STRETCHES) == {"linear", "percent", "stddev", "log", "histogram"}
+    assert set(STRETCHES) == {"linear", "percent", "stddev", "log", "histogram", "bipolar"}
 
 
 # ------------------------------------------------------- density slice (ENVI, 2026-09-16)
@@ -106,3 +106,18 @@ def test_parse_class_colors_rgba_with_transparent_none():
     import pytest as _pt
     with _pt.raises(ValueError, match="class color"):
         parse_class_colors("#ff00")
+
+
+def test_bipolar_is_symmetric_about_zero():
+    v = np.array([-4.0, -2.0, 0.0, 2.0, 4.0, np.nan])
+    out = stretch(v, "bipolar", percent=0.0)
+    assert out[2] == 0.5                                   # zero lands mid-scale
+    assert out[0] == 0.0 and out[4] == 1.0
+    assert out[1] + out[3] == 1.0                          # opposites mirror
+    assert np.isnan(out[5])
+
+
+def test_bipolar_keeps_an_all_negative_field_below_mid_and_all_zero_at_mid():
+    out = stretch(np.array([-3.0, -2.0, -1.0]), "bipolar", percent=0.0)
+    assert np.all(out <= 0.5) and out[0] == 0.0
+    assert np.all(stretch(np.zeros(4), "bipolar") == 0.5)

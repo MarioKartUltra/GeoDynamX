@@ -61,9 +61,11 @@ def _read_hdf4(source, dsname, r0, c0, r1, c1):
     from pyhdf.SD import SD, SDC
     from rasterio import Affine
 
+    from dynamix.core.ingest import hdf4_select
+
     sd = SD(str(source), SDC.READ)
     try:
-        ds = sd.select(dsname)
+        ds = hdf4_select(source, sd, dsname)
         values = np.asarray(ds.get(start=(r0, c0), count=(r1 - r0, c1 - c0)), dtype=np.float64)
         fill = ds.attributes().get("_FillValue")
     finally:

@@ -139,11 +139,15 @@ EXTRACTED = {
 #: q > 1, Jahnke-Emde lambda for q < 1), evaluated stably at every order -- log space, the
 #: small-argument series and Debye's uniform expansions; the app's own module, pinned against
 #: 40-digit mpmath and a numerical Hankel transform in tests/test_q_fourier.py.
+#: bus: band buses -- raw bands routed by reference (file + grid id / band index) into one
+#: (ny, nx, n) stack on a host grid, same-grid law enforced, windows aligned geometrically
+#: with the ROI runner's reflect padding; the app's own module, pinned in tests/test_bus.py.
 NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
-              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier"]
+              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
+              "bus"]
 
 
 def _normalised(path: pathlib.Path) -> str:
