@@ -46,6 +46,13 @@ mac = ["mlx>=0.20"]
 # Raster and image loading: GeoTIFF windowing/tiling, plain images for lab-frame maps.
 io = ["rasterio>=1.4", "Pillow>=10"]
 
+# HDF4 (ASTER-class HDF-EOS2) via pyhdf, lazily imported by core/ingest and roi/picture.
+# <0.11.7: that release's macOS wheels are tagged macosx_26_0, so on older macOS pip skips
+# them and falls back to the sdist, which compiles libhdf4 at install time. 0.11.6 ships
+# macosx_14_0 arm64 + win_amd64 wheels (a macOS wheel tag is a MINIMUM, so it installs on
+# every newer macOS too). Raise the ceiling when a release restores lower tags.
+hdf4 = ["pyhdf>=0.11.6,<0.11.7"]
+
 # The arrangement (session/arrangement Tab-flip) view: a VTK surface via pyvista/pyvistaqt.
 # Lazily imported behind dynamix.shell.arrangement.view._import_pyvista -- absent, the Tab flip
 # degrades to a notice instead of failing to import.

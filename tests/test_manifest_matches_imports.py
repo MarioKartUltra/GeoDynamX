@@ -20,17 +20,15 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 SRC = REPO / "src"
 PYPROJECT = REPO / "pyproject.toml"
 
-#: Deliberately undeclared, with the reason. These are proper packages with their own pyproject and
-#: dependencies, shared across Creep / EQSelect / DynamiX, installed editable from a local checkout.
-#: They are kept OUT of pyproject.toml on purpose so a private research repo's URL does not sit in
-#: DynamiX's metadata. Both are lazily imported, so the core still installs with numpy alone.
-UNDECLARABLE = {
-    "wtmm": "documented local install: pip install -e ~/projects/Creep/wavelet/wtmm",
-    "wtmm_ebsd": "documented local install: pip install -e ~/projects/Creep/wavelet/wtmm_ebsd",
-}
+#: Deliberately undeclared, with the reason. Empty since 2026-09-22: wtmm and wtmm_ebsd, the
+#: former entries, are vendored under dynamix/_vendor, so their imports resolve inside the
+#: package and no local editable install remains. The guard test below keeps this list honest
+#: if a new local-install debt ever appears.
+UNDECLARABLE: dict = {}
 
-#: Import name -> distribution name, where they differ.
-IMPORT_TO_DIST = {"PIL": "pillow"}
+#: Import name -> distribution name, where they differ. mpl_toolkits (mplot3d, axes_grid1,
+#: the scale-bar anchors) ships inside the matplotlib distribution.
+IMPORT_TO_DIST = {"PIL": "pillow", "mpl_toolkits": "matplotlib"}
 
 
 def _third_party_imports() -> dict[str, set[str]]:
@@ -84,12 +82,20 @@ def test_every_import_is_declared_or_known_debt():
     )
 
 
-def test_numpy_is_the_only_hard_dependency():
-    """The analysis core must import with numpy alone. If this fails, a guarded import became a
-    top-level one and the core silently grew a dependency."""
+def test_base_dependencies_are_numpy_plus_the_fft_engines():
+    """The analysis core must IMPORT with numpy alone (every other core import is lazy or
+    guarded), but the base INSTALL deliberately carries the FFT engines since the platform
+    switch (2026-09-22): pyfftw on every platform, mlx only behind its Apple Silicon marker.
+    If this fails, either a dependency crept into the base list or the mlx marker was lost --
+    losing it would make every Windows/Linux/Intel-Mac install try to fetch mlx."""
     cfg = tomllib.loads(PYPROJECT.read_text())["project"]
-    base = {s.split(">")[0].split("=")[0].strip().lower() for s in cfg["dependencies"]}
-    assert base == {"numpy"}, f"base dependencies drifted: {sorted(base)}"
+    base = {s.split(">")[0].split("=")[0].split(";")[0].strip().lower()
+            for s in cfg["dependencies"]}
+    assert base == {"numpy", "pyfftw", "mlx"}, f"base dependencies drifted: {sorted(base)}"
+    mlx = next(s for s in cfg["dependencies"] if s.lower().startswith("mlx"))
+    assert "sys_platform == 'darwin'" in mlx and "platform_machine == 'arm64'" in mlx, (
+        f"mlx must stay behind its Apple Silicon environment marker; got: {mlx}"
+    )
 
 
 def test_undeclarable_imports_are_still_present():
