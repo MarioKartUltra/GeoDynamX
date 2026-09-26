@@ -32,8 +32,8 @@ class ResolveWorker(QtCore.QObject):
 
     ``start()`` creates the thread, moves this worker onto it, and starts it running -- it does
     not tear the thread down. The caller keeps the returned ``QThread`` and is responsible for
-    ``quit()``/``wait()`` once it is done with the result (see the audit's ``_WtmmWorker`` note on
-    the finished/failed -> quit -> deleteLater chain the window sets up).
+    ``quit()``/``wait()`` once it is done with the result (the window chains finished/failed ->
+    quit -> deleteLater).
     """
 
     progress = QtCore.Signal(str, float)

@@ -1015,7 +1015,7 @@ class Canvas(pg.GraphicsLayoutWidget):
     def _reposition_overlays(self) -> None:
         """Corner-anchored in WIDGET (display) pixels, not data coordinates -- the VTK original
         this replaces addressed its scale bar the same way, precisely so it never drifts with the
-        camera/view (app-window-audit.md 2.4).
+        camera/view.
 
         Each drawn item is then placed ADJACENT to its own label rather than at a fixed fraction
         of the data range. The distance bar used to be drawn at 5% up from the data-space y

@@ -352,7 +352,7 @@ def _register(*devices):
         register_device(d)
 
 
-@pytest.mark.skip(reason="selection mechanism disabled 2026-09-14 pending progressive-compute redesign")
+@pytest.mark.skip(reason="selection mechanism disabled pending the progressive-compute redesign")
 def test_resolve_materializes_the_selection_for_the_terminal_result(clean_registry):
     """A chain of selection-aware filters narrows indices; the caller still receives honest
     filtered dicts (one materialization at the end), with the selection left live for views."""
@@ -383,7 +383,7 @@ def test_resolve_materializes_before_a_non_aware_device_runs(clean_registry):
     assert selection_of(r.result) is None              # the rewrite invalidated the selection
 
 
-@pytest.mark.skip(reason="selection mechanism disabled 2026-09-14 pending progressive-compute redesign")
+@pytest.mark.skip(reason="selection mechanism disabled pending the progressive-compute redesign")
 def test_resolve_with_no_filters_returns_the_stamped_result_untouched(clean_registry):
     from dynamix.core.chain_product import selection_of
 

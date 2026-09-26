@@ -341,7 +341,7 @@ def stub_capped_chains(chains, cap=DRAW_CAP):
     return capped, note
 
 
-#: DISABLED — do NOT flip back to False without a redesign. The
+#: DISABLED — do NOT flip back to True without a redesign. The
 #: filters-as-index-selections mechanism this gates (``narrow_selection`` in the filter devices,
 #: ``materialize_selection`` in ``engine.resolve``, the canvas/scene fast paths) was unsound when
 #: a selection-aware filter interleaves with a non-aware one that rewrites ``extrema`` (min_vchains):

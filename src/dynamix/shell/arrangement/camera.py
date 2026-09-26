@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""MomentumCamera: the arrangement view's Google-Earth-style momentum spin + the ``r`` reset
-("Ported momentum-spin camera (globe mode only), ``r`` reset,
-orthographic camera for flat modes / perspective for globe, per the audit").
+"""MomentumCamera: the arrangement view's Google-Earth-style momentum spin (globe mode only),
+the ``r`` reset, and the orthographic camera for flat modes / perspective for the globe.
 
 **Port, not reinvention.** The spin mechanism (``_on_spin_press``/``_on_spin_move``/
 ``_on_spin_release``/``_spin_tick``, EQSelect's ``app_window.py:3541-3599``) is carried over
@@ -25,12 +24,12 @@ decay-until-<0.2px stop, same 16ms (~60fps) ``QTimer``. Only the plumbing change
   ``(caller, event)`` VTK-observer signature (``*_a``, ignored, matching EQSelect's own), so
   ``ArrangementView.activate()`` wires them the identical way.
 
-**The ``r`` reset** (EQSelect's ``_reset_view``, ``app_window.py:3880-3897``, audit doc lines
-85-93): cancels any in-flight coast, then -- if currently on the globe, switches to the
+**The ``r`` reset** (EQSelect's ``_reset_view``, ``app_window.py:3880-3897``):
+cancels any in-flight coast, then -- if currently on the globe, switches to the
 last-used FLAT mode first (which re-fires the scene's own rebuild) and re-frames; if already flat,
 just re-applies the orthographic top-down default view. There is no separate "reset camera" that
 leaves the projection alone -- reset and re-projection are the same code path on the globe,
-distinct only when already flat, exactly as the audit describes.
+distinct only when already flat.
 
 **One deliberate non-port: EQSelect's ``off_screen``-gated view-orientation skip.** EQSelect's own
 ``_apply_default_view`` (``app_window.py:3370-3388``) skips ``view_xy()``/``view_vector()``/
@@ -98,7 +97,7 @@ from dynamix.shell.arrangement.scene import DEFAULT_MODE
 
 _SPIN_GAIN = 0.28           # degrees of camera azimuth/elevation per pixel of flick velocity
 _SPIN_DECAY = 0.90          # per-tick velocity decay (higher = longer glide)
-_SPIN_INTERVAL_MS = 16      # ~60 fps -- the design's <16ms-per-tick perf bar (audit doc)
+_SPIN_INTERVAL_MS = 16      # ~60 fps -- the design's <16ms-per-tick perf bar
 _SPIN_EMA_ALPHA = 0.5       # release velocity = the RECENT motion, not the whole drag's average
 _SPIN_HOLD_STILL_S = 0.12   # held still this long before release -> stop dead, no coast
 _SPIN_MIN_FLICK_PX = 2.0    # |vx| + |vy| below this at release -> too small a flick, ignore
@@ -213,7 +212,7 @@ class MomentumCamera:
         """``LeftButtonReleaseEvent``: starts the coast timer iff there is real, RECENT velocity
         (release within :data:`_SPIN_HOLD_STILL_S` of the last move, and at least
         :data:`_SPIN_MIN_FLICK_PX` fast) AND the scene is currently in globe mode -- flat maps
-        never spin (audit doc's "gated to the globe only")."""
+        never spin."""
         self._dragging = False
         v = self._vel
         self._vel = None
@@ -301,7 +300,7 @@ class MomentumCamera:
             self._plotter.view_vector((1.0, 0.15, 0.25), viewup=(0.0, 0.0, 1.0))
         else:
             # ORTHOGRAPHIC top-down: no perspective parallax, so a screen pixel maps to an exact
-            # lon/lat at any depth -- load-bearing for click/pick accuracy (audit doc), not
+            # lon/lat at any depth -- load-bearing for click/pick accuracy, not
             # cosmetic.
             self._plotter.enable_parallel_projection()
             self._plotter.view_xy()                        # look down -Z, north up

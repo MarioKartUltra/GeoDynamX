@@ -23,7 +23,7 @@ marker; q* is settable by the spin or by clicking either panel. pyqtgraph, not m
 deliberately: the region-drag -> live-refit loop is this window's whole point, and pyqtgraph's
 interaction primitives are what the rest of the shell already runs on.
 
-**eta / frame (audit Part 1+2 -- the two forward lifts).** The reference family applies per-scale
+**eta / frame (the two forward lifts).** The reference family applies per-scale
 ``a**power`` multiplies on the way IN (``expo`` on the 1D CWT coefficients directly;
 ``fracint_alpha`` on the 2D tensor path's WT derivatives) and undoes them at the FIT stage via
 ``eta``/``frame``. Which lift (if any) was actually applied is the CALLER's knowledge, not this
@@ -88,7 +88,7 @@ class MultifractalWindow(QtWidgets.QDialog):
 
     #: Emitted on every re-fit with the current (log2_a_min, log2_a_max) -- the coupled-state
     #: channel the spectrum-construction window inherits its window from (the workbook's own
-    #: cell-49-inherits-cell-47 pattern; census interaction pattern 4).
+    #: cell-49-inherits-cell-47 pattern).
     scaleWindowChanged = QtCore.Signal(float, float)
 
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,

@@ -121,7 +121,7 @@ def test_press_cancels_an_in_flight_coast(qtbot):
 
 
 def test_release_after_holding_still_does_not_coast(qtbot):
-    """The audit's own gate: release must be within 0.12s of the last move, or the drag is read
+    """The release gate: release must be within 0.12s of the last move, or the drag is read
     as 'held still' -- no coast, even with plenty of raw velocity."""
     cam, scene = _camera(qtbot)
     scene.set_mode("globe")
@@ -177,7 +177,7 @@ def test_reset_while_flat_reframes_without_changing_mode(qtbot):
     cam.reset()
 
     assert scene.mode == DEFAULT_MODE
-    assert scene._plotter.camera.GetParallelProjection() == 1     # orthographic, per the audit
+    assert scene._plotter.camera.GetParallelProjection() == 1     # orthographic
 
 
 def test_reset_from_globe_returns_to_the_seeded_flat_mode_and_reframes(qtbot):

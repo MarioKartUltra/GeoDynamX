@@ -151,7 +151,7 @@ class TransectPanel(QtWidgets.QWidget):
         complexity this task does not need to solve) with its ORIGINAL ``transect_id`` intact (see
         the module docstring: the monotonic counter guarantees nothing else could have taken it
         meanwhile). A no-op with an empty stack ("Nothing to undo", EQSelect's own silent-by-design
-        refusal shape, census sec 7 -- there is nothing here for a caller to react to either way,
+        refusal shape -- there is nothing here for a caller to react to either way,
         so no signal is the honest response)."""
         if not self._deleted_stack:
             return

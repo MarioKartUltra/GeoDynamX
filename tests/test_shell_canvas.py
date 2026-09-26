@@ -1423,7 +1423,7 @@ def _prod_result():
                                  "scales": np.asarray([1.0, 2.0]), "_shape": (8, 64)})
 
 
-@pytest.mark.skip(reason="selection mechanism disabled 2026-09-14 pending progressive-compute redesign")
+@pytest.mark.skip(reason="selection mechanism disabled pending the progressive-compute redesign")
 def test_selection_fast_path_draws_the_selected_h_chains(qtbot):
     from dynamix.core.chain_product import materialize_selection
     from dynamix.devices.filters import HLineLength, ScaleSelect
@@ -1445,7 +1445,7 @@ def test_selection_fast_path_draws_the_selected_h_chains(qtbot):
     assert canvas.extrema_item.data.size == 1          # the singleton survives as a dot
 
 
-@pytest.mark.skip(reason="selection mechanism disabled 2026-09-14 pending progressive-compute redesign")
+@pytest.mark.skip(reason="selection mechanism disabled pending the progressive-compute redesign")
 def test_selection_fast_path_caps_v_trails_and_says_so(qtbot):
     from dynamix.core.chain_product import materialize_selection
     from dynamix.devices.chain_filters import ChainLengthFilter

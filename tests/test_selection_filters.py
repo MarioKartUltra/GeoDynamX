@@ -25,7 +25,7 @@ import pytest
 # min |W| / scale scrub) and is gated off at ``chain_product._SELECTION_ENABLED``. Retained (not
 # deleted) as the spec for the progressive (finest-first) compute redesign that will re-enable
 # it. Unskip when that flag flips.
-pytest.skip("selection mechanism disabled 2026-09-14 pending progressive-compute redesign",
+pytest.skip("selection mechanism disabled pending the progressive-compute redesign",
             allow_module_level=True)
 
 from dynamix.core.chain_product import (attach_chain_product, materialize_selection,

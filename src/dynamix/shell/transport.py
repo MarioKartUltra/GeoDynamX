@@ -6,7 +6,7 @@
 constructible and testable fully headless. ``Transport`` is the QFrame that drives a
 ``SweepClock`` from a QTimer while playing, and from a QSlider drag at any time; both paths
 funnel through the same ``_set_index`` -- there is exactly one place that emits ``scaleChanged``
-and updates the reading, per the audit-documented "same code path" requirement (scrub bar and
+and updates the reading, per the "same code path" requirement (scrub bar and
 playback filter the SAME scale-index).
 
 The window supplies ``scale_reading`` (scale px + physical units); the transport itself holds no
