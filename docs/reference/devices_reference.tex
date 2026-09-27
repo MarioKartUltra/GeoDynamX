@@ -119,7 +119,7 @@ hides the maxima dots and gradient arrows (and the H-lines in the Vector and Geo
 result keeps its maxima, so filters, the spectrum and the anisotropy window still read them.
 The layer's own H hides everything the result draws. An output that needs its own computation
 (the \dev{mz\_edges} reconstruction) runs the first time it is shown, with progress and Stop,
-and stays cached; Pin keeps it.
+and stays cached; Freeze (the row's F) keeps it.
 
 \textbf{Progress} is live: every compute reports one increasing fraction from inside its own
 loops.
@@ -399,15 +399,18 @@ the maxima and spreads each correction between neighbouring maxima as the minima
 $\sinh$ interpolation, and $P_V$ projects back onto the range of the transform with the coarse
 channel held fixed. The $P_\Gamma$ weights depend only on the scale and the maxima positions, so
 the \texttt{separable} mode builds them once per scale and applies them as one gather per
-iteration; \texttt{separable\_mzlib} runs the reference row-by-row projection (the two agree to
+iteration (on very large grids, where holding them all would take too much memory, it rebuilds
+them each iteration with the same result); \texttt{separable\_mzlib} runs the reference row-by-row projection (the two agree to
 floating-point precision); \texttt{set\_points} assigns the maxima values alone. Fractional
 orders reconstruct with their own synthesis pair $K_\alpha=(1-|H_\alpha|^2)/G$,
 $L_\alpha=(1+|H_\alpha|^2)/2$. Each reconstruction row reads its iteration count, the state of
 the constraint residual (converged, still improving, rising, diverging) and its SNR against the
 data, mean removed (for edges only, against the data minus the synthesised coarse part). With
 $S=0$ the projections do not settle: an edges-only image is readable near ten iterations and
-degrades past that. ROI results do not reconstruct yet (their rows say so), and the thumbnail
-shows in the 2-D view.
+degrades past that. ROI results do not reconstruct yet (their rows say so), nor do fields with
+nodata pixels, and the thumbnail shows in the 2-D view. The coarse row is registered on the data
+(the low-pass filters' half-sample phase removed); each thumbnail block covers the pixels its
+sample describes.
 
 \begin{figure}[h]
 \centering\includegraphics[width=\textwidth]{frac_bspline.pdf}
