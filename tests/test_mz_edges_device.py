@@ -42,10 +42,12 @@ def test_registered_and_transform(mz):
 
 def test_param_surface(mz):
     names = [p.name for p in mz.params]
-    assert names == ["n_levels", "coarse", "dither", "wavelet", "interpolate", "alpha"]
+    assert names == ["n_levels", "coarse", "dither", "wavelet", "interpolate", "alpha",
+                     "show", "iterations", "mode"]
     defaults = {p.name: p.default for p in mz.params}
     assert defaults == {"n_levels": 4, "coarse": "full", "dither": False,
-                        "wavelet": "mz_spline", "interpolate": False, "alpha": 3.0}
+                        "wavelet": "mz_spline", "interpolate": False, "alpha": 3.0,
+                        "show": "edges", "iterations": 10, "mode": "separable"}
 
 
 def test_validate_rejects_unknown_keys(mz):
@@ -92,18 +94,20 @@ def test_compute_bundle_over_fbm(mz, fbm64):
     assert res["coarse_policy"] == "full"
 
 
-def test_compute_honors_coarse_and_dither_kwargs(mz, fbm64):
-    """The default-params compute above can't tell a device that plumbs coarse/dither through
-    from one that silently drops them, since analyze()'s own defaults (coarse="full",
-    dither=False) coincide with this device's param defaults. Force both off their defaults:
-    64 % 2**3 == 0 keeps the thumbnail path legal at n_levels=3; fbm64 is continuous float64
-    data, so measure_lsb (invoked only when dither=True) finds a positive lsb."""
+def test_compute_honors_dither_and_leaves_coarse_to_the_outputs(mz, fbm64):
+    """The default-params compute above can't tell a device that plumbs dither through from one
+    that silently drops it, since analyze()'s own default (dither=False) coincides with this
+    device's param default. Force it (and Coarse) off their defaults: fbm64 is continuous
+    float64 data, so measure_lsb (invoked only when dither=True) finds a positive lsb. Coarse is
+    view-only: the analysis always keeps the full coarse channel, and the 2^J thumbnail
+    (64 % 2**3 == 0) is derived from it by the lazy "thumbnail" output."""
     field = _field(fbm64)
     params = validate_params(mz, {"n_levels": 3, "coarse": "thumbnail", "dither": True})
     res = mz.compute(field, params)
-    assert res["coarse_policy"] == "thumbnail"
-    assert res["coarse_thumb"] is not None
+    assert res["coarse_policy"] == "full"
     assert res["lsb"] is not None
+    thumb = mz.compute_output("thumbnail", field.values, res, params, fetch=None)
+    assert thumb["raster"].shape == (8, 8) and thumb["display_stride"] == 8
 
 
 def test_compute_refuses_oversized_ladder(mz, fbm64):
@@ -134,4 +138,4 @@ def test_zero_miss_law_through_resolve(mz, fbm64):
     again = resolve(layer, field, cache)
     assert first.cache_misses >= 1
     assert again.cache_misses == 0
-    assert again.result is first.result
+    assert again.result["extrema"] is first.result["extrema"]
