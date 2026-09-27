@@ -84,6 +84,8 @@ def dispatches(monkeypatch):
 
 def _mz_layer(win, qtbot, **params):
     """Drop mz_edges on the dataset (it spawns a child one tick later) and let it land."""
+    # The printed-algorithm engine at 10 iterations: what these row tests were written against.
+    params = {"algorithm": "printed", "iterations": 10, **params}
     desc = [{"device": "mz_edges", "params": {**defaults_for(get_device("mz_edges")), **params}}]
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win.strips.set_steps(desc, field=win.field)

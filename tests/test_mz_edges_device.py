@@ -42,12 +42,15 @@ def test_registered_and_transform(mz):
 
 def test_param_surface(mz):
     names = [p.name for p in mz.params]
-    assert names == ["n_levels", "coarse", "dither", "wavelet", "interpolate", "alpha",
-                     "show", "iterations", "mode"]
+    assert names == ["n_levels", "algorithm", "border", "colocate_l1", "dither",
+                     "interpolate", "kappa", "clip", "run_mode", "iterations", "tolerance",
+                     "coarse", "mode", "show"]
     defaults = {p.name: p.default for p in mz.params}
-    assert defaults == {"n_levels": 4, "coarse": "full", "dither": False,
-                        "wavelet": "mz_spline", "interpolate": False, "alpha": 3.0,
-                        "show": "edges", "iterations": 10, "mode": "separable"}
+    assert defaults == {"n_levels": 4, "algorithm": "lastwave", "border": "mirror",
+                        "colocate_l1": False, "dither": False, "interpolate": False,
+                        "kappa": 1.0, "clip": False, "run_mode": "converge",
+                        "iterations": 20, "tolerance": 1e-3, "coarse": "full",
+                        "mode": "separable", "show": "edges"}
 
 
 def test_validate_rejects_unknown_keys(mz):
@@ -80,18 +83,34 @@ def test_same_params_produce_the_same_cache_key(mz):
 
 def test_compute_bundle_over_fbm(mz, fbm64):
     field = _field(fbm64)
-    params = validate_params(mz, {})
+    params = validate_params(mz, {"algorithm": "printed"})
     res = mz.compute(field, params)
     assert res["chains"] == []
     assert len(res["extrema"]) == params["n_levels"]
     assert len(res["mz_maxima"]) == params["n_levels"]
     assert res["_shape"] == field.values.shape
     assert res["_frame"] is field.frame
-    assert res["params"]["wavelet"] == "mz_spline"
+    assert "wavelet" not in res["params"] and "alpha" not in res["params"]
+    assert res["wavelet"] == "mz_spline"                  # the printed algorithm's spline
+    assert res["algorithm"] == "printed"
     assert res["scales"].dtype == np.float64
     # dither defaults to False: analyze() must not have measured/applied an LSB dither.
     assert res["lsb"] is None
     assert res["coarse_policy"] == "full"
+
+
+def test_compute_lastwave_bundle_over_fbm(mz, fbm64):
+    field = _field(fbm64)
+    params = validate_params(mz, {})
+    res = mz.compute(field, params)
+    assert res["algorithm"] == "lastwave" and res["chains"] == []
+    assert len(res["extrema"]) == params["n_levels"]
+    assert res["_shape"] == field.values.shape
+    assert res["_frame"] is field.frame
+    assert res["scales"].dtype == np.float64
+    assert res["_display_offset"] == (-0.5, -0.5)
+    for level in res["extrema"]:
+        assert {"x", "y", "mod", "arg", "line_id"} <= set(level)
 
 
 def test_compute_honors_dither_and_leaves_coarse_to_the_outputs(mz, fbm64):
@@ -102,18 +121,24 @@ def test_compute_honors_dither_and_leaves_coarse_to_the_outputs(mz, fbm64):
     view-only: the analysis always keeps the full coarse channel, and the 2^J thumbnail
     (64 % 2**3 == 0) is derived from it by the lazy "thumbnail" output."""
     field = _field(fbm64)
-    params = validate_params(mz, {"n_levels": 3, "coarse": "thumbnail", "dither": True})
+    params = validate_params(mz, {"algorithm": "printed", "n_levels": 3,
+                                  "coarse": "thumbnail", "dither": True})
     res = mz.compute(field, params)
     assert res["coarse_policy"] == "full"
     assert res["lsb"] is not None
     thumb = mz.compute_output("thumbnail", field.values, res, params, fetch=None)
     assert thumb["raster"].shape == (8, 8) and thumb["display_stride"] == 8
+    lastwave = validate_params(mz, {"n_levels": 3, "coarse": "thumbnail"})
+    res = mz.compute(field, lastwave)
+    thumb = mz.compute_output("thumbnail", field.values, res, lastwave, fetch=None)
+    assert thumb["raster"].shape == (8, 8) and thumb["display_stride"] == 8
 
 
-def test_compute_refuses_oversized_ladder(mz, fbm64):
+@pytest.mark.parametrize("algorithm", ["lastwave", "printed"])
+def test_compute_refuses_oversized_ladder(mz, fbm64, algorithm):
     # n_levels=8 passes param validation (max=10) but 2**8 > 64: compute must refuse
     field = _field(fbm64)
-    params = validate_params(mz, {"n_levels": 8})
+    params = validate_params(mz, {"n_levels": 8, "algorithm": algorithm})
     with pytest.raises(ValueError):
         mz.compute(field, params)
 

@@ -136,17 +136,16 @@ def test_explicit_diffusion_tools_reproduce_the_whole_field_inside_the_roi(built
 
 # ------------------------------------------------------------ D3: Mallat-Zhong on the torus
 
-@pytest.mark.parametrize("wavelet,alpha", [("mz_spline", 3.0), ("frac_bspline", 2.5)])
+@pytest.mark.parametrize("algorithm", ["lastwave", "printed"])
 @pytest.mark.parametrize("n_levels", [2, 3])
-def test_mz_edges_reproduces_the_whole_field_inside_the_roi(builtins, wavelet, alpha,
-                                                            n_levels):
-    """mz mirrors its input onto a 2N x 2N torus; the margin (the transform's own measured
-    impulse reach at the coarsest level) keeps that mirror seam -- at the WINDOW edge -- out
-    of the ROI."""
+def test_mz_edges_reproduces_the_whole_field_inside_the_roi(builtins, algorithm, n_levels):
+    """mz mirrors its input onto a 2N x 2N torus; the margin (LastWave's FIR reach, or the
+    printed transform's own measured impulse reach, at the coarsest level) keeps that mirror
+    seam -- at the WINDOW edge -- out of the ROI."""
     from dynamix.roi.runner import crop_result_to_roi, run_on_region, split_lines
 
     dev = builtins["mz_edges"]
-    params = _params(dev, n_levels=n_levels, wavelet=wavelet, alpha=alpha)
+    params = _params(dev, n_levels=n_levels, algorithm=algorithm)
     m = dev.roi_margin(params)
     assert m > 0
     n = 2 * (m + 8) + 48

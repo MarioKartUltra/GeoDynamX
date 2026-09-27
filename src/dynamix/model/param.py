@@ -62,6 +62,10 @@ class Param:
     #: and keyed as before). ``None`` = always applies. Several conditions that must ALL hold
     #: are a tuple of such pairs: ``(("wavelet", ("q_gaussian",)), ("q_pairing", ("fixed",)))``.
     active_when: tuple | None = None
+    #: Where the shell draws the knob: ``""`` on the device strip, or the name of a right-panel
+    #: section (``"reconstruction"``). Presentation only: validation, defaults and cache keys
+    #: never read it.
+    section: str = ""
 
     def __post_init__(self):
         if self.kind is ParamKind.CHOICE:

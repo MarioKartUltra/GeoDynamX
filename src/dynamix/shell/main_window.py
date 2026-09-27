@@ -544,9 +544,11 @@ def _output_note(value) -> str:
     """A lazy output row's reading: a reconstruction's iterations, residual status and SNR;
     empty for an output that carries none (the coarse channel, the thumbnail)."""
     diag = (value or {}).get("diag") or {}
-    if "n_iter" not in diag:
-        return ""
-    return f"{diag['n_iter']} it · {diag['status']} · {float(diag['snr_db']):.1f} dB"
+    if "n_iter" in diag:
+        return f"{diag['n_iter']} it · {diag['status']} · {float(diag['snr_db']):.1f} dB"
+    if "iterations" in diag and "stop" in diag:          # the LastWave engine's diagnostics
+        return f"{diag['iterations']} it · {diag['stop']} · {float(diag['snr_db']):.1f} dB"
+    return ""
 
 
 def roi_chain(parent_chain: Chain, roi_params: dict) -> Chain:

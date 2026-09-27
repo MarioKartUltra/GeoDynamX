@@ -78,7 +78,7 @@ def layer_outputs(layer) -> tuple:
             last = (step, device)
     if last is None:
         return None, ()
-    outputs = declared_outputs(last[1])
+    outputs = tuple(o for o in declared_outputs(last[1]) if o.row)
     return (last[0], outputs) if outputs else (None, ())
 
 

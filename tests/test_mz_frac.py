@@ -166,31 +166,27 @@ def test_preview_refuses_fractional_bundles_with_a_pointed_message():
     assert img.shape == f.shape
 
 
-def test_device_exposes_the_wavelet_and_order_knobs(clean_registry):
+def test_the_device_offers_the_spline_alone(clean_registry):
+    """The fractional order is a core capability (the tests above); the mz_edges device runs
+    the dyadic spline in both of its engines and declares no wavelet or order knob."""
     from dynamix.core.frames import LocalFrame
     from dynamix.core.rasterfield import RasterField
     from dynamix.devices.mz_edges import MZEdges
-    from dynamix.model.device import defaults_for
+    from dynamix.model.device import defaults_for, validate_params
 
-    params = {p.name: p for p in MZEdges.params}
-    assert params["wavelet"].choices == ("mz_spline", "frac_bspline")
-    assert params["wavelet"].default == "mz_spline"
-    assert params["alpha"].default == 3.0
+    names = {p.name for p in MZEdges.params}
+    assert "wavelet" not in names and "alpha" not in names
+    dev = MZEdges()
+    for knob in ({"wavelet": "frac_bspline"}, {"alpha": 2.0}):
+        with pytest.raises(ValueError, match="unknown parameter"):
+            validate_params(dev, dict(defaults_for(dev), **knob))
 
     f = fbm2d(64, 0.5, seed=11)
     field = RasterField(name="f", values=f, frame=LocalFrame(),
                         x_axis=np.arange(64, dtype=np.float64),
                         y_axis=np.arange(64, dtype=np.float64))
-    dev = MZEdges()
-    base = dict(defaults_for(dev), n_levels=3)
-    res_std = dev.compute(field, base)
-    assert res_std["params"]["wavelet"] == "mz_spline"   # the pre-split stamp, now a knob
-    res_frac = dev.compute(field, dict(base, wavelet="frac_bspline", alpha=2.0))
-    assert res_frac["params"]["wavelet"] == "frac_bspline"
-    assert dev.cache_key("s", base) != dev.cache_key(
-        "s", dict(base, wavelet="frac_bspline"))
-    assert dev.cache_key("s", dict(base, wavelet="frac_bspline")) != dev.cache_key(
-        "s", dict(base, wavelet="frac_bspline", alpha=2.0))
+    res = dev.compute(field, dict(defaults_for(dev), n_levels=3, algorithm="printed"))
+    assert res["wavelet"] == "mz_spline"                 # the printed algorithm's own stamp
 
 
 # ------------------------------------------- theta_alpha(0): the slow tail

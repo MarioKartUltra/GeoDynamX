@@ -57,7 +57,7 @@ class Output:
     "raster" or "vector"; an eager output is already in the analysis result under ``name``;
     a lazy one is computed on request by ``device.compute_output`` and cached under its own key,
     which folds in the view-only ``params`` it depends on. ``grid`` is "native", or "stride"
-    for a raster drawn on its own coarser grid."""
+    for a raster drawn on its own coarser grid; ``row`` False keeps it off the layer's Outputs rows."""
 
     name: str
     kind: str
@@ -65,6 +65,9 @@ class Output:
     params: tuple[str, ...] = ()
     label: str = ""
     grid: str = "native"
+    #: False for an output other outputs build on (a preview a longer run continues from): it is
+    #: cached and fetched like any output but gets no row of its own.
+    row: bool = True
 
 
 def declared_outputs(device) -> tuple[Output, ...]:

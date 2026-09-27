@@ -154,3 +154,24 @@ def test_soft_bounds_without_hard_bounds_do_not_crash():
     either side without raising TypeError."""
     p = Param("holder", ParamKind.FLOAT, default=0.3, soft_min=-0.5, soft_max=1.5)
     assert p.soft_min == -0.5 and p.soft_max == 1.5
+
+
+def test_section_defaults_to_the_strip_and_is_presentation_only():
+    """``section`` names where the shell draws a knob: "" (the default) on the device strip,
+    a name such as "reconstruction" in that right-panel section. Validation ignores it."""
+    strip = Param("kappa", ParamKind.FLOAT, default=1.0, min=0.1, max=10.0)
+    panel = Param("kappa", ParamKind.FLOAT, default=1.0, min=0.1, max=10.0,
+                  section="reconstruction")
+    assert strip.section == "" and panel.section == "reconstruction"
+    assert panel.validate(2.5) == strip.validate(2.5) == 2.5
+    with pytest.raises(ValueError, match="above max"):
+        panel.validate(11.0)
+    assert strip != panel
+
+
+def test_section_payload_round_trips_and_an_older_payload_reads_as_the_strip():
+    p = Param("clip", ParamKind.BOOL, default=False, section="reconstruction")
+    assert Param.from_payload(p.to_payload()) == p
+    older = p.to_payload()
+    del older["section"]
+    assert Param.from_payload(older).section == ""
