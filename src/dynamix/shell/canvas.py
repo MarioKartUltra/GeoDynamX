@@ -882,6 +882,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._arrow_mode = "off"
         self._arrow_memo = None           # (id(ext layer), its WTMMM) -- ssm per scale, once
         self._last_arrows = None          # (result, scale_idx, row_off, col_off) to redraw
+        # Whether the maxima pixels and arrows draw at all (set_maxima_visible); set_result
+        # re-applies it on every redraw.
+        self._maxima_visible = True
 
         # The point-layer scatter overlay -- one array-fed ScatterPlotItem, shown only
         # when the raster currently displayed IS the bound target of a point layer's own
@@ -1209,7 +1212,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """Apply per-layer VIEW styling to the overlay items — never to the raster.
 
         ``opacity`` fades every overlay together (the raster stays put: fading the DATA to see
-        the data makes no sense; fading the measurement drawn over it does). ``point_size`` is
+        the data makes no sense; fading the measurement drawn over it does), including the
+        maxima pixel image and the gradient arrows; those two stay out of the pen-width loop (an
+        image item has no pen, and the arrows keep their own width). ``point_size`` is
         the extrema dots' pixel size; ``line_width`` the pen width shared by every polyline
         overlay, each keeping its own color/style (the seam's hue, the ghost's dashes). View
         state only: nothing here touches results, caches, or the analysis path.
@@ -1226,8 +1231,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """
         self._overlay_opacity = float(opacity)
         self._overlay_line_width = float(line_width)
-        for item in (self.extrema_item, self.hchain_item, self.vtrail_item,
-                     self.seam_item, self.ghost_item, *self._group_items.values()):
+        for item in (self.extrema_item, self.extrema_raster_item, self.arrow_item,
+                     self.hchain_item, self.vtrail_item, self.seam_item, self.ghost_item,
+                     *self._group_items.values()):
             item.setOpacity(float(opacity))
         self.extrema_item.setSize(float(point_size))
         for item in (self.hchain_item, self.vtrail_item, self.seam_item, self.ghost_item,
@@ -2157,6 +2163,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         gx, gy = self._cached_geometry("ghost", excluded, lambda: vchain_trails(excluded))
         self.ghost_item.setData(gx + col_off, gy + row_off)
         self.ghost_item.setVisible(bool(result.get("_show_ghosts", True)))
+        # The maxima gate: arrow mode "off" already leaves arrow_item empty, so the flag only
+        # ever takes drawn maxima away.
+        self.extrema_raster_item.setVisible(self._maxima_visible)
+        self.arrow_item.setVisible(self._maxima_visible)
 
         self._update_coi_outline(result, scale_idx, row_off, col_off)
         self._update_roi_bounds(result, row_off, col_off)
@@ -2247,6 +2257,13 @@ a bounded gather of at most :attr:`draw_cap` chains per
         lengths = base * (0.3 + 0.7 * np.clip(mod / (ref if ref > 0 else 1.0), 0.0, 1.0))
         xs, ys = _arrow_segments(x + col_off, y + row_off, arg, lengths)
         self.arrow_item.setData(xs, ys)
+
+    def set_maxima_visible(self, visible: bool) -> None:
+        """Show or hide the raster-view maxima dots and gradient arrows. The result's extrema are
+        untouched, so filters, the spectrum and anisotropy keep reading them."""
+        self._maxima_visible = bool(visible)
+        self.extrema_raster_item.setVisible(self._maxima_visible)
+        self.arrow_item.setVisible(self._maxima_visible)
 
     def set_show_trails(self, value: bool) -> None:
         self._show_trails = bool(value)

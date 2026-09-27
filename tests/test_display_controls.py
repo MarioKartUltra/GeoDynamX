@@ -34,6 +34,9 @@ def test_display_knob_persists_on_tags_and_restyles_canvas(loaded):
     assert loaded.layer.tags["ui.opacity"] == repr(0.4)
     assert loaded.layer.tags["ui.point_size"] == repr(7.0)
     assert loaded.canvas.extrema_item.opacity() == pytest.approx(0.4)
+    # the items that draw in the raster view carry the opacity too
+    assert loaded.canvas.extrema_raster_item.opacity() == pytest.approx(0.4)
+    assert loaded.canvas.arrow_item.opacity() == pytest.approx(0.4)
     assert loaded.canvas.extrema_item.opts["size"] == pytest.approx(7.0)
 
 
@@ -55,9 +58,11 @@ def test_style_round_trips_across_layer_switches(qtbot, loaded):
     with qtbot.waitSignal(loaded.resolved, timeout=10000):
         loaded.layer_list.select_layer(second.layer_id)
     assert loaded.canvas.extrema_item.opacity() == pytest.approx(1.0)   # fresh layer: defaults
+    assert loaded.canvas.extrema_raster_item.opacity() == pytest.approx(1.0)
     with qtbot.waitSignal(loaded.resolved, timeout=10000):
         loaded.layer_list.select_layer(first.layer_id)
     assert loaded.canvas.extrema_item.opacity() == pytest.approx(0.3)   # stored style restored
+    assert loaded.canvas.extrema_raster_item.opacity() == pytest.approx(0.3)
     assert loaded._display_controls["opacity"]._value == pytest.approx(0.3)
 
 
@@ -65,6 +70,7 @@ def test_garbled_tag_falls_back_to_default(loaded):
     loaded.layer.tags["ui.opacity"] = "not-a-number"
     loaded._sync_display_controls(loaded.layer)
     assert loaded.canvas.extrema_item.opacity() == pytest.approx(1.0)
+    assert loaded.canvas.extrema_raster_item.opacity() == pytest.approx(1.0)
 
 
 def test_styling_a_locked_layer_is_allowed(loaded):
@@ -72,6 +78,7 @@ def test_styling_a_locked_layer_is_allowed(loaded):
     loaded._on_display_style_changed("opacity", 0.5)
     assert loaded.layer.tags["ui.opacity"] == repr(0.5)
     assert loaded.canvas.extrema_item.opacity() == pytest.approx(0.5)
+    assert loaded.canvas.extrema_raster_item.opacity() == pytest.approx(0.5)
 
 
 # ------------------------------------------------------------------------------------------------
