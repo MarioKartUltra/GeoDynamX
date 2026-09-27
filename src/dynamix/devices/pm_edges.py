@@ -29,6 +29,7 @@ from __future__ import annotations
 
 from dynamix.devices.cdf_edges import _line_ids
 from dynamix.devices.holder_map import field_values_2d
+from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
 
 
@@ -63,6 +64,10 @@ class PMEdges:
         Param("floor", ParamKind.FLOAT, default=0.05, min=0.0, max=0.5,
               soft_min=0.02, soft_max=0.2, units="", label="Floor"),
     )
+    # The layer panel's output rows (the cdf_edges pattern): "filtered" is the radio row over
+    # ``show``, "edges" hides the maxima drawing only.
+    outputs = (Output("edges", "vector", label="edges"),
+               Output("filtered", "raster", label="filtered"))
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         import numpy as np

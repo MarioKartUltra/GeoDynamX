@@ -1562,7 +1562,10 @@ class Scene:
                 return False
             if any(old.get(k) != new.get(k) for k in self._STYLE_KEYS):
                 return False
-            if id(old.get("result")) == id(new.get("result")):
+            # The edges output row's H is a vector-actor change: the same result, redrawn
+            # with or without its H-lines/dots.
+            if id(old.get("result")) == id(new.get("result")) \
+                    and bool(old.get("edges_hidden")) == bool(new.get("edges_hidden")):
                 continue
             if old.get("result") is None or new.get("result") is None:
                 return False
@@ -1591,7 +1594,8 @@ class Scene:
             self._vector_masks.pop(layer_id, None)
             names = list(raster_names)
             chain_lookup_entry, vector_mask_entry = self._build_vector_actors(
-                layer_id, entry["field"], entry["result"], names, entry.get("vtrail_color"))
+                layer_id, entry["field"], entry["result"], names, entry.get("vtrail_color"),
+                edges_hidden=bool(entry.get("edges_hidden")))
             self._layer_actors[layer_id] = names
             if chain_lookup_entry is not None:
                 self._chain_lookup[layer_id] = chain_lookup_entry
@@ -1635,7 +1639,8 @@ class Scene:
                                              surface=entry.get("surface"),
                                              surface_field=entry.get("surface_field"),
                                              drape=entry.get("drape"),
-                                             levels=entry.get("levels"))
+                                             levels=entry.get("levels"),
+                                             edges_hidden=bool(entry.get("edges_hidden")))
                     continue
                 except NoGeoreference:
                     # Contract: "ok" entries carry a georeferenced field. Guarded
@@ -1690,7 +1695,7 @@ class Scene:
     def _add_layer_geometry(self, layer, field, result, *, colormap=None,
                             vtrail_color=None, hillshade=None, stretch=None,
                             surface=None, surface_field=None, drape=None,
-                            levels=None) -> None:
+                            levels=None, edges_hidden=False) -> None:
         """Everything ONE "ok" layer contributes: the raster drape, plus (when ``result`` carries
         them) its chains/extrema/ROI-outline vector actors -- ATOMIC per layer. Any exception
         raised while building the VECTOR actors rolls back every actor this call already added
@@ -1737,7 +1742,7 @@ class Scene:
         try:
             if result is not None:
                 chain_lookup_entry, vector_mask_entry = self._build_vector_actors(
-                    layer_id, field, result, names, vtrail_color)
+                    layer_id, field, result, names, vtrail_color, edges_hidden=edges_hidden)
         except Exception:
             for name in names:
                 self._plotter.remove_actor(name, render=False)
@@ -2298,7 +2303,8 @@ class Scene:
             names.append(name)
         return True
 
-    def _build_vector_actors(self, layer_id, field, result, names: list[str], vtrail_color=None):
+    def _build_vector_actors(self, layer_id, field, result, names: list[str], vtrail_color=None,
+                             *, edges_hidden=False):
         """One layer's chains/extrema/ROI-outline actors, added to the plotter. ``names`` is the
         CALLER's own list (:meth:`_add_layer_geometry`) -- appended to directly, in place, as each
         actor is genuinely added, so a failure partway through still leaves the caller holding
@@ -2320,7 +2326,11 @@ class Scene:
         :meth:`_expected_scale_step`'s "one voice-step" reference, per the design
         ("n_voice metadata if present, else the median step"). ``None`` (a result with no
         ``params``, or no ``n_voice`` in it -- e.g. a synthetic test result, or a future
-        non-wtmm_backend bundle) falls back to that method's own median-step derivation."""
+        non-wtmm_backend bundle) falls back to that method's own median-step derivation.
+
+        ``edges_hidden`` (the entry's ``ui.edges_hidden``, the edges output row's H) leaves out
+        the extrema H-lines and dots; chains and the ROI outline still draw, and the result's
+        extrema are untouched."""
         chain_lookup_entry = None
         vector_mask_entry = None
 
@@ -2344,7 +2354,7 @@ class Scene:
                                                   hi_scale_idx=hi_scale_idx, base_rgba=base_rgba)
 
         extrema_layers = result.get("extrema") or []
-        if extrema_layers:
+        if extrema_layers and not edges_hidden:
             ext0 = extrema_layers[0]     # finest scale only -- see the module docstring
             ex = np.asarray(ext0.get("x", ()), dtype=np.intp)
             ey = np.asarray(ext0.get("y", ()), dtype=np.intp)

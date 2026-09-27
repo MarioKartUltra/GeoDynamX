@@ -68,8 +68,8 @@ from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overvi
 from dynamix.geo.mapping import has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
-from dynamix.model.device import (defaults_for, get_device, is_transform, keyed_params,
-                                  validate_params)
+from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
+                                  keyed_params, validate_params)
 from dynamix.model.inspector_state import (InspectorState, SubLayerState,
                                            inspectors_from_payload, inspectors_to_payload)
 from dynamix.model.param import Param, ParamKind
@@ -92,7 +92,7 @@ from dynamix.shell.import_dialog import ImportGridsDialog
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
 # existing Transport, both of which this module already imports eagerly anyway.
 from dynamix.shell.inspector import NO_RESULT_TEXT, InspectorWindow
-from dynamix.shell.layer_panel import LayerPanel, ReferencePanel
+from dynamix.shell.layer_panel import LayerPanel, ReferencePanel, layer_outputs, shown_output
 from dynamix.shell.levels_dialog import BandDialog, LevelsDialog
 from dynamix.shell.multifractal_window import MultifractalWindow
 from dynamix.shell.opening import open_field
@@ -1058,6 +1058,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.layer_list.stackRequested.connect(self._on_stack_requested)
         self.layer_list.busEditRequested.connect(self._on_bus_edit_requested)
         self.layer_list.saveDerivativeRequested.connect(self._on_save_derivative)
+        # A result's output rows: a raster row is a radio over its step's Show, the edges row
+        # hides the maxima drawing.
+        self.layer_list.outputHideToggled.connect(self._on_output_hide_toggled)
         self.resolved.connect(self._fan_out_to_inspectors)
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self._left_split.addWidget(self.browser)
@@ -4291,6 +4294,73 @@ both ``Canvas`` signals report the
             layer.tags.pop("ui.lock", None)
         self._sync_lock_ui(layer)
 
+    def _on_output_hide_toggled(self, layer_id: int, name: str, hidden: bool) -> None:
+        """An output row's H (``LayerPanel.outputHideToggled``).
+
+        The vector "edges" row toggles the ``ui.edges_hidden`` tag: a drawing choice, so a
+        locked layer takes it too. The canvas maxima follow at once on the active layer, the
+        Vector/Geo scene on a resync; ``result["extrema"]`` is untouched, so filters, the
+        spectrum and anisotropy keep reading them.
+
+        A raster row is a radio over the step's view-only ``show``: un-hiding it shows it,
+        hiding the shown one puts the raw field back (``show = "edges"``). The write goes through
+        the Show knob's own control on the ACTIVE layer, so a row of another layer selects that
+        layer first. The control is the one path that reaches the box, the zone's descriptor
+        list and :meth:`_on_param_changed` (a cache-hit re-resolve) together; the next zone
+        gesture rebuilds the chain from those descriptors, so a value written past them would
+        revert there. A locked layer is refused before the control moves, since the box would
+        otherwise hold a value the window never took. The rows are re-synced from the model
+        afterwards either way: a refused click snaps back."""
+        layer = self._layer_by_id.get(layer_id)
+        if layer is None:
+            return
+        step, outputs = layer_outputs(layer)
+        output = next((o for o in outputs if o.name == name), None)
+        if output is not None and output.kind == "vector":
+            if hidden:
+                layer.tags["ui.edges_hidden"] = "1"
+            else:
+                layer.tags.pop("ui.edges_hidden", None)
+            if layer is self.layer:
+                self.canvas.set_maxima_visible(not hidden)
+            if self._center_stack.currentIndex() == 1:
+                self._sync_arrangement()
+        elif output is not None and (shown_output(step, outputs) == name) == hidden:
+            # Hiding the shown row, or un-hiding a hidden one; anything else is already true.
+            if layer is not self.layer:
+                self.layer_list.select_layer(layer_id)
+            index = self._output_step_index() if layer is self.layer else None
+            if index is not None:
+                notice = _lock_notice(layer)
+                if notice is not None:
+                    self.strips._show_warning(notice)
+                else:
+                    self.strips.strip(index)._on_control_changed(
+                        "show", "edges" if hidden else name)
+        self._sync_output_rows(layer)
+
+    def _output_step_index(self) -> int | None:
+        """The index (into ``_names``) of the active chain's step whose outputs the rows show:
+        the last enabled transform, when its device declares outputs; else ``None``."""
+        enabled = [i for i, (n, b) in enumerate(zip(self._names, self._bypassed))
+                   if not b and is_transform(get_device(n))]
+        if not enabled or not declared_outputs(get_device(self._names[enabled[-1]])):
+            return None
+        return enabled[-1]
+
+    def _sync_output_rows(self, layer) -> None:
+        """Push ``layer``'s output state into its rows, non-emitting: the raster output its
+        step's ``show`` puts on the canvas, and the ``ui.edges_hidden`` tag. The group is
+        rebuilt first when the chain's declared outputs changed (a chain edit)."""
+        if layer is None:
+            return
+        self.layer_list.sync_output_rows(layer)
+        step, outputs = layer_outputs(layer)
+        if step is None:
+            return
+        self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
+                                         layer.tags.get("ui.edges_hidden") == "1")
+
     def _on_freeze_toggled(self, layer_id: int, frozen: bool) -> None:
         """Freeze pins every one of ``layer``'s OWN transform-step cache keys (:meth:`
         _cache_keys_for`, the SAME derivation ``resolve()`` uses) so an eviction policy can never
@@ -5859,6 +5929,8 @@ both ``Canvas`` signals report the
         # Master-row collapse follows the chain: a first step on a lone master un-hides its
         # row; emptying it back re-collapses.
         self.layer_list.refresh_master_rows()
+        # The Outputs group follows the chain too: the declared outputs of its last transform.
+        self._sync_output_rows(self.layer)
         if self._transform_signature() != before:
             if self._auto_run_action.isChecked():
                 self._pending_layers.discard(self.layer.layer_id)
@@ -6068,6 +6140,7 @@ both ``Canvas`` signals report the
         self._refresh_panel_relevance()
         self._refresh_components_button()
         self._sync_holder_raster(result)
+        self._sync_output_rows(self.layer)
         # A landing while the Vector/Globe tab is up must reach the scene (a forked wtmm computed
         # with the Vector tab showing otherwise has its extrema absent until a manual
         # flip-out/in). _sync_arrangement's own diffing keeps repeat landings cheap
@@ -6087,6 +6160,11 @@ both ``Canvas`` signals report the
         spec_error = result.get("_spec_error")
         if spec_error:
             self.strips._show_warning(f"group spec error: {spec_error}")
+        # The edges output row's gate, set on every landing before any overlay draws: the
+        # maxima of a layer whose "edges" row is hidden stay off the canvas across redraws,
+        # layer switches and flips back from the Vector tab (the canvas keeps the flag).
+        self.canvas.set_maxima_visible(
+            self.layer is None or self.layer.tags.get("ui.edges_hidden") != "1")
         if self.layer is not None and not self.layer.visible:
             self.canvas.clear_overlays()
             self.canvas.clear_points()
@@ -6871,7 +6949,10 @@ both ``Canvas`` signals report the
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "drape": drape,
                                     "drape_id": id(drape) if drape is not None else None,
-                                    "levels": levels})
+                                    "levels": levels,
+                                    # The edges output row's H: the scene drops this
+                                    # layer's H-lines/dots while it is set.
+                                    "edges_hidden": layer.tags.get("ui.edges_hidden") == "1"})
                     self._arr_errors.pop(layer.layer_id, None)
                     continue
                 recorded = self._arr_errors.get(layer.layer_id)

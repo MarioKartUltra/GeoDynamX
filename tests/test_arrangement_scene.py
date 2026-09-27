@@ -2236,6 +2236,29 @@ def test_a_filter_only_resync_keeps_raster_and_camera_and_updates_vectors(tmp_pa
     assert p.renderer.actors[hline_name].GetMapper().GetInput().n_points < n_before
 
 
+def test_the_edges_row_hides_the_extrema_drawing_and_keeps_the_drape(tmp_path):
+    """``edges_hidden`` (the edges output row's H) takes the extrema H-lines and dots out of the
+    Vector/Geo view on the filter-only fast path, keeps them out across a rebuild, and brings
+    them back when cleared -- the drape stays the same actor throughout the fast path."""
+    scene = Scene(_plotter())
+    scene.set_frame_mode(True)
+    field = _frame_field()
+    layer = Layer(layer_id=1, name="F", source_id="mem:f")
+    entry = {"layer": layer, "field": field, "result": _ext_result(), "status": "ok",
+             "signature": "s1"}
+    p = scene._plotter
+    scene.set_layers([entry])
+    assert any("hline" in n for n in p.renderer.actors)
+    raster_before = p.renderer.actors["layer-1-raster"]
+    scene.set_layers([{**entry, "edges_hidden": True}])              # same result: fast path
+    assert not any("hline" in n for n in p.renderer.actors)
+    assert p.renderer.actors["layer-1-raster"] is raster_before
+    scene.set_layers([{**entry, "edges_hidden": True, "signature": "s2"}])   # full rebuild
+    assert not any("hline" in n for n in p.renderer.actors)
+    scene.set_layers([{**entry, "edges_hidden": False, "signature": "s2"}])
+    assert any("hline" in n for n in p.renderer.actors)
+
+
 def test_a_signature_or_style_change_still_takes_the_full_rebuild(tmp_path):
     scene = Scene(_plotter())
     scene.set_frame_mode(True)

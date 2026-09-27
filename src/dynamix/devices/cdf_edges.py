@@ -40,6 +40,7 @@ with the shared pointed message.
 from __future__ import annotations
 
 from dynamix.devices.holder_map import field_values_2d
+from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
 
 
@@ -97,6 +98,11 @@ class CDFEdges:
         Param("floor", ParamKind.FLOAT, default=0.05, min=0.0, max=0.5,
               soft_min=0.02, soft_max=0.2, units="", label="Floor"),
     )
+    # The layer panel's output rows: the raster rows are a radio over ``show``, the edges row
+    # hides the maxima drawing (``result["extrema"]`` stays for filters and tables).
+    outputs = (Output("edges", "vector", label="edges"),
+               Output("filtered", "raster", label="filtered"),
+               Output("edge_channel", "raster", label="edge channel"))
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         import numpy as np

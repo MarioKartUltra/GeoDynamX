@@ -54,6 +54,39 @@ _ROI_ID_ROLE = QtCore.Qt.UserRole + 2
 #: itself), with its dataset's source id under _BAND_SOURCE_ROLE.
 _BAND_ROLE = QtCore.Qt.UserRole + 3
 _BAND_SOURCE_ROLE = QtCore.Qt.UserRole + 4
+#: An output row under a result's "Outputs" group: the output's name under _OUTPUT_KEY_ROLE
+#: (unset on the group row itself) and its layer's id under _OUTPUT_LAYER_ROLE. Never
+#: _LAYER_ID_ROLE: an output is a product of its layer, and every rename/remove/menu handler
+#: below keys off that role.
+_OUTPUT_KEY_ROLE = QtCore.Qt.UserRole + 5
+_OUTPUT_LAYER_ROLE = QtCore.Qt.UserRole + 6
+
+
+def layer_outputs(layer) -> tuple:
+    """``(step, outputs)`` for ``layer``: its chain's LAST transform step and the outputs that
+    step's device declares, or ``(None, ())`` when the last transform declares none (a filter
+    never does; an unregistered device counts as declaring none)."""
+    from dynamix.model.device import declared_outputs, get_device, is_transform
+
+    last = None
+    for step in layer.chain.steps:
+        try:
+            device = get_device(step.device)
+        except KeyError:
+            continue
+        if is_transform(device):
+            last = (step, device)
+    if last is None:
+        return None, ()
+    outputs = declared_outputs(last[1])
+    return (last[0], outputs) if outputs else (None, ())
+
+
+def shown_output(step, outputs) -> str | None:
+    """The raster output ``step``'s view-only ``show`` param puts on the canvas, or ``None``
+    when it names none (the raw field is up)."""
+    show = step.params.get("show") if step is not None else None
+    return show if any(o.name == show and o.kind == "raster" for o in outputs) else None
 
 #: The chip-hover feedback:
 #: "chip hover emits chipHovered(parent_layer_id) -> LayerPanel.flash_row(layer_id) (temporary
@@ -116,6 +149,28 @@ class _RoiRow(QtWidgets.QWidget):
         row.addStretch(1)
         self.hide_button = _LayerRow._make_button(
             "H", "Hide this ROI's outline (results on it stay)", not roi.visible)
+        row.addWidget(self.hide_button)
+        self.hide_button.toggled.connect(self.hideToggled.emit)
+
+
+class _OutputRow(QtWidgets.QWidget):
+    """An output row's trailing widget: its H only. On a raster output H checked means "not the
+    one on the canvas" (the rows are a radio); on the vector "edges" output it hides the maxima
+    drawing."""
+
+    hideToggled = QtCore.Signal(bool)
+
+    def __init__(self, output, hidden: bool, parent=None):
+        super().__init__(parent)
+        row = QtWidgets.QHBoxLayout(self)
+        row.setContentsMargins(2, 0, 2, 0)
+        row.addStretch(1)
+        tip = ("Hide the edges drawing (filters and tables still read them)"
+               if output.kind == "vector" else
+               "Hide this output; clear H to show it in place of the data "
+               "(one raster output at a time)")
+        self.hide_button = _LayerRow._make_button("H", tip, hidden)
+        self.tooltip = tip
         row.addWidget(self.hide_button)
         self.hide_button.toggled.connect(self.hideToggled.emit)
 
@@ -239,6 +294,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
     removeBandRequested = QtCore.Signal(int)
     #: "Build band stack from N selected layers": the selected layer ids, in tree order.
     stackRequested = QtCore.Signal(list)
+    #: ``(layer_id, output name, hidden)`` -- an output row's H under a result's "Outputs".
+    outputHideToggled = QtCore.Signal(int, str, bool)
 
     def __init__(self, project=None, parent=None):
         super().__init__(parent)
@@ -273,6 +330,12 @@ class LayerPanel(QtWidgets.QTreeWidget):
         self._roi_items: dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._band_groups: dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._roi_rows: dict[str, _RoiRow] = {}
+        #: layer_id -> its "Outputs" group row, and -> {output name: row widget} for the rows
+        #: under it.
+        self._output_groups: dict[int, QtWidgets.QTreeWidgetItem] = {}
+        self._output_rows: dict[int, dict[str, _OutputRow]] = {}
+        #: layer_id -> {output name: (row item, label, kind)}, parallel to _output_rows.
+        self._output_items: dict[int, dict[str, tuple]] = {}
 
         self.currentItemChanged.connect(self._on_current_item_changed)
         self.itemChanged.connect(self._on_item_changed)
@@ -305,6 +368,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
             self._masters.clear()
             self._roi_items.clear()
             self._roi_rows.clear()
+            self._output_groups.clear()
+            self._output_rows.clear()
+            self._output_items.clear()
             self.set_project(project)
         finally:
             self.blockSignals(False)
@@ -324,6 +390,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         header = self._ensure_source_header(layer.source_id, field)
         if layer.parent_id is None and layer.source_id not in self._masters:
             self._attach_master(header, layer)
+            self.sync_output_rows(layer)
             return
         parent_item = (self._layer_items.get(layer.parent_id)
                        if layer.parent_id is not None else None)
@@ -362,6 +429,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if band_row:
             item.setExpanded(False)
             self.sync_band_rows(layer.source_id)
+        self.sync_output_rows(layer)
 
         self.refresh_master_rows()
 
@@ -447,6 +515,93 @@ class LayerPanel(QtWidgets.QTreeWidget):
                 parent.removeChild(group)
             return
         group.setText(0, f"Bands ({group.childCount()})")
+
+    # -- output rows (what a result produces, each shown or hidden on its own) -------------------
+    def sync_output_rows(self, layer) -> None:
+        """Keep ``layer``'s "Outputs" group matching what its chain's last transform declares
+        (:func:`layer_outputs`): built collapsed the first time, rebuilt when the declared set
+        changes, removed when there is none. A new row reads its state from the layer once, at
+        construction (the :class:`_LayerRow` rule): a raster row is hidden unless the step's
+        ``show`` names it, the vector row is hidden while the ``ui.edges_hidden`` tag is set.
+        Idempotent; the window calls it after every chain edit."""
+        lid = layer.layer_id
+        item = self._layer_items.get(lid)
+        step, outputs = layer_outputs(layer) if item is not None else (None, ())
+        if [o.name for o in outputs] == list(self._output_items.get(lid, {})):
+            return
+        self._forget_output_rows(lid)
+        if not outputs:
+            return
+        shown = shown_output(step, outputs)
+        edges_hidden = layer.tags.get("ui.edges_hidden") == "1"
+        rows: dict[str, _OutputRow] = {}
+        items: dict[str, tuple] = {}
+        self.blockSignals(True)          # detached build: the add_layer_row itemChanged trap
+        try:
+            group = QtWidgets.QTreeWidgetItem(["Outputs"])
+            group.setData(0, _OUTPUT_LAYER_ROLE, lid)
+            group.setToolTip(0, "what this result produces — clear H on a raster row to show it "
+                                "in place of the data (one at a time); H on edges hides the "
+                                "edges drawing")
+            item.insertChild(0, group)
+            group.setExpanded(False)
+            for out in outputs:
+                label = out.label or out.name
+                child = QtWidgets.QTreeWidgetItem([label])
+                child.setData(0, _OUTPUT_KEY_ROLE, out.name)
+                child.setData(0, _OUTPUT_LAYER_ROLE, lid)
+                group.addChild(child)
+                hidden = edges_hidden if out.kind == "vector" else out.name != shown
+                row = _OutputRow(out, hidden)
+                row.hideToggled.connect(
+                    lambda checked, lid=lid, name=out.name:
+                    self.outputHideToggled.emit(lid, name, checked))
+                self.setItemWidget(child, 1, row)
+                rows[out.name] = row
+                items[out.name] = (child, label, out.kind)
+        finally:
+            self.blockSignals(False)
+        self._output_groups[lid] = group
+        self._output_rows[lid] = rows
+        self._output_items[lid] = items
+
+    def set_output_state(self, layer_id: int, shown: str | None, edges_hidden: bool,
+                         notes: dict[str, str] | None = None,
+                         disabled: dict[str, str] | None = None) -> None:
+        """Push the model's output state into ``layer_id``'s rows without emitting: ``shown``
+        is the raster output on the canvas (``None``: the raw field), ``edges_hidden`` the
+        vector row's H. ``notes[name]`` is text shown after that row's name; ``disabled[name]``
+        greys that row out with the reason as its tooltip. A layer without rows is a no-op.
+        Each button's own signals are blocked for its ``setChecked`` (never the tree's)."""
+        rows = self._output_rows.get(layer_id)
+        if not rows:
+            return
+        notes, disabled = notes or {}, disabled or {}
+        for name, row in rows.items():
+            child, label, kind = self._output_items[layer_id][name]
+            hidden = bool(edges_hidden) if kind == "vector" else name != shown
+            row.hide_button.blockSignals(True)
+            try:
+                row.hide_button.setChecked(hidden)
+            finally:
+                row.hide_button.blockSignals(False)
+            text = f"{label} · {notes[name]}" if notes.get(name) else label
+            if child.text(0) != text:
+                child.setText(0, text)
+            reason = disabled.get(name)
+            child.setDisabled(reason is not None)
+            child.setToolTip(0, reason or "")
+            row.hide_button.setEnabled(reason is None)
+            row.hide_button.setToolTip(reason or row.tooltip)
+
+    def _forget_output_rows(self, layer_id: int) -> None:
+        """Drop ``layer_id``'s output rows from the registries and take its group out of the
+        tree (the dataset row outlives its master, so its group must go explicitly)."""
+        group = self._output_groups.pop(layer_id, None)
+        self._output_rows.pop(layer_id, None)
+        self._output_items.pop(layer_id, None)
+        if group is not None and group.parent() is not None:
+            group.parent().removeChild(group)
 
     def _attach_master(self, header, layer) -> None:
         """Make ``header`` the row of ``layer``, its source's master: one row per dataset. Its H
@@ -573,6 +728,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
             current_removed = False
             touched_headers: set[QtWidgets.QTreeWidgetItem] = set()
             for layer_id in layer_ids:
+                self._forget_output_rows(layer_id)
                 item = self._layer_items.pop(layer_id, None)
                 self._row_widgets.pop(layer_id, None)
                 if item is None:
@@ -817,6 +973,10 @@ class LayerPanel(QtWidgets.QTreeWidget):
             master = self._masters.get(str(band_source))   # the Bands row shows its dataset
             if master is not None:
                 self.layerSelected.emit(int(master))
+            return
+        output_layer = current.data(0, _OUTPUT_LAYER_ROLE)
+        if output_layer is not None:
+            self.layerSelected.emit(int(output_layer))     # an output row shows its layer
             return
         layer_id = current.data(0, _LAYER_ID_ROLE)
         if layer_id is not None:
