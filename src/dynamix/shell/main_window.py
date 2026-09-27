@@ -532,6 +532,14 @@ def _display_raster_of(result) -> "np.ndarray | None":
     return out if out is not None else result.get("h_map")
 
 
+def _edges_hidden(layer) -> bool:
+    """Whether ``layer``'s maxima are off the drawing: its ``ui.edges_hidden`` tag (the edges
+    output row's H), honoured only while its last transform declares that vector row. A tag
+    left behind by an analyzer since swapped for one without it hides nothing."""
+    return (layer.tags.get("ui.edges_hidden") == "1"
+            and any(o.kind == "vector" for o in layer_outputs(layer)[1]))
+
+
 def _output_note(value) -> str:
     """A lazy output row's reading: a reconstruction's iterations, residual status and SNR;
     empty for an output that carries none (the coarse channel, the thumbnail)."""
@@ -3789,20 +3797,28 @@ both ``Canvas`` signals report the
     def _strided_display_field(self, result: dict, raster):
         """The display field of an output drawn on its own coarser grid (``result[
         "_display_stride"]``, which :meth:`_show_lazy_output` sets for the M-Z thumbnail), or
-        ``None`` for any other result. Its samples sit at file pixels k*s, so its provenance
-        says so (``display_anchor`` "sample") and the canvas centres each block on its sample.
-        The provenance is a COPY (the field's shared dict is never mutated), and the field is a
-        drawing only: nothing analyses it."""
+        ``None`` for any other result. Sample k describes the centre of file pixels [k*s,
+        (k+1)*s), pixel k*s + (s-1)/2, so the canvas's own picture registration draws it over
+        exactly that block, and the axes are the field's own interpolated at those centres
+        (held at the last pixel for a partial last block, as a picture's are). The provenance is
+        a COPY (the field's shared dict is never mutated), and the field is a drawing only:
+        nothing analyses it."""
         s = result.get("_display_stride")
         if not s or self.field is None:
             return None
         s = int(s)
         field = self.field
         prov = {**(getattr(field, "provenance", None) or {}), "display_stride": s,
-                "full_dims": tuple(result["_full_dims"]), "display_anchor": "sample"}
-        return dataclasses.replace(field, values=np.asarray(raster, dtype=np.float64),
-                                   x_axis=np.asarray(field.x_axis)[::s],
-                                   y_axis=np.asarray(field.y_axis)[::s],
+                "full_dims": tuple(result["_full_dims"])}
+        values = np.asarray(raster, dtype=np.float64)
+
+        def centres(axis, m):
+            axis = np.asarray(axis, dtype=np.float64)
+            return np.interp(np.arange(m) * s + (s - 1) / 2, np.arange(axis.size), axis)
+
+        return dataclasses.replace(field, values=values,
+                                   x_axis=centres(field.x_axis, values.shape[1]),
+                                   y_axis=centres(field.y_axis, values.shape[0]),
                                    provenance=prov, name=self.layer.name)
 
     def _on_skeleton_selection_requested(self, indices: list) -> None:
@@ -4015,6 +4031,10 @@ both ``Canvas`` signals report the
         for layer in list(project.layers):
             if layer.parent_id is None and layer.layer_id in self._fields:
                 self._ensure_band_layers(layer, self._fields[layer.layer_id])
+        # Every restored layer's output rows carry their greying and readings now; landings
+        # only sync the active layer's.
+        for layer in project.layers:
+            self._sync_output_rows(layer)
         self.setWindowTitle(f"{TITLE} — {path.stem}")
         if first_id is not None:
             self.layer_list.select_layer(first_id)
@@ -4626,12 +4646,25 @@ both ``Canvas`` signals report the
     def _on_output_cancelled(self) -> None:
         """A cancelled output job cached nothing. A USER stop holds its key (no re-dispatch
         while that output stays on show; the row reads nothing); a superseded job's landing
-        dispatches whatever superseded it. The analysis is never marked stale."""
+        dispatches whatever superseded it. The analysis is never marked stale by the job
+        itself. A user stop also outranks an analysis of the active layer queued behind the job
+        (an analysis knob turned while it ran, which is what cancelled it): that analysis
+        stands down exactly as :meth:`_on_cancelled` stands one down, and nothing redraws,
+        since the live chain's analysis is not cached."""
         stopped = self._user_stopped
         job = self._end_output_job()
         if stopped:
             self._out_held = (job[2], "stopped")
             if job[0] is self.layer:
+                if self._active_pending == "compute":
+                    self._active_pending = None
+                    self._stopped_sig = self._transform_signature()
+                    self._sync_lock_ui(self.layer)
+                    self._set_transform_states("idle")
+                    self._set_compute_reading("stopped")
+                    self._sync_output_rows(self.layer)
+                    self._land_after_worker()
+                    return
                 self._set_compute_reading("stopped")
         self._land_output(job)
 
@@ -6309,6 +6342,9 @@ both ``Canvas`` signals report the
         An OUTPUT job of the active layer holding the slot redraws at its own landing
         (:meth:`_land_output`); a change of which output is on show, or of a knob that output
         reads, supersedes it here -- the job is cancelled and that landing dispatches the new one.
+        An output job never recomputes an analysis, so while one holds the slot and the
+        analysis tail this redraw reads is cached, the redraw runs now (a cache hit, the same
+        synchronous resolve as with the slot free) instead of waiting for the job to land.
         """
         job = self._out_job
         if job is not None and job[0] is self.layer and self._worker is not None:
@@ -6322,18 +6358,30 @@ both ``Canvas`` signals report the
             # the last run" -- so instead of dropping the edit (which leaves filters dead,
             # 'slaved to Run'), re-resolve the HYBRID: the last-run committed transforms
             # (cached -> no compute) + the CURRENT filters. Only once a run exists to hybridize
-            # against, and only when the thread is free (an in-flight landing re-resolves anyway).
-            if self._committed_chain is not None and self._thread is None:
+            # against, and only when the thread is free (an in-flight landing re-resolves anyway)
+            # or holds an output job while the committed tail is cached.
+            if self._committed_chain is not None and (
+                    self._thread is None or self._tail_cached_during_output_job(
+                        dataclasses.replace(self.layer, chain=self._committed_chain))):
                 self._resolve_now(self._committed_chain)
             return
         if self._errored:
             self._start_worker()
-        elif self._thread is None:
+        elif self._thread is None or self._tail_cached_during_output_job(self.layer):
             self._resolve_now()
         elif self._active_pending != "compute":
             active_id = self.layer.layer_id if self.layer is not None else None
             if self._dispatched is not None and self._dispatched[0] != active_id:
                 self._active_pending = "resolve"
+
+    def _tail_cached_during_output_job(self, layer) -> bool:
+        """True while the worker slot holds an OUTPUT job and ``layer``'s last transform result
+        is cached (or it has no transform), so resolving ``layer`` on the GUI thread computes
+        nothing; the redraw path of :meth:`_reresolve` then need not wait for the landing."""
+        if self._out_job is None or layer is None:
+            return False
+        keys = self._cache_keys_for(layer)
+        return not keys or keys[-1] in self.cache
 
     def _resolve_now(self, committed_chain=None) -> None:
         """Synchronous resolve on the GUI thread -- filters only, by construction.
@@ -6477,8 +6525,7 @@ both ``Canvas`` signals report the
         # The edges output row's gate, set on every landing before any overlay draws: the
         # maxima of a layer whose "edges" row is hidden stay off the canvas across redraws,
         # layer switches and flips back from the Vector tab (the canvas keeps the flag).
-        self.canvas.set_maxima_visible(
-            self.layer is None or self.layer.tags.get("ui.edges_hidden") != "1")
+        self.canvas.set_maxima_visible(self.layer is None or not _edges_hidden(self.layer))
         if self.layer is not None and not self.layer.visible:
             self.canvas.clear_overlays()
             self.canvas.clear_points()
@@ -7280,7 +7327,7 @@ both ``Canvas`` signals report the
                                     "levels": levels,
                                     # The edges output row's H: the scene drops this
                                     # layer's H-lines/dots while it is set.
-                                    "edges_hidden": layer.tags.get("ui.edges_hidden") == "1"})
+                                    "edges_hidden": _edges_hidden(layer)})
                     self._arr_errors.pop(layer.layer_id, None)
                     continue
                 recorded = self._arr_errors.get(layer.layer_id)

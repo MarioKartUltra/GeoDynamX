@@ -278,6 +278,36 @@ def test_the_vector_view_entry_carries_the_edges_gate(win, qtbot):
     assert seen[-1].get(child.layer_id) is True
 
 
+def test_an_edges_hidden_tag_hides_nothing_once_no_edges_row_exists(win, qtbot):
+    """``ui.edges_hidden`` is the edges row's H: a cdf child whose analyzer is swapped for
+    wtmm2d (which declares no outputs) keeps the tag, and its maxima draw all the same."""
+    child = _tool_layer(win, qtbot, "cdf_edges", n_levels=2)
+    lid = child.layer_id
+    win.layer_list._output_rows[lid]["edges"].hide_button.click()
+    assert win.canvas.extrema_raster_item.isVisible() is False
+    win.strips.set_steps([], field=win.field)          # empty the rack, then drop wtmm2d
+    win._on_chain_edited([])
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
+    desc = [{"device": "wtmm2d", "params": defaults_for(get_device("wtmm2d"))}]
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.strips.set_steps(desc, field=win.field)
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer is child and [s.device for s in child.chain.steps] == ["wtmm2d"]
+    assert child.tags.get("ui.edges_hidden") == "1" and lid not in win.layer_list._output_groups
+    assert win.canvas.extrema_raster_item.isVisible() is True
+    seen = []
+
+    class _Arrangement:
+        def set_layers(self, entries):
+            seen.append({e["layer"].layer_id: e.get("edges_hidden") for e in entries
+                         if e["status"] == "ok"})
+
+    win._arrangement = _Arrangement()
+    win._sync_arrangement(frame_mode=True)
+    assert seen[-1].get(lid) is False
+
+
 def test_the_outputs_group_follows_chain_edits(win, qtbot):
     child = _tool_layer(win, qtbot, "cdf_edges", n_levels=2)
     lid = child.layer_id

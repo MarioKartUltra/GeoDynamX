@@ -2011,9 +2011,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
         S = display_stride(field) * self._image_stride
         m_y = -(-values.shape[0] // self._image_stride)
         m_x = -(-values.shape[1] // self._image_stride)
-        # A strided field whose samples sit AT file pixels k*S (``display_anchor`` "sample": the
-        # M-Z coarse thumbnail, S_J every 2^J pixels) centres block k on its sample, spanning
-        # [k*S - S/2, k*S + S/2); a picture's sample is already its block's centre pixel.
+        # A strided field whose samples sit AT file pixels k*S (``display_anchor`` "sample")
+        # centres block k on its sample, spanning [k*S - S/2, k*S + S/2); a picture's sample,
+        # like the M-Z coarse thumbnail's, already describes its block's centre pixel.
         prov = getattr(field, "provenance", None) or {}
         half = S / 2 if prov.get("display_anchor") == "sample" else 0.5
         self.image_item.setRect(QtCore.QRectF(self._base_off[1] - half,

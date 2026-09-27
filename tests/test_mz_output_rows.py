@@ -5,16 +5,19 @@
 A lazy output row (coarse, thumbnail, the two reconstructions, the residual) computes its raster
 the first time it is shown, as a job on the worker slot the analysis uses (its progress, the
 Stop button), and from then on displays it from the cache in place of the field. A recon row
-reads its iterations, status and SNR. The thumbnail draws on its own coarse grid with each block
-centred on its sample. Rows that cannot compute grey out with the reason; a stopped job caches
-nothing and leaves the analysis alone; a landing for a layer that is gone, or for a key the
-layer no longer shows, is ignored."""
+reads its iterations, status and SNR. The thumbnail draws on its own coarse grid, each sample over
+the block of pixels whose centre it describes. Rows that cannot compute grey out with the reason
+(after a reopen too); a stopped job caches nothing and leaves the analysis alone, and a Stop also
+outranks the analysis a superseded job made way for; a filter edit during a job redraws at once
+(against the last run while a transform edit awaits Run); a landing for a layer that is gone, or
+for a key the layer no longer shows, is ignored."""
 from __future__ import annotations
 
 import math
 import pathlib
 import re
 import shutil
+import threading
 
 import numpy as np
 import pytest
@@ -129,6 +132,27 @@ def _rect(canvas):
     return r.x(), r.y(), r.width(), r.height()
 
 
+@pytest.fixture
+def slow_recon(monkeypatch, win):
+    """Holds every reconstruction until the returned Event is set. Teardown sets it and joins
+    a worker thread still running (a failed test's window may already be gone), so no thread
+    outlives the test."""
+    gate = threading.Event()
+    real = mz.reconstruct
+
+    def held(*a, **k):
+        gate.wait(30)
+        return real(*a, **k)
+
+    monkeypatch.setattr(mz, "reconstruct", held)
+    yield gate
+    gate.set()
+    thread = win._thread
+    if thread is not None:
+        thread.quit()
+        thread.wait()
+
+
 # --------------------------------------------------------------------------- rows and display
 def test_an_mz_layer_gets_its_output_rows(win, qtbot):
     layer = _mz_layer(win, qtbot)
@@ -227,6 +251,93 @@ def test_stop_during_a_reconstruction_caches_nothing_and_leaves_the_analysis(win
         win.layer_list.outputHideToggled.emit(lid, "recon", True)
     _show(win, qtbot, layer, "recon")
     assert dispatches == ["recon", "recon"] and key in win.cache
+
+
+def test_stop_outranks_the_analysis_a_superseded_output_job_made_way_for(win, qtbot, dispatches,
+                                                                         monkeypatch, slow_recon):
+    import dynamix.shell.main_window as mw
+
+    layer = _mz_layer(win, qtbot)
+    analyses: list = []
+    real = mw.ResolveWorker
+
+    class _Counted(real):
+        def __init__(self, layer, *a, **k):
+            analyses.append(layer.layer_id)
+            super().__init__(layer, *a, **k)
+
+    monkeypatch.setattr(mw, "ResolveWorker", _Counted)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.waitUntil(lambda: win._out_job is not None, timeout=10000)
+    win._on_param_changed(win._names.index("mz_edges"), "n_levels", 3)
+    assert win._active_pending == "compute"         # queued behind the job, which is cancelled
+    win._stop_compute()                             # before that cancel lands
+    slow_recon.set()
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
+    qtbot.wait(100)
+    assert analyses == [] and not win.is_computing and dispatches == ["recon"]
+    assert _step(layer).params["n_levels"] == 3
+    assert win._cache_keys_for(layer)[-1] not in win.cache       # the J = 3 analysis never ran
+    assert win._active_pending is None
+    assert win._stopped_sig == win._transform_signature()
+    assert win.transport.isEnabled() and not win._user_stopped
+
+
+def _mz_scale_layer(win, qtbot):
+    """mz_edges then scale_select at scale 0 on the dataset, computed and landed."""
+    desc = [{"device": "mz_edges", "params": defaults_for(get_device("mz_edges"))},
+            {"device": "scale_select", "params": {"scale_idx": 0}}]
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.strips.set_steps(desc, field=win.field)
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    layer = win.layer
+    assert [s.device for s in layer.chain.steps] == ["mz_edges", "scale_select"]
+    assert win._active_result["_scale_idx"] == 0
+    return layer
+
+
+def test_a_filter_edit_during_an_output_job_redraws_before_it_lands(win, qtbot, dispatches,
+                                                                    slow_recon):
+    layer = _mz_scale_layer(win, qtbot)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.waitUntil(lambda: win._out_job is not None, timeout=10000)
+    win._on_param_changed(win._names.index("scale_select"), "scale_idx", 2)
+    assert win._out_job is not None and win._out_job[1] == "recon"   # still in flight
+    assert win._active_result["_scale_idx"] == 2
+    assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · computing…"
+    slow_recon.set()
+    qtbot.waitUntil(lambda: not win.is_computing and win._out_request is None
+                    and NOTE.search(_row(win, layer, "recon").text(0)) is not None,
+                    timeout=60000)
+    assert dispatches == ["recon"]
+    assert win._active_result["_scale_idx"] == 2
+    key = _key(win, layer, "recon")
+    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+
+
+def test_a_filter_edit_during_an_output_job_redraws_the_last_run_while_a_transform_awaits_run(
+        win, qtbot, dispatches, slow_recon):
+    layer = _mz_scale_layer(win, qtbot)
+    win._auto_run_action.setChecked(False)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.waitUntil(lambda: win._out_job is not None, timeout=10000)
+    mz_i = win._names.index("mz_edges")
+    n_levels = win._params[mz_i]["n_levels"]
+    win._on_param_changed(mz_i, "n_levels", n_levels - 1)   # a transform edit awaits Run,
+    win._on_param_changed(mz_i, "n_levels", n_levels)       # still after it is turned back
+    assert layer.layer_id in win._pending_layers
+    win._on_param_changed(win._names.index("scale_select"), "scale_idx", 2)
+    assert win._out_job is not None and win._out_job[1] == "recon"   # still in flight
+    assert win._active_result["_scale_idx"] == 2                     # the hybrid redrew now
+    slow_recon.set()
+    qtbot.waitUntil(lambda: not win.is_computing and win._out_request is None
+                    and NOTE.search(_row(win, layer, "recon").text(0)) is not None,
+                    timeout=60000)
+    assert dispatches == ["recon"] and layer.layer_id in win._pending_layers
+    assert win._active_result["_scale_idx"] == 2
+    key = _key(win, layer, "recon")
+    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
 
 
 def test_an_analysis_knob_change_mid_reconstruction_never_shows_the_old_recon(win, qtbot,
@@ -354,9 +465,17 @@ def test_the_thumbnail_draws_on_its_own_grid_centred_on_its_samples(win, qtbot):
     ny, nx = win.field.values.shape
     value = win.cache.get(key)
     assert value["display_stride"] == S
-    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
-    assert win.canvas._field.values.shape == (math.ceil(ny / S), math.ceil(nx / S))
-    assert _rect(win.canvas) == (-S / 2, -S / 2, math.ceil(nx / S) * S, math.ceil(ny / S) * S)
+    shown = win.canvas._field
+    np.testing.assert_array_equal(shown.values, value["raster"])
+    assert shown.values.shape == (math.ceil(ny / S), math.ceil(nx / S))
+    # Sample k describes the centre of pixels [k*S, (k+1)*S): the canvas's own picture
+    # registration draws it over exactly those, and its axes sit at those centres.
+    assert "display_anchor" not in shown.provenance
+    assert _rect(win.canvas) == (-0.5, -0.5, math.ceil(nx / S) * S, math.ceil(ny / S) * S)
+    for axis, full, n in ((shown.x_axis, win.field.x_axis, nx),
+                          (shown.y_axis, win.field.y_axis, ny)):
+        centres = np.arange(math.ceil(n / S)) * S + (S - 1) / 2
+        np.testing.assert_allclose(axis, np.interp(centres, np.arange(n), full))
     assert "display_stride" not in win.field.provenance           # the shared dict is untouched
     assert layer.layer_id not in win._derived_fields              # a drawing, never a dataset
     assert all(not label.startswith("as shown")                   # the fork does not offer it
@@ -383,6 +502,25 @@ def test_a_sample_anchored_strided_field_centres_each_block_on_its_sample(qtbot)
     assert _rect(canvas) == (-0.5, -0.5, 80.0, 64.0)
 
 
+@pytest.mark.parametrize("p", [64, 60])
+def test_the_thumbnail_block_drawn_over_an_impulse_holds_its_maximum(qtbot, builtins, p):
+    """At pixel 60 a drawing that centred block k on pixel k*S would put the impulse under the
+    next block over."""
+    n, S = 128, 16
+    v = np.zeros((n, n))
+    v[p, p] = 1.0
+    field = RasterField(name="impulse", values=v, frame=LocalFrame(), x_axis=np.arange(float(n)),
+                        y_axis=np.arange(float(n)))
+    win = _window(qtbot, field, "/nonexistent/impulse.npz")
+    layer = _mz_layer(win, qtbot)
+    _show(win, qtbot, layer, "thumbnail")
+    shown = np.asarray(win.canvas._field.values)
+    x0, y0, w, h = _rect(win.canvas)
+    under = (int((p - y0) // (h / shown.shape[0])), int((p - x0) // (w / shown.shape[1])))
+    assert under == (p // S, p // S)
+    assert np.unravel_index(int(np.argmax(shown)), shown.shape) == under
+
+
 # --------------------------------------------------------------------------- greyed-out rows
 def test_an_roi_result_greys_out_its_lazy_rows(win, qtbot, dispatches):
     win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
@@ -399,6 +537,28 @@ def test_an_roi_result_greys_out_its_lazy_rows(win, qtbot, dispatches):
         win._on_param_changed(win._names.index("mz_edges"), "show", "recon")
     qtbot.wait(50)
     assert dispatches == [] and not win.is_computing
+
+
+def test_a_reopened_roi_child_greys_out_its_lazy_rows_behind_the_active_master(win, qtbot,
+                                                                              tmp_path):
+    from dynamix.shell.main_window import MainWindow
+
+    win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
+                      "boundary": "auto"})
+    child = _mz_layer(win, qtbot)
+    assert child.tags.get("roi.window")
+    path = win._save_project_to(tmp_path / "session.dynamix")
+
+    win2 = MainWindow(steps=())
+    qtbot.addWidget(win2)
+    win2._open_project_path(path)
+    qtbot.waitUntil(lambda: not win2.is_computing, timeout=30000)
+    assert win2.layer.parent_id is None                  # the master is the active layer
+    back = next(l for l in win2.project.layers if l.layer_id == child.layer_id)
+    for name in LAZY:
+        item = _row(win2, back, name)
+        assert item.isDisabled() and item.toolTip(0) == "not on ROI results yet"
+    assert not _row(win2, back, "edges").isDisabled()
 
 
 def test_a_thumbnail_coarse_on_a_non_divisible_grid_greys_recon_but_draws_the_thumbnail(
@@ -421,7 +581,7 @@ def test_a_thumbnail_coarse_on_a_non_divisible_grid_greys_recon_but_draws_the_th
     np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
     _show(win, qtbot, layer, "thumbnail")                 # the partial last block draws
     assert win.canvas._field.values.shape == (4, 4)
-    assert _rect(win.canvas) == (-8.0, -8.0, 64.0, 64.0)
+    assert _rect(win.canvas) == (-0.5, -0.5, 64.0, 64.0)
     # Coarse back to full: recon computes
     with qtbot.waitSignal(win.resolved, timeout=5000):
         win._on_param_changed(win._names.index("mz_edges"), "coarse", "full")
