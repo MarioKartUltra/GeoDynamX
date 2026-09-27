@@ -237,8 +237,8 @@ def test_the_thumbnail_sits_on_its_own_stride_grid(builtins, dem):
     assert tuple(out["full_dims"]) == (ny, nx)
     assert out["raster"].shape == (math.ceil(ny / 16), math.ceil(nx / 16))
     assert out["raster"].dtype == np.float32
-    coarse = mz.coarse_image(dem.values, mz.analyze(dem.values, 4))
-    _close32(out["raster"], coarse[::16, ::16])
+    torus = mz._coarse_for(dem.values, mz.analyze(dem.values, 4), 4)    # unregistered S_J
+    _close32(out["raster"], torus[:ny:16, :nx:16])
 
 
 def test_a_thumbnail_coarse_on_a_non_divisible_grid_refuses_the_recon(builtins, monkeypatch):

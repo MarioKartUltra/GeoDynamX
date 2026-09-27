@@ -671,6 +671,14 @@ def _detail_target(values, bank, J):
     return values - bank.inverse(S, zero)[:ny, :nx]
 
 
+def _require_finite(values, what):
+    """M-Z has no nodata policy: a non-finite pixel spreads through every FFT of the torus."""
+    k = int(np.size(values) - np.count_nonzero(np.isfinite(values)))
+    if k:
+        raise ValueError(f"{what} needs a finite field; this one has {k} nodata (non-finite) "
+                         f"pixels")
+
+
 def _recon_status(resid):
     """Where the constraint residual stands after the last iteration: "diverging" past
     ``_DIVERGENCE_RATIO`` times its smallest value, "converged" when the last relative change is
@@ -683,6 +691,17 @@ def _recon_status(resid):
     if len(resid) > 1 and resid[-1] > resid[-2]:
         return "rising"
     return "still improving"
+
+
+def _snr_db(target, img):
+    """Mean-removed SNR of ``img`` against ``target`` in dB: +inf for an exact reconstruction,
+    NaN when either sum is not finite (a field with nodata never scores)."""
+    num = np.sum((target - target.mean()) ** 2)
+    den = np.sum((target - img) ** 2)
+    finite = np.isfinite(num) and np.isfinite(den)
+    if finite and den > 0:
+        return float(10 * np.log10(num / den))
+    return float("inf") if finite and num > 0 else float("nan")
 
 
 def reconstruct(values, bundle, *, n_iter=10, mode="separable", coarse="full",
@@ -706,6 +725,7 @@ def reconstruct(values, bundle, *, n_iter=10, mode="separable", coarse="full",
     if coarse not in RECON_COARSE:
         raise ValueError(f"unknown coarse {coarse!r}; choices: {RECON_COARSE}")
     values = np.asarray(values, dtype=np.float64)
+    _require_finite(values, "the reconstruction")
     ny, nx = values.shape
     maxima = bundle["mz_maxima"]
     J = len(maxima)
@@ -780,9 +800,7 @@ def reconstruct(values, bundle, *, n_iter=10, mode="separable", coarse="full",
     img = bank.inverse(S_pin, W)[:ny, :nx]
     status = _recon_status(resid)
     target = values if S is not None else _detail_target(values, bank, J)
-    num = np.sum((target - target.mean()) ** 2)
-    den = np.sum((target - img) ** 2)
-    snr = float(10 * np.log10(num / den)) if den > 0 else float("inf")
+    snr = _snr_db(target, img)
     diag = {"n_iter": int(n_iter), "mode": mode, "coarse": coarse,
             "wavelet": bundle.get("wavelet", "mz_spline"),
             "alpha": float(bundle.get("alpha", 3.0)),
@@ -791,15 +809,32 @@ def reconstruct(values, bundle, *, n_iter=10, mode="separable", coarse="full",
 
 
 def coarse_image(values, bundle):
-    """The full-resolution coarse channel S_J the reconstruction pins against (primary quadrant
-    of the torus), through the bundle's own filter bank and dither."""
+    """The full-resolution coarse channel S_J the reconstruction pins against, through the
+    bundle's own filter bank and dither, registered onto the pixels it describes: each low-pass
+    level's ``e^{iw/2}`` advances the signal half a sample, so the torus S_J[m] describes pixel
+    m + (2^J - 1)/2; delaying it by that much on both axes (exact on the periodic torus) gives
+    the zero-phase low-pass, cropped to the primary quadrant."""
+    _require_finite(values, "the coarse channel")
     J = len(bundle["mz_maxima"])
     bank = _Bank(bundle.get("wavelet", "mz_spline"), bundle.get("alpha", 3.0))
     ny, nx = np.asarray(values).shape
-    return _coarse_torus(values, bundle, J, "full", bank)[:ny, :nx]
+    S = _coarse_torus(values, bundle, J, "full", bank)
+    sh = (2 ** J - 1) / 2
+    wy = mzlib._omega(S.shape[0])[:, None]
+    wx = mzlib._omega(S.shape[1])[None, :]
+    S = np.real(mzlib.FFT.ifft2(mzlib.FFT.fft2(S) * np.exp(-1j * wx * sh)
+                                * np.exp(-1j * wy * sh)))
+    return S[:ny, :nx]
 
 
 def coarse_thumbnail(values, bundle):
-    """S_J subsampled every 2^J pixels (the coding-mode thumbnail), float32, for any grid."""
-    step = 2 ** len(bundle["mz_maxima"])
-    return coarse_image(values, bundle)[::step, ::step].astype(np.float32)
+    """S_J subsampled every 2^J pixels (the coding-mode thumbnail), float32, for any grid. It
+    reads the unregistered torus S_J, so sample k describes pixel k * 2^J + (2^J - 1)/2: the
+    centre of block [k * 2^J, (k + 1) * 2^J)."""
+    _require_finite(values, "the coarse thumbnail")
+    J = len(bundle["mz_maxima"])
+    bank = _Bank(bundle.get("wavelet", "mz_spline"), bundle.get("alpha", 3.0))
+    ny, nx = np.asarray(values).shape
+    step = 2 ** J
+    S = _coarse_torus(values, bundle, J, "full", bank)
+    return S[:ny, :nx][::step, ::step].astype(np.float32)

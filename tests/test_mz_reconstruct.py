@@ -204,27 +204,91 @@ def test_edges_only_and_status_and_cancel(field):
     ([4.0, 2.0, 2.0005], "converged"),                   # |change| under 1e-3 relative
     ([4.0, 1.0, 1.5], "rising"),                         # grew, but under 5x its minimum
     ([4.0, 1.0, 5.5], "diverging"),                      # past 5x its minimum
+    ([0.0, 0.0, 0.0], "converged"),                      # an exact fit stays still
 ])
 def test_status_names_where_the_residual_stands(resid, status):
     assert mz._recon_status(resid) == status
 
 
+def _registered(S, J):
+    """The torus coarse channel delayed by (2^J - 1)/2 on both axes: every low-pass level
+    advances the signal half a sample, so this puts S_J back on the pixels it describes."""
+    sh = (2 ** J - 1) / 2
+    wy = mzlib._omega(S.shape[0])[:, None]
+    wx = mzlib._omega(S.shape[1])[None, :]
+    return np.real(np.fft.ifft2(np.fft.fft2(S) * np.exp(-1j * wx * sh) * np.exp(-1j * wy * sh)))
+
+
 @pytest.mark.parametrize("field", FIELDS)
 def test_coarse_image_is_the_pinned_coarse_channel(field):
+    """``coarse_image`` is the pinned torus S_J registered onto its pixels; the thumbnail is the
+    unregistered S_J subsampled, whose sample k describes the centre of block [16k, 16k + 16)."""
     v = _field(field); b = mz.analyze(v, 4)
     S = mz._coarse_for(v, b, 4)
-    np.testing.assert_allclose(mz.coarse_image(v, b), S[:v.shape[0], :v.shape[1]], atol=1e-9)
+    ny, nx = v.shape
+    np.testing.assert_allclose(mz.coarse_image(v, b), _registered(S, 4)[:ny, :nx],
+                               rtol=0, atol=1e-9 * np.abs(v).max())
     thumb = mz.coarse_thumbnail(v, b)
     assert thumb.dtype == np.float32
-    np.testing.assert_array_equal(thumb, S[:v.shape[0]:16, :v.shape[1]:16].astype(np.float32))
+    np.testing.assert_array_equal(thumb, S[:ny:16, :nx:16].astype(np.float32))
 
 
 def test_coarse_image_reproduces_the_dither():
     v = np.round(_synthetic(64) * 4) / 4                         # quantised: a measurable LSB
     b = mz.analyze(v, 3, dither=True)
     assert b["lsb"] is not None
-    np.testing.assert_allclose(mz.coarse_image(v, b), mz._coarse_for(v, b, 3)[:64, :64],
-                               rtol=0, atol=1e-12)
+    np.testing.assert_allclose(mz.coarse_image(v, b), _registered(mz._coarse_for(v, b, 3), 3)
+                               [:64, :64], rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("J", [2, 4])
+@pytest.mark.parametrize("wavelet,alpha", [("mz_spline", 3.0), ("frac_bspline", 2.5)])
+def test_coarse_image_centres_an_impulse_on_it(wavelet, alpha, J):
+    v = np.zeros((128, 128)); v[64, 64] = 1.0
+    c = mz.coarse_image(v, mz.analyze(v, J, wavelet=wavelet, alpha=alpha))
+    yy, xx = np.mgrid[0:128, 0:128]
+    assert (c * yy).sum() / c.sum() == pytest.approx(64.0, abs=1e-3)
+    assert (c * xx).sum() / c.sum() == pytest.approx(64.0, abs=1e-3)
+
+
+@pytest.mark.parametrize("J", [2, 4])
+@pytest.mark.parametrize("wavelet,alpha", [("mz_spline", 3.0), ("frac_bspline", 2.5)])
+def test_coarse_image_is_the_zero_phase_low_pass(wavelet, alpha, J):
+    """The mirrored field through the real (zero-phase) low-pass ``prod_j R(2^j w)`` on both axes,
+    ``R(w) = sgn(cos(w/2)) |cos(w/2)|^alpha`` -- each level's filter with its half-sample advance
+    ``e^{iw/2}`` removed (at alpha = 3, mzlib's ``cos^3``) -- cropped to the primary quadrant."""
+    v = np.random.default_rng(4).standard_normal((64, 48))
+    m = mz._mirror2d(v)
+    wy = mzlib._omega(m.shape[0])[:, None]
+    wx = mzlib._omega(m.shape[1])[None, :]
+
+    def R(w):
+        c = np.cos(w / 2)
+        return np.sign(c) * np.abs(c) ** alpha
+
+    resp = np.ones(m.shape)
+    for j in range(J):
+        resp = resp * R(2 ** j * wx) * R(2 ** j * wy)
+    want = np.real(np.fft.ifft2(np.fft.fft2(m) * resp))[:64, :48]
+    got = mz.coarse_image(v, mz.analyze(v, J, wavelet=wavelet, alpha=alpha))
+    np.testing.assert_allclose(got, want, rtol=0, atol=1e-9 * np.abs(v).max())
+
+
+def test_nodata_pixels_are_refused():
+    b = mz.analyze(_synthetic(), 4)
+    v = _synthetic(); v[:5, :5] = np.nan
+    for fn in (mz.reconstruct, mz.coarse_image, mz.coarse_thumbnail):
+        with pytest.raises(ValueError, match="25 nodata"):
+            fn(v, b)
+
+
+def test_a_non_finite_reconstruction_reports_a_nan_snr():
+    v = _synthetic(); b = mz.analyze(v, 2)
+    r, c, w1, w2 = b["mz_maxima"][0]
+    w1 = w1.copy(); w1[0] = np.nan
+    b["mz_maxima"][0] = (r, c, w1, w2)
+    _, d = mz.reconstruct(v, b, n_iter=2)
+    assert np.isnan(d["snr_db"])
 
 
 @pytest.mark.parametrize("field", FIELDS)
@@ -241,3 +305,11 @@ def test_fft_engines_agree_to_float32(engine, field):
     finally:
         fft_policy.reset()
     np.testing.assert_allclose(got, ref, rtol=0, atol=1e-4 * np.abs(v).max())
+
+
+def test_snr_is_inf_for_an_exact_reconstruction_and_nan_without_finite_sums():
+    target = np.arange(12.0).reshape(3, 4)
+    assert mz._snr_db(target, target) == float("inf")
+    assert np.isnan(mz._snr_db(target, np.full_like(target, np.nan)))
+    assert mz._snr_db(target, target + 0.1) == pytest.approx(
+        10 * np.log10(np.sum((target - target.mean()) ** 2) / (12 * 0.01)))
