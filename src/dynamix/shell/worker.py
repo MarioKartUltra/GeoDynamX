@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""ResolveWorker: runs ``dynamix.engine.resolve`` off the GUI thread.
+"""ResolveWorker: runs ``dynamix.engine.resolve`` off the GUI thread (and OutputWorker, its
+sibling, ``resolve_output``: one lazily computed output of an already analysed layer).
 
 The worker does no work of its own -- ``resolve`` is the engine's job, this class only gets it
 off the thread that owns the widgets. Adapted from EQSelect's ``_WtmmWorker``
@@ -24,7 +25,7 @@ from PySide6 import QtCore
 
 from dynamix.core.wtmm_backend import ComputeCancelled
 from dynamix.engine import resolve
-from dynamix.engine.resolve import preview_resolve
+from dynamix.engine.resolve import preview_resolve, resolve_output
 
 
 class ResolveWorker(QtCore.QObject):
@@ -122,3 +123,63 @@ class ResolveWorker(QtCore.QObject):
             self.error.emit(str(exc))
             return
         self.finished.emit(renderable)
+
+
+class OutputWorker(QtCore.QObject):
+    """Runs one ``resolve_output(layer, field, cache, name, source_id=...)`` on a dedicated
+    ``QThread``: a lazily computed output of a layer whose analysis is already cached (the M-Z
+    reconstruction, say), which the window shows in place of the field once it lands.
+
+    The same contract as :class:`ResolveWorker`: ``start()`` creates, moves to and starts the
+    thread and returns it for the caller to ``quit()``/``wait()``; ``cancel()`` sets a flag the
+    output's own compute reads (once per reconstruction iteration), which raises
+    ``ComputeCancelled`` out of it with nothing cached and lands as ``cancelled``; every consumer
+    slot must be a bound method (the module docstring's rule). ``finished`` carries the output
+    dict (``{"raster", "diag", ...}``)."""
+
+    progress = QtCore.Signal(str, float)
+    finished = QtCore.Signal(object)
+    error = QtCore.Signal(str)
+    cancelled = QtCore.Signal()
+
+    def __init__(self, layer, field, cache, source_id, name):
+        super().__init__()
+        self._layer = layer
+        self._field = field
+        self._cache = cache
+        self._source_id = source_id
+        self._name = name
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        """Ask the in-flight output to abandon at its next check. Safe from the GUI thread."""
+        self._cancel.set()
+
+    def start(self) -> QtCore.QThread:
+        thread = QtCore.QThread()
+        self.moveToThread(thread)
+        thread.started.connect(self._run)
+        thread.start()
+        return thread
+
+    def _on_progress(self, stage: str, frac: float) -> None:
+        """Bound method handed to ``resolve_output`` as its progress callback; only re-emits."""
+        self.progress.emit(stage, frac)
+
+    def _run(self) -> None:
+        """The thread's entry point. A cancel that arrived before the thread ran lands as
+        ``cancelled`` without starting; any exception becomes ``error(str(exc))``."""
+        if self._cancel.is_set():
+            self.cancelled.emit()
+            return
+        try:
+            value = resolve_output(self._layer, self._field, self._cache, self._name,
+                                   source_id=self._source_id, progress=self._on_progress,
+                                   cancel=self._cancel.is_set)
+        except ComputeCancelled:
+            self.cancelled.emit()
+            return
+        except Exception as exc:
+            self.error.emit(str(exc))
+            return
+        self.finished.emit(value)

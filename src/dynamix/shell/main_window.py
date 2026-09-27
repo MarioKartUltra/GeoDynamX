@@ -62,6 +62,7 @@ from dynamix.core.transect import chains_in_buffer, sample_profile
 from dynamix.devices import register_builtin_devices
 from dynamix.devices.groups import encode_groups
 from dynamix.engine import Cache, cache_key, resolve, source_identity
+from dynamix.engine.resolve import output_key
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
                                     scan_footprints, scene_label)
@@ -110,7 +111,7 @@ from dynamix.shell.transect_panel import TransectPanel
 from dynamix.shell.transport import Transport
 from dynamix.shell.units import px_to_metres
 from dynamix.shell.view_dialog import ViewDialog, normalized_view_options
-from dynamix.shell.worker import ResolveWorker
+from dynamix.shell.worker import OutputWorker, ResolveWorker
 from dynamix.shell.workflow_zone import BOX_HEIGHT, WorkflowZone
 from dynamix.topology.links import ObjRef, suggest_code
 
@@ -529,6 +530,15 @@ def _display_raster_of(result) -> "np.ndarray | None":
         return None
     out = result.get("raster_out")
     return out if out is not None else result.get("h_map")
+
+
+def _output_note(value) -> str:
+    """A lazy output row's reading: a reconstruction's iterations, residual status and SNR;
+    empty for an output that carries none (the coarse channel, the thumbnail)."""
+    diag = (value or {}).get("diag") or {}
+    if "n_iter" not in diag:
+        return ""
+    return f"{diag['n_iter']} it · {diag['status']} · {float(diag['snr_db']):.1f} dB"
 
 
 def roi_chain(parent_chain: Chain, roi_params: dict) -> Chain:
@@ -962,6 +972,21 @@ class MainWindow(QtWidgets.QMainWindow):
         # changes the signature and the gate reopens; any explicit dispatch clears it.
         self._user_stopped = False
         self._stopped_sig = None
+        # Lazily computed outputs (the M-Z reconstruction, say) run as jobs on the SAME worker
+        # slot (``_thread``/``_worker``), one at a time, after any analysis, and land in their
+        # own handlers, which never touch the analysis bookkeeping (``_dispatched``,
+        # ``_stopped_sig``). ``_out_job`` is the job in flight as ``(layer, name, key)``;
+        # ``_out_request`` the job the active layer's display waits for, dispatched once the
+        # slot is free; ``_out_held`` ``(key, "stopped" | "failed")`` keeps a key the user
+        # stopped (or that raised) from re-dispatching while that output stays on show;
+        # ``_out_notes`` key -> its row reading; ``_out_keys`` layer_id -> the output keys
+        # computed for it, which Pin (F) pins with the analysis keys.
+        self._out_job: "tuple | None" = None
+        self._out_request: "tuple | None" = None
+        self._out_held: "tuple | None" = None
+        self._out_notes: dict[str, str] = {}
+        self._out_keys: dict[int, set] = {}
+        self._out_t0 = 0.0
         self._stop_btn = QtWidgets.QToolButton()
         self._stop_btn.setText("■ Stop")
         self._stop_btn.setToolTip("stop the in-flight compute at its next stage boundary")
@@ -3700,12 +3725,18 @@ both ``Canvas`` signals report the
         if h_map is not None and self.field is not None and self.layer is not None \
                 and self.layer.visible and not self._is_point_layer(self.layer):
             if self._holder_raster_ref is None or self._holder_raster_ref[0] != id(h_map):
-                derived = _roi_display_field(result, h_map, self.field, self.layer.name)
+                derived = self._strided_display_field(result, h_map)
+                if derived is None:
+                    derived = _roi_display_field(result, h_map, self.field, self.layer.name)
                 if derived is None:
                     derived = dataclasses.replace(
                         self.field, values=np.asarray(h_map, dtype=np.float64),
                         name=f"{self.layer.name}")
-                self._derived_fields[self.layer.layer_id] = derived
+                if result.get("_display_stride"):
+                    # A drawing on its own coarser grid: never a surface source or an export.
+                    self._derived_fields.pop(self.layer.layer_id, None)
+                else:
+                    self._derived_fields[self.layer.layer_id] = derived
                 self.canvas.set_field(derived)
                 self._apply_raster_visibility(showing_product=True)
                 self.canvas.clear_overlays()
@@ -3754,6 +3785,25 @@ both ``Canvas`` signals report the
             if self.layer is not None:
                 self.layer_list.set_layer_name(self.layer.layer_id, self.layer.name)
             self._holder_raster_ref = None
+
+    def _strided_display_field(self, result: dict, raster):
+        """The display field of an output drawn on its own coarser grid (``result[
+        "_display_stride"]``, which :meth:`_show_lazy_output` sets for the M-Z thumbnail), or
+        ``None`` for any other result. Its samples sit at file pixels k*s, so its provenance
+        says so (``display_anchor`` "sample") and the canvas centres each block on its sample.
+        The provenance is a COPY (the field's shared dict is never mutated), and the field is a
+        drawing only: nothing analyses it."""
+        s = result.get("_display_stride")
+        if not s or self.field is None:
+            return None
+        s = int(s)
+        field = self.field
+        prov = {**(getattr(field, "provenance", None) or {}), "display_stride": s,
+                "full_dims": tuple(result["_full_dims"]), "display_anchor": "sample"}
+        return dataclasses.replace(field, values=np.asarray(raster, dtype=np.float64),
+                                   x_axis=np.asarray(field.x_axis)[::s],
+                                   y_axis=np.asarray(field.y_axis)[::s],
+                                   provenance=prov, name=self.layer.name)
 
     def _on_skeleton_selection_requested(self, indices: list) -> None:
         """``SkeletonDialog.selectionRequested`` -> ``GroupPalette.apply_picks(op="replace")``,
@@ -3908,6 +3958,12 @@ both ``Canvas`` signals report the
         self._layer_by_id = {}
         self._fields = {}
         self._recipes = {}
+        # The reopened project's layers may reuse the old ids: output bookkeeping keyed by them
+        # goes. An output job still in flight lands on a layer that is no longer registered and
+        # is ignored (_land_output's identity check).
+        self._out_keys = {}
+        self._out_request = None
+        self._out_held = None
         self.layer = None
         self._active_result = None
         # Double-update guard: True when a result landed while the raster canvas was hidden
@@ -4351,32 +4407,275 @@ both ``Canvas`` signals report the
     def _sync_output_rows(self, layer) -> None:
         """Push ``layer``'s output state into its rows, non-emitting: the raster output its
         step's ``show`` puts on the canvas, and the ``ui.edges_hidden`` tag. The group is
-        rebuilt first when the chain's declared outputs changed (a chain edit)."""
+        rebuilt first when the chain's declared outputs changed (a chain edit). Lazy output
+        rows also carry their reading and their greying (:meth:`_output_row_state`)."""
         if layer is None:
             return
         self.layer_list.sync_output_rows(layer)
         step, outputs = layer_outputs(layer)
         if step is None:
             return
+        notes, disabled = self._output_row_state(layer, step, outputs)
         self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
-                                         layer.tags.get("ui.edges_hidden") == "1")
+                                         layer.tags.get("ui.edges_hidden") == "1",
+                                         notes=notes, disabled=disabled)
+
+    # -- lazily computed outputs ---------------------------------------------------------------
+    def _output_refusal(self, layer, step, output) -> "str | None":
+        """Why lazy ``output`` of ``layer`` cannot be computed, or ``None``: an ROI result (the
+        region runner does not reconstruct), or an output pinning the 2^J thumbnail (Coarse =
+        thumbnail, for the outputs that read Coarse) on a grid 2^J does not divide."""
+        if layer.tags.get("roi.window"):
+            return "not on ROI results yet"
+        if "coarse" in output.params:
+            params = validate_params(get_device(step.device), step.params)
+            if params.get("coarse") == "thumbnail":
+                J = int(params.get("n_levels", 0) or 0)
+                values = getattr(self._fields.get(layer.layer_id), "values", None)
+                shape = np.shape(values)[:2] if values is not None else ()
+                if J and len(shape) == 2 and (shape[0] % 2 ** J or shape[1] % 2 ** J):
+                    return f"needs the grid divisible by 2^J (J = {J})"
+        return None
+
+    def _output_disabled(self, layer, step, outputs) -> dict:
+        """``{name: reason}`` of ``layer``'s greyed-out lazy output rows: those
+        :meth:`_output_refusal` refuses, and an output on its own coarser grid while the
+        Vector/Geo view is up (it draws in the 2-D view only; the scene drapes the field)."""
+        disabled = {}
+        for output in outputs:
+            if not output.lazy:
+                continue
+            reason = self._output_refusal(layer, step, output)
+            if reason is None and output.grid == "stride" and self._center_view != "raster":
+                reason = "shown in the 2-D view"
+            if reason is not None:
+                disabled[output.name] = reason
+        return disabled
+
+    def _output_keys(self, layer) -> dict:
+        """``{name: key}`` of ``layer``'s lazy outputs, derived from its chain the way
+        :func:`~dynamix.engine.resolve.resolve_output` derives them (the analysis key from
+        :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI result."""
+        step, outputs = layer_outputs(layer)
+        lazy = [o for o in outputs if o.lazy]
+        if step is None or not lazy or layer.tags.get("roi.window"):
+            return {}
+        keys = self._cache_keys_for(layer)
+        if not keys:
+            return {}
+        device = get_device(step.device)
+        params = validate_params(device, step.params)
+        return {o.name: output_key(device.name, o, params, keys[-1]) for o in lazy}
+
+    def _output_row_state(self, layer, step, outputs) -> tuple:
+        """``(notes, disabled)`` for ``LayerPanel.set_output_state``: "computing…" on a row whose
+        job is requested or in flight, a computed output's reading (:func:`_output_note`),
+        "failed" after an error, and the greyed-out rows (:meth:`_output_disabled`). Reads key
+        membership and the window's own notes only, never a cached value, so it is safe while
+        a job holds the worker slot."""
+        disabled = self._output_disabled(layer, step, outputs)
+        busy = {job[2] for job in (self._out_job, self._out_request) if job is not None}
+        notes = {}
+        for name, key in self._output_keys(layer).items():
+            if name in disabled:
+                continue
+            if key in busy:
+                notes[name] = "computing…"
+            elif key in self.cache and self._out_notes.get(key):
+                notes[name] = self._out_notes[key]
+            elif self._out_held == (key, "failed"):
+                notes[name] = "failed"
+        return notes, disabled
+
+    def _shown_lazy(self, layer, renderable) -> "tuple | None":
+        """``(output, key)`` of the lazy output ``layer``'s step shows, keyed from
+        ``renderable``'s analysis, or ``None``: nothing lazy on show, a refused output
+        (:meth:`_output_refusal`), or a renderable whose analysis is another step's."""
+        if layer is None or renderable.analysis_key is None:
+            return None
+        step, outputs = layer_outputs(layer)
+        name = shown_output(step, outputs)
+        output = next((o for o in outputs if o.name == name and o.lazy), None)
+        if (output is None or renderable.analysis_device != step.device
+                or self._output_refusal(layer, step, output) is not None):
+            return None
+        return output, output_key(renderable.analysis_device, output,
+                                  renderable.analysis_params, renderable.analysis_key)
+
+    def _show_lazy_output(self, renderable, result: dict) -> dict:
+        """The active result as the canvas shows it. When the step's Show names a LAZY output,
+        a cache hit becomes ``raster_out`` of a COPY -- the cached result is never mutated; an
+        output on its own grid also carries its stride (:meth:`_strided_display_field`) -- and
+        the output's label names the row. A miss leaves the result as it is (the raw field
+        stays up) and requests the job, dispatched once the worker slot is free
+        (:meth:`_dispatch_output`). A key the user stopped, or that failed, is not requested
+        again while that output stays on show; a hidden layer, or one whose transforms await
+        Run, requests nothing."""
+        self._drop_output_request()
+        layer = self.layer
+        shown = self._shown_lazy(layer, renderable)
+        if self._out_held is not None and (shown is None or shown[1] != self._out_held[0]):
+            self._out_held = None
+        if shown is None:
+            return result
+        output, key = shown
+        # One read: an output job on the worker thread may evict between a probe and a get.
+        value = self.cache.get(key)
+        if value is not None:
+            self._remember_output(layer, key, value)
+            out = {**result, "raster_out": value["raster"],
+                   "_view_note": output.label or output.name}
+            if output.grid == "stride":
+                out["_display_stride"] = int(value["display_stride"])
+                out["_full_dims"] = tuple(value["full_dims"])
+            return out
+        if (self._out_held is None and layer.visible
+                and layer.layer_id not in self._pending_layers
+                and (self._out_job is None or self._out_job[2] != key)):
+            self._out_request = (layer, output.name, key)
+            QtCore.QTimer.singleShot(0, self._dispatch_output)
+        return result
+
+    def _cached_output_raster(self, layer, renderable):
+        """The cached raster of the lazy output ``layer`` shows, when it lies on the field's own
+        grid (the Vector/Geo drape); ``None`` otherwise. Never computes anything."""
+        shown = self._shown_lazy(layer, renderable)
+        if shown is None or shown[0].grid != "native":
+            return None
+        value = self.cache.get(shown[1])
+        return None if value is None else value["raster"]
+
+    def _remember_output(self, layer, key: str, value) -> None:
+        """Record a computed output of ``layer``: its row reading, and its key among the layer's
+        output keys, pinned at once while the layer is pinned (F)."""
+        self._out_notes[key] = _output_note(value)
+        self._out_keys.setdefault(layer.layer_id, set()).add(key)
+        if _is_frozen(layer):
+            self.cache.pin(key)
+
+    def _drop_output_request(self) -> None:
+        """Forget the output job waiting for the worker slot. The rows of its layer, while that
+        layer still exists, are pushed again so none keeps reading "computing…" for a job that
+        will not run."""
+        request, self._out_request = self._out_request, None
+        if request is not None and self._layer_by_id.get(request[0].layer_id) is request[0]:
+            self._sync_output_rows(request[0])
+
+    def _dispatch_output(self) -> None:
+        """Start the job :meth:`_show_lazy_output` requested, once the worker slot is free. An
+        analysis always goes first: a busy slot leaves the request for
+        :meth:`_land_after_worker`. A request for another key than the output job in flight
+        supersedes that job: it is cancelled, and its landing dispatches this one. The worker
+        gets a snapshot of the layer, so the key cannot move under it; a request whose key no
+        longer matches the layer's chain is dropped (the next landing asks again)."""
+        request = self._out_request
+        if request is None or self._closing or self._shutting_down:
+            return
+        if self._thread is not None:
+            if (self._out_job is not None and self._out_job[2] != request[2]
+                    and self._worker is not None):
+                self._worker.cancel()
+            return
+        layer, name, key = request
+        if (layer is not self.layer or self.field is None
+                or self._output_keys(layer).get(name) != key):
+            self._drop_output_request()
+            return
+        self._out_request = None
+        snapshot = dataclasses.replace(layer, tags=dict(layer.tags))
+        worker = OutputWorker(snapshot, self.field, self.cache, layer.source_id, name)
+        # BOUND METHODS ONLY (worker.py's documented trap), as for the analysis worker.
+        worker.progress.connect(self._on_output_progress)
+        worker.finished.connect(self._on_output_finished)
+        worker.error.connect(self._on_output_error)
+        worker.cancelled.connect(self._on_output_cancelled)
+        self._worker = worker
+        self._out_job = (layer, name, key)
+        self._out_t0 = time.perf_counter()
+        self._thread = worker.start()
+        self._stop_btn.setVisible(True)
+        self._sync_output_rows(layer)
+
+    def _on_output_progress(self, stage: str, frac: float) -> None:
+        """An output job's progress, on the strip reading the analysis progress uses."""
+        self._stage = stage
+        if self._out_job is not None and self._out_job[0] is self.layer:
+            self._set_compute_reading(f"{stage} {frac:.0%}")
+        if self._closing:
+            self._show_waiting_title()
+
+    def _end_output_job(self) -> tuple:
+        """Take the landed output job off the worker slot; returns its ``(layer, name, key)``.
+        A Stop that arrived as the job finished is consumed here, never left for the next
+        analysis's cancel to misread."""
+        job, self._out_job = self._out_job, None
+        self._teardown_thread()
+        self._user_stopped = False
+        return job
+
+    def _on_output_finished(self, value) -> None:
+        job = self._end_output_job()
+        layer = job[0]
+        if self._layer_by_id.get(layer.layer_id) is layer:
+            self._remember_output(layer, job[2], value)
+            if layer is self.layer:
+                ms = (time.perf_counter() - self._out_t0) * 1000.0
+                self._set_compute_reading(f"{job[1]} {ms:.0f} ms")
+        self._land_output(job)
+
+    def _on_output_cancelled(self) -> None:
+        """A cancelled output job cached nothing. A USER stop holds its key (no re-dispatch
+        while that output stays on show; the row reads nothing); a superseded job's landing
+        dispatches whatever superseded it. The analysis is never marked stale."""
+        stopped = self._user_stopped
+        job = self._end_output_job()
+        if stopped:
+            self._out_held = (job[2], "stopped")
+            if job[0] is self.layer:
+                self._set_compute_reading("stopped")
+        self._land_output(job)
+
+    def _on_output_error(self, message: str) -> None:
+        job = self._end_output_job()
+        self._out_held = (job[2], "failed")
+        if job[0] is self.layer:
+            self._set_compute_reading(f"{job[1]} failed")
+            self._notify(f"{job[1]}: {message}", "status")
+        self._land_output(job)
+
+    def _land_output(self, job) -> None:
+        """After an output job: the display path again for its layer while it is still the
+        active one (a cache hit now, or the next request), unless an analysis is pending,
+        whose own landing redraws; its rows otherwise. Then whatever the slot does next. A
+        layer removed, or replaced by a project reopen, since the dispatch is left alone."""
+        layer = job[0]
+        if self._layer_by_id.get(layer.layer_id) is layer:
+            if layer is self.layer and self._active_pending != "compute":
+                if self._active_pending == "resolve":
+                    self._active_pending = None          # the redraw below is that resolve
+                self._reresolve()
+            else:
+                self._sync_output_rows(layer)
+        self._land_after_worker()
 
     def _on_freeze_toggled(self, layer_id: int, frozen: bool) -> None:
         """Freeze pins every one of ``layer``'s OWN transform-step cache keys (:meth:`
         _cache_keys_for`, the SAME derivation ``resolve()`` uses) so an eviction policy can never
         drop what freeze promised to hold; unfreeze unpins the same keys. The entries themselves
         are untouched either way -- pin/unpin only change whether they are ALLOWED to be dropped,
-        never whether they currently exist."""
+        never whether they currently exist. The lazy outputs computed for the layer
+        (``_out_keys``) are pinned and unpinned with them."""
         layer = self._layer_by_id.get(layer_id)
         if layer is None:
             return
+        keys = self._cache_keys_for(layer) + sorted(self._out_keys.get(layer_id, ()))
         if frozen:
             layer.tags["ui.freeze"] = "1"
-            for key in self._cache_keys_for(layer):
+            for key in keys:
                 self.cache.pin(key)
         else:
             layer.tags.pop("ui.freeze", None)
-            for key in self._cache_keys_for(layer):
+            for key in keys:
                 self.cache.unpin(key)
         self._sync_lock_ui(layer)
 
@@ -4478,6 +4777,7 @@ both ``Canvas`` signals report the
             self._fields.pop(rid, None)
             self._recipes.pop(rid, None)
             self._arr_errors.pop(rid, None)   # No dead entry for a layer_id gone for good
+            self._out_keys.pop(rid, None)
         self.layer_list.remove_rows(removed_ids)
         # The 3-D view learns about removals too (the vector view kept
         # framing a REMOVED dataset's extent): resync drops the stale actors. The camera
@@ -4600,6 +4900,7 @@ both ``Canvas`` signals report the
             self._fields.pop(rid, None)
             self._recipes.pop(rid, None)
             self._arr_errors.pop(rid, None)
+            self._out_keys.pop(rid, None)
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
         # Removing a whole DATASET changes the subject: resync the 3-D view and refit its
@@ -6004,7 +6305,16 @@ both ``Canvas`` signals report the
         emission for one user action), or, worse, on an error landing where ``_errored`` is now
         ``True`` and nothing is cached for the raising chain -- exactly the synchronous,
         GUI-thread, uncached-transform hazard this method's own docstring forbids.
+
+        An OUTPUT job of the active layer holding the slot redraws at its own landing
+        (:meth:`_land_output`); a change of which output is on show, or of a knob that output
+        reads, supersedes it here -- the job is cancelled and that landing dispatches the new one.
         """
+        job = self._out_job
+        if job is not None and job[0] is self.layer and self._worker is not None:
+            step, outputs = layer_outputs(self.layer)
+            if self._output_keys(self.layer).get(shown_output(step, outputs)) != job[2]:
+                self._worker.cancel()
         if self.layer is not None and self.layer.layer_id in self._pending_layers:
             # Manual-run pending: the live chain's NEW transform tail is
             # uncached by DESIGN, so resolving IT here would be the GUI-thread catch-up compute
@@ -6131,6 +6441,10 @@ both ``Canvas`` signals report the
         # product) -- stamped unconditionally, even for a hidden layer or a point-layer result
         # neither of which carries a "topology" key, so a stale count from a PREVIOUS layer never
         # lingers once this one has resolved at all.
+        # A lazily computed output on show (the M-Z reconstruction) is part of what lands: a
+        # cached one rides a copy of the result as its raster_out, so the display, the fork and
+        # the row name all read it; a missing one is requested as a job.
+        result = self._show_lazy_output(renderable, result)
         self._active_result = result
         self._refresh_topology_panel()
         self._refresh_skeleton_button()
@@ -6332,6 +6646,10 @@ both ``Canvas`` signals report the
         field = self.field if is_active else self._fields.get(layer.layer_id)
         if field is None:
             return
+        if is_active:
+            # A new analysis supersedes an output job waiting for the slot: its own landing
+            # requests whatever output the layer shows then.
+            self._drop_output_request()
         try:
             # A bus's LIVE layer sends: fresh stamps, then the layers to compute first.
             self._refresh_bus_stamps(layer)
@@ -6621,6 +6939,8 @@ both ``Canvas`` signals report the
             self._sync_arrangement()
         else:
             self._dispatch_next()
+        # An output job the active layer's display waits for runs after any analysis.
+        self._dispatch_output()
         if self._closing:
             self.close()
 
@@ -6665,6 +6985,10 @@ both ``Canvas`` signals report the
                 self._start_worker()
                 return
         if self._center_stack.currentIndex() != 1:
+            return
+        # The output job the active layer's display waits for goes before background layers.
+        self._dispatch_output()
+        if self._thread is not None:
             return
         active_id = self.layer.layer_id if self.layer is not None else None
         while self._arr_queue:
@@ -6942,6 +7266,10 @@ both ``Canvas`` signals report the
                     # the height source above -- the "h over elevation" view. Shape-guarded again
                     # in the scene (belt-and-braces); identity stamps feed _STYLE_KEYS diffing.
                     drape = _display_raster_of(res)
+                    if drape is None and res is not None:
+                        # A lazily computed output on show drapes once cached (never computed
+                        # here); one on its own coarser grid leaves the field draped.
+                        drape = self._cached_output_raster(layer, renderable)
                     entries.append({"layer": layer, "field": field, "result": res,
                                     "status": "ok", "signature": signature,
                                     "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster or drape is not None,
@@ -7252,6 +7580,8 @@ both ``Canvas`` signals report the
             return
         self._center_view = view
         self._refresh_panel_relevance()
+        for layer in self.project.layers:           # an output on its own grid is 2-D only
+            self._sync_output_rows(layer)
         update_settings(center_view=view)
         if view == "raster":
             if self._arrangement is not None:
@@ -7612,6 +7942,9 @@ both ``Canvas`` signals report the
             QtWidgets.QApplication.instance().removeEventFilter(self)
             super().closeEvent(event)
             return
+        if self._out_job is not None and self._worker is not None:
+            # An output job is a view, never worth waiting out: it stops at its next check.
+            self._worker.cancel()
         self._closing = True
         self._show_waiting_title()
         event.ignore()
