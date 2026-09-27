@@ -2316,3 +2316,89 @@ def test_stamped_runs_spare_the_scene_the_landing_walk(monkeypatch):
                        "result": res, "status": "ok", "signature": "s1"}])
     assert calls == []                                            # the walk stayed on the worker
     assert any("hline" in n for n in scene._plotter.renderer.actors)
+
+
+# --------------------------------------------------------------------- the registered offset
+def _registered_result(offset=None, base=False):
+    """Three maxima on one H-line and an isolated one; ``offset`` is where the result's maxima
+    register relative to their pixel index (the LastWave M–Z engine's half pixel)."""
+    ext = {"x": np.array([2, 3, 4, 9], dtype=np.int64), "y": np.array([5, 5, 5, 1], dtype=np.int64),
+           "mod": np.ones(4), "arg": np.zeros(4),
+           "line_id": np.array([0, 0, 0, -1], dtype=np.int64)}
+    res = {"extrema": [ext], "_shape": (32, 64), "chains": [], "scales": np.array([2.0])}
+    if base:
+        res["_ext_base"] = ext
+    if offset is not None:
+        res["_display_offset"] = offset
+    return res
+
+
+def _vector_points(result):
+    scene = Scene(_plotter())
+    scene.set_frame_mode(True)
+    scene.set_layers([{"layer": Layer(layer_id=1, name="F", source_id="mem:f"),
+                       "field": _frame_field(), "result": result, "status": "ok",
+                       "signature": "s1"}])
+    actors = scene._plotter.renderer.actors
+    hline = next(actors[n] for n in actors if "hline" in n)
+    return (np.asarray(hline.GetMapper().GetInput().points),
+            np.asarray(actors[scene._extrema_actor_name(1)].GetMapper().GetInput().points))
+
+
+@pytest.mark.parametrize("base", [False, True])
+def test_a_registered_offset_moves_the_hlines_and_dots_by_that_many_cells(base):
+    """``_frame_field`` steps 2 in x and -3 in y, so half a cell west and north is (-1, +1.5)."""
+    plain_h, plain_d = _vector_points(_registered_result(base=base))
+    moved_h, moved_d = _vector_points(_registered_result((-0.5, -0.5), base=base))
+    assert len(plain_h) == 3 and len(plain_d) == 1
+    np.testing.assert_allclose(moved_h - plain_h, np.tile([-1.0, 1.5, 0.0], (3, 1)))
+    np.testing.assert_allclose(moved_d - plain_d, [[-1.0, 1.5, 0.0]])
+
+
+@pytest.mark.parametrize("frame_mode", [True, False])
+def test_a_drape_offset_moves_the_drape_grid_by_that_many_cells(tmp_path, frame_mode):
+    """An output that registers off its pixel index drapes on the field's axes shifted by
+    ``dx * step_x`` and ``dy * step_y``; without an offset, or without a drape, the grid is the
+    field's own."""
+    import dataclasses
+
+    field = _frame_field() if frame_mode else _geo_field(tmp_path, "geo.tif")
+    layer = Layer(layer_id=1, name="F", source_id="mem:f")
+    drape = np.ones(np.shape(field.values))
+
+    def grid(f, **extra):
+        scene = Scene(_plotter())
+        scene.set_frame_mode(frame_mode)
+        scene.set_layers([{"layer": layer, "field": f, "result": None, "status": "ok", **extra}])
+        return np.asarray(scene._plotter.actors["layer-1-raster"].mapper.dataset.points)
+
+    step_x = (field.x_axis[-1] - field.x_axis[0]) / (len(field.x_axis) - 1)
+    step_y = (field.y_axis[-1] - field.y_axis[0]) / (len(field.y_axis) - 1)
+    shifted = dataclasses.replace(field, x_axis=np.asarray(field.x_axis) - 0.5 * step_x,
+                                  y_axis=np.asarray(field.y_axis) - 0.5 * step_y)
+    exact = dict(rtol=0, atol=1e-9)          # geo mode: half a cell is ~1e-4 degrees
+    moved = grid(field, drape=drape, drape_id=id(drape), drape_offset=(-0.5, -0.5))
+    np.testing.assert_allclose(moved, grid(shifted, drape=drape, drape_id=id(drape)), **exact)
+    assert not np.allclose(moved, grid(field, drape=drape, drape_id=id(drape)), **exact)
+    np.testing.assert_allclose(grid(field, drape_offset=(-0.5, -0.5)), grid(field), **exact)
+
+
+def test_a_drape_offset_grid_is_cached_like_the_fields_own(tmp_path, monkeypatch):
+    """In Geo mode the moved grid lives in the per-layer lon/lat cache under its offset: mode
+    rebuilds re-pay no CRS transform, and dropping the offset is a miss."""
+    calls = _counting_field_lonlat_grid(monkeypatch)
+    scene = Scene(_plotter())
+    layer = Layer(layer_id=1, name="A", source_id="mem:a")
+    field = _geo_field(tmp_path, "a.tif")
+    drape = np.ones(np.shape(field.values))
+    entry = {"layer": layer, "field": field, "result": None, "status": "ok", "drape": drape,
+             "drape_id": id(drape), "drape_offset": (-0.5, -0.5)}
+    scene.set_layers([entry])
+    assert calls["n"] == 1
+    scene.set_mode("globe")
+    scene.set_mode("mercator")
+    assert calls["n"] == 1                      # the moved grid came from the cache
+    assert scene.actor_count() == 1
+    plain = np.ones(np.shape(field.values))     # an output drawn on the field's own grid
+    scene.set_layers([{**entry, "drape": plain, "drape_id": id(plain), "drape_offset": None}])
+    assert calls["n"] == 2                      # the field's own grid is a different entry

@@ -2012,12 +2012,16 @@ a bounded gather of at most :attr:`draw_cap` chains per
         m_y = -(-values.shape[0] // self._image_stride)
         m_x = -(-values.shape[1] // self._image_stride)
         # A strided field whose samples sit AT file pixels k*S (``display_anchor`` "sample")
-        # centres block k on its sample, spanning [k*S - S/2, k*S + S/2); a picture's sample,
-        # like the M-Z coarse thumbnail's, already describes its block's centre pixel.
+        # centres block k on its sample, spanning [k*S - S/2, k*S + S/2), like the LastWave
+        # M-Z thumbnail's; a picture's sample, like the printed M-Z thumbnail's, already
+        # describes its block's centre pixel.
         prov = getattr(field, "provenance", None) or {}
         half = S / 2 if prov.get("display_anchor") == "sample" else 0.5
-        self.image_item.setRect(QtCore.QRectF(self._base_off[1] - half,
-                                              self._base_off[0] - half,
+        # A raster whose samples register off their pixel index (``display_offset`` = (dx, dy)
+        # pixels, x then y, like the LastWave M-Z coarse channel) draws that far off the grid.
+        reg_dx, reg_dy = prov.get("display_offset") or (0, 0)
+        self.image_item.setRect(QtCore.QRectF(self._base_off[1] - half + reg_dx,
+                                              self._base_off[0] - half + reg_dy,
                                               m_x * S, m_y * S))
 
     def set_result(self, result: dict, scale_idx: int) -> None:
@@ -2061,6 +2065,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
         For an ordinary whole-raster result the offset is ``(0, 0)`` and the bounds rectangle is
         empty, so this path is bit-for-bit what it was before ROIs existed.
+
+        **A result's maxima may register off their pixel index.** ``result["_display_offset"]
+        = (dx, dy)`` (pixels, x then y) moves the maxima pixels, dots, H-lines and gradient
+        arrows by that much on top of the offset above; the chain trails, the ROI outline and
+        the COI outline stay where the offset above puts them. No key, no move.
         """
         ext = result["extrema"][scale_idx]
         shape = result["_shape"]
@@ -2068,12 +2077,14 @@ a bounded gather of at most :attr:`draw_cap` chains per
         row_off += self._base_off[0]           # pin-in-place: overlays live file-absolute
         col_off += self._base_off[1]
         self._draw_off = (float(row_off), float(col_off))
+        reg_dx, reg_dy = result.get("_display_offset") or (0, 0)
+        max_row, max_col = row_off + reg_dy, col_off + reg_dx       # where the maxima draw
 
-        self._draw_arrows(result, scale_idx, row_off, col_off)
+        self._draw_arrows(result, scale_idx, max_row, max_col)
         ext_x = np.asarray(ext["x"])
         ext_y = np.asarray(ext["y"])
         iso = np.asarray(ext["line_id"]) == -1
-        self.extrema_item.setData(x=ext_x[iso] + col_off, y=ext_y[iso] + row_off)
+        self.extrema_item.setData(x=ext_x[iso] + max_col, y=ext_y[iso] + max_row)
 
         # The polyline helpers run in the RESULT's own coordinates (`hline_polylines` indexes a
         # scratch grid of `shape`, which is the ROI's shape), so the translation is applied to
@@ -2098,7 +2109,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         hx_pre, hy_pre = hx, hy                  # pre-cap: the raster overlay has no point cost
         if sel_geom is None:
             hx, hy, h_kept, h_total = cap_polylines(hx, hy, self.draw_cap)
-        self.hchain_item.setData(hx + col_off, hy + row_off)
+        self.hchain_item.setData(hx + max_col, hy + max_row)
 
         # The raster-pixel extrema overlay: the same visible truth the polylines
         # carried, in pixel form on the result's own grid. Members from the drawn H-line
@@ -2118,7 +2129,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             ok = (dx_i >= 0) & (dx_i < nx_r) & (dy_i >= 0) & (dy_i < ny_r)
             rgba[dy_i[ok], dx_i[ok]] = (*EXTREMA_COLOR, 255)
         self.extrema_raster_item.setImage(rgba.transpose(1, 0, 2), autoLevels=False)
-        self.extrema_raster_item.setRect(QtCore.QRectF(col_off - 0.5, row_off - 0.5,
+        self.extrema_raster_item.setRect(QtCore.QRectF(max_col - 0.5, max_row - 0.5,
                                                        nx_r, ny_r))
 
         # Split by `tags` -- see the docstring above for why. `chain.get("tags")` is absent on

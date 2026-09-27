@@ -66,7 +66,7 @@ from dynamix.engine.resolve import output_key
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
                                     scan_footprints, scene_label)
-from dynamix.geo.mapping import has_georeference
+from dynamix.geo.mapping import axis_at, has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
@@ -3765,11 +3765,25 @@ both ``Canvas`` signals report the
                     derived = dataclasses.replace(
                         self.field, values=np.asarray(h_map, dtype=np.float64),
                         name=f"{self.layer.name}")
+                offset = result.get("_raster_display_offset")
                 if result.get("_display_stride"):
                     # A drawing on its own coarser grid: never a surface source or an export.
                     self._derived_fields.pop(self.layer.layer_id, None)
                 else:
+                    if offset is not None:
+                        # The dataset sits where its samples register: its axes move by the
+                        # offset, so an export keeps that registration.
+                        dx, dy = (float(d) for d in offset)
+                        derived = dataclasses.replace(
+                            derived,
+                            x_axis=axis_at(derived.x_axis, np.arange(len(derived.x_axis)) + dx),
+                            y_axis=axis_at(derived.y_axis, np.arange(len(derived.y_axis)) + dy))
                     self._derived_fields[self.layer.layer_id] = derived
+                if offset is not None:
+                    # The canvas places a raster by pixel index, so the copy it draws carries
+                    # the offset; the dataset above has none in its provenance.
+                    derived = dataclasses.replace(derived, provenance={
+                        **(derived.provenance or {}), "display_offset": tuple(offset)})
                 self.canvas.set_field(derived)
                 self._apply_raster_visibility(showing_product=True)
                 self.canvas.clear_overlays()
@@ -3827,7 +3841,15 @@ both ``Canvas`` signals report the
         exactly that block, and the axes are the field's own interpolated at those centres
         (held at the last pixel for a partial last block, as a picture's are). The provenance is
         a COPY (the field's shared dict is never mutated), and the field is a drawing only:
-        nothing analyses it."""
+        nothing analyses it.
+
+        An output that states where its samples register (``result["_raster_display_offset"]
+        = (dx, dy)``, copied from the output's ``display_offset``) holds point samples instead:
+        sample k is file pixel k*s, registered at k*s + dx along x and k*s + dy along y, like
+        the LastWave M-Z thumbnail. The copy then carries ``display_anchor`` "sample", so the
+        canvas centres block k on file pixel k*s and the offset moves it onto the registered
+        position, and the axes are the field's own at those positions (linear along each
+        axis)."""
         s = result.get("_display_stride")
         if not s or self.field is None:
             return None
@@ -3836,6 +3858,15 @@ both ``Canvas`` signals report the
         prov = {**(getattr(field, "provenance", None) or {}), "display_stride": s,
                 "full_dims": tuple(result["_full_dims"])}
         values = np.asarray(raster, dtype=np.float64)
+        offset = result.get("_raster_display_offset")
+        if offset is not None:
+            prov["display_anchor"] = "sample"
+            dx, dy = (float(d) for d in offset)
+            return dataclasses.replace(
+                field, values=values,
+                x_axis=axis_at(field.x_axis, np.arange(values.shape[1]) * s + dx),
+                y_axis=axis_at(field.y_axis, np.arange(values.shape[0]) * s + dy),
+                provenance=prov, name=self.layer.name)
 
         def centres(axis, m):
             axis = np.asarray(axis, dtype=np.float64)
@@ -4696,6 +4727,10 @@ both ``Canvas`` signals report the
             if output.grid == "stride":
                 out["_display_stride"] = int(value["display_stride"])
                 out["_full_dims"] = tuple(value["full_dims"])
+            if value.get("display_offset") is not None:
+                # Where the output's samples register; the result's own ``_display_offset``
+                # stays the maxima's.
+                out["_raster_display_offset"] = tuple(value["display_offset"])
             return out
         if (self._out_held is None and layer.visible
                 and layer.layer_id not in self._pending_layers
@@ -4707,11 +4742,17 @@ both ``Canvas`` signals report the
     def _cached_output_raster(self, layer, renderable):
         """The cached raster of the lazy output ``layer`` shows, when it lies on the field's own
         grid (the Vector/Geo drape); ``None`` otherwise. Never computes anything."""
+        value = self._cached_output_value(layer, renderable)
+        return None if value is None else value["raster"]
+
+    def _cached_output_value(self, layer, renderable):
+        """The cached value (``raster``, ``diag``, and ``display_offset`` where its samples
+        register off their pixel index) of the lazy output ``layer`` shows, when it lies on the
+        field's own grid; ``None`` otherwise. One cache read. Never computes anything."""
         shown = self._shown_lazy(layer, renderable)
         if shown is None or shown[0].grid != "native":
             return None
-        value = self.cache.get(shown[1])
-        return None if value is None else value["raster"]
+        return self.cache.get(shown[1])
 
     def _remember_output(self, layer, key: str, value) -> None:
         """Record a computed output of ``layer``: its row reading, and its key among the layer's
@@ -7465,10 +7506,15 @@ both ``Canvas`` signals report the
                     # the height source above -- the "h over elevation" view. Shape-guarded again
                     # in the scene (belt-and-braces); identity stamps feed _STYLE_KEYS diffing.
                     drape = _display_raster_of(res)
+                    drape_offset = None
                     if drape is None and res is not None:
                         # A lazily computed output on show drapes once cached (never computed
-                        # here); one on its own coarser grid leaves the field draped.
-                        drape = self._cached_output_raster(layer, renderable)
+                        # here); one on its own coarser grid leaves the field draped. One whose
+                        # samples register off their pixel index drapes on the moved axes.
+                        value = self._cached_output_value(layer, renderable)
+                        if value is not None:
+                            drape = value["raster"]
+                            drape_offset = value.get("display_offset")
                     entries.append({"layer": layer, "field": field, "result": res,
                                     "status": "ok", "signature": signature,
                                     "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster or drape is not None,
@@ -7476,6 +7522,7 @@ both ``Canvas`` signals report the
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "drape": drape,
                                     "drape_id": id(drape) if drape is not None else None,
+                                    "drape_offset": drape_offset,
                                     "levels": levels,
                                     # The edges output row's H: the scene drops this
                                     # layer's H-lines/dots while it is set.

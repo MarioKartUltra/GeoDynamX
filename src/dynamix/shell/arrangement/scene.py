@@ -546,6 +546,35 @@ def _subpixel_of(layer: dict, idx) -> "tuple | None":
     yi = np.asarray(layer["y"], dtype=np.float64)[idx]
     return (np.where(np.isfinite(xs), xs, xi), np.where(np.isfinite(ys), ys, yi))
 
+
+def _placement_of(result, layer: dict, idx) -> "tuple | None":
+    """Where extrema ``idx`` of ``layer`` are drawn, as :meth:`Scene._scene_points`' ``sub``:
+    :func:`_subpixel_of`, moved by ``result["_display_offset"] = (dx, dy)`` (pixels, x then y)
+    when the result's maxima register off their pixel index (the LastWave M-Z engine's half
+    pixel west and north). ``None`` when there is neither."""
+    sub = _subpixel_of(layer, idx)
+    offset = result.get("_display_offset") if isinstance(result, dict) else None
+    if not offset:
+        return sub
+    if sub is None:
+        idx = np.asarray(idx)
+        sub = (np.asarray(layer["x"], dtype=np.float64)[idx],
+               np.asarray(layer["y"], dtype=np.float64)[idx])
+    return sub[0] + float(offset[0]), sub[1] + float(offset[1])
+
+
+def _registered_field(field, shift):
+    """``field`` with its axes moved by ``shift = (dx, dy)`` pixel steps (linear along each
+    axis): where samples that register that far off their pixel index are placed. ``field``
+    itself when ``shift`` is ``None``."""
+    if shift is None:
+        return field
+    dx, dy = shift
+    return dataclasses.replace(
+        field, x_axis=axis_at(field.x_axis, np.arange(len(field.x_axis)) + dx),
+        y_axis=axis_at(field.y_axis, np.arange(len(field.y_axis)) + dy))
+
+
 class Scene:
     """Owns every actor drawn in the arrangement view's ``plotter`` and the current projection
     mode. One raster mesh actor per "ok" layer, plus up to three vector actors; every
@@ -1639,6 +1668,7 @@ class Scene:
                                              surface=entry.get("surface"),
                                              surface_field=entry.get("surface_field"),
                                              drape=entry.get("drape"),
+                                             drape_offset=entry.get("drape_offset"),
                                              levels=entry.get("levels"),
                                              edges_hidden=bool(entry.get("edges_hidden")))
                     continue
@@ -1671,6 +1701,7 @@ class Scene:
                                              surface=entry.get("surface"),
                                              surface_field=entry.get("surface_field"),
                                              drape=entry.get("drape"),
+                                             drape_offset=entry.get("drape_offset"),
                                              levels=entry.get("levels"))
                 except NoGeoreference:
                     status = "no-georeference"
@@ -1695,7 +1726,7 @@ class Scene:
     def _add_layer_geometry(self, layer, field, result, *, colormap=None,
                             vtrail_color=None, hillshade=None, stretch=None,
                             surface=None, surface_field=None, drape=None,
-                            levels=None, edges_hidden=False) -> None:
+                            levels=None, edges_hidden=False, drape_offset=None) -> None:
         """Everything ONE "ok" layer contributes: the raster drape, plus (when ``result`` carries
         them) its chains/extrema/ROI-outline vector actors -- ATOMIC per layer. Any exception
         raised while building the VECTOR actors rolls back every actor this call already added
@@ -1735,7 +1766,7 @@ class Scene:
             self._surface_fields.pop(id(field), None)
         raster_name = self._add_raster_actor(layer, field, colormap, hillshade, stretch, surface,
                                              surface_field=surface_field, drape=drape,
-                                             levels=levels)
+                                             levels=levels, drape_offset=drape_offset)
         names = [raster_name]
         chain_lookup_entry = None
         vector_mask_entry = None
@@ -1754,22 +1785,25 @@ class Scene:
         if vector_mask_entry is not None:
             self._vector_masks[layer_id] = vector_mask_entry
 
-    def _lonlat_grid_for(self, layer_id, field):
+    def _lonlat_grid_for(self, layer_id, field, shift=None):
         """``field_lonlat_grid(field)``, cached per-layer on ``field``'s own identity (``self._lonlat_cache``'s own docstring for the profiling
         finding and the caching rationale). A cache hit needs ``id(field)`` to match exactly what
         was cached for THIS ``layer_id`` last time -- a different field (even a content-identical
         reopen of the same source) is treated as a genuine miss and recomputed, never assumed
-        equivalent by value."""
+        equivalent by value. ``shift`` (``(dx, dy)`` pixels, or ``None``) builds the grid on the
+        field's axes moved that far (:func:`_registered_field`) and is part of the key, so a
+        drape that registers off its pixel index is cached like any other."""
+        key = (id(field), shift)
         cached = self._lonlat_cache.get(layer_id)
-        if cached is not None and cached[0] == id(field):
+        if cached is not None and cached[0] == key:
             return cached[1], cached[2], cached[3], cached[4]
-        lon2d, lat2d, values2d, stride = field_lonlat_grid(field)
-        self._lonlat_cache[layer_id] = (id(field), lon2d, lat2d, values2d, stride)
+        lon2d, lat2d, values2d, stride = field_lonlat_grid(_registered_field(field, shift))
+        self._lonlat_cache[layer_id] = (key, lon2d, lat2d, values2d, stride)
         return lon2d, lat2d, values2d, stride
 
     def _add_raster_actor(self, layer, field, colormap=None, hillshade=None, stretch=None,
                           surface=None, surface_field=None, drape=None,
-                          levels=None) -> str:
+                          levels=None, drape_offset=None) -> str:
         """Build and add this layer's raster drape; return its actor name (NOT yet recorded into
         ``self._layer_actors`` -- :meth:`_add_layer_geometry` commits that only once the whole
         layer, vectors included, has built successfully).
@@ -1801,7 +1835,19 @@ class Scene:
         placement paths must agree or the drape and its own chains land in different frames);
         the data itself is never resampled either way, only which pixel CENTERS get placed and
         how. ``_lonlat_grid_for``'s own cache is untouched and unconsulted on this path -- see
-        the module docstring's "Frame mode" section for why no analogous cache exists here."""
+        the module docstring's "Frame mode" section for why no analogous cache exists here.
+
+        **``drape_offset``** (``(dx, dy)`` pixels, x then y) says the drape's samples register
+        that far off their pixel index (the LastWave M-Z coarse channel: half a pixel west and
+        north). The grid is then placed on the field's axes moved by ``dx`` and ``dy`` pixel
+        steps (linear along each axis), the surface under the drape moving with it; the geo
+        path caches that grid in the per-layer lon/lat cache under the offset. A same-shape
+        drape is the only thing it moves."""
+        shift = None
+        if (drape is not None and drape_offset
+                and np.shape(drape)[:2] == np.shape(field.values)[:2]):
+            shift = (float(drape_offset[0]), float(drape_offset[1]))
+
         def _slice_like(arr, ref2d, stride):
             """Decimate a companion array with the grid builders' exact stride arithmetic;
             None on any shape disagreement (caller falls back to the layer's own values)."""
@@ -1816,7 +1862,7 @@ class Scene:
             return out if out.shape == np.asarray(ref2d).shape[:2] else None
 
         if self._frame_mode:
-            x2d, y2d, values2d, _stride = self._frame_grid_for(field)
+            x2d, y2d, values2d, _stride = self._frame_grid_for(_registered_field(field, shift))
             z2d, color2d = values2d, values2d
             if surface_field is not None:
                 cand = _slice_like(surface_field.values, values2d, _stride)
@@ -1845,7 +1891,7 @@ class Scene:
             pts[:, 2] *= self._vexag     # vertical exaggeration composes on the surface height
             ny, nx = x2d.shape
         else:
-            lon2d, lat2d, values2d, _stride = self._lonlat_grid_for(layer.layer_id, field)
+            lon2d, lat2d, values2d, _stride = self._lonlat_grid_for(layer.layer_id, field, shift)
             z2d, color2d = values2d, values2d
             if surface_field is not None:
                 cand = _slice_like(surface_field.values, values2d, _stride)
@@ -2237,7 +2283,7 @@ class Scene:
         if base is None:
             return False
         key = (id(base), id(field), self._frame_mode, self._mode, float(self._vexag),
-               self._surface_fields.get(id(field)))
+               self._surface_fields.get(id(field)), result.get("_display_offset"))
         cached = self._hline_base_cache.get(layer_id)
         if cached is None or cached[0] != key:
             bx = np.asarray(base["x"], dtype=np.int64)
@@ -2250,7 +2296,7 @@ class Scene:
             order = np.concatenate(runs)
             run_id = np.repeat(np.arange(len(runs)), [len(r) for r in runs])
             pts = self._scene_points(field, bx[order], by[order],
-                                     sub=_subpixel_of(base, order))
+                                     sub=_placement_of(result, base, order))
             vert_pos = by[order] * int(field.nx) + bx[order]
             cached = (key, pts, vert_pos, run_id, order)
             self._hline_base_cache[layer_id] = cached
@@ -2293,7 +2339,7 @@ class Scene:
         iso = np.flatnonzero(lid0 == -1)
         if iso.size:
             dot_pts.append(self._scene_points(field, ex[iso], ey[iso],
-                                              sub=_subpixel_of(ext0, iso)))
+                                              sub=_placement_of(result, ext0, iso)))
         if lonely.any():
             dot_pts.append(pts[lonely])
         if dot_pts:
@@ -2375,7 +2421,7 @@ class Scene:
                 dot_idx = np.flatnonzero(~on_line) if not built else np.array([], dtype=np.int64)
                 if dot_idx.size:
                     pts = self._scene_points(field, ex[dot_idx], ey[dot_idx],
-                                             sub=_subpixel_of(ext0, dot_idx))
+                                             sub=_placement_of(result, ext0, dot_idx))
                     name = self._extrema_actor_name(layer_id)
                     self._plotter.add_mesh(pv.PolyData(pts), color=EXTREMA_COLOR, style="points",
                                             point_size=4.0, name=name, reset_camera=False)
@@ -2387,7 +2433,7 @@ class Scene:
                         offset += len(run)
                     order = np.concatenate(runs)
                     hpts = self._scene_points(field, ex[order], ey[order],
-                                              sub=_subpixel_of(ext0, order))
+                                              sub=_placement_of(result, ext0, order))
                     hname = self._hlines_actor_name(layer_id)
                     self._plotter.add_mesh(pv.PolyData(hpts, lines=np.array(cells, dtype=np.int64)),
                                            color=HLINE_COLOR, line_width=1.5, name=hname,
