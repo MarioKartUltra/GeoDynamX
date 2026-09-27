@@ -222,7 +222,9 @@ def _fourier_upsample_torus(t, factor):
 # even orders give Unser-Blu's symmetric generalization rather than the half-shifted
 # classical spline. Oracle chain in tests/test_mz_frac.py: cascade <-> analytic form
 # (tight, all orders) <-> the verbatim ``frac_bspline`` Part A2 copies (exact at integer
-# anchors). Fractional POCS/preview is a follow-up: ``preview`` refuses fractional bundles.
+# anchors). Fractional POCS runs in ``reconstruct`` (below) through the closed-form synthesis
+# pair of the fractional bank; ``preview`` keeps the verbatim mzlib path and refuses
+# fractional bundles.
 #
 # Lambda: Table II is computed for alpha=3 only, so the fractional path derives lambda_j
 # NUMERICALLY from the table's own (rediscovered) definition -- the discrete dyadic
@@ -478,10 +480,11 @@ def preview(values, bundle, *, n_iter=10, keep=None):
     if bundle.get("wavelet", "mz_spline") != "mz_spline":
         # pocs2d's projections use the standard filter bank internally (Kf/Lf/Hf at
         # n_spline=3); reconstructing a fractional analysis with them would be a silent
-        # filter mismatch. Fractional POCS is a follow-up -- refuse loudly instead.
+        # filter mismatch. preview keeps that verbatim path and refuses; ``reconstruct`` runs
+        # the fractional bank.
         raise ValueError(
             f"preview requires the mz_spline wavelet; this bundle was analyzed with "
-            f"{bundle['wavelet']!r} (fractional POCS is a follow-up)")
+            f"{bundle['wavelet']!r}; reconstruct() handles fractional bundles")
     n_levels = len(bundle["mz_maxima"])
     maxima = bundle["mz_maxima"]
     if keep is not None:
@@ -499,3 +502,304 @@ def preview(values, bundle, *, n_iter=10, keep=None):
         "diverging": bool(resid[-1] > _DIVERGENCE_RATIO * min(resid)),
     }
     return img_hat, diag
+
+
+# --- reconstruction from multiscale edges ---------------------------------------------------
+#
+# The paper's alternating projections (start from zero; P_Gamma, then P_V with the coarse
+# channel pinned), run here rather than in the verbatim ``mzlib.pocs2d`` so the loop can report
+# progress, honour a cancel request, and use the fractional filter bank. P_Gamma depends only
+# on the scale 2^j and on the maxima positions, so its sinh/exp interpolation weights are fixed
+# for the whole run: ``separable`` builds them once per scale (vectorized) and applies them as
+# a gather plus a multiply-add; ``separable_mzlib`` runs ``mzlib.p_gamma`` row by row (the
+# reference); ``set_points`` assigns the maxima values only.
+
+RECON_MODES = ("separable", "separable_mzlib", "set_points")
+RECON_COARSE = ("full", "thumbnail", "none")
+_CONVERGED_REL = 1e-3            # last relative change of the constraint residual
+_PGAMMA_BUDGET = 512 * 2 ** 20   # bytes of cached P_Gamma operators; above it, rebuilt per pass
+
+
+def _pgamma_operator(mask, s):
+    """Vectorized setup of the paper's P_Gamma along the LAST axis of a boolean maxima mask.
+
+    For every sample: the slots of its left and right bounding maxima in the row's maxima list
+    (row-major order over ``mask``) and the two sinh/exp weights of eqs. 109-113 -- exactly
+    ``mzlib.p_gamma``'s arithmetic, torus-wrapped, including its single-maximum (exp of the torus
+    distance) and no-maximum (unchanged) rows. Returns ``(flat_idx, Li, Ri, A, B)``."""
+    R, n = mask.shape
+    flat_idx = np.flatnonzero(mask)
+    slot = np.full(R * n, -1, dtype=np.int64)
+    slot[flat_idx] = np.arange(flat_idx.size)
+    slot = slot.reshape(R, n)
+    col = np.arange(n)
+    # running left/right maxima on the doubled row: every sample of the second (first) copy
+    # sees its bounding maximum to the left (right), across the wrap
+    m2 = np.concatenate([mask, mask], axis=1)
+    c2 = np.concatenate([col, col + n])[None, :]
+    left = np.maximum.accumulate(np.where(m2, c2, -1), axis=1)[:, n:] % n
+    right = np.minimum.accumulate(np.where(m2, c2, 3 * n)[:, ::-1], axis=1)[:, ::-1][:, :n] % n
+    cnt = mask.sum(axis=1, keepdims=True)
+    Li = np.take_along_axis(slot, left, axis=1)
+    Ri = np.take_along_axis(slot, right, axis=1)
+    L = (right - left) % n
+    L = np.where(L == 0, n, L).astype(np.float64)
+    t = ((col[None, :] - left) % n).astype(np.float64)
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        short = (L / s) < 30.0
+        sh = np.sinh(np.where(short, L / s, 1.0))
+        A = np.where(short, np.sinh((L - t) / s) / sh, np.exp(-t / s))
+        B = np.where(short, np.sinh(t / s) / sh, np.exp(-(L - t) / s))
+    d = np.abs(col[None, :] - left)
+    one = cnt == 1
+    A = np.where(one, np.exp(-np.minimum(d, n - d) / s), A)
+    B = np.where(one, 0.0, B)
+    none = cnt == 0
+    A = np.where(none, 0.0, A)
+    B = np.where(none, 0.0, B)
+    Li = np.where(none, -1, Li)
+    Ri = np.where(none | one, -1, Ri)
+    return flat_idx, Li.ravel(), Ri.ravel(), A.ravel(), B.ravel()
+
+
+def _pgamma_apply(g, vals, op):
+    """P_Gamma along the last axis: ``g`` corrected so it takes ``vals`` at the maxima."""
+    flat_idx, Li, Ri, A, B = op
+    res = np.append(vals - g.ravel()[flat_idx], 0.0)          # slot -1 reads 0
+    h = g.ravel() + A * res[Li] + B * res[Ri]
+    h[flat_idx] = vals
+    return h.reshape(g.shape)
+
+
+def _row_major(rows, cols, vals, shape):
+    """Sort constraint samples into the row-major order ``_pgamma_operator`` assigns slots in."""
+    order = np.lexsort((cols, rows))
+    mask = np.zeros(shape, dtype=bool)
+    mask[rows, cols] = True
+    return mask, vals[order]
+
+
+class _Bank:
+    """The analysis filter bank on the (2ny, 2nx) torus: mzlib's spline, or the fractional H_alpha
+    with its closed-form synthesis pair K_alpha = (1-|H|^2)/G, L_alpha = (1+|H|^2)/2."""
+
+    def __init__(self, wavelet, alpha):
+        self.frac = wavelet == "frac_bspline"
+        self.alpha = float(alpha)
+
+    def _H(self, w):
+        return _hf_frac(w, self.alpha) if self.frac else mzlib.Hf(w)
+
+    def _lam(self, j):
+        return lam_frac(j, self.alpha) if self.frac else mzlib.lam(j)
+
+    def _K(self, w):
+        if not self.frac:
+            return mzlib.Kf(w)
+        G = mzlib.Gf(w)
+        out = np.zeros_like(G)
+        nz = np.abs(G) > 1e-14
+        out[nz] = (1 - np.abs(self._H(w[nz])) ** 2) / G[nz]
+        return out
+
+    def _L(self, w):
+        return (1 + np.abs(self._H(w)) ** 2) / 2 if self.frac else mzlib.Lf_(w)
+
+    def forward_full(self, m, J):
+        if not self.frac:
+            return mzlib.atrous2d_forward_full(m, J)
+        ny, nx = m.shape
+        wy = mzlib._omega(ny)[:, None]
+        wx = mzlib._omega(nx)[None, :]
+        Sh = mzlib.FFT.fft2(m.astype(np.float64))
+        out = []
+        for j in range(J):
+            f1 = mzlib.Gf((2 ** j) * wx) * np.ones_like(wy)
+            f2 = np.ones_like(wx) * mzlib.Gf((2 ** j) * wy)
+            lam = self._lam(j + 1)
+            out.append((np.real(mzlib.FFT.ifft2(Sh * f1)) / lam,
+                        np.real(mzlib.FFT.ifft2(Sh * f2)) / lam))
+            Sh = Sh * self._H((2 ** j) * wx) * self._H((2 ** j) * wy)
+        return np.real(mzlib.FFT.ifft2(Sh)), out
+
+    def inverse(self, S, pairs):
+        if not self.frac:
+            return mzlib.atrous2d_inverse(S, pairs)
+        ny, nx = S.shape
+        wy = mzlib._omega(ny)[:, None]
+        wx = mzlib._omega(nx)[None, :]
+        Sh = mzlib.FFT.fft2(S)
+        for j in range(len(pairs) - 1, -1, -1):
+            W1, W2 = pairs[j]
+            lam = self._lam(j + 1)
+            a = 2 ** j
+            Sh = (mzlib.FFT.fft2(W1 * lam) * self._K(a * wx) * self._L(a * wy)
+                  + mzlib.FFT.fft2(W2 * lam) * self._L(a * wx) * self._K(a * wy)
+                  + Sh * np.conj(self._H(a * wx)) * np.conj(self._H(a * wy)))
+        return np.real(mzlib.FFT.ifft2(Sh))
+
+
+def _coarse_torus(values, bundle, J, coarse, bank):
+    """The (2ny, 2nx) coarse channel the reconstruction pins: from the field through ``bank``
+    (dither reproduced) for "full", decoded from its 2^J thumbnail for "thumbnail", ``None``
+    (pinned to zero) for "none"."""
+    if coarse == "none":
+        return None                                   # S pinned to zero (edges only)
+    v = np.asarray(values, dtype=np.float64)
+    if bundle.get("lsb") is not None:
+        v = _dithered(v, bundle["lsb"])
+    S, _ = bank.forward_full(_mirror2d(v), J)
+    if coarse == "full":
+        return S
+    ny, nx = v.shape
+    step = 2 ** J
+    if ny % step or nx % step:
+        raise ValueError(f"the thumbnail coarse needs the grid divisible by 2**J = {step}; "
+                         f"this grid is {ny} x {nx}")
+    thumb = S[:ny:step, :nx:step].astype(np.float32).astype(np.float64)   # as analyze stores it
+    return _fourier_upsample_torus(_mirror2d(thumb), step)
+
+
+def _detail_target(values, bank, J):
+    """What an edges-only reconstruction can reach: the field minus its coarse channel S_J AS THE
+    SYNTHESIS DELIVERS IT (S_J through the conj(H) low-pass chain, zero details), which is the
+    synthesis of the field's own details. Subtracting the raw S_J would leave a low-pass residue
+    no edges-only image contains."""
+    ny, nx = values.shape
+    S, pairs = bank.forward_full(_mirror2d(values), J)
+    zero = [(np.zeros_like(W1), np.zeros_like(W2)) for W1, W2 in pairs]
+    return values - bank.inverse(S, zero)[:ny, :nx]
+
+
+def _recon_status(resid):
+    """Where the constraint residual stands after the last iteration: "diverging" past
+    ``_DIVERGENCE_RATIO`` times its smallest value, "converged" when the last relative change is
+    under ``_CONVERGED_REL``, "rising" when it grew in the last iteration (the onset of the knee
+    past which the reconstruction degrades), else "still improving"."""
+    if resid[-1] > _DIVERGENCE_RATIO * min(resid):
+        return "diverging"
+    if len(resid) > 1 and abs(resid[-1] - resid[-2]) <= _CONVERGED_REL * max(resid[-2], 1e-300):
+        return "converged"
+    if len(resid) > 1 and resid[-1] > resid[-2]:
+        return "rising"
+    return "still improving"
+
+
+def reconstruct(values, bundle, *, n_iter=10, mode="separable", coarse="full",
+                progress=None, cancel=None):
+    """``n_iter`` POCS iterations from the bundle's maxima, with the coarse channel ``coarse``
+    pinned (``RECON_COARSE``) and P_Gamma by ``mode`` (``RECON_MODES``), through the bundle's own
+    filter bank. ``progress(msg, frac)`` and ``cancel()`` are consulted once per iteration; a
+    true ``cancel()`` raises ``ComputeCancelled``.
+
+    Returns ``(img, diag)``: the (ny, nx) float64 reconstruction and ``n_iter, mode, coarse,
+    wavelet, alpha, resid`` (the constraint-residual trajectory), ``status`` ("diverging" when the
+    last residual exceeds ``_DIVERGENCE_RATIO`` times the smallest, "converged" when its last
+    relative change is under ``_CONVERGED_REL``, "rising" when it grew in the last iteration,
+    else "still improving"; see :func:`_recon_status`) and ``snr_db``
+    (mean-removed, against the field, or for ``coarse="none"`` against the field minus S_J as the
+    synthesis delivers it, ``_detail_target``)."""
+    from dynamix.core.wtmm_backend import ComputeCancelled
+
+    if mode not in RECON_MODES:
+        raise ValueError(f"unknown mode {mode!r}; choices: {RECON_MODES}")
+    if coarse not in RECON_COARSE:
+        raise ValueError(f"unknown coarse {coarse!r}; choices: {RECON_COARSE}")
+    values = np.asarray(values, dtype=np.float64)
+    ny, nx = values.shape
+    maxima = bundle["mz_maxima"]
+    J = len(maxima)
+    bank = _Bank(bundle.get("wavelet", "mz_spline"), bundle.get("alpha", 3.0))
+    S = _coarse_torus(values, bundle, J, coarse, bank)
+    shape2 = (2 * ny, 2 * nx)
+    S_pin = np.zeros(shape2) if S is None else S
+
+    ops = None
+    if mode == "separable":
+        # per scale: (row operator on W1, column operator on W2 via the transpose, vals)
+        budget = 2 * J * shape2[0] * shape2[1] * 32
+        build = []
+        for j, (rows, cols, w1, w2) in enumerate(maxima):
+            s = 2.0 ** (j + 1)
+            m1, v1 = _row_major(rows, cols, w1, shape2)
+            m2, v2 = _row_major(cols, rows, w2, shape2[::-1])
+            build.append((s, m1, v1, m2, v2))
+        cache_ops = budget <= _PGAMMA_BUDGET
+        ops = [(_pgamma_operator(m1, s), v1, _pgamma_operator(m2, s), v2) if cache_ops
+               else None for (s, m1, v1, m2, v2) in build]
+    elif mode == "separable_mzlib":
+        groups = []
+        for rows, cols, w1, w2 in maxima:
+            rd, cd = {}, {}
+            for r, c, a, b in zip(rows, cols, w1, w2):
+                rd.setdefault(int(r), ([], []))
+                rd[int(r)][0].append(int(c)); rd[int(r)][1].append(a)
+                cd.setdefault(int(c), ([], []))
+                cd[int(c)][0].append(int(r)); cd[int(c)][1].append(b)
+            groups.append(({r: (np.array(v[0]), np.array(v[1])) for r, v in rd.items()},
+                           {c: (np.array(v[0]), np.array(v[1])) for c, v in cd.items()}))
+
+    W = [(np.zeros(shape2), np.zeros(shape2)) for _ in range(J)]
+    resid = []
+    for it in range(1, n_iter + 1):
+        if cancel is not None and cancel():
+            raise ComputeCancelled("reconstruction cancelled")
+        newW = []
+        for j, (rows, cols, w1, w2) in enumerate(maxima):
+            G1, G2 = W[j]
+            if mode == "separable":
+                s = 2.0 ** (j + 1)
+                op = ops[j]
+                if op is None:
+                    _s, m1, v1, m2, v2 = build[j]
+                    op = (_pgamma_operator(m1, s), v1, _pgamma_operator(m2, s), v2)
+                op1, v1, op2, v2 = op
+                G1 = _pgamma_apply(G1, v1, op1)
+                G2 = _pgamma_apply(G2.T, v2, op2).T
+            elif mode == "separable_mzlib":
+                s = 2.0 ** (j + 1)
+                G1 = G1.copy(); G2 = G2.copy()
+                rg, cg = groups[j]
+                for r, (cidx, vals) in rg.items():
+                    G1[r] = mzlib.p_gamma(G1[r], cidx, vals, s)
+                for c, (ridx, vals) in cg.items():
+                    G2[:, c] = mzlib.p_gamma(G2[:, c], ridx, vals, s)
+            else:
+                G1 = G1.copy(); G2 = G2.copy()
+                G1[rows, cols] = w1
+                G2[rows, cols] = w2
+            newW.append((G1, G2))
+        _, W = bank.forward_full(bank.inverse(S_pin, newW), J)
+        r2 = 0.0
+        for j, (rows, cols, w1, w2) in enumerate(maxima):
+            G1, G2 = W[j]
+            r2 += float(np.sum((G1[rows, cols] - w1) ** 2) + np.sum((G2[rows, cols] - w2) ** 2))
+        resid.append(float(np.sqrt(r2)))
+        if progress is not None:
+            progress(f"mz reconstruction {it}/{n_iter}", it / n_iter)
+    img = bank.inverse(S_pin, W)[:ny, :nx]
+    status = _recon_status(resid)
+    target = values if S is not None else _detail_target(values, bank, J)
+    num = np.sum((target - target.mean()) ** 2)
+    den = np.sum((target - img) ** 2)
+    snr = float(10 * np.log10(num / den)) if den > 0 else float("inf")
+    diag = {"n_iter": int(n_iter), "mode": mode, "coarse": coarse,
+            "wavelet": bundle.get("wavelet", "mz_spline"),
+            "alpha": float(bundle.get("alpha", 3.0)),
+            "resid": resid, "status": status, "snr_db": snr}
+    return img, diag
+
+
+def coarse_image(values, bundle):
+    """The full-resolution coarse channel S_J the reconstruction pins against (primary quadrant
+    of the torus), through the bundle's own filter bank and dither."""
+    J = len(bundle["mz_maxima"])
+    bank = _Bank(bundle.get("wavelet", "mz_spline"), bundle.get("alpha", 3.0))
+    ny, nx = np.asarray(values).shape
+    return _coarse_torus(values, bundle, J, "full", bank)[:ny, :nx]
+
+
+def coarse_thumbnail(values, bundle):
+    """S_J subsampled every 2^J pixels (the coding-mode thumbnail), float32, for any grid."""
+    step = 2 ** len(bundle["mz_maxima"])
+    return coarse_image(values, bundle)[::step, ::step].astype(np.float32)

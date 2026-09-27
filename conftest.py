@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 SRC = Path(__file__).parent / "src"
 sys.path.insert(0, str(SRC))
 
@@ -15,3 +17,14 @@ sys.path.insert(0, str(SRC))
 os.environ["PYTHONPATH"] = os.pathsep.join(
     p for p in (str(SRC), os.environ.get("PYTHONPATH", "")) if p
 )
+
+
+def pytest_addoption(parser):
+    parser.addoption("--frac-gate-db", type=float, default=3.0,
+                     help="how far (dB) a fractional-order reconstruction may fall below "
+                          "alpha = 3 before the quality gate fails")
+
+
+@pytest.fixture
+def frac_gate_db(request):
+    return request.config.getoption("--frac-gate-db")
