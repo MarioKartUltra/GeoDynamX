@@ -13,10 +13,12 @@ import hashlib
 import json
 from typing import Any, Callable
 
+import numpy as np
+
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
-from dynamix.model.device import (apply_view, get_device, is_transform, keyed_params,
-                                  validate_params)
+from dynamix.model.device import (Output, apply_view, declared_outputs, get_device,
+                                  is_transform, keyed_params, validate_params)
 
 
 @dataclasses.dataclass
@@ -26,6 +28,12 @@ class Renderable:
     ``result`` is the filtered transform output -- for WTMM that is the extrema/chain dicts. The
     counters exist so a UI can honestly report what it did rather than implying everything was
     recomputed.
+
+    The ``analysis_*`` fields record the chain's LAST transform -- the one whose lazy outputs
+    :func:`resolve_output` computes: its device name, its validated params (view-only ones
+    included), its cache key, and the input it consumed (the field for a first transform, the
+    previous transform's result otherwise; ``None`` for an ROI result, whose input is a region
+    window the runner reads). All ``None`` when the chain runs no transform.
     """
 
     layer_id: int
@@ -35,6 +43,10 @@ class Renderable:
     cache_misses: int = 0
     transforms_run: tuple[str, ...] = ()
     filters_run: tuple[str, ...] = ()
+    analysis_device: str | None = None
+    analysis_params: dict | None = None
+    analysis_key: str | None = None
+    analysis_input: Any = None
 
     @property
     def from_cache(self) -> bool:
@@ -213,6 +225,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
 
     result: dict = {}
     upstream: str | None = None      # key of the preceding transform; threads the lineage
+    analysis: tuple = (None, None, None, None)   # (device, params, key, input) of the last one
     start = 0
     roi_steps = _roi_prefix(layer)
     if roi_steps:
@@ -234,6 +247,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         result = cache.get_or_compute(upstream, _region)
         analyzer, analyzer_params = roi_steps[-1]
         result = apply_view(analyzer, result, analyzer_params)
+        analysis = (analyzer.name, analyzer_params, upstream, None)
         ran_t.extend(d.name for d, _p in roi_steps)
         start = len(roi_steps)
     for ref in layer.chain.steps[start:]:
@@ -252,6 +266,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                 return d.compute(s, p, progress=progress)
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
+            analysis = (device.name, params, key, src)
             upstream = key
             ran_t.append(device.name)
         else:
@@ -278,4 +293,53 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         cache_misses=cache.misses - misses0,
         transforms_run=tuple(ran_t),
         filters_run=tuple(ran_f),
+        analysis_device=analysis[0],
+        analysis_params=analysis[1],
+        analysis_key=analysis[2],
+        analysis_input=analysis[3],
     )
+
+
+def output_key(device_name: str, output: Output, params: dict, analysis_key: str) -> str:
+    """The cache key of lazy ``output`` of ``device_name``: its own name, the view-only ``params``
+    it declares, and the analysis key as its upstream -- so any change to the analysis or
+    anything before it re-keys the output, and a knob the output does not read never does."""
+    return cache_key(f"{device_name}/{output.name}", "", {p: params[p] for p in output.params},
+                     upstream=analysis_key)
+
+
+def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | None = None,
+                   progress: Callable[[str, float], None] | None = None,
+                   cancel: Callable[[], bool] | None = None) -> dict:
+    """The lazy output ``name`` of ``layer``'s last transform: ``{"raster": float32 ndarray,
+    "diag": dict, **extras}``. Resolves the layer first (cache hits once it has run), then
+    computes the output under :func:`output_key` via ``cache.get_or_compute`` -- a cancelled run
+    raises ``ComputeCancelled`` and caches nothing. Refuses (ValueError, the reason in the
+    message) an ROI layer (``tags["roi.window"]``) and an undeclared or eager output.
+
+    The device's ``compute_output(name, values, result, params, *, fetch, progress, cancel)``
+    receives the analysed values, the CACHED analysis result (before its ``view``), the
+    validated params, and ``fetch(other)``, which resolves another lazy output of the same layer
+    through the cache -- so an output derived from another is keyed under that one's work.
+    """
+    if layer.tags.get("roi.window"):
+        raise ValueError(f"{name}: lazy outputs are not computed on ROI results")
+    r = resolve(layer, field, cache, source_id=source_id, progress=progress, cancel=cancel)
+    outputs = declared_outputs(get_device(r.analysis_device)) if r.analysis_device else ()
+    output = next((o for o in outputs if o.name == name and o.lazy), None)
+    if output is None:
+        raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
+    key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key)
+    raw = cache.get(r.analysis_key)
+    values = np.asarray(r.analysis_input.values)
+
+    def fetch(other: str) -> dict:
+        return resolve_output(layer, field, cache, other, source_id=source_id,
+                              progress=progress, cancel=cancel)
+
+    def _compute():
+        device = get_device(r.analysis_device)
+        return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
+                                     progress=progress, cancel=cancel)
+
+    return cache.get_or_compute(key, _compute)

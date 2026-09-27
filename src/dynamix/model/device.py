@@ -11,6 +11,7 @@ Generalises ``dynamix.core.modality.AnalysisModality``, which described whole an
 """
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Protocol, runtime_checkable
 
 from dynamix.model.param import Param
@@ -34,12 +35,42 @@ class Transform(Device, Protocol):
 
     def cache_key(self, source_id: str, params: dict) -> str: ...
 
+    # Optional: outputs: tuple[Output, ...]
+    #   What the tool produces that a person can show or hide on its own (``declared_outputs``).
+    # Optional: def compute_output(self, name, values, result, params, *, fetch, progress=None,
+    #                              cancel=None) -> dict
+    #   Computes a lazy output from the cached analysis ``result`` and the analysed ``values``;
+    #   ``fetch(other)`` resolves another lazy output of the same layer through the cache. Called
+    #   by ``dynamix.engine.resolve.resolve_output``.
+
 
 @runtime_checkable
 class Filter(Device, Protocol):
     """Cheap and pure. Runs on every redraw, inside the 16 ms budget."""
 
     def apply(self, result: dict, params: dict) -> dict: ...
+
+
+@dataclasses.dataclass(frozen=True)
+class Output:
+    """One thing a tool produces that a person can show or hide on its own. ``kind`` is
+    "raster" or "vector"; an eager output is already in the analysis result under ``name``;
+    a lazy one is computed on request by ``device.compute_output`` and cached under its own key,
+    which folds in the view-only ``params`` it depends on. ``grid`` is "native", or "stride"
+    for a raster drawn on its own coarser grid."""
+
+    name: str
+    kind: str
+    lazy: bool = False
+    params: tuple[str, ...] = ()
+    label: str = ""
+    grid: str = "native"
+
+
+def declared_outputs(device) -> tuple[Output, ...]:
+    """The outputs ``device`` declares (its ``outputs`` attribute), or ``()`` for one that
+    declares none."""
+    return tuple(getattr(device, "outputs", ()))
 
 
 DEVICES: dict[str, Device] = {}
