@@ -101,7 +101,7 @@ from dynamix.shell.anisotropy_window import AnisotropyWindow
 from dynamix.shell.spectrum_window import SpectrumWindow
 from dynamix.shell.point_import import load_points
 from dynamix.shell.profile_dialog import ProfileDialog
-from dynamix.shell.right_panel import CompositePanel, RightPanel
+from dynamix.shell.right_panel import CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
 from dynamix.shell.settings import Settings, load_settings, save_settings, update_settings
 from dynamix.shell.skeleton_dialog import SkeletonDialog
@@ -227,6 +227,15 @@ _DISPLAY_PARAMS = (
 #: this set is a float knob (``repr(float(value))``); everything else is one of the five keys
 #: just below (a string, or ``show_trails``'s bool).
 _DISPLAY_PARAM_NAMES = {p.name for p in _DISPLAY_PARAMS}
+
+#: The ``Param.section`` whose knobs the right panel's Reconstruction section draws, and its title.
+_RECON_SECTION = "reconstruction"
+_RECON_TITLE = "Reconstruction"
+
+#: An output row drawn from a cheaper, non-row output until its own is Run: row -> preview. The
+#: LastWave recon row shows its one-iteration preview; Run computes the reconstruction, which
+#: continues from that preview's state.
+_PREVIEW_OF = {"recon": "recon_preview"}
 
 #: Colormap + palette + trails preferences (the MODEL half; the right panel builds their combo/swatch/checkbox controls). Deliberately NOT ``Param``s alongside the three
 #: above: ``_DISPLAY_PARAMS``' own float-min/max validation makes no sense for a colormap NAME, a
@@ -997,6 +1006,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._out_notes: dict[str, str] = {}
         self._out_keys: dict[int, set] = {}
         self._out_t0 = 0.0
+        # ``(layer_id, key)`` of the reconstruction Run asked for: until it lands (or is stopped,
+        # superseded or fails) its row requests and draws it in place of the preview
+        # (``_draws_preview``).
+        self._recon_run: "tuple | None" = None
         self._stop_btn = QtWidgets.QToolButton()
         self._stop_btn.setText("■ Stop")
         self._stop_btn.setToolTip("stop the in-flight compute at its next stage boundary")
@@ -1185,6 +1198,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel.bandDialogRequested.connect(self._on_band_dialog_requested)
         self._display_controls = self.right_panel._display_controls
         self._right_panel_host = self.right_panel      # kept for any code that still names it
+        # The Reconstruction section: the output step's section="reconstruction" knobs, Run, Stop
+        # and the reading of what the recon row draws (_sync_recon_section). Shown while the
+        # active chain's output step declares such knobs.
+        self._recon_panel = ReconstructionPanel()
+        self._recon_panel.paramChanged.connect(self._on_recon_knob_changed)
+        self._recon_panel.runRequested.connect(self._on_recon_run)
+        self._recon_panel.stopRequested.connect(self._stop_compute)
+        self.right_panel.add_section(_RECON_TITLE, self._recon_panel)
+        self.right_panel.apply_relevance({_RECON_TITLE: False})
         # The arrangement's mask row (``arrangement/mask_row.py`` --
         # widget itself unchanged), relocated out of ``ArrangementView`` into a view-scoped section
         # here -- built and hosted unconditionally, at window-construction time, not gated on
@@ -3032,6 +3054,7 @@ both ``Canvas`` signals report the
             "Spectrum": tables or res.get("h_map") is not None or has_ext,
             "Decomposition": self._decomposition_of(res) is not None,
             "Transect": raster,
+            _RECON_TITLE: self._recon_step() is not None,
         })
 
     def _refresh_anisotropy(self) -> None:
@@ -3982,6 +4005,7 @@ both ``Canvas`` signals report the
         self._out_keys = {}
         self._out_request = None
         self._out_held = None
+        self._recon_run = None
         self.layer = None
         self._active_result = None
         # Double-update guard: True when a result landed while the raster canvas was hidden
@@ -4430,17 +4454,101 @@ both ``Canvas`` signals report the
         """Push ``layer``'s output state into its rows, non-emitting: the raster output its
         step's ``show`` puts on the canvas, and the ``ui.edges_hidden`` tag. The group is
         rebuilt first when the chain's declared outputs changed (a chain edit). Lazy output
-        rows also carry their reading and their greying (:meth:`_output_row_state`)."""
+        rows also carry their reading and their greying (:meth:`_output_row_state`). The active
+        layer's Reconstruction section follows (:meth:`_sync_recon_section`)."""
         if layer is None:
             return
         self.layer_list.sync_output_rows(layer)
         step, outputs = layer_outputs(layer)
-        if step is None:
+        if step is not None:
+            notes, disabled = self._output_row_state(layer, step, outputs)
+            self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
+                                             layer.tags.get("ui.edges_hidden") == "1",
+                                             notes=notes, disabled=disabled)
+        if layer is self.layer:
+            self._sync_recon_section()
+
+    # -- the Reconstruction section ------------------------------------------------------------
+    def _recon_step(self) -> "tuple | None":
+        """``(index, device)`` of the active chain's step the Reconstruction section edits: the
+        step whose outputs the rows show (:meth:`_output_step_index`), when its device declares
+        ``section="reconstruction"`` params; else ``None``."""
+        if self.layer is None:
+            return None
+        index = self._output_step_index()
+        if index is None:
+            return None
+        device = get_device(self._names[index])
+        if not any(getattr(p, "section", "") == _RECON_SECTION for p in device.params):
+            return None
+        return index, device
+
+    def _sync_recon_section(self) -> None:
+        """Push the active chain into the Reconstruction section, non-emitting: shown only while
+        :meth:`_recon_step` finds a step; its knobs at the step's values (those that do not apply
+        hidden); Run enabled when the recon row runs on request (the LastWave engine) and can be
+        computed at all; the reading is the recon row's own (:meth:`_output_row_state`)."""
+        panel = getattr(self, "_recon_panel", None)
+        if panel is None:
             return
-        notes, disabled = self._output_row_state(layer, step, outputs)
-        self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
-                                         layer.tags.get("ui.edges_hidden") == "1",
-                                         notes=notes, disabled=disabled)
+        found = self._recon_step()
+        self.right_panel.apply_relevance({_RECON_TITLE: found is not None})
+        if found is None:
+            return
+        index, device = found
+        values = {**defaults_for(device), **self._params[index]}
+        knobs = tuple(p for p in device.params if getattr(p, "section", "") == _RECON_SECTION)
+        if panel.set_params(knobs, values):
+            self.right_panel._protect_from_wheel(panel)
+        step, outputs = layer_outputs(self.layer)
+        recon = next((o for o in outputs if o.name == "recon"), None)
+        if values.get("algorithm") != "lastwave":
+            reason = "the printed algorithm runs on show"
+        elif step is None or recon is None:
+            reason = "no reconstruction on this chain"
+        else:
+            reason = self._output_refusal(self.layer, step, recon)
+        panel.set_run(reason is None, reason or "compute the reconstruction with these knobs, "
+                                                "continuing from the preview")
+        notes = self._output_row_state(self.layer, step, outputs)[0] if step is not None else {}
+        panel.set_reading(notes.get("recon", ""))
+
+    def _on_recon_knob_changed(self, name: str, value) -> None:
+        """A Reconstruction-section knob moved: written through the step's own box, the route
+        the output rows use, so the chain, the box and the zone's descriptors agree. A locked
+        layer refuses it before the box moves, and the section snaps back."""
+        found = self._recon_step()
+        if found is None or self.strips is None:
+            return
+        notice = _lock_notice(self.layer)
+        if notice is not None:
+            self.strips._show_warning(notice)
+            self._sync_recon_section()
+            return
+        self.strips.strip(found[0])._on_control_changed(name, value)
+
+    def _on_recon_run(self) -> None:
+        """Run: compute the recon row's full reconstruction with the section's knobs and show it.
+        Its compute continues from the cached preview of the same decay, clipping and coarse (the
+        device fetches that preview). A reconstruction already cached for these knobs is shown
+        at once; one of another row puts the recon row on show first, through the Show knob."""
+        layer = self.layer
+        if layer is None or self._recon_step() is None:
+            return
+        key = self._output_keys(layer).get("recon")
+        if key is None:
+            return
+        run = (layer.layer_id, key)
+        if key not in self.cache:           # a cached one dispatches nothing, so nothing clears it
+            self._recon_run = run
+        step, outputs = layer_outputs(layer)
+        if shown_output(step, outputs) == "recon":
+            self._reresolve()
+            return
+        self._on_output_hide_toggled(layer.layer_id, "recon", False)
+        step, outputs = layer_outputs(layer)
+        if shown_output(step, outputs) != "recon" and self._recon_run == run:  # refused (locked)
+            self._recon_run = None
 
     # -- lazily computed outputs ---------------------------------------------------------------
     def _output_refusal(self, layer, step, output) -> "str | None":
@@ -4477,15 +4585,18 @@ both ``Canvas`` signals report the
     def _output_keys(self, layer) -> dict:
         """``{name: key}`` of ``layer``'s lazy outputs, derived from its chain the way
         :func:`~dynamix.engine.resolve.resolve_output` derives them (the analysis key from
-        :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI result."""
-        step, outputs = layer_outputs(layer)
-        lazy = [o for o in outputs if o.lazy]
-        if step is None or not lazy or layer.tags.get("roi.window"):
+        :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI result. Outputs
+        without a row of their own (a preview, :data:`_PREVIEW_OF`) are keyed too."""
+        step, _outputs = layer_outputs(layer)
+        if step is None or layer.tags.get("roi.window"):
+            return {}
+        device = get_device(step.device)
+        lazy = [o for o in declared_outputs(device) if o.lazy]
+        if not lazy:
             return {}
         keys = self._cache_keys_for(layer)
         if not keys:
             return {}
-        device = get_device(step.device)
         params = validate_params(device, step.params)
         return {o.name: output_key(device.name, o, params, keys[-1]) for o in lazy}
 
@@ -4494,13 +4605,17 @@ both ``Canvas`` signals report the
         job is requested or in flight, a computed output's reading (:func:`_output_note`),
         "failed" after an error, and the greyed-out rows (:meth:`_output_disabled`). Reads key
         membership and the window's own notes only, never a cached value, so it is safe while
-        a job holds the worker slot."""
+        a job holds the worker slot. A row drawing its preview (:meth:`_draws_preview`) reads
+        the preview's state."""
         disabled = self._output_disabled(layer, step, outputs)
         busy = {job[2] for job in (self._out_job, self._out_request) if job is not None}
         notes = {}
-        for name, key in self._output_keys(layer).items():
+        keys = self._output_keys(layer)
+        for name, key in keys.items():
             if name in disabled:
                 continue
+            if self._draws_preview(layer, step, name, key):
+                key = keys[_PREVIEW_OF[name]]
             if key in busy:
                 notes[name] = "computing…"
             elif key in self.cache and self._out_notes.get(key):
@@ -4509,10 +4624,24 @@ both ``Canvas`` signals report the
                 notes[name] = "failed"
         return notes, disabled
 
+    def _draws_preview(self, layer, step, name, key) -> bool:
+        """Whether row ``name`` of ``layer`` draws its preview (:data:`_PREVIEW_OF`) in place of
+        its own output ``key``: a step on the LastWave engine that declares the preview, while
+        that output is neither cached nor the one Run asked for (``_recon_run``)."""
+        preview = _PREVIEW_OF.get(name)
+        if preview is None or key is None or step is None:
+            return False
+        device = get_device(step.device)
+        if (validate_params(device, step.params).get("algorithm") != "lastwave"
+                or not any(o.name == preview and o.lazy for o in declared_outputs(device))):
+            return False
+        return key not in self.cache and self._recon_run != (layer.layer_id, key)
+
     def _shown_lazy(self, layer, renderable) -> "tuple | None":
         """``(output, key)`` of the lazy output ``layer``'s step shows, keyed from
         ``renderable``'s analysis, or ``None``: nothing lazy on show, a refused output
-        (:meth:`_output_refusal`), or a renderable whose analysis is another step's."""
+        (:meth:`_output_refusal`), or a renderable whose analysis is another step's. A row
+        drawing its preview (:meth:`_draws_preview`) gives the preview's."""
         if layer is None or renderable.analysis_key is None:
             return None
         step, outputs = layer_outputs(layer)
@@ -4521,8 +4650,25 @@ both ``Canvas`` signals report the
         if (output is None or renderable.analysis_device != step.device
                 or self._output_refusal(layer, step, output) is not None):
             return None
-        return output, output_key(renderable.analysis_device, output,
-                                  renderable.analysis_params, renderable.analysis_key)
+        key = output_key(renderable.analysis_device, output, renderable.analysis_params,
+                         renderable.analysis_key)
+        if self._draws_preview(layer, step, name, key):
+            output = next(o for o in declared_outputs(get_device(step.device))
+                          if o.name == _PREVIEW_OF[name])
+            key = output_key(renderable.analysis_device, output, renderable.analysis_params,
+                             renderable.analysis_key)
+        return output, key
+
+    def _displayed_output_key(self, layer) -> "str | None":
+        """The key of the output ``layer``'s shown row draws (its own, or its preview's),
+        derived from the chain as :meth:`_output_keys` derives it."""
+        step, outputs = layer_outputs(layer)
+        name = shown_output(step, outputs)
+        keys = self._output_keys(layer)
+        key = keys.get(name)
+        if self._draws_preview(layer, step, name, key):
+            return keys[_PREVIEW_OF[name]]
+        return key
 
     def _show_lazy_output(self, renderable, result: dict) -> dict:
         """The active result as the canvas shows it. When the step's Show names a LAZY output,
@@ -4629,10 +4775,13 @@ both ``Canvas`` signals report the
     def _end_output_job(self) -> tuple:
         """Take the landed output job off the worker slot; returns its ``(layer, name, key)``.
         A Stop that arrived as the job finished is consumed here, never left for the next
-        analysis's cancel to misread."""
+        analysis's cancel to misread. The job Run asked for is done with however it ended:
+        landed, its row draws it from the cache; stopped, superseded or failed, the preview."""
         job, self._out_job = self._out_job, None
         self._teardown_thread()
         self._user_stopped = False
+        if job is not None and self._recon_run == (job[0].layer_id, job[2]):
+            self._recon_run = None
         return job
 
     def _on_output_finished(self, value) -> None:
@@ -5923,6 +6072,7 @@ both ``Canvas`` signals report the
         self.strips.select(0)
         self._update_source_box()
         self._apply_pending_ui()
+        self._sync_recon_section()
 
     def _update_source_box(self) -> None:
         """Make the zone's ``SourceBox`` real. Called at the end of :meth:`_build_strips`
@@ -6053,6 +6203,7 @@ both ``Canvas`` signals report the
                 self._mark_transforms_pending()
         else:
             self._reresolve()
+        self._sync_recon_section()
 
     def _on_chain_edited(self, descriptors) -> None:
         """A drag-drop assembly gesture landed: rebuild ``_names``/``_params``/``_bypassed``/
@@ -6350,8 +6501,7 @@ both ``Canvas`` signals report the
         """
         job = self._out_job
         if job is not None and job[0] is self.layer and self._worker is not None:
-            step, outputs = layer_outputs(self.layer)
-            if self._output_keys(self.layer).get(shown_output(step, outputs)) != job[2]:
+            if self._displayed_output_key(self.layer) != job[2]:
                 self._worker.cancel()
         if self.layer is not None and self.layer.layer_id in self._pending_layers:
             # Manual-run pending: the live chain's NEW transform tail is

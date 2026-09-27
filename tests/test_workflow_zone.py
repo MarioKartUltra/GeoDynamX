@@ -1652,3 +1652,26 @@ def test_the_q_width_knobs_follow_the_wavelet_and_the_pairing(qtbot):
     assert box._params["q_pairing"] == "q-paired" and not box.controls["q_beta"].isEnabled()
     box._on_control_changed("wavelet", "gaussian")
     assert not box.controls["q_pairing"].isEnabled()
+
+
+# ------------------------------------------- a knob drawn in a right-panel section
+
+def test_a_param_with_a_section_gets_no_strip_control_and_still_takes_an_edit(qtbot):
+    """mz_edges' reconstruction knobs live in the right panel's Reconstruction section: the box
+    draws none of them, and an edit routed through the box still updates its params and leaves
+    as paramChanged."""
+    from dynamix.devices.mz_edges import MZEdges
+    from dynamix.shell.workflow_zone import DeviceBox, _grouped_params
+
+    dev = MZEdges()
+    sectioned = {p.name for p in dev.params if p.section}
+    assert {"kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode"} <= sectioned
+    assert not sectioned & {p.name for _label, group in _grouped_params(dev) for p in group}
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    assert not sectioned & set(box.controls)
+    assert {"n_levels", "algorithm", "border", "colocate_l1", "show"} <= set(box.controls)
+    seen = []
+    box.paramChanged.connect(lambda name, value: seen.append((name, value)))
+    box._on_control_changed("kappa", 2.0)
+    assert box._params["kappa"] == 2.0 and seen == [("kappa", 2.0)]

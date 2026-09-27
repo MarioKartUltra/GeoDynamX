@@ -327,8 +327,16 @@ def _grouped_params(device: Device) -> list[tuple[str, tuple[Param, ...]]]:
     uses (a param simply absent from every group's tuple lands nowhere) -- underscore-prefixed
     names are just excluded from EVERY group's tuple, including the synthetic single-group case
     below, rather than added to one.
+
+    **Params drawn elsewhere.** A param with a ``section`` (``Param.section``, e.g. mz_edges'
+    ``"reconstruction"`` knobs) is drawn in that right-panel section instead, so it is left out
+    of every group the same way; its value still rides the box's params and its edits
+    (:meth:`DeviceBox._on_control_changed`).
     """
-    visible = tuple(p for p in device.params if not p.name.startswith("_"))
+    def _on_strip(p: Param) -> bool:
+        return not p.name.startswith("_") and not getattr(p, "section", "")
+
+    visible = tuple(p for p in device.params if _on_strip(p))
     groups_spec = getattr(device, "param_groups", None)
     if not groups_spec:
         return [("", visible)]
@@ -336,7 +344,8 @@ def _grouped_params(device: Device) -> list[tuple[str, tuple[Param, ...]]]:
     listed: set[str] = set()
     result: list[tuple[str, tuple[Param, ...]]] = []
     for label, names in groups_spec.items():
-        group_params = tuple(schema[n] for n in names if not n.startswith("_"))
+        group_params = tuple(schema[n] for n in names
+                             if not n.startswith("_") and _on_strip(schema[n]))
         if group_params:
             result.append((label, group_params))
         listed.update(names)
@@ -521,9 +530,12 @@ class DeviceBox(QtWidgets.QFrame):
         ``wavelet`` for λ), calls ``set_value`` on the originating control with the applied value,
         refreshes EVERY derived-reading label (not just the one beside this control, or a wavelet
         flip would leave the aₘᵢₙ line's λ stale until the whole box is torn down and rebuilt),
-        then tells the outside world."""
+        then tells the outside world. A param drawn in a right-panel section has no control
+        here; its edit takes the same path without one."""
         self._params[name] = value
-        self.controls[name].set_value(value)
+        control = self.controls.get(name)
+        if control is not None:
+            control.set_value(value)
         self._apply_active_when()
         for label_name, label in self._derived_labels.items():
             text = self._derived_text(label_name, self._params[label_name])

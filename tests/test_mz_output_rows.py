@@ -286,8 +286,10 @@ def test_stop_outranks_the_analysis_a_superseded_output_job_made_way_for(win, qt
 
 
 def _mz_scale_layer(win, qtbot):
-    """mz_edges then scale_select at scale 0 on the dataset, computed and landed."""
-    desc = [{"device": "mz_edges", "params": defaults_for(get_device("mz_edges"))},
+    """mz_edges (the printed algorithm, as ``_mz_layer``) then scale_select at scale 0 on the
+    dataset, computed and landed."""
+    params = {**defaults_for(get_device("mz_edges")), "algorithm": "printed", "iterations": 10}
+    desc = [{"device": "mz_edges", "params": params},
             {"device": "scale_select", "params": {"scale_idx": 0}}]
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win.strips.set_steps(desc, field=win.field)

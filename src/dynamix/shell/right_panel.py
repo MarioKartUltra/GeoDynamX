@@ -446,6 +446,109 @@ class RightPanel(QtWidgets.QScrollArea):
         self.surface_button.setText(label)
 
 
+def _applies(param, values: dict) -> bool:
+    """Whether ``param``'s ``active_when`` holds for ``values`` (always, without one)."""
+    cond = getattr(param, "active_when", None)
+    if cond is None:
+        return True
+    conds = (cond,) if isinstance(cond[0], str) else cond     # one pair, or several
+    return all(values.get(other) in allowed for other, allowed in conds)
+
+
+class ReconstructionPanel(QtWidgets.QWidget):
+    """The Reconstruction section: a step's ``section="reconstruction"`` knobs, **Run**, **Stop**
+    and a reading of what the recon row draws.
+
+    :meth:`set_params` draws the knobs (rebuilt only when the set of params changes) and shows
+    their values without emitting; a knob whose ``active_when`` does not hold is hidden, since it
+    does not apply. A knob edit leaves as ``paramChanged``; the window writes it through the
+    step's own box, so this widget holds no param state of its own."""
+
+    paramChanged = QtCore.Signal(str, object)
+    runRequested = QtCore.Signal()
+    stopRequested = QtCore.Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._knobs = QtWidgets.QGridLayout()
+        self._knobs.setContentsMargins(0, 0, 0, 0)
+        self._knobs.setHorizontalSpacing(10)
+        outer.addLayout(self._knobs)
+        self.controls: dict[str, QtWidgets.QWidget] = {}
+        self._cells: dict[str, QtWidgets.QWidget] = {}
+        self._names: tuple = ()
+        buttons = QtWidgets.QHBoxLayout()
+        self.run_button = QtWidgets.QPushButton("Run")
+        self.run_button.clicked.connect(self.runRequested.emit)
+        self.stop_button = QtWidgets.QPushButton("Stop")
+        self.stop_button.setToolTip("stop the compute in flight; a stopped reconstruction "
+                                    "caches nothing and the preview stays")
+        self.stop_button.clicked.connect(self.stopRequested.emit)
+        buttons.addWidget(self.run_button)
+        buttons.addWidget(self.stop_button)
+        outer.addLayout(buttons)
+        self.readout = QtWidgets.QLabel("")
+        self.readout.setProperty("reading", "true")
+        self.readout.setProperty("muted", "true")
+        outer.addWidget(self.readout)
+
+    def set_params(self, params, values: dict) -> bool:
+        """Show ``params`` (``Param`` declarations, in order) at ``values`` (the step's full
+        param dict), non-emitting. Returns True when the knobs were rebuilt (a new set of
+        params), so the caller can protect the new widgets from the wheel."""
+        names = tuple(p.name for p in params)
+        rebuilt = names != self._names
+        if rebuilt:
+            self._build(params, values)
+        shown = []
+        for p in params:
+            self.controls[p.name].set_value(values[p.name])
+            self._knobs.removeWidget(self._cells[p.name])
+            if _applies(p, values):
+                shown.append(p.name)
+            else:
+                self._cells[p.name].setVisible(False)
+        for i, name in enumerate(shown):              # two per row, no gaps where one hides
+            self._knobs.addWidget(self._cells[name], i // 2, i % 2)
+            self._cells[name].setVisible(True)
+        return rebuilt
+
+    def _build(self, params, values: dict) -> None:
+        for cell in self._cells.values():
+            self._knobs.removeWidget(cell)
+            cell.setParent(None)
+            cell.deleteLater()
+        self.controls, self._cells = {}, {}
+        for p in params:
+            cell = QtWidgets.QWidget(self)
+            column = QtWidgets.QVBoxLayout(cell)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(0)
+            mini = QtWidgets.QLabel(p.label or p.name)
+            mini.setProperty("muted", "true")
+            column.addWidget(mini)
+            control = make_control(control_spec(p), values[p.name])
+            control.valueChanged.connect(
+                lambda value, name=p.name: self.paramChanged.emit(name, value))
+            column.addWidget(control)
+            self.controls[p.name] = control
+            self._cells[p.name] = cell
+        self._names = tuple(p.name for p in params)
+
+    def visible_knobs(self) -> tuple:
+        """The names of the knobs that apply (not hidden), in declaration order."""
+        return tuple(n for n in self._names if not self._cells[n].isHidden())
+
+    def set_run(self, enabled: bool, tooltip: str) -> None:
+        self.run_button.setEnabled(enabled)
+        self.run_button.setToolTip(tooltip)
+
+    def set_reading(self, text: str) -> None:
+        self.readout.setText(text)
+
+
 class CompositePanel(QtWidgets.QWidget):
     """The multiband composite mixer: one row per band with its channel assignment (R/G/B)
     and DAW-style Solo / Mute buttons. Emits ``compositeChanged`` with the canvas's
