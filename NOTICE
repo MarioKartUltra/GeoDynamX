@@ -25,6 +25,14 @@ LastWave -- Copyright (C) 1998-2002 Emmanuel Bacry, Stephane Mallat. License: GP
   The 1-D WTMM code of the vendored `wtmm` package (src/dynamix/_vendor/wtmm) is based on
   LastWave.
 
+LastWave package 'dwtrans2d' 2.1 -- Copyright (C) 1998-2002 E. Bacry, J. Fraleu, J. Kalifa,
+  E. Le Pennec, W. L. Hwang, S. Mallat, S. Zhong. License: GPL-2.0-or-later.
+  Ported to Python (numba), matching the C bit for bit on square fields, in:
+    src/dynamix/core/mz_lastwave/   dwt2d (the dyadic wavelet transform and its filters),
+                                    extrema2 (the multiscale edge detection) and e2recons
+                                    (reconstruction from the multiscale edges)
+  The golden files in tests/golden/lastwave were generated from that C.
+
 Per-file headers: first-party source files carry an SPDX license line and a copyright line. Five
 modules are byte-identical copies of the author's earlier work and carry no header, so that their
 copy guards (tests/test_no_silent_drift.py, tests/test_mzlib_port.py) can keep proving them

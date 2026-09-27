@@ -15,8 +15,9 @@ resampling a raster before a scale-sensitive analysis changes the statistics bei
 - **Singularity analysis (microcanonical).** Per-pixel Hölder exponents from the gradient measure
   or from wavelet projections, the singularity spectrum by the histogram method, and
   reconstruction of the field from a band of exponents.
-- **Multiscale edges.** Mallat–Zhong dyadic edges, Perona–Malik and complex cross-diffusion
-  filtering, and a medial-axis extractor.
+- **Multiscale edges.** Mallat–Zhong dyadic edges (the authors' own algorithm, ported exactly from
+  LastWave) with reconstruction from the edges, Perona–Malik and complex cross-diffusion filtering,
+  and a medial-axis extractor.
 - **Decompositions.** Principal components of multi-band data, delay-embedded Tucker
   decomposition, and 2-D singular spectrum analysis.
 - **Multiband data.** Sensor products such as ASTER import grouped by sensor and resolution.
