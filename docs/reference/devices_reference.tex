@@ -110,6 +110,17 @@ their own declared margin around the ROI; decompositions (\dev{pca},
 \dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}) analyse the ROI itself (margin $0$: a margin would mix
 outside data into the statistic).
 
+\textbf{Output rows.} A result whose tool produces several things (\dev{cdf\_edges},
+\dev{pm\_edges}, \dev{mz\_edges}) carries a collapsed \emph{Outputs} group under its row: one
+row per output, each with its own H. Raster outputs share the canvas one at a time: showing one
+hides the others, and hiding the one shown puts the data back. They follow the tool's
+\texttt{show} knob, and switching between them re-uses what was computed. The \emph{edges} row
+hides the maxima dots and gradient arrows (and the H-lines in the Vector and Geo views); the
+result keeps its maxima, so filters, the spectrum and the anisotropy window still read them.
+The layer's own H hides everything the result draws. An output that needs its own computation
+(the \dev{mz\_edges} reconstruction) runs the first time it is shown, with progress and Stop,
+and stays cached; Pin keeps it.
+
 \textbf{Progress} is live: every compute reports one increasing fraction from inside its own
 loops.
 
@@ -375,8 +386,28 @@ numeric $\lambda_j^{\alpha}$ from the rediscovered Table-II definition (discrete
 step-edge peak over $\theta_\alpha(0)$; $\theta_\alpha(0)=\frac1\pi\int_0^\infty|\mathrm{sinc}(\omega/4)|^{\alpha+1}d\omega$
 decays only like $\omega^{-(\alpha+1)}$, so it is computed as a finite part plus its analytic
 tail --- Unser \& Blu's own device for their autocorrelation sum --- exact at the anchors,
-$2$ at $\alpha=1$ and $4/3$ at $\alpha=3$). Reconstruction preview requires
-\texttt{mz\_spline} (fractional POCS is a recorded follow-up).
+$2$ at $\alpha=1$ and $4/3$ at $\alpha=3$).
+
+\textbf{Reconstruction from multiscale edges.} The Outputs rows of an \dev{mz\_edges} result
+show \emph{coarse}, the coarse channel $S_{2^J}$ at full resolution; \emph{thumbnail},
+$S_{2^J}$ sampled every $2^J$ pixels (the paper's coding-mode coarse), drawn in place on its
+own grid, one block per sample; \emph{recon (edges + coarse)}, the image rebuilt from the maxima
+with the coarse channel pinned; \emph{recon (edges only)}, the same with $S=0$; and
+\emph{residual}, the data minus the reconstruction. The reconstruction is the paper's
+alternating projections (\S VIII), started from zero: $P_\Gamma$ restores the wavelet values at
+the maxima and spreads each correction between neighbouring maxima as the minimal-energy
+$\sinh$ interpolation, and $P_V$ projects back onto the range of the transform with the coarse
+channel held fixed. The $P_\Gamma$ weights depend only on the scale and the maxima positions, so
+the \texttt{separable} mode builds them once per scale and applies them as one gather per
+iteration; \texttt{separable\_mzlib} runs the reference row-by-row projection (the two agree to
+floating-point precision); \texttt{set\_points} assigns the maxima values alone. Fractional
+orders reconstruct with their own synthesis pair $K_\alpha=(1-|H_\alpha|^2)/G$,
+$L_\alpha=(1+|H_\alpha|^2)/2$. Each reconstruction row reads its iteration count, the state of
+the constraint residual (converged, still improving, rising, diverging) and its SNR against the
+data, mean removed (for edges only, against the data minus the synthesised coarse part). With
+$S=0$ the projections do not settle: an edges-only image is readable near ten iterations and
+degrades past that. ROI results do not reconstruct yet (their rows say so), and the thumbnail
+shows in the 2-D view.
 
 \begin{figure}[h]
 \centering\includegraphics[width=\textwidth]{frac_bspline.pdf}
@@ -403,11 +434,14 @@ fractional differentiators $|\omega|^{\alpha+1}$.}
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{n\_levels} (Levels $J$) & 4 & $[1,10]$ & dyadic levels; scales $2,4,\dots,2^{J}$ px \\
-\texttt{coarse} & full & full / thumbnail & coarse-channel policy (mapping vs coding mode) \\
+\texttt{coarse} (\emph{view}) & full & full / thumbnail & the coarse channel a reconstruction pins: $S_{2^J}$, or the one decoded from its thumbnail (grid divisible by $2^J$) \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither before analysis \\
 \texttt{wavelet} & mz\_spline & mz\_spline / frac\_bspline & the paper's quadratic-spline bank, or the fractional order \\
 \texttt{alpha} ($\alpha$) & 3.0 & $[0.1,8]$ & fractional spline order (binds under frac\_bspline; $3$ = the paper) \\
 \texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient \\
+\texttt{show} (\emph{view}) & edges & 6 outputs & the raster shown in place of the data (the Outputs rows): edges (the data itself), coarse, thumbnail, recon, recon\_edges\_only, residual \\
+\texttt{iterations} (\emph{view}) & 10 & $[1,500]$ & alternating-projection iterations (a fixed count) \\
+\texttt{mode} (\emph{view}) & separable & 3 modes & how $P_\Gamma$ interpolates between the maxima: separable, separable\_mzlib (the reference), set\_points \\
 \bottomrule
 \end{longtable}
 
@@ -460,7 +494,7 @@ $\sigma$ in px.
 \texttt{dt} & 0.2 & $[0.001,0.24]$ & explicit-Euler step (stability-capped) \\
 \texttt{edge\_mode} (Edges) & mz & mz / marr & Canny/M--Z maxima of Re, or Marr zero crossings of Im \\
 \texttt{detector} & nms & nms / follow & maxima detector \\
-\texttt{show} (\emph{view}) & edges & edges / filtered / edge\_channel & the edge stack, the final Re, or the final Im \\
+\texttt{show} (\emph{view}) & edges & edges / filtered / edge\_channel & the edge stack, the final Re, or the final Im (the Outputs rows; the \emph{edges} row hides the maxima over either raster) \\
 \texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
 \texttt{floor} & 0.05 & $[0,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
 \bottomrule
@@ -482,7 +516,7 @@ rides the result.
 \texttt{k\_edge} ($K$) & 1.0 & $[0.001,1000]$ & edge threshold in image units: contrasts above $K$ sharpen, below it blur \\
 \texttt{g} & exp & exp / frac & conduction function (the paper's two) \\
 \texttt{lam} ($\lambda$) & 0.2 & $[0.001,0.25]$ & explicit step (stability needs $\lambda\le\tfrac14$) \\
-\texttt{show} (\emph{view}) & edges & edges / filtered & canvas shows the edge stack, or the diffused raster \\
+\texttt{show} (\emph{view}) & edges & edges / filtered & canvas shows the edge stack, or the diffused raster (the Outputs rows; the \emph{edges} row hides the maxima over it) \\
 \texttt{detector} & nms & nms / follow & maxima detector \\
 \texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
 \texttt{floor} & 0.05 & $[0,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
