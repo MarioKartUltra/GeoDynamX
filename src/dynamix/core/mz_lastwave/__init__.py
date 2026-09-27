@@ -9,8 +9,13 @@ required and imported lazily.
 """
 from dynamix.core.mz_lastwave import _kernels
 from dynamix.core.mz_lastwave._kernels import kernels
+from dynamix.core.mz_lastwave.detect import Extrep, extrema2
+from dynamix.core.mz_lastwave.pipeline import analyze, primary_extrema
+from dynamix.core.mz_lastwave.recons import KAPPA_LASTWAVE, ReconState, e2recons
 from dynamix.core.mz_lastwave.transform import (
     FACT1, FILTERS, Transform, _symmetry_centre, dwt2d, fact, idwt2d, polar,
 )
 
-__all__ = ["FACT1", "FILTERS", "Transform", "dwt2d", "fact", "idwt2d", "kernels", "polar"]
+__all__ = ["FACT1", "FILTERS", "KAPPA_LASTWAVE", "Extrep", "ReconState", "Transform", "analyze",
+           "dwt2d", "e2recons", "extrema2", "fact", "idwt2d", "kernels", "polar",
+           "primary_extrema"]
