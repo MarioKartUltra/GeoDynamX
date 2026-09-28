@@ -102,3 +102,51 @@ def test_dispatch_gate_honors_the_stopped_signature(win, monkeypatch):
 def test_stop_button_exists_and_rests_hidden(win):
     assert win._stop_btn is not None
     assert not win._stop_btn.isVisible()
+
+
+def test_a_stop_the_run_finished_through_is_consumed_by_its_landing(win, qtbot, monkeypatch):
+    # stub_stack never reads its cancel flag, so a Stop sent while it runs lands as finished.
+    win._params[0]["n_scales"] = 4
+    win.layer.chain = win._chain()
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win._start_worker()
+        win._stop_compute()
+    assert not win._user_stopped
+    calls = []
+    monkeypatch.setattr(win, "_start_worker", lambda: calls.append("start"))
+    win._worker = _FakeWorker()
+    win._thread = _FakeThread()
+    win._dispatched = (win.layer.layer_id, win._transform_signature())
+    win._active_pending = "compute"            # a later preempt: Run, a fork, a layer switch
+    win._on_cancelled()
+    assert calls == ["start"]                  # redispatched, never stood down as a stop
+
+
+def test_a_stopped_analysis_leaves_run_ready_for_the_chain_it_did_not_compute(win, monkeypatch):
+    calls = []
+    monkeypatch.setattr(win, "_start_worker", lambda: calls.append("start"))
+    monkeypatch.setattr(win, "_cache_keys_for", lambda layer: ["missing-key"])
+    win._worker = _FakeWorker()
+    win._thread = _FakeThread()
+    win._dispatched = (win.layer.layer_id, win._transform_signature())
+    win._active_pending = "compute"
+    win._user_stopped = True
+    win._on_cancelled()
+    assert calls == [] and win.run_button.isEnabled()
+    win.run_button.click()
+    assert calls == ["start"]
+
+
+def test_a_stop_that_stands_down_a_queued_analysis_leaves_run_ready(win, monkeypatch):
+    calls = []
+    monkeypatch.setattr(win, "_start_worker", lambda: calls.append("start"))
+    monkeypatch.setattr(win, "_cache_keys_for", lambda layer: ["missing-key"])
+    win._worker = _FakeWorker()
+    win._thread = _FakeThread()
+    win._out_job = (win.layer, "recon", "an-output-key")
+    win._active_pending = "compute"            # an analysis queued behind the output job
+    win._user_stopped = True
+    win._on_output_cancelled()
+    assert calls == [] and win.run_button.isEnabled()
+    win.run_button.click()
+    assert calls == ["start"]

@@ -4901,6 +4901,7 @@ both ``Canvas`` signals report the
                     self._sync_lock_ui(self.layer)
                     self._set_transform_states("idle")
                     self._set_compute_reading("stopped")
+                    self._mark_stopped_pending()
                     self._sync_output_rows(self.layer)
                     self._land_after_worker()
                     return
@@ -6225,6 +6226,13 @@ both ``Canvas`` signals report the
         else:
             self._notify("already computed — edit a transform (or its params) to re-run", "status")
 
+    def _mark_stopped_pending(self) -> None:
+        """A Stop stood down the active layer's analysis: its recipe is uncomputed again, so it
+        waits for Run like an edit does. The Run button is enabled only while edits wait, and
+        the recipe's edit was taken off the pending set when its run was dispatched."""
+        self._pending_layers.add(self.layer.layer_id)
+        self._apply_pending_ui()
+
     def _apply_pending_ui(self) -> None:
         pending = self.layer is not None and self.layer.layer_id in self._pending_layers
         self.run_button.setEnabled(pending)
@@ -7063,6 +7071,9 @@ both ``Canvas`` signals report the
 
     def _on_finished(self, renderable) -> None:
         self._teardown_thread()
+        # A Stop the run finished through (its transform never reads the cancel flag) is spent
+        # here; left set, the next preempt's cancel would land as a user stop and drop its run.
+        self._user_stopped = False
         dispatched_layer_id, dispatched_sig = self._dispatched
         active_id = self.layer.layer_id if self.layer is not None else None
         if dispatched_layer_id != active_id:
@@ -7126,6 +7137,7 @@ both ``Canvas`` signals report the
 
     def _on_error(self, message: str) -> None:
         self._teardown_thread()
+        self._user_stopped = False           # a Stop the run failed through is spent (_on_finished)
         dispatched_layer_id, _ = self._dispatched
         active_id = self.layer.layer_id if self.layer is not None else None
         if dispatched_layer_id != active_id:
@@ -7190,6 +7202,7 @@ both ``Canvas`` signals report the
                 self._sync_lock_ui(self.layer)
                 self._set_transform_states("idle")   # honest: the tail is NOT cached
                 self._set_compute_reading("stopped")
+                self._mark_stopped_pending()
             elif dispatched_layer_id is not None:
                 layer = self._layer_by_id.get(dispatched_layer_id)
                 if layer is not None:
