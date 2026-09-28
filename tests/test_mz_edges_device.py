@@ -43,12 +43,12 @@ def test_registered_and_transform(mz):
 def test_param_surface(mz):
     names = [p.name for p in mz.params]
     assert names == ["n_levels", "algorithm", "border", "colocate_l1", "dither",
-                     "interpolate", "kappa", "clip", "run_mode", "iterations", "tolerance",
-                     "coarse", "mode", "show"]
+                     "interpolate", "recon_live", "kappa", "clip", "run_mode", "iterations",
+                     "tolerance", "coarse", "mode", "show"]
     defaults = {p.name: p.default for p in mz.params}
     assert defaults == {"n_levels": 4, "algorithm": "lastwave", "border": "mirror",
                         "colocate_l1": False, "dither": False, "interpolate": False,
-                        "kappa": 1.0, "clip": False, "run_mode": "converge",
+                        "recon_live": True, "kappa": 1.0, "clip": False, "run_mode": "converge",
                         "iterations": 20, "tolerance": 1e-3, "coarse": "full",
                         "mode": "separable", "show": "edges"}
 

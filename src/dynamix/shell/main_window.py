@@ -237,6 +237,13 @@ _RECON_TITLE = "Reconstruction"
 #: continues from that preview's state.
 _PREVIEW_OF = {"recon": "recon_preview"}
 
+#: The reading of a row waiting for Run (:meth:`MainWindow._awaits_run`): Live is off and neither
+#: its output nor its preview is cached for the current knobs, so the raw field stays up.
+_AWAITS_RUN = "press Run"
+#: The reconstruction rows that wait for Run while Live is off: the recon row through its preview
+#: (:meth:`MainWindow._awaits_run`), the others directly (:meth:`MainWindow._waits_manual`).
+_RUN_ROWS = ("recon", "recon_edges_only", "residual")
+
 #: Colormap + palette + trails preferences (the MODEL half; the right panel builds their combo/swatch/checkbox controls). Deliberately NOT ``Param``s alongside the three
 #: above: ``_DISPLAY_PARAMS``' own float-min/max validation makes no sense for a colormap NAME, a
 #: hex color STRING, or a bool -- these five ride the identical ``layer.tags["ui.<name>"]`` scheme
@@ -4518,7 +4525,8 @@ both ``Canvas`` signals report the
         """Push the active chain into the Reconstruction section, non-emitting: shown only while
         :meth:`_recon_step` finds a step; its knobs at the step's values (those that do not apply
         hidden); Run enabled when the recon row runs on request (the LastWave engine) and can be
-        computed at all; the reading is the recon row's own (:meth:`_output_row_state`)."""
+        computed at all; the reading is the recon row's own (:meth:`_output_row_state`), which
+        says "manual" while the row waits for Run (:meth:`_awaits_run`)."""
         panel = getattr(self, "_recon_panel", None)
         if panel is None:
             return
@@ -4542,7 +4550,8 @@ both ``Canvas`` signals report the
         panel.set_run(reason is None, reason or "compute the reconstruction with these knobs, "
                                                 "continuing from the preview")
         notes = self._output_row_state(self.layer, step, outputs)[0] if step is not None else {}
-        panel.set_reading(notes.get("recon", ""))
+        reading = notes.get("recon", "")
+        panel.set_reading(f"manual · {reading}" if reading == _AWAITS_RUN else reading)
 
     def _on_recon_knob_changed(self, name: str, value) -> None:
         """A Reconstruction-section knob moved: written through the step's own box, the route
@@ -4559,21 +4568,24 @@ both ``Canvas`` signals report the
         self.strips.strip(found[0])._on_control_changed(name, value)
 
     def _on_recon_run(self) -> None:
-        """Run: compute the recon row's full reconstruction with the section's knobs and show it.
-        Its compute continues from the cached preview of the same decay, clipping and coarse (the
+        """Run: compute the shown reconstruction row (recon, recon (edges only) or residual; the
+        recon row when another row is shown) with the section's knobs and show it. The recon's
+        compute continues from the cached preview of the same decay, clipping and coarse (the
         device fetches that preview). A reconstruction already cached for these knobs is shown
-        at once; one of another row puts the recon row on show first, through the Show knob."""
+        at once; from another row the recon row is put on show first, through the Show knob."""
         layer = self.layer
         if layer is None or self._recon_step() is None:
             return
-        key = self._output_keys(layer).get("recon")
+        step, outputs = layer_outputs(layer)
+        shown = shown_output(step, outputs)
+        target = shown if shown in _RUN_ROWS else "recon"
+        key = self._output_keys(layer).get(target)
         if key is None:
             return
         run = (layer.layer_id, key)
         if key not in self.cache:           # a cached one dispatches nothing, so nothing clears it
             self._recon_run = run
-        step, outputs = layer_outputs(layer)
-        if shown_output(step, outputs) == "recon":
+        if shown == target:
             self._reresolve()
             return
         self._on_output_hide_toggled(layer.layer_id, "recon", False)
@@ -4637,7 +4649,8 @@ both ``Canvas`` signals report the
         "failed" after an error, and the greyed-out rows (:meth:`_output_disabled`). Reads key
         membership and the window's own notes only, never a cached value, so it is safe while
         a job holds the worker slot. A row drawing its preview (:meth:`_draws_preview`) reads
-        the preview's state."""
+        the preview's state, or :data:`_AWAITS_RUN` while it waits for Run
+        (:meth:`_awaits_run`)."""
         disabled = self._output_disabled(layer, step, outputs)
         busy = {job[2] for job in (self._out_job, self._out_request) if job is not None}
         notes = {}
@@ -4647,6 +4660,12 @@ both ``Canvas`` signals report the
                 continue
             if self._draws_preview(layer, step, name, key):
                 key = keys[_PREVIEW_OF[name]]
+                if self._awaits_run(step, key):
+                    notes[name] = _AWAITS_RUN
+                    continue
+            elif self._waits_manual(layer, step, name, key):
+                notes[name] = _AWAITS_RUN
+                continue
             if key in busy:
                 notes[name] = "computing…"
             elif key in self.cache and self._out_notes.get(key):
@@ -4668,11 +4687,31 @@ both ``Canvas`` signals report the
             return False
         return key not in self.cache and self._recon_run != (layer.layer_id, key)
 
+    def _awaits_run(self, step, preview_key) -> bool:
+        """Whether a row drawing its preview (:meth:`_draws_preview`) waits for Run instead:
+        ``step``'s Live (``recon_live``) is off and the preview ``preview_key`` is not cached.
+        Such a row draws the raw field, reads :data:`_AWAITS_RUN` and requests nothing; Run
+        (``_recon_run``) makes it draw its own output, whose compute runs the preview's pass."""
+        params = validate_params(get_device(step.device), step.params)
+        return not params.get("recon_live", True) and preview_key not in self.cache
+
+    def _waits_manual(self, layer, step, name, key) -> bool:
+        """Whether reconstruction row ``name`` without a preview (recon (edges only), residual;
+        :data:`_RUN_ROWS`) waits for Run: Live is off on a LastWave step, the output is not
+        cached and Run has not asked for it (``_recon_run``). Such a row draws the raw field,
+        reads :data:`_AWAITS_RUN` and requests nothing."""
+        if name not in _RUN_ROWS or name in _PREVIEW_OF or key is None or step is None:
+            return False
+        params = validate_params(get_device(step.device), step.params)
+        return (params.get("algorithm") == "lastwave" and not params.get("recon_live", True)
+                and key not in self.cache and self._recon_run != (layer.layer_id, key))
+
     def _shown_lazy(self, layer, renderable) -> "tuple | None":
         """``(output, key)`` of the lazy output ``layer``'s step shows, keyed from
         ``renderable``'s analysis, or ``None``: nothing lazy on show, a refused output
         (:meth:`_output_refusal`), or a renderable whose analysis is another step's. A row
-        drawing its preview (:meth:`_draws_preview`) gives the preview's."""
+        drawing its preview (:meth:`_draws_preview`) gives the preview's, and nothing while it
+        waits for Run (:meth:`_awaits_run`)."""
         if layer is None or renderable.analysis_key is None:
             return None
         step, outputs = layer_outputs(layer)
@@ -4688,17 +4727,25 @@ both ``Canvas`` signals report the
                           if o.name == _PREVIEW_OF[name])
             key = output_key(renderable.analysis_device, output, renderable.analysis_params,
                              renderable.analysis_key)
+            if self._awaits_run(step, key):
+                return None
+        elif self._waits_manual(layer, step, name, key):
+            return None
         return output, key
 
     def _displayed_output_key(self, layer) -> "str | None":
-        """The key of the output ``layer``'s shown row draws (its own, or its preview's),
-        derived from the chain as :meth:`_output_keys` derives it."""
+        """The key of the output ``layer``'s shown row draws (its own, or its preview's; none
+        while it waits for Run, :meth:`_awaits_run`), derived from the chain as
+        :meth:`_output_keys` derives it."""
         step, outputs = layer_outputs(layer)
         name = shown_output(step, outputs)
         keys = self._output_keys(layer)
         key = keys.get(name)
         if self._draws_preview(layer, step, name, key):
-            return keys[_PREVIEW_OF[name]]
+            preview_key = keys[_PREVIEW_OF[name]]
+            return None if self._awaits_run(step, preview_key) else preview_key
+        if self._waits_manual(layer, step, name, key):
+            return None
         return key
 
     def _show_lazy_output(self, renderable, result: dict) -> dict:
@@ -6536,6 +6583,8 @@ both ``Canvas`` signals report the
         An OUTPUT job of the active layer holding the slot redraws at its own landing
         (:meth:`_land_output`); a change of which output is on show, or of a knob that output
         reads, supersedes it here -- the job is cancelled and that landing dispatches the new one.
+        Live turned off supersedes a preview job the same way (the row now waits for Run and
+        draws no output key), while a Run's job keeps its key and runs on.
         An output job never recomputes an analysis, so while one holds the slot and the
         analysis tail this redraw reads is cached, the redraw runs now (a cache hit, the same
         synchronous resolve as with the slot free) instead of waiting for the job to land.

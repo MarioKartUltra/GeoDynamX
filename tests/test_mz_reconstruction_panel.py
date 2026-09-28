@@ -7,7 +7,10 @@ knobs that apply to its algorithm (the others hidden), Run, Stop and the reading
 row draws. Showing the recon row computes the one-iteration preview; a decay, clipping or coarse
 change previews again; Run computes the full reconstruction, continuing from the preview's state.
 Stop caches nothing and keeps the preview; an analysis knob turned mid-run cancels it, so a recon
-of the old analysis never lands; Run on a cached converged result lands at once, unchanged."""
+of the old analysis never lands; Run on a cached converged result lands at once, unchanged.
+
+With Live off (Manual) nothing is dispatched until Run: the recon row draws a cached
+reconstruction or preview for the current knobs, else the raw field and "press Run"."""
 from __future__ import annotations
 
 import re
@@ -25,8 +28,10 @@ from dynamix.model.device import declared_outputs, defaults_for, get_device
 
 READING = re.compile(r"(\d+) it · (fixed|converged|cap|residual rising) · -?\d+\.\d dB")
 SECTION = "Reconstruction"
-RECON_KNOBS = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")
+RECON_KNOBS = ("recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse",
+               "mode")
 J = 4
+PRESS_RUN = "manual · press Run"
 
 
 @pytest.fixture
@@ -72,16 +77,14 @@ def dispatches(monkeypatch):
     return seen
 
 
-@pytest.fixture
-def held_run(monkeypatch, win):
-    """Holds every reconstruction that continues from a state (a Run; the preview starts from
-    none) until the returned Event is set; teardown sets it and joins a worker thread still
-    running."""
+def _held(monkeypatch, win, holds):
+    """Holds every ``e2recons`` call whose keywords ``holds`` accepts until the yielded Event is
+    set; teardown sets it and joins a worker thread still running."""
     gate = threading.Event()
     real = lw.e2recons
 
     def held(*a, **k):
-        if k.get("state") is not None:
+        if holds(k):
             gate.wait(30)
         return real(*a, **k)
 
@@ -92,6 +95,19 @@ def held_run(monkeypatch, win):
     if thread is not None:
         thread.quit()
         thread.wait()
+
+
+@pytest.fixture
+def held_run(monkeypatch, win):
+    """Holds every reconstruction that continues from a state (a Run; the preview starts from
+    none)."""
+    yield from _held(monkeypatch, win, lambda k: k.get("state") is not None)
+
+
+@pytest.fixture
+def held_preview(monkeypatch, win):
+    """Holds every reconstruction that starts from none (the preview's pass)."""
+    yield from _held(monkeypatch, win, lambda k: k.get("state") is None)
 
 
 def _mz_layer(win, qtbot, **params):
@@ -156,8 +172,8 @@ def test_the_section_shows_while_mz_edges_is_in_the_rack_with_the_knobs_that_app
     layer = _mz_layer(win, qtbot)
     assert _section_shown(win)
     panel = win._recon_panel
-    assert panel.visible_knobs() == ("kappa", "clip", "run_mode", "iterations", "tolerance",
-                                     "coarse")
+    assert panel.visible_knobs() == ("recon_live", "kappa", "clip", "run_mode", "iterations",
+                                     "tolerance", "coarse")
     assert panel.run_button.isEnabled() and panel.stop_button.isEnabled()
     i = win._names.index("mz_edges")
     assert not set(win.strips.strip(i).controls) & set(RECON_KNOBS)   # the strip shows none
@@ -311,3 +327,150 @@ def test_run_on_a_converged_result_lands_at_once_with_the_same_image_and_reading
     assert win._recon_panel.readout.text() == reading
     # nothing dispatched, so no Run stays pending: an evicted recon shown again previews first
     assert win._recon_run is None
+
+
+# --------------------------------------------------------------------------- Live off (Manual)
+def _set_live(win, qtbot, live: bool) -> None:
+    win._recon_panel.controls["recon_live"].valueChanged.emit(live)
+    qtbot.wait(100)
+
+
+def test_manual_dispatches_nothing_on_show_or_on_a_knob_change(win, qtbot, dispatches, values):
+    layer = _mz_layer(win, qtbot, recon_live=False)
+    assert _step(layer).params["recon_live"] is False
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == []
+    assert _step(layer).params["show"] == "recon"
+    np.testing.assert_array_equal(win.canvas._field.values, values)       # the raw field
+    assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · press Run"
+    assert win._recon_panel.readout.text() == PRESS_RUN
+    assert win._recon_panel.run_button.isEnabled()
+    win._recon_panel.controls["kappa"].valueChanged.emit(2.0)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == []
+    assert _step(layer).params["kappa"] == 2.0
+    assert _key(win, layer, "recon_preview") not in win.cache
+    assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · press Run"
+    assert win._recon_panel.readout.text() == PRESS_RUN
+
+
+@pytest.mark.parametrize("row", ["residual", "recon_edges_only"])
+def test_manual_holds_the_other_reconstruction_rows_until_run(win, qtbot, dispatches, values,
+                                                               row):
+    layer = _mz_layer(win, qtbot, recon_live=False)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, row, False)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == []
+    assert _step(layer).params["show"] == row
+    np.testing.assert_array_equal(win.canvas._field.values, values)       # the raw field
+    assert _row(win, layer, row).text(0).endswith("· press Run")
+    win._recon_panel.controls["kappa"].valueChanged.emit(2.0)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == []
+    win._recon_panel.run_button.click()
+    qtbot.waitUntil(lambda: _idle(win) and _key(win, layer, row) in win.cache, timeout=60000)
+    assert dispatches == [row] and _step(layer).params["show"] == row
+    np.testing.assert_array_equal(win.canvas._field.values,
+                                  win.cache.get(_key(win, layer, row))["raster"])
+
+
+def test_manual_run_lands_the_full_reconstruction(win, qtbot, dispatches, values):
+    layer = _mz_layer(win, qtbot, recon_live=False)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    key = _run(win, qtbot, layer)
+    assert dispatches == ["recon"]            # its compute runs the preview's pass itself
+    value = win.cache.get(key)
+    t, ex = lw.analyze(values, J)
+    want, diag, _ = lw.e2recons(values, ex, t.S_full[J], J, k=20, mode="converge", tol=1e-3,
+                                state=_preview_of(values)[2])
+    np.testing.assert_array_equal(value["raster"], want.astype(np.float32))
+    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
+    reading = READING.fullmatch(win._recon_panel.readout.text())
+    assert reading is not None and int(reading.group(1)) == diag["iterations"]
+    assert reading.group(2) == diag["stop"]
+    assert READING.search(_row(win, layer, "recon").text(0)).group(0) == reading.group(0)
+    # other knobs: nothing cached for them, so the raw field and "press Run"; back again: the
+    # cached reconstruction, with nothing dispatched either way
+    win._recon_panel.controls["kappa"].valueChanged.emit(2.0)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == ["recon"]
+    np.testing.assert_array_equal(win.canvas._field.values, values)
+    assert win._recon_panel.readout.text() == PRESS_RUN
+    win._recon_panel.controls["kappa"].valueChanged.emit(1.0)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == ["recon"]
+    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
+    assert win._recon_panel.readout.text() == reading.group(0)
+
+
+def test_manual_to_live_previews_once_and_back_keeps_the_cached_preview(
+        win, qtbot, dispatches):
+    layer = _mz_layer(win, qtbot, recon_live=False)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.wait(100)
+    assert dispatches == []
+    win._recon_panel.controls["recon_live"].valueChanged.emit(True)
+    key = _key(win, layer, "recon_preview")
+    qtbot.waitUntil(lambda: key in win.cache and _idle(win), timeout=60000)
+    qtbot.wait(100)
+    assert dispatches == ["recon_preview"]
+    assert _step(layer).params["recon_live"] is True
+    preview = win.cache.get(key)["raster"]
+    np.testing.assert_array_equal(win.canvas._field.values, preview)
+    _set_live(win, qtbot, False)
+    assert _idle(win) and dispatches == ["recon_preview"]
+    np.testing.assert_array_equal(win.canvas._field.values, preview)
+    note = READING.search(_row(win, layer, "recon").text(0))
+    assert note is not None and note.group(1) == "1"
+    assert READING.fullmatch(win._recon_panel.readout.text()).group(1) == "1"
+
+
+def test_live_to_manual_cancels_an_in_flight_preview(win, qtbot, dispatches, held_preview,
+                                                     values):
+    layer = _mz_layer(win, qtbot)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.waitUntil(lambda: win._out_job is not None and win._out_job[1] == "recon_preview",
+                    timeout=10000)
+    key = _key(win, layer, "recon_preview")
+    win._recon_panel.controls["recon_live"].valueChanged.emit(False)
+    held_preview.set()
+    qtbot.waitUntil(lambda: _idle(win), timeout=30000)
+    qtbot.wait(100)
+    assert _idle(win) and dispatches == ["recon_preview"]
+    assert key not in win.cache
+    np.testing.assert_array_equal(win.canvas._field.values, values)
+    assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · press Run"
+    assert win._recon_panel.readout.text() == PRESS_RUN
+
+
+def test_live_to_manual_leaves_a_run_alone(win, qtbot, dispatches, held_run):
+    layer = _mz_layer(win, qtbot)
+    _show_preview(win, qtbot, layer)
+    win._recon_panel.run_button.click()
+    qtbot.waitUntil(lambda: win._out_job is not None and win._out_job[1] == "recon",
+                    timeout=10000)
+    win._recon_panel.controls["recon_live"].valueChanged.emit(False)
+    held_run.set()
+    key = _key(win, layer, "recon")
+    qtbot.waitUntil(lambda: key in win.cache and _idle(win), timeout=60000)
+    qtbot.wait(100)
+    assert dispatches == ["recon_preview", "recon"]
+    assert _step(layer).params["recon_live"] is False
+    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+    assert READING.fullmatch(win._recon_panel.readout.text())
+
+
+def test_flipping_live_recomputes_nothing_cached(win, qtbot, dispatches):
+    layer = _mz_layer(win, qtbot)
+    _show_preview(win, qtbot, layer)
+    key = _run(win, qtbot, layer)
+    analysis = win._cache_keys_for(layer)[-1]
+    image = np.array(win.canvas._field.values)
+    reading = win._recon_panel.readout.text()
+    for live in (False, True):
+        _set_live(win, qtbot, live)
+        assert _idle(win) and dispatches == ["recon_preview", "recon"]
+        assert win._cache_keys_for(layer)[-1] == analysis and _key(win, layer, "recon") == key
+        np.testing.assert_array_equal(win.canvas._field.values, image)
+        assert win._recon_panel.readout.text() == reading

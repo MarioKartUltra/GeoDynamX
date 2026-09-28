@@ -21,7 +21,9 @@ full-resolution coarse channel S_J, its 2^J thumbnail, the reconstruction from t
 edges with S_J pinned or with S = 0, the residual (field minus reconstruction), and for the
 LastWave engine the one-iteration preview a reconstruction continues from. The reconstruction
 knobs (``section="reconstruction"``) and Show are view-only, so the analysis always runs with the
-full coarse channel and flipping one of them never re-runs it.
+full coarse channel and flipping one of them never re-runs it. Live (``recon_live``) tells the
+window whether the reconstruction rows compute on their own (the recon row through its preview) or
+wait for Run; no output reads it.
 """
 from __future__ import annotations
 
@@ -62,6 +64,13 @@ class MZEdges:
         # own numerics.
         Param("interpolate", ParamKind.BOOL, default=False, label="Interpolate",
               active_when=_PRINTED),
+        # When the window computes the reconstruction rows: on, the recon row's one-iteration
+        # preview follows the row and every decay, clipping or coarse change; off, no
+        # reconstruction row (recon, recon (edges only), residual) computes until Run, and each
+        # draws a cached result (the recon row also a cached preview), else the field. It changes
+        # no result, so no output reads it.
+        Param("recon_live", ParamKind.BOOL, default=True, label="Live", view=True,
+              section=_RECON, active_when=_LASTWAVE),
         # The projection's decay a = exp(-kappa / 2**l): 1 is the published constant, 2 ln 5.8
         # (about 3.516) LastWave's, which the engine then computes with the C's own expression.
         Param("kappa", ParamKind.FLOAT, default=1.0, min=0.1, max=10.0,

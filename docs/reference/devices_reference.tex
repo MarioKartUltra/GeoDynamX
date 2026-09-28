@@ -414,7 +414,9 @@ The reconstruction knobs live in the right panel's \emph{Reconstruction} section
 Decay $\kappa$, Clip and Coarse recompute it as they change. \emph{Run} continues from the preview,
 either to convergence (the relative change falls under the tolerance, the iteration cap is reached,
 or the constraint residual rises three iterations in a row, which returns the best iterate) or for a
-fixed count, with progress and Stop. Each recon row reads its iterations, why the run stopped and
+fixed count, with progress and Stop. With \texttt{Live} off, no reconstruction row computes on
+its own: each shows a reconstruction already cached for the current knobs (the recon row also its
+cached preview), else the data, and reads ``press Run'' until Run computes the row on show. Each recon row reads its iterations, why the run stopped and
 its SNR against the data (mean removed; for edges only, against the data minus the synthesised
 coarse part). ROI results do not reconstruct yet (their rows say so), and the thumbnail shows in the
 2-D view. Under \emph{printed} the reconstruction is the research port's alternating projections
@@ -429,6 +431,7 @@ with its own \texttt{Mode}, run for the iteration count when a row is shown.
 \texttt{dither} (printed) & off & bool & $\pm\tfrac12$\,LSB dither before analysis \\
 \texttt{interpolate} (printed) & off & bool & subpixel refinement of each maximum along its gradient \\
 \texttt{show} (\emph{view}) & edges & 6 outputs & the raster shown in place of the data (the Outputs rows) \\
+\texttt{recon\_live} (Live, \emph{view}) & on & bool & reconstruction rows compute on their own; off: they wait for Run \\
 \texttt{kappa} (Decay $\kappa$, \emph{view}) & 1.0 & $[0.1,10]$ & decay of the correction between maxima, $e^{-\kappa/2^l}$ per sample; 1 = the paper, 3.516 = LastWave \\
 \texttt{clip} (\emph{view}) & off & bool & clip the modulus to decrease away from each maximum (LastWave's clipping) \\
 \texttt{run\_mode} (\emph{view}) & converge & 2 choices & run to convergence, or a fixed number of iterations \\

@@ -20,12 +20,17 @@ from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, keyed_params,
                                   validate_params)
 from dynamix.model.layer import Layer
+from dynamix.model.param import ParamKind
 
 NY, NX, J = 96, 80, 3
 
-_NAMES = ["n_levels", "algorithm", "border", "colocate_l1", "dither", "interpolate", "kappa",
-          "clip", "run_mode", "iterations", "tolerance", "coarse", "mode", "show"]
+_NAMES = ["n_levels", "algorithm", "border", "colocate_l1", "dither", "interpolate",
+          "recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode",
+          "show"]
 _RECON_KNOBS = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")
+#: The Reconstruction section's knobs: Live (when work is dispatched, keyed nowhere) and the
+#: settings a reconstruction reads.
+_SECTION_KNOBS = ("recon_live",) + _RECON_KNOBS
 _LASTWAVE = ("algorithm", ("lastwave",))
 _PRINTED = ("algorithm", ("printed",))
 
@@ -83,12 +88,13 @@ def test_param_names_order_defaults_and_sections(builtins):
     assert "wavelet" not in by and "alpha" not in by
     assert defaults_for(dev) == {
         "n_levels": 4, "algorithm": "lastwave", "border": "mirror", "colocate_l1": False,
-        "dither": False, "interpolate": False, "kappa": 1.0, "clip": False,
+        "dither": False, "interpolate": False, "recon_live": True, "kappa": 1.0, "clip": False,
         "run_mode": "converge", "iterations": 20, "tolerance": 1e-3, "coarse": "full",
         "mode": "separable", "show": "edges"}
     assert by["algorithm"].choices == ("lastwave", "printed")
     assert by["border"].choices == ("mirror", "periodic")
     assert by["colocate_l1"].label == "Co-locate level 1"
+    assert (by["recon_live"].kind, by["recon_live"].label) == (ParamKind.BOOL, "Live")
     k = by["kappa"]
     assert (k.min, k.max, k.soft_min, k.soft_max, k.label) == (0.1, 10.0, 0.5, 4.0, "Decay κ")
     assert by["clip"].label == "Clip"
@@ -101,9 +107,9 @@ def test_param_names_order_defaults_and_sections(builtins):
     assert by["mode"].choices == mz.RECON_MODES
     assert by["show"].choices == ("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
                                   "residual")
-    assert {p.name for p in dev.params if p.section == "reconstruction"} == set(_RECON_KNOBS)
-    assert all(p.section == "" for p in dev.params if p.name not in _RECON_KNOBS)
-    assert {p.name for p in dev.params if p.view} == set(_RECON_KNOBS) | {"show"}
+    assert {p.name for p in dev.params if p.section == "reconstruction"} == set(_SECTION_KNOBS)
+    assert all(p.section == "" for p in dev.params if p.name not in _SECTION_KNOBS)
+    assert {p.name for p in dev.params if p.view} == set(_SECTION_KNOBS) | {"show"}
     assert set(keyed_params(dev, defaults_for(dev))) == {
         "n_levels", "algorithm", "border", "colocate_l1", "dither", "interpolate"}
 
@@ -111,7 +117,8 @@ def test_param_names_order_defaults_and_sections(builtins):
 def test_a_knob_that_does_not_apply_to_the_algorithm_says_so(builtins):
     """The context-sensitive rule: each algorithm's own knobs are active only under it."""
     by = {p.name: p for p in get_device("mz_edges").params}
-    for name in ("border", "colocate_l1", "kappa", "clip", "run_mode", "tolerance"):
+    for name in ("border", "colocate_l1", "recon_live", "kappa", "clip", "run_mode",
+                 "tolerance"):
         assert by[name].active_when == _LASTWAVE, name
     for name in ("dither", "interpolate", "mode"):
         assert by[name].active_when == _PRINTED, name
@@ -128,11 +135,14 @@ def test_the_recon_outputs_key_every_reconstruction_setting(builtins):
     assert set(_output("recon_edges_only").params) == set(_RECON_KNOBS) - {"coarse"}
     assert _output("recon_preview").params == ("kappa", "clip", "coarse")
     assert _output("recon_preview").lazy and _output("recon_preview").kind == "raster"
+    # Live chooses when work is dispatched and changes no result: no output reads it
+    assert all("recon_live" not in o.params for o in declared_outputs(get_device("mz_edges")))
 
 
 @pytest.mark.parametrize("name,value", [("kappa", 2.0), ("clip", True), ("run_mode", "fixed"),
                                         ("iterations", 5), ("tolerance", 1e-2),
-                                        ("coarse", "thumbnail"), ("mode", "set_points")])
+                                        ("coarse", "thumbnail"), ("mode", "set_points"),
+                                        ("recon_live", False)])
 def test_flipping_a_reconstruction_knob_is_an_analysis_cache_hit(builtins, name, value):
     field, cache = _field(), Cache()
     first = resolve(_layer(), field, cache)
@@ -338,6 +348,25 @@ def test_run_continues_from_the_cached_preview(builtins, monkeypatch):
         ref, diag, _s = lw.e2recons(field.values, ex, t.S_full[J], J, **run)
         np.testing.assert_array_equal(out["raster"], ref.astype(np.float32))
         assert out["diag"]["iterations"] == diag["iterations"]
+
+
+def test_flipping_live_is_a_cache_hit_for_every_output(builtins, monkeypatch):
+    """Live only chooses when the window dispatches work: every output keeps its key, so
+    nothing already cached is computed again."""
+    calls = _spy(monkeypatch)
+    field, cache = _field(), Cache()
+    names = ("coarse", "thumbnail", "recon_preview", "recon", "recon_edges_only", "residual")
+    live = {n: resolve_output(_layer(), field, cache, n) for n in names}
+    ran = len(calls)
+    r1 = resolve(_layer(), field, cache)
+    r2 = resolve(_layer(recon_live=False), field, cache)
+    assert r2.cache_misses == 0 and r2.analysis_key == r1.analysis_key
+    for n in names:
+        assert (output_key("mz_edges", _output(n), r2.analysis_params, r2.analysis_key)
+                == output_key("mz_edges", _output(n), r1.analysis_params, r1.analysis_key))
+        manual = resolve_output(_layer(recon_live=False), field, cache, n)
+        np.testing.assert_array_equal(manual["raster"], live[n]["raster"])
+    assert len(calls) == ran
 
 
 def test_a_recon_without_a_preview_lands_the_preview_first(builtins):

@@ -25,7 +25,8 @@ from dynamix.model.layer import Layer
 
 DEM = pathlib.Path(__file__).resolve().parents[1] / "docs" / "demo" / "dem_crop.npz"
 
-_VIEW = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode", "show")
+_VIEW = ("recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode",
+         "show")
 
 
 @pytest.fixture
@@ -91,9 +92,9 @@ def test_param_order_choices_and_view_only_knobs(builtins):
     dev = get_device("mz_edges")
     by = {p.name: p for p in dev.params}
     assert [p.name for p in dev.params] == ["n_levels", "algorithm", "border", "colocate_l1",
-                                            "dither", "interpolate", "kappa", "clip",
-                                            "run_mode", "iterations", "tolerance", "coarse",
-                                            "mode", "show"]
+                                            "dither", "interpolate", "recon_live", "kappa",
+                                            "clip", "run_mode", "iterations", "tolerance",
+                                            "coarse", "mode", "show"]
     assert by["show"].choices == ("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
                                   "residual")
     assert by["show"].default == "edges"
@@ -134,7 +135,7 @@ def test_declared_outputs(builtins):
 @pytest.mark.parametrize("name,value", [("coarse", "thumbnail"), ("show", "recon"),
                                         ("iterations", 5), ("mode", "set_points"),
                                         ("kappa", 3.0), ("clip", True), ("run_mode", "fixed"),
-                                        ("tolerance", 1e-4)])
+                                        ("tolerance", 1e-4), ("recon_live", False)])
 def test_flipping_a_view_knob_is_a_cache_hit_for_the_analysis(builtins, name, value):
     field, cache = _synthetic(), Cache()
     first = resolve(_layer(n_levels=3), field, cache)
@@ -159,7 +160,8 @@ def test_the_device_cache_key_ignores_view_knobs(builtins):
     dev = get_device("mz_edges")
     a = {p.name: p.default for p in dev.params}
     b = {**a, "show": "recon", "iterations": 3, "mode": "set_points", "coarse": "thumbnail",
-         "kappa": 2.0, "clip": True, "run_mode": "fixed", "tolerance": 1e-2}
+         "kappa": 2.0, "clip": True, "run_mode": "fixed", "tolerance": 1e-2,
+         "recon_live": False}
     assert dev.cache_key("src", a) == dev.cache_key("src", b)
     assert dev.cache_key("src", a) != dev.cache_key("src", {**a, "n_levels": 3})
     for name, value in (("algorithm", "printed"), ("border", "periodic"),
