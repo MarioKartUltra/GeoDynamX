@@ -410,17 +410,43 @@ $\kappa=1$ is the paper's constant; LastWave uses $\kappa=2\ln 5.8\approx3.516$,
 markedly better when the coarse channel is pinned and slightly worse for edges only.
 
 The reconstruction knobs live in the right panel's \emph{Reconstruction} section, shown when
-\dev{mz\_edges} is in the layer's rack. Showing the recon row computes a one-iteration preview, and
-Decay $\kappa$, Clip and Coarse recompute it as they change. \emph{Run} continues from the preview,
-either to convergence (the relative change falls under the tolerance, the iteration cap is reached,
-or the constraint residual rises three iterations in a row, which returns the best iterate) or for a
-fixed count, with progress and Stop. With \texttt{Live} off, no reconstruction row computes on
-its own: each shows a reconstruction already cached for the current knobs (the recon row also its
-cached preview), else the data, and reads ``press Run'' until Run computes the row on show. Each recon row reads its iterations, why the run stopped and
+\dev{mz\_edges} is in the layer's rack. By default (\texttt{Live} off) no reconstruction row
+computes on its own: each shows a reconstruction already cached for the current knobs (the recon
+row also its cached preview), else the data, and reads ``press Run'' until Run computes the row on
+show. \emph{Run} computes the reconstruction either to convergence (the relative change falls under
+the tolerance, the iteration cap is reached, or the constraint residual rises three iterations in a
+row, which returns the best iterate) or for a fixed count, with progress and Stop. With
+\texttt{Live} on, showing the recon row computes a one-iteration preview, Decay $\kappa$, Clip and
+Coarse recompute it as they change, and Run continues from it. Each recon row reads its iterations, why the run stopped and
 its SNR against the data (mean removed; for edges only, against the data minus the synthesised
 coarse part). ROI results do not reconstruct yet (their rows say so), and the thumbnail shows in the
 2-D view. Under \emph{printed} the reconstruction is the research port's alternating projections
 with its own \texttt{Mode}, run for the iteration count when a row is shown.
+
+\paragraph{Reconstructing from selected maxima (LastWave).} The rack's filters reach the
+reconstruction: at every level the engine runs the chain's filters (all but \dev{scale\_select},
+whose pick is the display's) on that level alone, and the Reconstruction section's level table
+decides what each level contributes. \emph{all}: every maximum; \emph{own} (the default): the maxima
+the filters keep there; \emph{near} $s$: the level's own maxima within \texttt{near\_radius} px of a
+maximum kept at level $s$ (with the $\alpha$ check, only those whose modulus fits the source chain's
+decay $2^{\alpha(l-s)}$ within the tolerance, in $\log_2$); \emph{coder} $s$: the kept positions of
+level $s$ carrying this level's own transform values (Mallat \& Zhong's coding mode, \S IX);
+\emph{predict} $s$: the kept positions and arguments of $s$ with the modulus $M_s\,2^{\alpha(l-s)}$;
+\emph{open}: no constraints, so the alternating projections fill the level from the others. The
+\emph{\S IX preset} selects at level 2 and codes levels 1 and 3 from it (the paper codes with $J=3$).
+A source must have a selection of its own (\emph{all}, \emph{own} or \emph{near}). With Per-level
+filters on, the filter knobs edit the level the Scale slider shows and each level keeps its own
+settings (turning it on starts every level from the current ones). The canvas draws, at the level
+on show, the maxima the reconstruction reads there, and the section reads how many of the level's
+maxima those are. $\alpha$ comes from the analysis: each maximum propagates up the levels to the
+nearest maximum of the same sign within $2^{l-1}$ px, $\alpha$ is the slope of $\log_2$ of the
+stored modulus over the linked levels from 2 up (the coarsest level takes the $\alpha$ of the chains
+reaching it), and a line takes the median of its points'. From level 2 up the stored modulus
+follows $2^{l\alpha}$ (a step 0, a line $-1$, a point $-2$); level 1's staggered two-tap gradient
+departs from it by a factor that depends on the full direction of the edge's normal (0.86 to 1.37 on
+straight binary steps), so a prediction at level 1 carries that factor. In mirror mode a selection
+is applied as removals to all four images of the mirrored field. Every reconstruction row is keyed
+on the filters and the table, so each selection caches on its own.
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
@@ -431,7 +457,7 @@ with its own \texttt{Mode}, run for the iteration count when a row is shown.
 \texttt{dither} (printed) & off & bool & $\pm\tfrac12$\,LSB dither before analysis \\
 \texttt{interpolate} (printed) & off & bool & subpixel refinement of each maximum along its gradient \\
 \texttt{show} (\emph{view}) & edges & 6 outputs & the raster shown in place of the data (the Outputs rows) \\
-\texttt{recon\_live} (Live, \emph{view}) & on & bool & reconstruction rows compute on their own; off: they wait for Run \\
+\texttt{recon\_live} (Live, \emph{view}) & off & bool & off: reconstruction rows wait for Run; on: they compute on their own \\
 \texttt{kappa} (Decay $\kappa$, \emph{view}) & 1.0 & $[0.1,10]$ & decay of the correction between maxima, $e^{-\kappa/2^l}$ per sample; 1 = the paper, 3.516 = LastWave \\
 \texttt{clip} (\emph{view}) & off & bool & clip the modulus to decrease away from each maximum (LastWave's clipping) \\
 \texttt{run\_mode} (\emph{view}) & converge & 2 choices & run to convergence, or a fixed number of iterations \\
@@ -439,6 +465,12 @@ with its own \texttt{Mode}, run for the iteration count when a row is shown.
 \texttt{tolerance} (\emph{view}) & $10^{-3}$ & $[10^{-6},10^{-1}]$ & relative change of the image that counts as converged \\
 \texttt{coarse} (\emph{view}) & full & full / thumbnail & the coarse channel a reconstruction pins: $S_{2^J}$, or the one decoded from its thumbnail \\
 \texttt{mode} (printed, \emph{view}) & separable & 3 modes & how the research port's projection interpolates between the maxima \\
+\texttt{recon\_levels} (Levels, \emph{view}) & (every level own) & table & each level's state and source, and with Per-level filters each level's filter settings \\
+\texttt{per\_level} (Per-level filters, \emph{view}) & off & bool & the filter knobs edit the level the Scale slider shows \\
+\texttt{near\_radius} (\emph{view}) & 1 & $[0,8]$ px & how far a \emph{near} maximum may sit from a kept source maximum \\
+\texttt{alpha\_check} ($\alpha$ check, \emph{view}) & off & bool & a \emph{near} maximum must also fit its source chain's decay \\
+\texttt{alpha\_tol} ($\alpha$ tolerance, \emph{view}) & 0.5 & $[0.05,4]$ & the $\log_2$ misfit the $\alpha$ check allows \\
+\texttt{alpha\_fallback} (\emph{view}) & 0 & $[-3,2]$ & the $\alpha$ of a chain too short to fit \\
 \bottomrule
 \end{longtable}
 
@@ -884,6 +916,8 @@ Act on the per-scale extrema layers of any producing analyzer
 \dev{hline\_length}.\texttt{min\_len}/\texttt{max\_len} & 1 / 0 & points & per-line point count range; kills orphan confetti and stitching seams; $-1$ orphans pass \\
 \dev{hline\_modulus}.\texttt{frac} & 0 & $[0,1]$ & per-\emph{line} modulus keep-fraction \\
 \dev{hline\_modulus}.\texttt{mode} & sup & sup / sup\_all\_scales / mean / segments & line statistic: peak at this scale; peak over the threading chains (needs chains); mean; or per-segment between modulus minima \\
+\dev{hline\_holder}.\texttt{min\_alpha}/\texttt{max\_alpha} & $-3$ / $3$ & $[-3,3]$ & keep lines whose H\"older $\alpha$ lies in the range (\dev{mz\_edges}: the per-line $\alpha$ of its analysis; a layer without $\alpha$ passes) \\
+\dev{hline\_holder}.\texttt{keep\_unfitted} & on & bool & keep points whose chain could not be fitted \\
 \bottomrule
 \end{longtable}
 

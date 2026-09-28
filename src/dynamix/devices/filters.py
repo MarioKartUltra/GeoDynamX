@@ -422,3 +422,42 @@ class HLineModulus:
             return "no H-lines — run the transform"
         col = np.asarray(col, float)
         return f"{col.size} H-lines · sup|W| ∈ [{float(col.min()):.2f}, {float(col.max()):.2f}]"
+
+
+class HLineHolder:
+    """Keep H-lines whose Hölder exponent α lies within a range.
+
+    α is the analysis' own per-point ``alpha`` (``mz_edges``: the decay of the maxima across the
+    levels along each chain, the median over the line, ``core.mz_lastwave.select.chain_alpha``),
+    so the knob selects edges by singularity type -- 0 a step, -1 a line, -2 a point -- as
+    Mallat & Zhong's §VII discriminates them. A layer without ``alpha`` passes whole; a point
+    whose chain could not be fitted (NaN) passes while ``keep_unfitted`` is on.
+    """
+
+    name = "hline_holder"
+    params = (
+        Param("min_alpha", ParamKind.FLOAT, default=-3.0, min=-3.0, max=3.0,
+              soft_min=-3.0, soft_max=2.0, label="Min α"),
+        Param("max_alpha", ParamKind.FLOAT, default=3.0, min=-3.0, max=3.0,
+              soft_min=-2.0, soft_max=3.0, label="Max α"),
+        Param("keep_unfitted", ParamKind.BOOL, default=True, label="Keep unfitted"),
+    )
+
+    def apply(self, result: dict, params: dict) -> dict:
+        lo, hi = float(params["min_alpha"]), float(params["max_alpha"])
+        keep_nan = bool(params["keep_unfitted"])
+        if lo <= -3.0 and hi >= 3.0 and keep_nan:
+            return result
+        out = dict(result)
+        kept = []
+        for layer in _layers(result):
+            alpha = layer.get("alpha")
+            if alpha is None:
+                kept.append(layer)
+                continue
+            alpha = np.asarray(alpha, float)
+            with np.errstate(invalid="ignore"):
+                keep = (alpha >= lo) & (alpha <= hi)
+            kept.append(_mask_layer(layer, keep | (np.isnan(alpha) & keep_nan)))
+        out["extrema"] = kept
+        return out

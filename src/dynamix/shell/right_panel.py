@@ -24,6 +24,8 @@ arrow keys or typing, exactly as EQSelect's own docstring states it.
 """
 from __future__ import annotations
 
+import json
+
 import numpy as np
 from dynamix.core.stretch import STRETCHES
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -455,6 +457,110 @@ def _applies(param, values: dict) -> bool:
     return all(values.get(other) in allowed for other, allowed in conds)
 
 
+class LevelTable(QtWidgets.QWidget):
+    """Which maxima each level of the M–Z transform gives the reconstruction: per level a state
+    (all, own, near, coder, predict, open; ``core.mz_lastwave.select``) and the level it borrows
+    from, the §IX preset, and a reading of the level on show. It edits the ``recon_levels`` JSON
+    and emits the whole text on every change (the per-level filter settings it carries pass
+    through untouched); :meth:`set_levels` shows one without emitting."""
+
+    levelsChanged = QtCore.Signal(str)
+    STATES = ("all", "own", "near", "coder", "predict", "open")
+    _BORROWS = ("near", "coder", "predict")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._grid = QtWidgets.QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(self._grid)
+        self.preset_button = QtWidgets.QPushButton("§IX preset")
+        self.preset_button.setToolTip(
+            "Mallat & Zhong's coding mode: level 2 keeps its own selection, levels 1 and 3 take "
+            "its positions with their own values (coder), coarser levels keep all their maxima; "
+            "the paper codes with J = 3")
+        self.preset_button.clicked.connect(self._on_preset)
+        outer.addWidget(self.preset_button)
+        self.reading = QtWidgets.QLabel("")
+        self.reading.setProperty("reading", "true")
+        self.reading.setProperty("muted", "true")
+        self.reading.setWordWrap(True)
+        outer.addWidget(self.reading)
+        self.rows: list = []
+        self._data: dict = {}
+        self._loading = False
+
+    def set_levels(self, J: int, text: str, shown: int | None = None, reading: str = "") -> None:
+        """Show levels 1..``J`` of the ``recon_levels`` ``text`` (the level on show, ``shown``,
+        in bold), non-emitting."""
+        self._loading = True
+        try:
+            try:
+                self._data = json.loads(text) if text else {}
+            except ValueError:
+                self._data = {}
+            if len(self.rows) != J:
+                self._build(J)
+            levels = self._data.get("levels", {})
+            default = 2 if J >= 2 else 1
+            for l, (label, state, source) in enumerate(self.rows, 1):
+                entry = levels.get(str(l), {})
+                name = entry.get("state", "own")
+                state.setCurrentIndex(self.STATES.index(name if name in self.STATES else "own"))
+                source.setCurrentIndex(min(max(int(entry.get("source", default)), 1), J) - 1)
+                source.setEnabled(state.currentData() in self._BORROWS)
+                font = label.font()
+                font.setBold(l == shown)
+                label.setFont(font)
+            self.reading.setText(reading)
+        finally:
+            self._loading = False
+
+    def _build(self, J: int) -> None:
+        for label, state, source in self.rows:
+            for w in (label, state, source):
+                self._grid.removeWidget(w)
+                w.setParent(None)
+                w.deleteLater()
+        self.rows = []
+        for l in range(1, J + 1):
+            label = QtWidgets.QLabel(f"{2 ** l} px")
+            state = QtWidgets.QComboBox()
+            for name in self.STATES:
+                state.addItem(name, name)
+            source = QtWidgets.QComboBox()
+            for s in range(1, J + 1):
+                source.addItem(f"from {2 ** s} px", s)
+            state.currentIndexChanged.connect(self._emit)
+            source.currentIndexChanged.connect(self._emit)
+            self._grid.addWidget(label, l - 1, 0)
+            self._grid.addWidget(state, l - 1, 1)
+            self._grid.addWidget(source, l - 1, 2)
+            self.rows.append((label, state, source))
+
+    def _emit(self, *_args) -> None:
+        if self._loading:
+            return
+        levels = {}
+        for l, (_label, state, source) in enumerate(self.rows, 1):
+            levels[str(l)] = {"state": state.currentData(), "source": source.currentData()}
+            source.setEnabled(state.currentData() in self._BORROWS)
+        self._data = {**self._data, "levels": levels}
+        self.levelsChanged.emit(json.dumps(self._data, sort_keys=True, separators=(",", ":")))
+
+    def _on_preset(self) -> None:
+        self._loading = True
+        try:
+            for l, (_label, state, source) in enumerate(self.rows, 1):
+                name = "own" if l == 2 else "coder" if l in (1, 3) else "all"
+                state.setCurrentIndex(self.STATES.index(name))
+                source.setCurrentIndex(min(2, len(self.rows)) - 1)
+        finally:
+            self._loading = False
+        self._emit()
+
+
 class ReconstructionPanel(QtWidgets.QWidget):
     """The Reconstruction section: a step's ``section="reconstruction"`` knobs, **Run**, **Stop**
     and a reading of what the recon row draws.
@@ -465,6 +571,7 @@ class ReconstructionPanel(QtWidgets.QWidget):
     step's own box, so this widget holds no param state of its own."""
 
     paramChanged = QtCore.Signal(str, object)
+    levelsChanged = QtCore.Signal(str)
     runRequested = QtCore.Signal()
     stopRequested = QtCore.Signal()
 
@@ -476,6 +583,9 @@ class ReconstructionPanel(QtWidgets.QWidget):
         self._knobs.setContentsMargins(0, 0, 0, 0)
         self._knobs.setHorizontalSpacing(10)
         outer.addLayout(self._knobs)
+        self.levels = LevelTable(self)
+        self.levels.levelsChanged.connect(self.levelsChanged.emit)
+        outer.addWidget(self.levels)
         self.controls: dict[str, QtWidgets.QWidget] = {}
         self._cells: dict[str, QtWidgets.QWidget] = {}
         self._names: tuple = ()

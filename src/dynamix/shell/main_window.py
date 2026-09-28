@@ -62,7 +62,7 @@ from dynamix.core.transect import chains_in_buffer, sample_profile
 from dynamix.devices import register_builtin_devices
 from dynamix.devices.groups import encode_groups
 from dynamix.engine import Cache, cache_key, resolve, source_identity
-from dynamix.engine.resolve import output_key
+from dynamix.engine.resolve import output_key, selection_recipe, selection_steps
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
                                     scan_footprints, scene_label)
@@ -375,7 +375,7 @@ _CHAIN_PRODUCERS = ("wtmm2d", "wtmm2d_roi", "mz_edges", "wavelet_skeleton", "cdf
                     "pm_edges")
 _CONSUMER_PRODUCERS = {name: _CHAIN_PRODUCERS for name in (
     "scale_select", "orientation_wedge", "modulus_threshold", "hline_length",
-    "hline_modulus", "chain_holder", "chain_modulus", "chain_length", "chain_classify",
+    "hline_modulus", "hline_holder", "chain_holder", "chain_modulus", "chain_length", "chain_classify",
     "chain_topology", "min_vchains", "group_paint", "group_filter")}
 
 
@@ -1210,6 +1210,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # active chain's output step declares such knobs.
         self._recon_panel = ReconstructionPanel()
         self._recon_panel.paramChanged.connect(self._on_recon_knob_changed)
+        self._recon_panel.levelsChanged.connect(self._on_recon_levels_changed)
         self._recon_panel.runRequested.connect(self._on_recon_run)
         self._recon_panel.stopRequested.connect(self._stop_compute)
         self.right_panel.add_section(_RECON_TITLE, self._recon_panel)
@@ -4536,9 +4537,16 @@ both ``Canvas`` signals report the
             return
         index, device = found
         values = {**defaults_for(device), **self._params[index]}
-        knobs = tuple(p for p in device.params if getattr(p, "section", "") == _RECON_SECTION)
+        knobs = tuple(p for p in device.params if getattr(p, "section", "") == _RECON_SECTION
+                      and p.kind is not ParamKind.TEXT)
         if panel.set_params(knobs, values):
             self.right_panel._protect_from_wheel(panel)
+        table = "recon_levels" in values and values.get("algorithm") == "lastwave"
+        panel.levels.setVisible(table)
+        if table:
+            reading = (self._active_result or {}).get("_recon_reading", "")
+            panel.levels.set_levels(int(values["n_levels"]), values["recon_levels"],
+                                    self._shown_level(), reading)
         step, outputs = layer_outputs(self.layer)
         recon = next((o for o in outputs if o.name == "recon"), None)
         if values.get("algorithm") != "lastwave":
@@ -4565,7 +4573,96 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             self._sync_recon_section()
             return
+        if name == "per_level" and value:
+            self._snapshot_level_filters(found[0])
         self.strips.strip(found[0])._on_control_changed(name, value)
+
+    def _on_recon_levels_changed(self, text: str) -> None:
+        """The level table changed: its whole ``recon_levels`` text, written like a knob."""
+        self._on_recon_knob_changed("recon_levels", text)
+
+    # -- per-level filter settings (mz_edges' Per-level filters) --------------------------------
+    def _shown_level(self) -> int:
+        """The level (1-based) the Scale slider shows."""
+        i = self._index_of("scale_select")
+        return int(self._params[i].get("scale_idx", 0)) + 1 if i is not None else 1
+
+    def _filter_step_keys(self) -> list:
+        """``[(index, key)]`` of the chain's filters a per-level setting is stored under: the
+        engine's :func:`~dynamix.engine.resolve.selection_steps` over the enabled steps."""
+        index = [i for i, n in enumerate(self._names) if not self._bypassed[i]]
+        refs = [DeviceRef(self._names[i], self._params[i]) for i in index]
+        keys = {id(ref): key for key, ref in selection_steps(refs)}
+        return [(i, keys[id(ref)]) for i, ref in zip(index, refs) if id(ref) in keys]
+
+    def _per_level_step(self) -> "tuple | None":
+        """``(index, values)`` of the Reconstruction step while its Per-level filters are on (the
+        LastWave engine), else ``None``."""
+        found = self._recon_step()
+        if found is None:
+            return None
+        values = {**defaults_for(found[1]), **self._params[found[0]]}
+        if values.get("algorithm") != "lastwave" or not values.get("per_level"):
+            return None
+        return found[0], values
+
+    def _levels_data(self, index: int) -> dict:
+        text = {**defaults_for(get_device(self._names[index])),
+                **self._params[index]}.get("recon_levels", "")
+        try:
+            return json.loads(text) if text else {}
+        except ValueError:
+            return {}
+
+    def _write_levels(self, index: int, data: dict) -> None:
+        text = json.dumps(data, sort_keys=True, separators=(",", ":"))
+        self.strips.strip(index)._on_control_changed("recon_levels", text)
+
+    def _snapshot_level_filters(self, index: int) -> None:
+        """Per-level filters turned on: every level starts from the rack's current settings."""
+        J = int({**defaults_for(get_device(self._names[index])),
+                 **self._params[index]}.get("n_levels", 0))
+        snap = {key: dict(validate_params(get_device(self._names[i]), self._params[i]))
+                for i, key in self._filter_step_keys()}
+        data = self._levels_data(index)
+        data["filters"] = {str(l): {k: dict(v) for k, v in snap.items()} for l in range(1, J + 1)}
+        self._write_levels(index, data)
+
+    def _store_level_filter(self, step_index: int) -> None:
+        """A filter knob moved with Per-level filters on: the step's settings become the shown
+        level's."""
+        found = self._per_level_step()
+        key = dict(self._filter_step_keys()).get(step_index)
+        if found is None or key is None:
+            return
+        data = self._levels_data(found[0])
+        level = data.setdefault("filters", {}).setdefault(str(self._shown_level()), {})
+        level[key] = dict(validate_params(get_device(self._names[step_index]),
+                                          self._params[step_index]))
+        self._write_levels(found[0], data)
+
+    def _load_level_filters(self, level: int) -> None:
+        """The Scale slider moved with Per-level filters on: the rack's filter knobs take
+        ``level``'s stored settings (a level with none keeps what the knobs show)."""
+        found = self._per_level_step()
+        if found is None or self.strips is None:
+            return
+        stored = self._levels_data(found[0]).get("filters", {}).get(str(level), {})
+        for i, key in self._filter_step_keys():
+            values = stored.get(key)
+            if not values:
+                continue
+            box = self.strips.strip(i)
+            names = {p.name for p in get_device(self._names[i]).params}
+            for name, value in values.items():
+                if name not in names:
+                    continue
+                self._params[i][name] = value
+                box._params[name] = value
+                control = box.controls.get(name)
+                if control is not None:
+                    control.set_value(value)
+            box._apply_active_when()
 
     def _on_recon_run(self) -> None:
         """Run: compute the shown reconstruction row (recon, recon (edges only) or residual; the
@@ -4641,7 +4738,9 @@ both ``Canvas`` signals report the
         if not keys:
             return {}
         params = validate_params(device, step.params)
-        return {o.name: output_key(device.name, o, params, keys[-1]) for o in lazy}
+        selection = selection_recipe(layer)
+        return {o.name: output_key(device.name, o, params, keys[-1],
+                                   selection if o.selects else None) for o in lazy}
 
     def _output_row_state(self, layer, step, outputs) -> tuple:
         """``(notes, disabled)`` for ``LayerPanel.set_output_state``: "computing…" on a row whose
@@ -4720,13 +4819,14 @@ both ``Canvas`` signals report the
         if (output is None or renderable.analysis_device != step.device
                 or self._output_refusal(layer, step, output) is not None):
             return None
+        selection = selection_recipe(layer)
         key = output_key(renderable.analysis_device, output, renderable.analysis_params,
-                         renderable.analysis_key)
+                         renderable.analysis_key, selection if output.selects else None)
         if self._draws_preview(layer, step, name, key):
             output = next(o for o in declared_outputs(get_device(step.device))
                           if o.name == _PREVIEW_OF[name])
             key = output_key(renderable.analysis_device, output, renderable.analysis_params,
-                             renderable.analysis_key)
+                             renderable.analysis_key, selection if output.selects else None)
             if self._awaits_run(step, key):
                 return None
         elif self._waits_manual(layer, step, name, key):
@@ -6272,6 +6372,10 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             return
         self._params[step_index][name] = value
+        if self._names[step_index] == "scale_select" and name == "scale_idx":
+            self._load_level_filters(int(value) + 1)
+        elif not is_transform(get_device(self._names[step_index])):
+            self._store_level_filter(step_index)
         if self._is_point_layer(self.layer):
             # Re-derive the seven `_target_*` scalars whenever a point layer's own
             # `backproject` step moved -- most directly when this WAS the "target" text edit, but
@@ -6548,6 +6652,7 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             return
         self._params[i]["scale_idx"] = int(idx)
+        self._load_level_filters(int(idx) + 1)
         self.layer.chain = self._chain()
         self._snapshot_recipe()
         self._reresolve()

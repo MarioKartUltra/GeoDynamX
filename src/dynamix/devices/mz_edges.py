@@ -39,6 +39,11 @@ _RECON = "reconstruction"
 #: Every setting a reconstruction reads; each keys its own cache entry.
 _RECON_PARAMS = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")
 
+#: The settings that choose the maxima a reconstruction reads (``core.mz_lastwave.select``).
+_SELECT_PARAMS = ("recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
+                  "alpha_fallback")
+_ALPHA_CHECK = (_LASTWAVE, ("alpha_check", (True,)))
+
 #: Where LastWave's maxima and coarse channel register relative to their pixel index (x, y).
 _DISPLAY_OFFSET = (-0.5, -0.5)
 
@@ -69,7 +74,7 @@ class MZEdges:
         # reconstruction row (recon, recon (edges only), residual) computes until Run, and each
         # draws a cached result (the recon row also a cached preview), else the field. It changes
         # no result, so no output reads it.
-        Param("recon_live", ParamKind.BOOL, default=True, label="Live", view=True,
+        Param("recon_live", ParamKind.BOOL, default=False, label="Live", view=True,
               section=_RECON, active_when=_LASTWAVE),
         # The projection's decay a = exp(-kappa / 2**l): 1 is the published constant, 2 ln 5.8
         # (about 3.516) LastWave's, which the engine then computes with the C's own expression.
@@ -97,6 +102,27 @@ class MZEdges:
         Param("mode", ParamKind.CHOICE, default="separable",
               choices=("separable", "separable_mzlib", "set_points"), label="Mode",
               view=True, section=_RECON, active_when=_PRINTED),
+        # Which maxima each level contributes (``core.mz_lastwave.select``): the JSON table of
+        # level states and, with Per-level filters, each level's own filter settings.
+        Param("recon_levels", ParamKind.TEXT, default="", label="Levels", view=True,
+              section=_RECON, active_when=_LASTWAVE),
+        # On: the rack's filter knobs edit the level the Scale slider shows, and every level
+        # keeps its own settings; off: every "own" level uses the rack's.
+        Param("per_level", ParamKind.BOOL, default=False, label="Per-level filters", view=True,
+              section=_RECON, active_when=_LASTWAVE),
+        Param("near_radius", ParamKind.INT, default=1, min=0, max=8, soft_min=0, soft_max=4,
+              units="px", label="Near radius", view=True, section=_RECON,
+              active_when=_LASTWAVE),
+        # A "near" maximum must also fit its source chain's decay 2**(alpha (l - s)) to within
+        # Tolerance (log2 units); an unfitted chain uses the fallback exponent.
+        Param("alpha_check", ParamKind.BOOL, default=False, label="α check", view=True,
+              section=_RECON, active_when=_LASTWAVE),
+        Param("alpha_tol", ParamKind.FLOAT, default=0.5, min=0.05, max=4.0, soft_min=0.1,
+              soft_max=1.5, label="α tolerance", view=True, section=_RECON,
+              active_when=_ALPHA_CHECK),
+        Param("alpha_fallback", ParamKind.FLOAT, default=0.0, min=-3.0, max=2.0,
+              soft_min=-2.0, soft_max=1.0, label="α fallback", view=True, section=_RECON,
+              active_when=_LASTWAVE),
         # The raster output drawn in place of the field ("edges": the field itself, with the
         # maxima over it); each other choice names a lazy output below.
         Param("show", ParamKind.CHOICE, default="edges",
@@ -108,16 +134,18 @@ class MZEdges:
         Output("edges", "vector", label="edges"),
         Output("coarse", "raster", lazy=True, label="coarse"),
         Output("thumbnail", "raster", lazy=True, label="thumbnail", grid="stride"),
-        Output("recon", "raster", lazy=True, params=_RECON_PARAMS,
-               label="recon (edges + coarse)"),
+        Output("recon", "raster", lazy=True, params=_RECON_PARAMS + _SELECT_PARAMS,
+               label="recon (edges + coarse)", selects=True),
         Output("recon_edges_only", "raster", lazy=True,
-               params=tuple(p for p in _RECON_PARAMS if p != "coarse"),
-               label="recon (edges only)"),
-        Output("residual", "raster", lazy=True, params=_RECON_PARAMS, label="residual"),
+               params=tuple(p for p in _RECON_PARAMS if p != "coarse") + _SELECT_PARAMS,
+               label="recon (edges only)", selects=True),
+        Output("residual", "raster", lazy=True, params=_RECON_PARAMS + _SELECT_PARAMS,
+               label="residual", selects=True),
         # The LastWave initial pass and one iteration, which a reconstruction with the same
-        # decay, clipping and coarse continues from; drawn on the recon row.
-        Output("recon_preview", "raster", lazy=True, params=("kappa", "clip", "coarse"),
-               label="recon preview", row=False),
+        # decay, clipping, coarse and selection continues from; drawn on the recon row.
+        Output("recon_preview", "raster", lazy=True,
+               params=("kappa", "clip", "coarse") + _SELECT_PARAMS, label="recon preview",
+               row=False, selects=True),
     )
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
@@ -153,6 +181,7 @@ class MZEdges:
         is all the lazy outputs read. The rest of the transform (every level's S, Wx and Wy on
         the working field, the 2N mirror by default) is not kept with the cached result."""
         from dynamix.core import mz_lastwave as lw
+        from dynamix.core.mz_lastwave import select
 
         J = int(params["n_levels"])
         if progress is not None:
@@ -166,6 +195,8 @@ class MZEdges:
             extrema.append({"x": x.astype(np.int64), "y": y.astype(np.int64),
                             "mod": mag[mask], "arg": arg[mask],
                             "line_id": _line_ids(mask)})
+        for e, alpha in zip(extrema, select.chain_alpha(extrema, values.shape)):
+            e["alpha"] = alpha
         if progress is not None:
             progress("M–Z (LastWave) analysis", 1.0)
         return {
@@ -184,7 +215,7 @@ class MZEdges:
         return {**result, "params": {**result.get("params", {}), **current}}
 
     def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
-                       progress=None, cancel=None) -> dict:
+                       progress=None, cancel=None, keeps=None) -> dict:
         """The lazy output ``name`` from the cached analysis ``result`` of ``values``:
         ``{"raster": float32 ndarray, "diag": dict}``, plus ``display_stride``/``full_dims``
         for the thumbnail, whose samples sit every 2^J pixels of the (ny, nx) field. The
@@ -192,7 +223,9 @@ class MZEdges:
         On the LastWave engine the coarse and the thumbnail also carry ``display_offset``
         (``(dx, dy)`` in pixels, where their samples register), and ``recon``,
         ``recon_edges_only`` and ``recon_preview`` carry ``state``, the ``ReconState`` a
-        further run continues from."""
+        further run continues from. ``keeps`` (per level, what the chain's filters keep there)
+        and the selection knobs choose the maxima a LastWave reconstruction reads
+        (:meth:`_selected`); the printed algorithm reads them all."""
         values = np.asarray(values)
         if name == "residual":
             recon = fetch("recon")
@@ -200,7 +233,7 @@ class MZEdges:
                     "diag": recon["diag"]}
         if params["algorithm"] == "lastwave":
             return self._lastwave_output(name, values, result, params, fetch=fetch,
-                                         progress=progress, cancel=cancel)
+                                         progress=progress, cancel=cancel, keeps=keeps)
         from dynamix.core import mz_edges
 
         if name == "coarse":
@@ -223,7 +256,8 @@ class MZEdges:
                              f"'lastwave')")
         raise ValueError(f"{self.name}: no lazy output named {name!r}")
 
-    def _lastwave_output(self, name, values, result, params, *, fetch, progress, cancel):
+    def _lastwave_output(self, name, values, result, params, *, fetch, progress, cancel,
+                         keeps=None):
         """The LastWave engine's lazy outputs. The coarse channel is S_J divided by the
         ``fact(J)`` the transform multiplied it by, back in the field's units; the
         reconstructions pin the scaled working-field S_J itself. ``recon`` continues from the
@@ -246,6 +280,7 @@ class MZEdges:
                     "display_offset": _DISPLAY_OFFSET}
         knobs = dict(kappa=params["kappa"], clip=params["clip"], border=params["border"],
                      progress=progress, cancel=cancel)
+        ex = self._selected(values, result, params, keeps)
         if name == "recon_preview":
             img, diag, state = lw.e2recons(values, ex, S_J, J, k=1, mode="fixed",
                                            state=None, coarse=params["coarse"], **knobs)
@@ -263,6 +298,86 @@ class MZEdges:
         else:
             raise ValueError(f"{self.name}: no lazy output named {name!r}")
         return {"raster": img.astype(np.float32), "diag": diag, "state": state}
+
+    def _selected(self, values, result, params, keeps):
+        """The working-field extrema a LastWave reconstruction reads: each level's per its state in
+        ``recon_levels`` (``core.mz_lastwave.select``), ``own`` taking ``keeps`` (all of them
+        without). A coder level reads its own transform, computed again here."""
+        from dynamix.core import mz_lastwave as lw
+        from dynamix.core.mz_lastwave import select
+
+        _S_J, ex = result["_lastwave"]
+        extrema = result["extrema"]
+        table = select.parse_levels(params["recon_levels"], ex.J)
+
+        def keep_of(l):
+            if keeps is None:
+                return np.ones(np.size(extrema[l - 1]["x"]), bool)
+            return keeps[l - 1]
+
+        primary = select.primary_selection(
+            extrema, values.shape, table, keep_of, radius=int(params["near_radius"]),
+            alpha_check=bool(params["alpha_check"]), alpha_tol=float(params["alpha_tol"]),
+            alpha_fallback=float(params["alpha_fallback"]))
+        transform = None
+        if any(e["state"] == "coder" for e in table["levels"].values()):
+            transform = lw.dwt2d(values, ex.J, border=params["border"])
+        return select.working_extrep(ex, extrema, values.shape, table, primary,
+                                     transform=transform,
+                                     alpha_fallback=float(params["alpha_fallback"]))
+
+    def filter_overrides(self, params: dict, level: int) -> dict:
+        """``{step key: params}`` the chain's filters use at ``level`` (the engine's
+        ``level_keeps``): the level's own settings with Per-level filters on, none otherwise."""
+        if params.get("algorithm") != "lastwave" or not params.get("per_level"):
+            return {}
+        from dynamix.core.mz_lastwave import select
+
+        return select.level_filters(params.get("recon_levels", ""), level)
+
+    def shown_constraints(self, result: dict, raw: dict, params: dict, keeps_at) -> dict:
+        """What the display draws at the level on show (``result`` holds that one level, after
+        the filters): the maxima a LastWave reconstruction reads there
+        (``core.mz_lastwave.select.shown_level``; ``keeps_at(l)`` is what the filters keep at
+        level l), and ``_recon_reading``, the level's state and how many maxima it keeps. An
+        ``own`` level is the filters' result itself."""
+        layers = result.get("extrema") or []
+        idx = result.get("_scale_idx")
+        if (params.get("algorithm") != "lastwave" or "_lastwave" not in raw or idx is None
+                or len(layers) != 1):
+            return result
+        from dynamix.core.mz_lastwave import select
+
+        extrema = raw["extrema"]
+        l = int(idx) + 1
+        total = np.size(extrema[l - 1]["x"])
+        try:
+            table = select.parse_levels(params["recon_levels"], len(extrema))
+            state = table["levels"][l]["state"]
+            if state == "own":
+                shown = layers[0]
+            else:
+                primary = select.primary_selection(
+                    extrema, raw["_shape"], table, keeps_at, radius=int(params["near_radius"]),
+                    alpha_check=bool(params["alpha_check"]),
+                    alpha_tol=float(params["alpha_tol"]),
+                    alpha_fallback=float(params["alpha_fallback"]), only=(l,))
+                shown = select.shown_level(extrema, table, primary, l,
+                                           alpha_fallback=float(params["alpha_fallback"]))
+        except ValueError as exc:
+            return {**result, "_recon_reading": f"level {l}: {exc}"}
+        out = {**result, "extrema": [shown]}
+        if state in ("coder", "predict"):
+            s = table["levels"][l]["source"]
+            out["_ext_base"] = shown                    # positions of another level
+            out.pop("_ext_base_runs", None)
+            out.pop("_ext_base_closed", None)
+            what = f"{state} from level {s}"
+        else:
+            what = state
+        n = np.size(shown["x"])
+        out["_recon_reading"] = f"level {l} ({2 ** l} px): {what} · {n} of {total} maxima"
+        return out
 
     def roi_margin(self, params: dict) -> int:
         """How far outside an ROI the analysis reads, so the window's own border (the mirror

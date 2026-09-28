@@ -222,7 +222,7 @@ def test_the_lastwave_thumbnail_centres_each_block_on_its_registered_sample(win,
 
 
 def test_the_recon_row_draws_on_the_input_grid(win, qtbot):
-    layer = _mz_layer(win, qtbot)
+    layer = _mz_layer(win, qtbot, recon_live=True)    # the row draws its live preview
     _show(win, qtbot, layer, "recon", wait_for="recon_preview")
     assert _rect(win.canvas) == (-0.5, -0.5, N, N)
 
@@ -234,7 +234,7 @@ def test_the_printed_coarse_row_draws_on_the_input_grid(win, qtbot):
 
 
 def test_the_vector_drape_carries_the_outputs_offset(win, qtbot):
-    layer = _mz_layer(win, qtbot)
+    layer = _mz_layer(win, qtbot, recon_live=True)    # the recon row drapes its preview
     seen = []
 
     class _Arrangement:

@@ -26,6 +26,7 @@ from dynamix.model.layer import Layer
 DEM = pathlib.Path(__file__).resolve().parents[1] / "docs" / "demo" / "dem_crop.npz"
 
 _VIEW = ("recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode",
+         "recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol", "alpha_fallback",
          "show")
 
 
@@ -94,7 +95,9 @@ def test_param_order_choices_and_view_only_knobs(builtins):
     assert [p.name for p in dev.params] == ["n_levels", "algorithm", "border", "colocate_l1",
                                             "dither", "interpolate", "recon_live", "kappa",
                                             "clip", "run_mode", "iterations", "tolerance",
-                                            "coarse", "mode", "show"]
+                                            "coarse", "mode", "recon_levels", "per_level",
+                                            "near_radius", "alpha_check", "alpha_tol",
+                                            "alpha_fallback", "show"]
     assert by["show"].choices == ("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
                                   "residual")
     assert by["show"].default == "edges"
@@ -121,10 +124,12 @@ def test_declared_outputs(builtins):
     assert _output("thumbnail").grid == "stride"
     assert all(o.grid == "native" for o in outs if o.name != "thumbnail")
     recon = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")
-    assert _output("recon").params == recon
-    assert _output("recon_edges_only").params == tuple(p for p in recon if p != "coarse")
-    assert _output("residual").params == recon
-    assert _output("recon_preview").params == ("kappa", "clip", "coarse")
+    select = ("recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
+              "alpha_fallback")
+    assert _output("recon").params == recon + select
+    assert _output("recon_edges_only").params == tuple(p for p in recon if p != "coarse") + select
+    assert _output("residual").params == recon + select
+    assert _output("recon_preview").params == ("kappa", "clip", "coarse") + select
     assert _output("coarse").params == () and _output("thumbnail").params == ()
     # every show value past "edges" names a lazy output, and every lazy output but the
     # one-iteration preview (drawn on the recon row) is a show value
@@ -135,7 +140,7 @@ def test_declared_outputs(builtins):
 @pytest.mark.parametrize("name,value", [("coarse", "thumbnail"), ("show", "recon"),
                                         ("iterations", 5), ("mode", "set_points"),
                                         ("kappa", 3.0), ("clip", True), ("run_mode", "fixed"),
-                                        ("tolerance", 1e-4), ("recon_live", False)])
+                                        ("tolerance", 1e-4), ("recon_live", True)])
 def test_flipping_a_view_knob_is_a_cache_hit_for_the_analysis(builtins, name, value):
     field, cache = _synthetic(), Cache()
     first = resolve(_layer(n_levels=3), field, cache)

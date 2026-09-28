@@ -26,11 +26,14 @@ NY, NX, J = 96, 80, 3
 
 _NAMES = ["n_levels", "algorithm", "border", "colocate_l1", "dither", "interpolate",
           "recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode",
-          "show"]
+          "recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
+          "alpha_fallback", "show"]
+_SELECT_KNOBS = ("recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
+                 "alpha_fallback")
 _RECON_KNOBS = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")
 #: The Reconstruction section's knobs: Live (when work is dispatched, keyed nowhere) and the
 #: settings a reconstruction reads.
-_SECTION_KNOBS = ("recon_live",) + _RECON_KNOBS
+_SECTION_KNOBS = ("recon_live",) + _RECON_KNOBS + _SELECT_KNOBS
 _LASTWAVE = ("algorithm", ("lastwave",))
 _PRINTED = ("algorithm", ("printed",))
 
@@ -88,9 +91,10 @@ def test_param_names_order_defaults_and_sections(builtins):
     assert "wavelet" not in by and "alpha" not in by
     assert defaults_for(dev) == {
         "n_levels": 4, "algorithm": "lastwave", "border": "mirror", "colocate_l1": False,
-        "dither": False, "interpolate": False, "recon_live": True, "kappa": 1.0, "clip": False,
+        "dither": False, "interpolate": False, "recon_live": False, "kappa": 1.0, "clip": False,
         "run_mode": "converge", "iterations": 20, "tolerance": 1e-3, "coarse": "full",
-        "mode": "separable", "show": "edges"}
+        "mode": "separable", "recon_levels": "", "per_level": False, "near_radius": 1,
+        "alpha_check": False, "alpha_tol": 0.5, "alpha_fallback": 0.0, "show": "edges"}
     assert by["algorithm"].choices == ("lastwave", "printed")
     assert by["border"].choices == ("mirror", "periodic")
     assert by["colocate_l1"].label == "Co-locate level 1"
@@ -131,9 +135,13 @@ def test_the_recon_outputs_key_every_reconstruction_setting(builtins):
     assert names == ["edges", "coarse", "thumbnail", "recon", "recon_edges_only", "residual",
                      "recon_preview"]
     for name in ("recon", "residual"):
-        assert set(_output(name).params) == set(_RECON_KNOBS)
-    assert set(_output("recon_edges_only").params) == set(_RECON_KNOBS) - {"coarse"}
-    assert _output("recon_preview").params == ("kappa", "clip", "coarse")
+        assert set(_output(name).params) == set(_RECON_KNOBS + _SELECT_KNOBS)
+    assert (set(_output("recon_edges_only").params)
+            == set(_RECON_KNOBS + _SELECT_KNOBS) - {"coarse"})
+    assert _output("recon_preview").params == ("kappa", "clip", "coarse") + _SELECT_KNOBS
+    assert all(_output(n).selects for n in ("recon", "recon_edges_only", "residual",
+                                            "recon_preview"))
+    assert not any(_output(n).selects for n in ("edges", "coarse", "thumbnail"))
     assert _output("recon_preview").lazy and _output("recon_preview").kind == "raster"
     # Live chooses when work is dispatched and changes no result: no output reads it
     assert all("recon_live" not in o.params for o in declared_outputs(get_device("mz_edges")))

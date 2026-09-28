@@ -68,6 +68,9 @@ class Output:
     #: False for an output other outputs build on (a preview a longer run continues from): it is
     #: cached and fetched like any output but gets no row of its own.
     row: bool = True
+    #: True for an output computed from the extrema the chain's filters keep at each level: it
+    #: receives them as ``compute_output(..., keeps=)`` and its key folds in the filter steps.
+    selects: bool = False
 
 
 def declared_outputs(device) -> tuple[Output, ...]:

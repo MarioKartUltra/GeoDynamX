@@ -111,8 +111,10 @@ def held_preview(monkeypatch, win):
 
 
 def _mz_layer(win, qtbot, **params):
-    """Drop mz_edges (LastWave, J = 4) on the dataset; it forks a child layer and lands."""
-    params = {**defaults_for(get_device("mz_edges")), "n_levels": J, **params}
+    """Drop mz_edges (LastWave, J = 4, Live on: most tests here exercise the live preview) on
+    the dataset; it forks a child layer and lands."""
+    params = {**defaults_for(get_device("mz_edges")), "n_levels": J, "recon_live": True,
+              **params}
     desc = [{"device": "mz_edges", "params": params}]
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win.strips.set_steps(desc, field=win.field)
@@ -173,13 +175,16 @@ def test_the_section_shows_while_mz_edges_is_in_the_rack_with_the_knobs_that_app
     assert _section_shown(win)
     panel = win._recon_panel
     assert panel.visible_knobs() == ("recon_live", "kappa", "clip", "run_mode", "iterations",
-                                     "tolerance", "coarse")
+                                     "tolerance", "coarse", "per_level", "near_radius",
+                                     "alpha_check", "alpha_fallback")
+    assert panel.levels.isVisibleTo(panel) and len(panel.levels.rows) == J
     assert panel.run_button.isEnabled() and panel.stop_button.isEnabled()
     i = win._names.index("mz_edges")
     assert not set(win.strips.strip(i).controls) & set(RECON_KNOBS)   # the strip shows none
     win.strips.strip(i)._on_control_changed("algorithm", "printed")
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     assert panel.visible_knobs() == ("iterations", "coarse", "mode")
+    assert not panel.levels.isVisibleTo(panel)
     assert not panel.run_button.isEnabled()
     assert panel.run_button.toolTip() == "the printed algorithm runs on show"
     win.layer_list.select_layer(master.layer_id)

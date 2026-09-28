@@ -226,6 +226,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     result: dict = {}
     upstream: str | None = None      # key of the preceding transform; threads the lineage
     analysis: tuple = (None, None, None, None)   # (device, params, key, input) of the last one
+    analysis_raw = None                          # the last transform's (viewed) result
     start = 0
     roi_steps = _roi_prefix(layer)
     if roi_steps:
@@ -247,6 +248,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         result = cache.get_or_compute(upstream, _region)
         analyzer, analyzer_params = roi_steps[-1]
         result = apply_view(analyzer, result, analyzer_params)
+        analysis_raw = result
         analysis = (analyzer.name, analyzer_params, upstream, None)
         ran_t.extend(d.name for d, _p in roi_steps)
         start = len(roi_steps)
@@ -266,6 +268,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                 return d.compute(s, p, progress=progress)
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
+            analysis_raw = result
             analysis = (device.name, params, key, src)
             upstream = key
             ran_t.append(device.name)
@@ -284,6 +287,13 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     # result's filtered extrema/chains, while the product + selection stay stamped for the
     # views' own index path.
     result = materialize_selection(result)
+    # An analysis whose lazy outputs read their own selection per level draws, at the level on
+    # show, what they read there (``shown_constraints``); the filters' result otherwise.
+    shown = getattr(get_device(analysis[0]), "shown_constraints", None) if analysis[0] else None
+    if shown is not None and analysis_raw is not None:
+        device, params = get_device(analysis[0]), analysis[1]
+        result = shown(result, analysis_raw, params,
+                       lambda l: level_keeps(layer, analysis_raw, device, params, l))
 
     return Renderable(
         layer_id=layer.layer_id,
@@ -300,12 +310,73 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     )
 
 
-def output_key(device_name: str, output: Output, params: dict, analysis_key: str) -> str:
+def selection_steps(steps) -> list:
+    """``[(key, ref), ...]``: the filter steps of ``steps`` a selecting output reads (every filter
+    but ``scale_select``, whose level pick is the display's), keyed by device name, ``#2``, ``#3``
+    ... for a device's repeats, the keys per-level filter settings are stored under."""
+    seen: dict = {}
+    out = []
+    for ref in steps:
+        if ref.device == "scale_select" or is_transform(get_device(ref.device)):
+            continue
+        seen[ref.device] = seen.get(ref.device, 0) + 1
+        n = seen[ref.device]
+        out.append((ref.device if n == 1 else f"{ref.device}#{n}", ref))
+    return out
+
+
+def selection_recipe(layer) -> list:
+    """What a selecting output's key folds in: ``[key, keyed params]`` of each of ``layer``'s
+    :func:`selection_steps`. The window predicts output keys through this same function."""
+    out = []
+    for key, ref in selection_steps(layer.chain.steps):
+        device = get_device(ref.device)
+        out.append([key, keyed_params(device, validate_params(device, ref.params))])
+    return out
+
+
+def level_keeps(layer, raw: dict, device, params: dict, level: int) -> np.ndarray:
+    """Which extrema of level ``level`` (1-based) of the analysis result ``raw`` ``layer``'s
+    filters keep: the :func:`selection_steps` applied to that level alone, as ``scale_select``
+    would hand it over, with the analysis device's per-level settings for the level
+    (``device.filter_overrides(params, level)``, ``{key: params}``) over each step's own. A bool
+    per extremum, in the level's own order."""
+    base = raw["extrema"][level - 1]
+    result = {**raw, "extrema": [base], "_scale_idx": level - 1, "_ext_base": base}
+    scales = raw.get("scales")
+    if scales is not None and len(scales) >= level:
+        result["_scale_px"] = float(np.asarray(scales)[level - 1])
+    overrides_of = getattr(device, "filter_overrides", None)
+    overrides = overrides_of(params, level) if overrides_of is not None else {}
+    for key, ref in selection_steps(layer.chain.steps):
+        filt = get_device(ref.device)
+        names = {p.name for p in filt.params}
+        extra = {k: v for k, v in overrides.get(key, {}).items() if k in names}
+        p = validate_params(filt, {**ref.params, **extra})
+        if not getattr(filt, "selection_aware", False):
+            result = materialize_selection(result)
+        result = filt.apply(result, p)
+    result = materialize_selection(result)
+    kept = (result.get("extrema") or [base])[0]
+    nx = int(raw["_shape"][1])
+
+    def flat(e):
+        return np.asarray(e["y"], np.int64) * nx + np.asarray(e["x"], np.int64)
+
+    return np.isin(flat(base), flat(kept))
+
+
+def output_key(device_name: str, output: Output, params: dict, analysis_key: str,
+               selection: list | None = None) -> str:
     """The cache key of lazy ``output`` of ``device_name``: its own name, the view-only ``params``
     it declares, and the analysis key as its upstream -- so any change to the analysis or
-    anything before it re-keys the output, and a knob the output does not read never does."""
-    return cache_key(f"{device_name}/{output.name}", "", {p: params[p] for p in output.params},
-                     upstream=analysis_key)
+    anything before it re-keys the output, and a knob the output does not read never does. A
+    selecting output (``Output.selects``) also folds in ``selection``, the layer's
+    :func:`selection_recipe`."""
+    own = {p: params[p] for p in output.params}
+    if output.selects:
+        own["_selection"] = selection or []
+    return cache_key(f"{device_name}/{output.name}", "", own, upstream=analysis_key)
 
 
 def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | None = None,
@@ -329,7 +400,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
     output = next((o for o in outputs if o.name == name and o.lazy), None)
     if output is None:
         raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
-    key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key)
+    selection = selection_recipe(layer) if output.selects else None
+    key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key, selection)
     raw = cache.get(r.analysis_key)
     values = np.asarray(r.analysis_input.values)
 
@@ -339,7 +411,12 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
 
     def _compute():
         device = get_device(r.analysis_device)
+        extra = {}
+        if output.selects:
+            # What the filters keep at every level, each with its own settings.
+            extra["keeps"] = [level_keeps(layer, raw, device, r.analysis_params, l)
+                              for l in range(1, len(raw.get("extrema") or ()) + 1)]
         return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
-                                     progress=progress, cancel=cancel)
+                                     progress=progress, cancel=cancel, **extra)
 
     return cache.get_or_compute(key, _compute)

@@ -22,8 +22,8 @@ from dynamix.devices.derived_vectors import DerivedVectors
 from dynamix.devices.chain_classify import ChainClassify
 from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
                                            ChainModulusFilter)
-from dynamix.devices.filters import (HLineLength, HLineModulus, ModulusThreshold, OrientationWedge,
-                                     ScaleSelect)
+from dynamix.devices.filters import (HLineHolder, HLineLength, HLineModulus, ModulusThreshold,
+                                     OrientationWedge, ScaleSelect)
 from dynamix.devices.groups import GroupFilter, GroupPaint
 from dynamix.devices.holder_map import HolderMap
 from dynamix.devices.cdf_edges import CDFEdges
@@ -96,6 +96,7 @@ BUILTIN_DEVICES = (
     ModulusThreshold,
     HLineLength,
     HLineModulus,
+    HLineHolder,
     ChainHolderFilter,
     ChainModulusFilter,
     ChainLengthFilter,
