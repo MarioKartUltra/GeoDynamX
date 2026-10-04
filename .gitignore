@@ -7,30 +7,11 @@ build/
 dist/
 *.egg-info/
 catalog/.obsidian/
-research/reconstruction/out/
 data/
-.claude/worktrees/
-docs/reference/*.aux
-docs/reference/*.log
-docs/reference/*.out
-docs/reference/*.toc
-docs/reference/*.pdf
-
-# ---- working files kept LOCAL, never published ----
-# session and design-context notes, agent tooling, editor settings, internal docs and research
-CLAUDE.md
-DESIGN.md
-PRODUCT.md
-.claude/
-.superpowers/
-.worktrees/
 .vscode/
-docs/*
-research/
-tools/
-tests/test_graphify.py
 
-# ---- the public device reference: the ONE part of docs/ that ships ----
+# ---- docs/ is local except the device reference, the one part that ships ----
+docs/*
 !docs/reference/
 docs/reference/*
 !docs/reference/devices_reference.tex
