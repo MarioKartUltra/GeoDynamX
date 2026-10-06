@@ -69,7 +69,7 @@ from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overvi
 from dynamix.geo.mapping import axis_at, has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
-from dynamix.model.contracts import FIELD, input_contract, step_states
+from dynamix.model.contracts import FIELD, StepState, input_contract, step_states
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
 from dynamix.model.forking import is_primary, routing_head, ships_to
@@ -7049,6 +7049,24 @@ both ``Canvas`` signals report the
                 if control is not None:
                     control.set_value(value)
 
+    def _strip_states(self, renderable) -> list:
+        """One :class:`~dynamix.model.contracts.StepState` per strip, a bypassed strip counted
+        as applying: the engine's verdicts (``renderable.step_states``, one per enabled step of
+        the chain it resolved) laid over the enabled strips in order. A pending layer resolves
+        the last run's transforms with the current filters, a recipe other than the strips', so
+        its strips, and any landing whose count does not match them, are judged on the strips'
+        own recipe by the same rule."""
+        enabled = [i for i, b in enumerate(self._bypassed) if not b]
+        states = tuple(renderable.step_states)
+        if (len(states) != len(enabled)
+                or (self.layer is not None and self.layer.layer_id in self._pending_layers)):
+            states = step_states([DeviceRef(self._names[i], dict(self._params[i]))
+                                  for i in enabled], self._layer_input())
+        out = [StepState(True)] * len(self._names)
+        for i, state in zip(enabled, states):
+            out[i] = state
+        return out
+
     def _update_readings(self, renderable) -> None:
         """Every strip's state and reading, from the result that just landed.
 
@@ -7065,10 +7083,16 @@ both ``Canvas`` signals report the
         state = "cached" if renderable.from_cache else "idle"
         enabled = [i for i in range(len(self._names)) if not self._bypassed[i]]
         terminal = enabled[-1] if enabled else None
+        states = self._strip_states(renderable)
         for i, name in enumerate(self._names):
             strip = self.strips.strip(i)
+            # A step that does not apply was skipped by the engine: it shows its reason in place
+            # of a state and a reading, and stays in the chain with its bypass untouched.
+            strip.set_inactive("" if states[i].applies else states[i].reason)
             if self._bypassed[i]:
                 strip.set_reading("")
+                continue
+            if not states[i].applies:
                 continue
             if is_transform(get_device(name)):
                 strip.set_state(state)
