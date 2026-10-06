@@ -6,7 +6,11 @@ an analyzed layer forks a sibling representation; ordinary edits commit as befor
 so a consumer stranded on the parent whose producers include the NEW analyzer ships over."""
 from __future__ import annotations
 
-from dynamix.shell.main_window import _analyzer_fork
+import pytest
+
+from dynamix.model.chain import DeviceRef
+from dynamix.model.contracts import FIELD, STACK
+from dynamix.shell.main_window import _analyzer_fork, _contract_fork
 
 
 def _d(*names, bypassed=()):
@@ -166,3 +170,147 @@ def test_pm_edges_is_a_primary_analyzer_and_chain_producer():
     sibling, shipped = _analyzer_fork(["pm_edges", "scale_select"], [False, False],
                                       _d("pm_edges", "scale_select", "mz_edges"))
     assert shipped == []                       # its consumers stay on their producer
+
+
+# -- the fork and the shipping law read from the declared contracts (_contract_fork) ---------
+
+
+@pytest.fixture
+def builtins(clean_registry):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    return clean_registry
+
+
+def _refs(*names):
+    return [DeviceRef(n, {}) for n in names]
+
+
+def test_derived_primaries_are_the_table_plus_the_decompositions(builtins):
+    from dynamix.model.device import DEVICES, get_device
+    from dynamix.model.forking import is_primary
+    from dynamix.shell.main_window import _PRIMARY_ANALYZERS
+
+    derived = {n for n in DEVICES if is_primary(get_device(n))}
+    assert derived == set(_PRIMARY_ANALYZERS) | {"pca", "tucker_HOOI_HOSVD", "tucker_havok",
+                                                  "ssa2d"}
+
+
+def test_derived_shipping_is_the_table_apart_from_the_readers_of_chains_and_alpha(builtins):
+    from dynamix.model.contracts import next_step_state
+    from dynamix.shell.main_window import _CHAIN_PRODUCERS, _CONSUMER_PRODUCERS
+
+    def producers(consumer):
+        out = []
+        for p in _CHAIN_PRODUCERS:
+            alone = [DeviceRef(p, {})]
+            topology = alone + [DeviceRef("chain_topology", {})]
+            if (next_step_state(alone, FIELD, consumer).applies
+                    or next_step_state(topology, FIELD, consumer).applies):
+                out.append(p)
+        return tuple(out)
+
+    expected = dict(_CONSUMER_PRODUCERS)
+    for c in ("chain_holder", "chain_modulus", "chain_length", "chain_classify", "group_paint",
+              "group_filter", "chain_topology", "min_vchains"):
+        expected[c] = ("wtmm2d", "wtmm2d_roi")
+    expected["hline_holder"] = ("mz_edges",)
+    assert {c: producers(c) for c in _CONSUMER_PRODUCERS} == expected
+
+
+def test_contract_fork_forks_a_decomposition_dropped_on_an_analyzed_layer(builtins):
+    sibling, shipped = _contract_fork(_refs("wtmm2d"), [False], _d("wtmm2d", "ssa2d"))
+    assert _devices(sibling) == ["ssa2d"] and shipped == []
+    assert _analyzer_fork(["wtmm2d"], [False], _d("wtmm2d", "ssa2d")) is None   # the table
+
+
+def test_contract_fork_ships_chain_filters_only_to_a_chain_producer(builtins):
+    old = _refs("holder_measure", "chain_holder", "orientation_wedge")
+    sibling, shipped = _contract_fork(old, [False] * 3,
+                                      _d("holder_measure", "chain_holder", "orientation_wedge",
+                                         "mz_edges"))
+    assert _devices(sibling) == ["mz_edges"] and shipped == [2]
+    _, table = _analyzer_fork([r.device for r in old], [False] * 3,
+                              _d("holder_measure", "chain_holder", "orientation_wedge",
+                                 "mz_edges"))
+    assert table == [1, 2]                               # the table shipped chain_holder too
+    _, shipped = _contract_fork(old, [False] * 3,
+                                _d("holder_measure", "chain_holder", "orientation_wedge",
+                                   "wtmm2d"))
+    assert shipped == [1, 2]
+
+
+def test_contract_fork_ships_topology_with_its_reader(builtins):
+    sibling, shipped = _contract_fork(
+        _refs("holder_map", "chain_topology", "min_vchains"), [False] * 3,
+        _d("holder_map", "chain_topology", "min_vchains", "wtmm2d"))
+    assert _devices(sibling) == ["wtmm2d"] and shipped == [1, 2]
+
+
+def test_contract_fork_ships_hline_holder_to_the_analysis_that_stamps_alpha(builtins):
+    sibling, shipped = _contract_fork(_refs("wtmm2d", "hline_holder"), [False, False],
+                                      _d("wtmm2d", "hline_holder", "mz_edges"))
+    assert _devices(sibling) == ["mz_edges"] and shipped == [1]
+
+
+def test_contract_fork_keeps_consumers_of_the_parents_own_analysis(builtins):
+    sibling, shipped = _contract_fork(
+        _refs("wtmm2d", "orientation_wedge", "chain_holder"), [False] * 3,
+        _d("wtmm2d", "orientation_wedge", "chain_holder", "holder_map"))
+    assert _devices(sibling) == ["holder_map"] and shipped == []
+
+
+def test_contract_fork_leaves_ordinary_edits_alone(builtins):
+    assert _contract_fork(_refs("wtmm2d"), [False], _d("wtmm2d", "orientation_wedge")) is None
+    assert _contract_fork(_refs("wtmm2d", "orientation_wedge"), [False, False],
+                          _d("orientation_wedge", "wtmm2d")) is None          # reorder
+    assert _contract_fork(_refs("wtmm2d"), [False], _d()) is None             # removal
+    assert _contract_fork([], [], _d("wtmm2d")) is None
+    assert _contract_fork(_refs("noise"), [False], _d("noise", "wtmm2d")) is None
+    assert _contract_fork(_refs("holder_map"), [True], _d("holder_map", "wtmm2d")) is None
+
+
+def test_contract_fork_on_a_stack_master_forks_a_decomposition_and_keeps_noise(builtins):
+    sibling, shipped = _contract_fork([], [], _d("pca"), root=True, layer_input=STACK)
+    assert _devices(sibling) == ["pca"] and shipped == []
+    sibling, shipped = _contract_fork(_refs("noise"), [False], _d("noise", "tucker_HOOI_HOSVD"),
+                                      root=True, layer_input=STACK)
+    assert _devices(sibling) == ["tucker_HOOI_HOSVD"] and shipped == []
+    assert _contract_fork(_refs("noise"), [False], _d("noise"), root=True,
+                          layer_input=STACK) is None
+
+
+def test_contract_fork_carries_a_bus_rows_bus_into_the_sibling(builtins):
+    """tucker dropped on a [bus, pca] row analyses the bus's stack: the sibling starts with
+    the bus, its sends included."""
+    sends = '[{"path": "/a.npz", "subdataset": null, "band": null, "label": "a"}]'
+    old = [DeviceRef("bus", {"_sends": sends}), DeviceRef("pca", {})]
+    sibling, shipped = _contract_fork(old, [False, False],
+                                      [{"device": "bus", "params": {"_sends": sends}},
+                                       {"device": "pca", "params": {}},
+                                       {"device": "tucker_HOOI_HOSVD", "params": {}}])
+    assert _devices(sibling) == ["bus", "tucker_HOOI_HOSVD"] and shipped == []
+    assert sibling[0]["params"] == {"_sends": sends}
+
+
+def test_contract_fork_carries_a_band_rows_band_select_into_the_sibling(builtins):
+    """mz_edges dropped on an analysed band row [band_select, wtmm2d] analyses that band, and
+    the shipping law is judged after the band_select both chains start with."""
+    band = {"band": 2, "_band_id": "B2"}
+    old = [DeviceRef("band_select", dict(band)), DeviceRef("wtmm2d", {}),
+           DeviceRef("chain_holder", {})]
+    proposal = [{"device": "band_select", "params": dict(band)},
+                {"device": "wtmm2d", "params": {}}, {"device": "chain_holder", "params": {}},
+                {"device": "mz_edges", "params": {}}]
+    sibling, shipped = _contract_fork(old, [False] * 3, proposal, layer_input=STACK)
+    assert _devices(sibling) == ["band_select", "mz_edges"] and shipped == []
+    assert sibling[0]["params"] == band
+    old = [DeviceRef("band_select", dict(band)), DeviceRef("holder_measure", {}),
+           DeviceRef("orientation_wedge", {})]
+    proposal = [{"device": "band_select", "params": dict(band)},
+                {"device": "holder_measure", "params": {}},
+                {"device": "orientation_wedge", "params": {}},
+                {"device": "mz_edges", "params": {}}]
+    sibling, shipped = _contract_fork(old, [False] * 3, proposal, layer_input=STACK)
+    assert _devices(sibling) == ["band_select", "mz_edges"] and shipped == [2]

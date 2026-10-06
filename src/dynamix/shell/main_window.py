@@ -69,9 +69,10 @@ from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overvi
 from dynamix.geo.mapping import axis_at, has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
-from dynamix.model.contracts import input_contract, step_states
+from dynamix.model.contracts import FIELD, input_contract, step_states
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
+from dynamix.model.forking import is_primary, routing_head, ships_to
 from dynamix.model.inspector_state import (InspectorState, SubLayerState,
                                            inspectors_from_payload, inspectors_to_payload)
 from dynamix.model.param import Param, ParamKind
@@ -420,6 +421,63 @@ def _analyzer_fork(old_names, old_bypassed, descriptors, *,
                and new_primary in _CONSUMER_PRODUCERS[n]
                and old_primary not in _CONSUMER_PRODUCERS[n]]
     return sibling, shipped
+
+
+def _contract_fork(old_steps, old_bypassed, descriptors, *, root: bool = False,
+                   layer_input: str = FIELD) -> "tuple | None":
+    """``(sibling_steps, shipped_parent_indices)`` for a fork, or None for an ordinary edit: the
+    decision :func:`_analyzer_fork` makes, with the primary analyzers and the shipping law read
+    from the devices' declared contracts (:func:`dynamix.model.forking.is_primary`,
+    :func:`dynamix.model.forking.ships_to`) in place of ``_PRIMARY_ANALYZERS`` and
+    ``_CONSUMER_PRODUCERS``.
+
+    ``old_steps`` is the current recipe as ``DeviceRef``s (bypassed steps included, parallel to
+    ``old_bypassed``); ``layer_input`` is the layer's input contract, which a forked sibling
+    shares. The sibling starts with the parent's leading routing steps, params included
+    (:func:`dynamix.model.forking.routing_head`: a band row's ``band_select``, a bus row's
+    ``bus``), so it reads the raster its parent reads; then it takes the proposal's multiset
+    difference from the recipe, as before. A parent step that is neither a primary analyzer nor
+    one of those routing steps ships when it applies to the sibling's analysis and not to the
+    parent's; a shipped Transform joins the sibling's analysis for the steps after it
+    (chain_topology carries min_vchains with it)."""
+    from collections import Counter
+
+    old_names = [ref.device for ref in old_steps]
+    old_primary = next((ref.device for ref, b in zip(old_steps, old_bypassed)
+                        if not b and is_primary(get_device(ref.device))), None)
+    if old_primary is None and not root:
+        return None
+    new_primary = next((d["device"] for d in descriptors
+                        if not d.get("bypassed") and d["device"] != old_primary
+                        and is_primary(get_device(d["device"]))), None)
+    if new_primary is None:
+        return None
+    have = Counter(old_names)
+    sibling = []
+    for d in descriptors:
+        n = d["device"]
+        if have[n] > 0:
+            have[n] -= 1
+        else:
+            sibling.append(dict(d))
+    if not sibling:
+        return None
+    enabled = [ref for ref, b in zip(old_steps, old_bypassed) if not b]
+    head = routing_head(enabled)
+    parent = [ref for ref in enabled if is_transform(get_device(ref.device))]
+    taken = list(head) + [DeviceRef(d["device"], dict(d.get("params", {}))) for d in sibling
+                          if not d.get("bypassed") and is_transform(get_device(d["device"]))]
+    shipped = []
+    for i, ref in enumerate(old_steps):
+        if is_primary(get_device(ref.device)) or any(ref is h for h in head):
+            continue
+        own = [r for r in parent if r is not ref]
+        if ships_to(ref.device, own, taken, layer_input, ref.params):
+            shipped.append(i)
+            if is_transform(get_device(ref.device)):
+                taken.append(ref)
+    carried = [{"device": ref.device, "params": dict(ref.params)} for ref in head]
+    return carried + sibling, shipped
 
 
 def _roi_spawn(old_names, descriptors) -> "tuple | None":
