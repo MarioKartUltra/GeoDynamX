@@ -702,14 +702,31 @@ One complex cross-diffusion evolution (Gilboa small-$\theta$; Barbeiro 2023 for 
 scale-space reading), snapshotted at the dyadic schedule
 $n=\sigma^2/(2\cos\theta)/\mathrm{d}t$: the Re channel evolves as the Gaussian-smoothed
 image and $\operatorname{Im}/\theta \approx t\cdot\mathrm{LoG}$ (machine-pinned), so one
-evolution \emph{is} a Mexican-hat scale space. Edge modes: \texttt{mz} $=$ grad-Re NMS
-maxima (\emph{our} graft --- the M--Z definition applied to a different generator, making
-\dev{cdf\_edges} directly comparable to \dev{mz\_edges} at matched scales); \texttt{marr}
-$=$ Im zero crossings (the CDF authors' own edge concept --- Barbeiro's $v$ ``in the role
-of edge detector''). The nonlinear variant modulates diffusivity by the Im channel
-(Perona--Malik-style edge stopping through $k$). Final Re (\texttt{filtered}) and Im
-(\texttt{edge\_channel}) rasters ride the result. Scales are effective Gaussian
+evolution \emph{is} a Mexican-hat scale space. The nonlinear variant modulates diffusivity
+by the Im channel (Perona--Malik-style edge stopping through $k$). Final Re (\texttt{filtered})
+and Im (\texttt{edge\_channel}) rasters ride the result. Scales are effective Gaussian
 $\sigma$ in px.
+
+\textbf{Edge readouts} (\emph{Edges}, \texttt{edge\_mode}), each read from every snapshot:
+\begin{itemize}\itemsep2pt
+  \item \textbf{Canny (Re)}, stored as \texttt{mz}: the gradient-modulus maxima of the Re
+        channel. The gradient is the central difference; its direction is snapped to the
+        nearest of the eight neighbour directions, and a pixel is kept where its modulus is
+        at least that of both neighbours along it (neighbours wrap at the field's edges).
+        This is Canny's non-maximum suppression with a single floor,
+        $|\nabla\mathrm{Re}|>\texttt{floor}\cdot\max|\nabla\mathrm{Re}|$, and no hysteresis:
+        one threshold and no edge tracking. The Re channel is already the Gaussian-smoothed
+        image, so the smoothing is the diffusion's own. The same reading is the Mallat--Zhong
+        edge definition, which makes \dev{cdf\_edges} directly comparable to \dev{mz\_edges}
+        at matched scales; applying it to the diffusion is this app's own graft.
+  \item \textbf{Marr (Im)}, stored as \texttt{marr}: the zero crossings of the Im channel
+        ($\approx t\cdot\mathrm{LoG}$, the Marr--Hildreth edges), where a pixel and the next
+        one along its row or column differ in sign, kept where the slope of Im exceeds
+        \texttt{floor} times its maximum. This is the CDF authors' own edge concept:
+        Barbeiro's $v$ ``in the role of edge detector''.
+\end{itemize}
+Under the \texttt{follow} detector both readouts give way to xsmurf's contour following on the
+Re channel, and \texttt{edge\_mode} and \texttt{interpolate} are inert.
 
 \begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
@@ -718,7 +735,7 @@ $\sigma$ in px.
 \texttt{k\_edge} ($k$) & 1.0 & $[0.001,1000]$ & Perona--Malik edge threshold, image units (nonlinear only) \\
 \texttt{theta} ($\theta$) & 0.1047 & $[0.001,0.5]$ rad & complex-diffusion angle (small-$\theta$ regime; $\pi/30$ default) \\
 \texttt{dt} & 0.2 & $[0.001,0.24]$ & explicit-Euler step (stability-capped) \\
-\texttt{edge\_mode} (Edges) & mz & mz / marr & Canny/M--Z maxima of Re, or Marr zero crossings of Im \\
+\texttt{edge\_mode} (Edges) & mz & mz / marr & the edge readout: Canny (Re), stored as \texttt{mz}, or Marr (Im), stored as \texttt{marr} (above) \\
 \texttt{detector} & nms & nms / follow & maxima detector \\
 \texttt{show} (\emph{view}) & edges & edges / filtered / edge\_channel / re\_scale / im\_scale & the edge stack, the final Re or Im, or the Re or Im at the shown level (the Outputs rows; the \emph{edges} row hides the maxima over any raster) \\
 \texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
