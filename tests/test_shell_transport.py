@@ -205,3 +205,93 @@ def test_the_resolve_worker_resolves_at_the_level_it_is_handed(qtbot, stub_devic
     assert renderable.result["_scale_idx"] == 2
     assert len(renderable.result["extrema"]) == 1
     assert "ui.scale_idx" not in layer.tags    # the worker never writes view state
+
+
+def test_the_transport_sets_the_shown_level_and_leaves_the_chain(qtbot, loaded):
+    from dynamix.model.contracts import StepState
+
+    chain = loaded.layer.chain
+    with qtbot.waitSignal(loaded.resolved, timeout=5000) as sig:
+        loaded.transport.slider.setValue(2)
+    renderable = sig.args[0]
+    assert loaded.layer.tags["ui.scale_idx"] == "2"
+    assert loaded.layer.chain is chain                         # a scrub never edits the chain
+    assert loaded._params[1]["scale_idx"] == 0                 # the saved step keeps its value
+    assert renderable.result["_scale_idx"] == 2
+    assert renderable.cache_misses == 0
+    assert renderable.step_states[1] == StepState(False, "the scale is set by the Transport")
+    assert loaded._shown_level() == 3                          # 1-based, for per-level filters
+    assert loaded._current_scale_px() == loaded._scales[2]
+
+
+def test_the_wtmm_holder_rack_scrubs(qtbot, fbm64, clean_registry):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.presets import PRESETS
+    from dynamix.shell.main_window import MainWindow
+
+    register_builtin_devices()
+    field = RasterField(name="fbm", values=fbm64, frame=LocalFrame(units="px"),
+                        x_axis=np.arange(64.0), y_axis=np.arange(64.0))
+    win = MainWindow(steps=PRESETS["WTMM + Hölder"])
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=60000) as sig:
+        win.load_field(field, "mem:wtmm-holder")
+    first = sig.args[0].result
+    assert len(first["extrema"]) == 1 and first["_scale_idx"] == 0
+    assert win.transport.clock.n_scales == len(first["scales"]) > 3
+
+    with qtbot.waitSignal(win.resolved, timeout=10000) as swept:
+        win.transport.slider.setValue(3)
+
+    r = swept.args[0]
+    assert r.cache_misses == 0
+    assert r.result["_scale_idx"] == 3 and len(r.result["extrema"]) == 1
+    assert len(r.result["chains"]) == len(first["chains"])     # V-chains are not a level's
+    assert win._active_result["_scale_idx"] == 3                # what the canvas was given
+    assert win.layer.tags["ui.scale_idx"] == "3"
+    assert [s.device for s in win.layer.chain.steps] == [n for n, _ in PRESETS["WTMM + Hölder"]]
+
+
+def test_a_derivative_fork_writes_the_shown_level(qtbot, stub_devices, monkeypatch):
+    import dynamix.core.derivative as derivative
+    import dynamix.shell.main_window as mw
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.shell.main_window import MainWindow
+
+    field = RasterField(name="fork", values=np.asarray(_FIELD), frame=LocalFrame(units="px"),
+                        x_axis=np.arange(16.0), y_axis=np.arange(16.0))
+    win = MainWindow(steps=(("stub_stack", {}), ("modulus_threshold", {"frac": 0.0})))
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.load_field(field, "mem:fork-level")
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        win.transport.slider.setValue(2)
+    offered, written = {}, {}
+
+    class _Fork:
+        def __init__(self, **kw):
+            offered.update(kw)
+
+        def exec(self):
+            return 1
+
+        def choices(self):
+            return {"name": "level", "bands": [], "vectors": True, "nest": False,
+                    "temporary": True}
+
+    def _write(path, **kw):
+        written.update(kw)
+        raise ValueError("held")                  # stop before the file opens as a dataset
+
+    monkeypatch.setattr(mw, "ForkDialog", _Fork)
+    monkeypatch.setattr(derivative, "write_derivative", _write)
+    win._on_fork_derivative(win.layer.layer_id)
+
+    (shown,) = win._active_result["extrema"]
+    assert offered["vector_counts"][0] == len(shown["x"])
+    (kept,) = written["vectors"]["extrema"]
+    np.testing.assert_array_equal(kept["x"], shown["x"])
+    assert written["vectors"]["_scale_idx"] == 2

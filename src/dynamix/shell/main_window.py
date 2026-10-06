@@ -15,8 +15,9 @@ The wiring is the whole point of this file, and it has exactly two paths:
   the 16 ms law: the transform is already in the cache, so the resolve re-runs ``apply()`` only
   and reports ``cache_misses == 0``. The engine's own counters are the proof, and a test asserts
   them (``test_filter_knob_drag_is_zero_miss``). The transport's scale sweep is the same path --
-  it writes ``scale_select``'s param and re-resolves -- because scrub and playback and the knob
-  must be ONE code path or they drift apart.
+  it writes the layer's shown level (``ui.scale_idx``) and re-resolves, and ``resolve`` reduces
+  the cached stack to that level before the filters -- because scrub and playback must be ONE
+  code path or they drift apart.
 - **A TRANSFORM param moved** -> hand the whole resolve to :class:`~dynamix.shell.worker.
   ResolveWorker` on its own thread, mark the transform strips ``computing``, and keep showing the
   last good render until it lands. Every worker signal is connected to a BOUND METHOD, never a
@@ -62,7 +63,8 @@ from dynamix.core.transect import chains_in_buffer, sample_profile
 from dynamix.devices import register_builtin_devices
 from dynamix.devices.groups import encode_groups
 from dynamix.engine import Cache, cache_key, resolve, source_identity
-from dynamix.engine.resolve import output_key, selection_recipe, selection_steps
+from dynamix.engine.resolve import (output_key, seed_shown_level, selection_recipe,
+                                    selection_steps, shown_level)
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
                                     scan_footprints, scene_label)
@@ -2952,7 +2954,8 @@ both ``Canvas`` signals report the
         if layer is None or field is None:
             return None
         try:
-            renderable = resolve(layer, field, self.cache, source_id=layer.source_id)
+            renderable = resolve(layer, field, self.cache, source_id=layer.source_id,
+                                 level=shown_level(layer))
         except Exception:
             return None
         chains = renderable.result.get("chains")
@@ -2974,19 +2977,18 @@ both ``Canvas`` signals report the
         the same array ``_scale_reading`` reads for the transport's own label -- so the current
         index into it is the contact scale with no conversion at all.
 
-        Returns ``None`` when there is no ``scale_select`` step in the chain, or nothing has been
-        resolved yet -- a fabricated ``1.0`` px would be a made-up number that looks like a
-        measurement; callers that need an actual float for geometry (``suggest_code``'s
+        Returns ``None`` when the active layer has no shown level (``ui.scale_idx``), or nothing
+        has been resolved yet -- a fabricated ``1.0`` px would be a made-up number that looks
+        like a measurement; callers that need an actual float for geometry (``suggest_code``'s
         ``contact_scale``) are the ones that decide on a fallback, and ``LinkStore``'s own
         ``scale_first_contact`` stores the ``None`` honestly -- the design's "not yet measured",
         which the panel already renders as ``@a=?`` rather than a fabricated px reading."""
-        i = self._index_of("scale_select")
-        if i is None or not self._scales:
+        level = shown_level(self.layer) if self.layer is not None else None
+        if level is None or not self._scales:
             return None
-        idx = int(self._params[i].get("scale_idx", 0))
-        if not (0 <= idx < len(self._scales)):
+        if not (0 <= level < len(self._scales)):
             return None
-        return float(self._scales[idx])
+        return float(self._scales[level])
 
     def _refresh_topology_panel(self) -> None:
         """Push the store's current links, and the active layer's own cached ``chain_topology``
@@ -4715,9 +4717,9 @@ both ``Canvas`` signals report the
 
     # -- per-level filter settings (mz_edges' Per-level filters) --------------------------------
     def _shown_level(self) -> int:
-        """The level (1-based) the Scale slider shows."""
-        i = self._index_of("scale_select")
-        return int(self._params[i].get("scale_idx", 0)) + 1 if i is not None else 1
+        """The level (1-based) the Transport shows: the active layer's ``ui.scale_idx``."""
+        level = shown_level(self.layer) if self.layer is not None else None
+        return (level if level is not None else 0) + 1
 
     def _filter_step_keys(self) -> list:
         """``[(index, key)]`` of the chain's filters a per-level setting is stored under: the
@@ -4773,13 +4775,15 @@ both ``Canvas`` signals report the
                                           self._params[step_index]))
         self._write_levels(found[0], data)
 
-    def _load_level_filters(self, level: int) -> None:
+    def _load_level_filters(self, level: int) -> bool:
         """The Scale slider moved with Per-level filters on: the rack's filter knobs take
-        ``level``'s stored settings (a level with none keeps what the knobs show)."""
+        ``level``'s stored settings (a level with none keeps what the knobs show). True when a
+        knob took a stored value, so the caller rebuilds the chain from the knobs."""
         found = self._per_level_step()
         if found is None or self.strips is None:
-            return
+            return False
         stored = self._levels_data(found[0]).get("filters", {}).get(str(level), {})
+        wrote = False
         for i, key in self._filter_step_keys():
             values = stored.get(key)
             if not values:
@@ -4794,7 +4798,9 @@ both ``Canvas`` signals report the
                 control = box.controls.get(name)
                 if control is not None:
                     control.set_value(value)
+                wrote = True
             box._apply_active_when()
+        return wrote
 
     def _on_recon_run(self) -> None:
         """Run: compute the shown reconstruction row (recon, recon (edges only) or residual; the
@@ -6551,7 +6557,11 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             return
         self._params[step_index][name] = value
-        if self._names[step_index] == "scale_select" and name == "scale_idx":
+        # While the layer has a shown level (the Transport's ``ui.scale_idx``), a scale_select
+        # step is inactive: its knob edits the step's param and moves no level.
+        legacy_scale = (self._names[step_index] == "scale_select" and name == "scale_idx"
+                        and shown_level(self.layer) is None)
+        if legacy_scale:
             self._load_level_filters(int(value) + 1)
         elif not is_transform(get_device(self._names[step_index])):
             self._store_level_filter(step_index)
@@ -6563,7 +6573,7 @@ both ``Canvas`` signals report the
             self._stamp_backproject(self._names, self._params)
         self.layer.chain = self._chain()
         self._snapshot_recipe()
-        if self._names[step_index] == "scale_select" and name == "scale_idx":
+        if legacy_scale:
             # The scale is addressable from two places; the one that did not originate this
             # change still has to follow it, or the slider and its reading contradict the canvas
             # and the next playback tick snaps back to the stale position.
@@ -6812,33 +6822,31 @@ both ``Canvas`` signals report the
         self._sync_browser_states()
 
     def _on_scale_changed(self, idx: int) -> None:
-        """The transport writes ``scale_select``'s param and takes the filter path -- the same one
-        the knob takes. Scrub, playback and the strip control cannot be allowed to diverge.
+        """The transport sets the active layer's shown level -- its ``ui.scale_idx`` tag -- and
+        takes the filter path: ``resolve`` reduces the cached stack to that level before the
+        filters run, so scrub and playback share one code path on every multi-scale layer and
+        the chain is never edited. With Per-level filters on, the level's stored filter settings
+        go into the knobs and the chain is rebuilt from them.
 
-        The ``_syncing`` guard comes FIRST, ahead of the params write as well as the resolve.
+        The ``_syncing`` guard comes FIRST, ahead of the tag write as well as the resolve.
         While ``_sync_transport`` is re-ranging the slider, this signal does not carry a user's
         intention -- it carries the transport's own stale position, echoed back out of
-        ``set_n_scales``' clamp. Writing it into the params would discard whatever scale the chain
-        had actually been built with: a window opened at scale 4 -- from a project file, a
-        devloop rebuild, or DEMO_CHAIN -- would silently display scale 0 on its first frame.
+        ``set_n_scales``' clamp. Writing it would discard the level the layer was saved at: a
+        window opened at level 4 would silently display level 0 on its first frame.
         """
-        if self._syncing:
+        if self._syncing or self.layer is None:
             return
-        i = self._index_of("scale_select")
-        if i is None or self.layer is None:
-            return
-        # The zone being disabled does not stop this signal: the transport is a SECOND, keyboard-
-        # and mouse-reachable write path into ``_params``/``layer.chain`` (Space, scrub) that never
-        # goes through a strip control at all -- it needs its own lock/freeze refusal, before the
-        # first write below, exactly as ``_on_param_changed``/``_on_chain_edited`` already have.
+        # The zone being disabled does not stop this signal: the transport is keyboard- and
+        # mouse-reachable (Space, scrub) without any strip control, so it carries its own
+        # lock/freeze refusal, as ``_on_param_changed``/``_on_chain_edited`` do.
         notice = _lock_notice(self.layer)
         if notice is not None:
             self.strips._show_warning(notice)
             return
-        self._params[i]["scale_idx"] = int(idx)
-        self._load_level_filters(int(idx) + 1)
-        self.layer.chain = self._chain()
-        self._snapshot_recipe()
+        self.layer.tags["ui.scale_idx"] = str(int(idx))
+        if self._load_level_filters(int(idx) + 1):
+            self.layer.chain = self._chain()
+            self._snapshot_recipe()
         self._reresolve()
 
     def _reresolve(self) -> None:
@@ -6963,7 +6971,8 @@ both ``Canvas`` signals report the
             layer = dataclasses.replace(self.layer, chain=hybrid)
         try:
             renderable = resolve(layer, self.field, self.cache,
-                                 source_id=self.layer.source_id)
+                                 source_id=self.layer.source_id,
+                                 level=shown_level(self.layer))
         except Exception as exc:
             self._report_error(str(exc))
             return
@@ -7320,7 +7329,7 @@ both ``Canvas`` signals report the
         # compute -- the one whose canvas the user is waiting on. A background
         # arrangement-queue layer gets no preview (nobody is staring at a blank canvas for it).
         worker = ResolveWorker(layer, field, self.cache, layer.source_id, preview=is_active,
-                               prelude=prelude)
+                               prelude=prelude, level=shown_level(layer))
         # BOUND METHODS ONLY (worker.py's documented trap): Qt can only place a call on the GUI
         # thread if the receiver is a QObject it can ask for a thread affinity.
         worker.progress.connect(self._on_progress)
@@ -7853,7 +7862,8 @@ both ``Canvas`` signals report the
                 tail = self._arr_tail_key(layer)
                 if tail is None or tail in self.cache:
                     try:
-                        renderable = resolve(layer, field, self.cache, source_id=layer.source_id)
+                        renderable = resolve(layer, field, self.cache, source_id=layer.source_id,
+                                             level=shown_level(layer))
                     except Exception as exc:
                         entries.append({"layer": layer, "field": field, "result": None,
                                         "status": f"error:{exc}", "signature": signature,
@@ -7960,46 +7970,38 @@ both ``Canvas`` signals report the
 
     # -- transport -------------------------------------------------------------------------
     def _sync_transport(self, n: int) -> None:
-        """Re-range after a recompute, WITHOUT losing the scale the chain is actually on.
+        """Re-range after a recompute, WITHOUT losing the level the layer is shown at.
 
         ``set_n_scales`` emits ``scaleChanged`` as it clamps its own position into the new range,
-        and the flag keeps that echo from writing a param or firing a resolve of its own --
+        and the flag keeps that echo from writing the tag or firing a resolve of its own --
         ``_on_finished`` resolves once, immediately after this.
 
-        The CHAIN is the authority on which scale is selected, not the widget: the transport
-        starts every window's life at 0, so a chain restored at scale 4 would otherwise be
-        overwritten by a control that has never been touched. So the index is read from the params
-        first, clamped into the new range, written back, and pushed into the transport with
-        ``sync_to`` (silent -- ``_on_finished``'s resolve is the one that acts on it). Clamping
-        writes back too: if a recompute leaves fewer scales than the chain asked for, params and
-        slider have to land on the SAME survivor, or the chain keeps requesting a scale that no
-        longer exists while the slider shows one that does.
+        The LAYER is the authority on which level is shown -- its ``ui.scale_idx`` tag -- not
+        the widget: the transport starts every window's life at 0, so a layer saved at level 4
+        would otherwise be overwritten by a control that has never been touched. A layer with no
+        tag takes the ``scale_idx`` of a saved ``scale_select`` step once
+        (:func:`~dynamix.engine.resolve.seed_shown_level`), else level 0. The level is clamped
+        into the new range, written back, and pushed into the transport with ``sync_to``
+        (silent -- ``_on_finished``'s resolve is the one that acts on it). Clamping writes back
+        too: a recompute that leaves fewer scales must leave the tag and the slider on the SAME
+        surviving level.
         """
-        i = self._index_of("scale_select")
-        if i is None:
-            self._syncing = True
-            try:
-                self.transport.set_n_scales(n)
-            finally:
-                self._syncing = False
-            # Followers adopt where the clamp actually LEFT the master. The clamp's own echo
-            # cannot carry them -- it fires while ``_syncing`` is up, holding the transport's
-            # stale position, which is why ``_drive_follower_inspectors`` refuses it.
-            self._drive_follower_inspectors(self.transport.slider.value())
-            return
-        target = max(0, min(int(self._params[i].get("scale_idx", 0)), n - 1))
+        layer = self.layer
+        if layer is not None:
+            seed_shown_level(layer)
+        level = shown_level(layer) if layer is not None else None
+        target = max(0, min(level if level is not None else 0, n - 1))
         self._syncing = True
         try:
             self.transport.set_n_scales(n)
         finally:
             self._syncing = False
-        self._params[i]["scale_idx"] = target
-        self.layer.chain = self._chain()
-        self._snapshot_recipe()
+        if layer is not None:
+            layer.tags["ui.scale_idx"] = str(target)
         self.transport.sync_to(target)
-        # The index that SETTLES, pushed to the followers. This is the second silent settle:
-        # without the push, a layer restored at scale 2 moves the master here and leaves every
-        # following inspector on whatever it had -- the divergence with the "M" still lit.
+        # The level that SETTLES, pushed to the followers: the clamp's own echo fired while
+        # ``_syncing`` was up, holding the transport's stale position, which is why
+        # ``_drive_follower_inspectors`` refuses it.
         self._drive_follower_inspectors(target)
 
     def _toggle_transport(self) -> None:

@@ -306,7 +306,7 @@ def test_a_filter_edit_during_an_output_job_redraws_before_it_lands(win, qtbot, 
     layer = _mz_scale_layer(win, qtbot)
     win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
     qtbot.waitUntil(lambda: win._out_job is not None, timeout=10000)
-    win._on_param_changed(win._names.index("scale_select"), "scale_idx", 2)
+    win._on_scale_changed(2)
     assert win._out_job is not None and win._out_job[1] == "recon"   # still in flight
     assert win._active_result["_scale_idx"] == 2
     assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · computing…"
@@ -331,7 +331,7 @@ def test_a_filter_edit_during_an_output_job_redraws_the_last_run_while_a_transfo
     win._on_param_changed(mz_i, "n_levels", n_levels - 1)   # a transform edit awaits Run,
     win._on_param_changed(mz_i, "n_levels", n_levels)       # still after it is turned back
     assert layer.layer_id in win._pending_layers
-    win._on_param_changed(win._names.index("scale_select"), "scale_idx", 2)
+    win._on_scale_changed(2)
     assert win._out_job is not None and win._out_job[1] == "recon"   # still in flight
     assert win._active_result["_scale_idx"] == 2                     # the hybrid redrew now
     slow_recon.set()

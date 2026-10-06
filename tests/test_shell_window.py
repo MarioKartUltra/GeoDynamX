@@ -313,36 +313,40 @@ def test_filter_knob_drag_is_zero_miss(qtbot, loaded):
     assert renderable.cache_hits >= 1                    # the transform was consulted and HIT
     # ... and the filter genuinely re-ran: zero misses must not mean "nothing happened"
     assert 0 < len(renderable.result["extrema"][0]["x"]) < before
-    assert renderable.filters_run == ("scale_select", "orientation_wedge", "modulus_threshold")
+    # scale_select is inactive under the Transport's level: it is skipped, never run
+    assert "scale_select" not in renderable.filters_run
+    assert renderable.filters_run[-2:] == ("orientation_wedge", "modulus_threshold")
     assert loaded.is_computing is False                  # no worker was dispatched
     assert loaded._params[3]["frac"] == 0.5
 
 
-def test_scale_change_routes_through_scale_select_and_is_zero_miss(qtbot, loaded):
+def test_scale_change_sets_the_shown_level_and_is_zero_miss(qtbot, loaded):
     with qtbot.waitSignal(loaded.resolved, timeout=5000) as sig:
         loaded.transport.slider.setValue(2)
     renderable = sig.args[0]
     assert renderable.result["_scale_idx"] == 2
     assert renderable.cache_misses == 0
-    # the strip's own control was re-read from the params, so it does not go stale
-    assert loaded.strips.strip(1).controls["scale_idx"].text() == "2"
+    assert loaded.layer.tags["ui.scale_idx"] == "2"
+    # the scale_select step is inactive and keeps its saved value; its control shows that value
+    assert loaded.strips.strip(1).controls["scale_idx"].text() == "0"
 
 
-def test_strip_scale_knob_drags_the_transport_with_it(qtbot, loaded):
-    """The scale is addressable from the strip AND the transport. Whichever one did not
-    originate the change still has to follow it, or the slider and its reading contradict the
-    canvas and the next playback tick snaps back to the stale position."""
+def test_the_inactive_scale_select_knob_leaves_the_transport_alone(qtbot, loaded):
+    """The Transport owns the shown level. A ``scale_select`` knob edits an inactive step: its
+    param changes, and the slider, the layer's shown level and the canvas stay where the
+    Transport put them."""
     emissions = []
     loaded.transport.scaleChanged.connect(emissions.append)
 
     with qtbot.waitSignal(loaded.resolved, timeout=5000) as sig:
         loaded.strips.strip(1).controls["scale_idx"].valueChanged.emit(2)
 
-    assert sig.args[0].result["_scale_idx"] == 2
-    assert loaded.transport.slider.value() == 2
-    assert loaded.transport.clock.index == 2
-    assert loaded.transport.reading_label.text() == loaded._scale_reading(2)
-    assert emissions == [], "the transport echoed a change it did not originate"
+    assert loaded._params[1]["scale_idx"] == 2
+    assert sig.args[0].result["_scale_idx"] == 0
+    assert loaded.layer.tags["ui.scale_idx"] == "0"
+    assert loaded.transport.slider.value() == 0
+    assert loaded.transport.reading_label.text() == loaded._scale_reading(0)
+    assert emissions == []
 
 
 def test_a_restored_scale_idx_survives_the_transport_re_ranging(qtbot, stub_devices):
@@ -370,22 +374,22 @@ def test_a_restored_scale_idx_survives_the_transport_re_ranging(qtbot, stub_devi
     assert sig.args[0].result["_scale_idx"] == 2          # what the canvas was actually given
 
 
-def test_a_shrinking_scale_stack_clamps_params_and_transport_together(qtbot, loaded):
-    """The other ordering: the transport is at 2 when a recompute leaves only ONE scale. Both the
-    param and the slider must land on the clamped index -- if only the slider clamps, the chain
-    keeps asking for a scale that no longer exists and the two displays disagree."""
+def test_a_shrinking_scale_stack_clamps_the_shown_level_and_transport_together(qtbot, loaded):
+    """The other ordering: the transport is at 2 when a recompute leaves only ONE scale. The
+    layer's shown level and the slider must land on the clamped index -- if only the slider
+    clamps, the layer keeps asking for a level that no longer exists and the two disagree."""
     with qtbot.waitSignal(loaded.resolved, timeout=5000):
         loaded.transport.slider.setValue(2)
-    assert loaded._params[1]["scale_idx"] == 2
+    assert loaded.layer.tags["ui.scale_idx"] == "2"
 
     loaded.strips.strip(0).controls["n_scales"].valueChanged.emit(1)      # one scale only
     with qtbot.waitSignal(loaded.resolved, timeout=10000) as sig:
         pass
 
-    assert loaded._params[1]["scale_idx"] == 0
+    assert loaded.layer.tags["ui.scale_idx"] == "0"
     assert loaded.transport.slider.value() == 0
     assert loaded.transport.clock.index == 0
-    assert sig.args[0].result["_scale_idx"] == 0
+    assert sig.args[0].result.get("_scale_idx", 0) == 0      # one level: nothing to reduce
 
 
 def test_only_the_first_transform_strip_claims_the_compute(qtbot, stub_devices):
@@ -414,7 +418,9 @@ def test_only_the_terminal_filter_claims_the_point_count(qtbot, loaded):
     strip showing it made four devices each claim the same number as its own effect."""
     readings = [loaded.strips.strip(i).reading_label.text() for i in range(len(STUB_CHAIN))]
     assert readings[-1].endswith(" pts")                  # modulus_threshold, the terminal filter
-    assert readings[1] == "" and readings[2] == ""        # scale_select, orientation_wedge
+    # scale_select is inactive under the Transport's level: it reads its reason, never a count
+    assert readings[1] == "the scale is set by the Transport"
+    assert readings[2] == ""                              # orientation_wedge
     assert readings[0].endswith(" ms")                    # the transform reports its own cost
 
 
@@ -936,8 +942,7 @@ def test_real_wtmm_transport_sweep_step_is_within_the_frame_budget(qtbot, fbm64,
 
     timings = []
     for idx in range(1, min(n, 9)):
-        win._params[win._index_of("scale_select")]["scale_idx"] = idx
-        win.layer.chain = win._chain()
+        win.layer.tags["ui.scale_idx"] = str(idx)        # the Transport's write, minus the widget
         t0 = time.perf_counter()
         win._reresolve()
         timings.append((time.perf_counter() - t0) * 1000.0)
@@ -1583,18 +1588,18 @@ def test_two_inspectors_one_following_one_not_diverge_visibly(qtbot, loaded):
 # inspector was left behind with its "M" still checked.
 
 
-def test_the_scale_select_knob_also_moves_a_following_inspector(qtbot, loaded):
-    """Repro 1 -- the STRIP KNOB, not the transport. ``_on_param_changed``'s ``scale_select``
-    branch settles the master with ``sync_to`` (silent), so before the fix nothing at all
-    reached the follower and it sat at index 0 with "M" checked."""
+def test_the_inactive_scale_select_knob_moves_no_inspector(qtbot, loaded):
+    """The Transport sets the shown level, so a ``scale_select`` knob edits an inactive step:
+    the master and a following inspector both stay on the level the Transport shows, and they
+    agree on its reading."""
     inspector = _open_inspector(loaded, loaded.layer.source_id)
     assert inspector.follow_master is True
 
     with qtbot.waitSignal(loaded.resolved, timeout=10000):
         loaded.strips.strip(1).controls["scale_idx"].valueChanged.emit(2)
 
-    assert loaded.transport.slider.value() == 2
-    assert inspector.transport.slider.value() == 2
+    assert loaded.transport.slider.value() == 0
+    assert inspector.transport.slider.value() == 0
     assert inspector.transport.reading_label.text() == loaded.transport.reading_label.text()
 
 

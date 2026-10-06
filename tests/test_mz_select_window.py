@@ -76,11 +76,11 @@ def test_a_filter_edit_changes_the_recon_key(win, qtbot):
 def test_per_level_filters_follow_the_scale_slider(win, qtbot):
     layer = _rack(win, qtbot, ("hline_length", {"min_len": 1}))
     i = win._names.index("hline_length")
-    s = win._names.index("scale_select")
     win._on_recon_knob_changed("per_level", True)
     data = json.loads(_step(layer).params["recon_levels"])
     assert all(data["filters"][str(l)]["hline_length"]["min_len"] == 1 for l in range(1, J + 1))
-    win._on_param_changed(s, "scale_idx", 1)                 # level 2
+    win._on_scale_changed(1)                                  # level 2
+    assert win.layer.tags["ui.scale_idx"] == "1"
     win._on_param_changed(i, "min_len", 9)
     data = json.loads(_step(layer).params["recon_levels"])
     assert data["filters"]["2"]["hline_length"]["min_len"] == 9
