@@ -1510,14 +1510,9 @@ def test_master_transport_moves_a_following_inspector_slider(qtbot, loaded):
 
 
 def test_master_transport_does_not_move_an_unfollowing_inspector(qtbot, loaded):
-    """Un-checking "M" freezes that inspector's scale CONTROL while the master keeps moving.
-
-    What this asserts is the index and the reading, not two extrema sets. Sec 5d's
-    comparison-of-two-extrema-sets is NOT what un-checking "M" buys today -- the picture is the
-    chain's post-``scale_select`` result, one extrema layer, so a window held at another index
-    has no second scale in it to draw and says so instead
-    (``test_a_follower_whose_picture_cannot_follow_says_so``). The divergent PICTURE needs a
-    per-source result at a per-source scale, which is a sec 5b "no new compute path" decision."""
+    """Un-checking "M" freezes that inspector's scale CONTROL while the master keeps moving:
+    the window keeps its own index and reading, and resolves its own level
+    (``test_two_inspectors_one_following_one_not_diverge_visibly``)."""
     inspector = _open_inspector(loaded, loaded.layer.source_id)
     inspector.follow_button.setChecked(False)
     assert inspector.follow_master is False
@@ -1552,15 +1547,11 @@ def test_an_inspector_slider_drag_does_not_change_the_active_layer_chain(qtbot, 
 
 
 def test_two_inspectors_one_following_one_not_diverge_visibly(qtbot, loaded):
-    """What visibly diverges is the scale INDEX and its reading, in two windows at once.
-
-    Neither picture moves to the other's scale, and each window SAYS which scale it is showing
-    rather than letting a moved reading imply a moved picture. ``following`` is over a
-    non-active source, so it adopts the master's index over a kept picture; ``frozen`` is over
-    the ACTIVE source, so its picture DID move (the chain re-ran at the master's index) while
-    its own control stayed put -- the two faces of the same confession."""
-    from dynamix.shell.inspector import SCALE_NOT_SHOWN_LIVE_TEXT, SCALE_NOT_SHOWN_TEXT
-
+    """What visibly diverges is the scale INDEX, its reading AND the picture, in two windows at
+    once. ``following`` is over a non-active source and adopts the master's index; ``frozen`` is
+    over the ACTIVE source with its "M" off. Each window shows the level its own control names:
+    it resolves its source's latest result at that level through the shared cache, so neither
+    window has a scale to confess."""
     first_source = loaded.layer.source_id
     with qtbot.waitSignal(loaded.resolved, timeout=10000):
         loaded.load_field(_FIELD * 2.0, "mem:stub2")
@@ -1575,9 +1566,12 @@ def test_two_inspectors_one_following_one_not_diverge_visibly(qtbot, loaded):
     assert frozen.transport.slider.value() == 0
     assert following.transport.reading_label.text() == loaded.transport.reading_label.text()
     assert following.transport.reading_label.text() != frozen.transport.reading_label.text()
-    # ... and each window states which scale its own picture is actually on
-    assert SCALE_NOT_SHOWN_TEXT.format(control=2, picture=0) in following.status_label.text()
-    assert SCALE_NOT_SHOWN_LIVE_TEXT.format(control=0, picture=2) in frozen.status_label.text()
+    # ... and each picture is at its own window's level, with nothing to confess
+    assert following.picture_scale_idx == 2
+    assert frozen.picture_scale_idx == 0
+    assert "is not in this result" not in following.status_label.text()
+    assert "is not in this result" not in frozen.status_label.text()
+    assert loaded.is_computing is False
 
 
 # ------------------------- Drive followers from what SETTLES
@@ -1627,17 +1621,15 @@ def test_a_layer_switch_leaves_master_and_follower_on_the_same_index(qtbot, load
     assert inspector.transport.reading_label.text() == loaded.transport.reading_label.text()
 
 
-# --------------- The inspector's own control is ROUTED, or SAID
+# --------------- The inspector's own control is ROUTED
 # The plan's Task-10 interface: an inspector's own slider "emits ``scaleChanged(source_id,
 # idx)``, which ``MainWindow`` routes into that inspector's display only -- never into
-# ``_params``/``layer.chain``". The route lands here. Where the HELD result cannot show the
-# requested scale (it is post-``scale_select``: one extrema layer), the window says so instead
-# of letting its reading contradict its picture -- sec 8 rule 6, naming the state and the fix.
+# ``_params``/``layer.chain``". The route lands here. The window resolves its source's latest
+# result at its own level through the shared cache; only an analysis that is not cached leaves
+# it on the scale it holds, and then it says so (sec 8 rule 6).
 
 
 def test_an_inspector_slider_drag_is_routed_into_that_inspectors_display(qtbot, loaded):
-    from dynamix.shell.inspector import SCALE_NOT_SHOWN_LIVE_TEXT
-
     source_id = loaded.layer.source_id
     inspector = _open_inspector(loaded, source_id)
     chain_before = loaded.layer.chain
@@ -1647,20 +1639,17 @@ def test_an_inspector_slider_drag_is_routed_into_that_inspectors_display(qtbot, 
 
     assert loaded.layer.chain is chain_before                    # containment, still
     assert [dict(p) for p in loaded._params] == params_before
+    assert loaded.layer.tags["ui.scale_idx"] == "0"              # nor the layer's shown level
     assert loaded.transport.slider.value() == 0                  # and never the master either
-    assert inspector.picture_scale_idx == 0
-    # this source's layer IS the active one, so the sentence names the LIMITATION, not a
-    # gesture the user has already made
-    assert SCALE_NOT_SHOWN_LIVE_TEXT.format(control=2, picture=0) in inspector.status_label.text()
+    assert loaded.is_computing is False                          # the cache answered
+    assert inspector.picture_scale_idx == 2                      # this window's own level
+    assert "is not in this result" not in inspector.status_label.text()
 
 
-def test_a_follower_whose_picture_cannot_follow_says_so(qtbot, loaded):
-    """The reading must not lie about the picture. A follower over a source that is NOT the
-    active layer's adopts the master's INDEX (it is following), but its held result is one
-    extrema layer at its own scale -- so the picture stays put and the window says which scale
-    it is actually showing."""
-    from dynamix.shell.inspector import SCALE_NOT_SHOWN_TEXT
-
+def test_a_follower_over_another_source_shows_the_masters_level(qtbot, loaded):
+    """A follower over a source that is NOT the active layer's adopts the master's INDEX and
+    resolves its own source's result at that level through the cache: the picture follows, and
+    the window keeps saying it is the last result of a layer that is not active."""
     first_source = loaded.layer.source_id
     inspector = _open_inspector(loaded, first_source)
     with qtbot.waitSignal(loaded.resolved, timeout=10000):
@@ -1670,12 +1659,12 @@ def test_a_follower_whose_picture_cannot_follow_says_so(qtbot, loaded):
     with qtbot.waitSignal(loaded.resolved, timeout=10000):
         loaded.transport.slider.setValue(2)
 
-    assert inspector.transport.slider.value() == 2                # it followed the INDEX ...
-    np.testing.assert_array_equal(                                # ... the picture could not
-        inspector.canvas.extrema_item.getData()[0], drawn)
+    assert inspector.transport.slider.value() == 2
+    assert inspector.picture_scale_idx == 2
+    assert len(inspector.canvas.extrema_item.getData()[0]) != len(drawn)
     text = inspector.status_label.text()
-    assert text.startswith("last result")                         # MainWindow's sentence, kept
-    assert SCALE_NOT_SHOWN_TEXT.format(control=2, picture=0) in text
+    assert text.startswith("last result")
+    assert "is not in this result" not in text
 
 
 # ------------------------------------- Persistence, and the one-shot restore

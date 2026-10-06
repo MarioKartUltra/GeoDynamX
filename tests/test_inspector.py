@@ -339,3 +339,80 @@ def test_a_remembered_row_this_project_no_longer_has_is_ignored(window):
     window.set_sublayer_state("999:7", visible=False, opacity=0.2)
 
     assert "999:7" not in window.rows
+
+
+# ------------------------------------------- A window resolves its own level
+# ``MainWindow`` gives every inspector a level resolver: ``(source_id, idx) -> result | None``,
+# answered from the shared cache. A held ONE-level result at another scale is replaced by the
+# resolver's; a follower waits for the master's index instead of resolving on a landing.
+
+
+def _level_result(idx: int, n_scales: int = 4) -> dict:
+    """ONE level of a stack, as ``resolve(level=idx)`` hands it over: the level's own extrema
+    (a point count that differs per level) stamped with ``_scale_idx``."""
+    m = max(4, 12 - 2 * idx)
+    p = np.arange(m, dtype=np.int64)
+    layer = {"x": p, "y": p, "mod": np.linspace(1.0, 0.1, m), "arg": np.linspace(0.0, np.pi, m),
+             "line_id": np.full(m, -1, dtype=np.int64)}
+    return {"scales": [2.0 * (k + 1) for k in range(n_scales)], "extrema": [layer],
+            "_scale_idx": idx, "_shape": (16, 16), "params": {}}
+
+
+def test_a_window_with_a_level_resolver_shows_its_own_level(window, node):
+    calls = []
+
+    def resolver(source_id, idx):
+        calls.append((source_id, idx))
+        return _level_result(idx)
+
+    window.set_level_resolver(resolver)
+    window.show_result(_Renderable(_level_result(0)), active=True)
+    drawn = len(window.canvas.extrema_item.getData()[0])
+
+    window.transport.slider.setValue(2)             # this window's own control, dragged
+    window.redraw_at(2)                             # what MainWindow routes that drag into
+
+    assert calls == [(node.source_id, 2)]
+    assert window.picture_scale_idx == 2
+    assert len(window.canvas.extrema_item.getData()[0]) != drawn
+    assert window.status_label.text() == NO_RESULT_TEXT      # nothing to confess
+
+
+def test_a_resolver_with_nothing_cached_leaves_the_confession(window):
+    window.set_level_resolver(lambda source_id, idx: None)
+    window.show_result(_Renderable(_level_result(0)), active=True)
+
+    window.transport.slider.setValue(2)
+    window.redraw_at(2)
+
+    assert window.picture_scale_idx == 0
+    assert SCALE_NOT_SHOWN_LIVE_TEXT.format(control=2, picture=0) in window.status_label.text()
+
+
+def test_a_window_holding_its_own_level_resolves_it_when_a_result_lands(window, node):
+    calls = []
+    window.set_level_resolver(lambda sid, idx: calls.append((sid, idx)) or _level_result(idx))
+    window.follow_button.setChecked(False)
+    window.set_n_scales(4)
+    window.transport.slider.setValue(1)
+
+    window.show_result(_Renderable(_level_result(3)), active=True)    # the master's level
+
+    assert calls == [(node.source_id, 1)]
+    assert window.picture_scale_idx == 1
+    # ... and the canvas holds level 1's points, the same ones level 1 draws when handed over
+    held = window.canvas.extrema_item.getData()[0].copy()
+    window.follow_button.setChecked(True)
+    window.show_result(_Renderable(_level_result(1)), active=True)
+    np.testing.assert_array_equal(window.canvas.extrema_item.getData()[0], held)
+
+
+def test_a_follower_waits_for_the_masters_index_instead_of_resolving(window):
+    calls = []
+    window.set_level_resolver(lambda sid, idx: calls.append((sid, idx)) or _level_result(idx))
+
+    window.show_result(_Renderable(_level_result(2)), active=True)
+    window.set_scale_index(2)                       # the master's index arrives
+
+    assert calls == []
+    assert window.picture_scale_idx == 2

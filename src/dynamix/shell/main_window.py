@@ -5733,6 +5733,9 @@ both ``Canvas`` signals report the
         if node is None:
             return
         inspector = InspectorWindow(source_id, node.label, node, self._scale_reading, parent=self)
+        # Each inspector shows the level its own control names: it fetches its source's latest
+        # result at that level through the shared cache (never a compute).
+        inspector.set_level_resolver(self._inspector_result_at)
         inspector.closed.connect(self._on_inspector_closed)
         # The inspector's OWN scale control is routed back into
         # that inspector's display and nowhere else. Routed HERE rather than acted on inside the
@@ -5817,14 +5820,12 @@ both ``Canvas`` signals report the
         -- its slider freezes while the master keeps moving, so the two windows visibly stop
         agreeing about which scale index they are on.
 
-        **What this does NOT yet buy.** Sec 5d's use case is the comparison of two extrema SETS
-        at two scales, and that is not what un-checking "M" delivers today: the picture in an
-        inspector is the chain's own resolved result, which is post-``scale_select`` (ONE extrema
-        layer), so a window driven to another index has no other scale in it to draw. It says so
-        instead (``InspectorWindow.redraw_at`` -> ``SCALE_NOT_SHOWN_TEXT``). Delivering the
-        divergent PICTURE needs a per-source result at a per-source scale -- the pre-filter stack
-        kept per source, or a cached re-filter -- and that is an open sec 5b "no new compute
-        path" decision.
+        **Two windows, two levels, two pictures.** Each inspector shows the level its own
+        control names: a window whose held result is another level asks
+        :meth:`_inspector_result_at` for its source's latest result at that level -- a resolve
+        through the shared cache, filters only, never a compute. Only an analysis that is not
+        cached leaves a window on the scale it holds, and it says so
+        (``InspectorWindow.redraw_at`` -> ``SCALE_NOT_SHOWN_TEXT``).
 
         Called from every place the master's index actually SETTLES, not from
         ``Transport.scaleChanged`` alone: that signal is emitted by ``_set_index`` only -- a
@@ -5856,6 +5857,29 @@ both ``Canvas`` signals report the
             # This one IS the user's own gesture on this window (unlike a follower's
             # silent adopt), so it is what a restart should bring back.
             self._persist_inspectors()
+
+    def _inspector_result_at(self, source_id: str, idx: int) -> "dict | None":
+        """``source_id``'s latest result at level ``idx``, for an inspector showing a level of
+        its own: the layer that produced it, resolved again at that level through the shared
+        cache -- the cached analysis plus the filters. The layer's own tag and chain are never
+        written. ``None`` when that layer or its field is gone, its analysis is not cached (an
+        inspector never starts a compute), or the resolve raises."""
+        renderable = self._last_renderables.get(source_id)
+        if renderable is None:
+            return None
+        layer = self._layer_by_id.get(renderable.layer_id)
+        field = self._fields.get(renderable.layer_id)
+        if layer is None or field is None:
+            return None
+        tail = self._arr_tail_key(layer)
+        if tail is not None and tail not in self.cache:
+            return None
+        try:
+            result = resolve(layer, field, self.cache, source_id=layer.source_id,
+                             level=int(idx)).result
+        except Exception:
+            return None
+        return result if isinstance(result, dict) else None
 
     def _fan_out_to_inspectors(self, renderable) -> None:
         """``resolved`` reached the window: hand it to the inspector open over ITS source.

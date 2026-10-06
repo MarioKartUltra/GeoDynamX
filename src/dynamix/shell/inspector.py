@@ -48,13 +48,13 @@ from dynamix.shell.transport import Transport
 NO_RESULT_TEXT = "no result yet — select a layer over this source and run its chain"
 
 #: Appended to the status strip whenever this window's scale CONTROL names a scale its PICTURE is
-#: not showing. That happens whenever the held result is post-``scale_select`` -- the shipped
-#: ``DEMO_CHAIN``'s shape -- because that filter reduces the stack to the ONE layer the chain asked
-#: for (``devices/filters.py``'s ``ScaleSelect.apply``), so there is no other scale in this window
-#: to draw. Showing a moving reading over a still picture and saying nothing is precisely the
-#: "silent refusal" sec 8 rule 6 forbids, so this names the state AND the fix -- and the fix it
-#: names is a gesture that exists today: make that source's layer active and the master's scrub
-#: re-runs its chain at the new index, which is what actually moves the picture.
+#: not showing. The held result is one level (``resolve`` reduces the stack to the shown level),
+#: and a window fetches another level through its level resolver
+#: (:meth:`InspectorWindow.set_level_resolver`), which answers from the shared cache only. So
+#: this is reached when that source's analysis is not cached for its current chain, or in a
+#: window with no resolver. Showing a moving reading over a still picture and saying nothing is
+#: the "silent refusal" sec 8 rule 6 forbids, so this names the state AND the fix: make that
+#: source's layer active, which runs its chain.
 SCALE_NOT_SHOWN_TEXT = ("scale {control} is not in this result — showing scale {picture}; "
                         "select this source's layer and scrub to re-run it there")
 
@@ -62,8 +62,8 @@ SCALE_NOT_SHOWN_TEXT = ("scale {control} is not in this result — showing scale
 #: the sentence above would name a gesture the user has already made ("select this source's
 #: layer" — it is selected). Instructing someone to do what they have just done is the
 #: fabricated-affordance failure this repo keeps paying for, so the live case names the
-#: LIMITATION instead: there is no gesture today that holds this window at its own scale, because
-#: the picture is the active chain's own output and the chain follows the master.
+#: LIMITATION instead: the active chain's analysis is not cached yet (an edit waits for Run, or a
+#: compute is in flight), so this window's own level cannot be fetched.
 SCALE_NOT_SHOWN_LIVE_TEXT = (
     "scale {control} is not in this result — showing scale {picture}, the active chain's own; "
     "this window cannot hold a scale of its own yet")
@@ -193,6 +193,10 @@ class InspectorWindow(QtWidgets.QWidget):
         #: slider is the user's, and a restore that kept re-asserting itself on every recompute
         #: would be fighting them.
         self._pending_scale_idx: int | None = None
+        #: How this window fetches its source's latest result at another level:
+        #: ``resolver(source_id, idx) -> result dict | None``, given by whoever wired the window
+        #: (:meth:`set_level_resolver`). ``None`` keeps the held result and its confession.
+        self._level_resolver: Callable[[str, int], dict | None] | None = None
 
         self.transport = Transport(1, scale_reading)
         self.transport.scaleChanged.connect(self._on_scale_changed)
@@ -310,8 +314,9 @@ class InspectorWindow(QtWidgets.QWidget):
 
         Handed a ``Renderable`` that has ALREADY reached the screen once (``MainWindow._apply``,
         "the ONE place a result reaches the screen", via its ``resolved`` signal): this method
-        never resolves, never computes and never polls -- sec 5b's live-update contract in one
-        sentence. The draw is deliberately only ``_apply``'s overlay branch: no hide gate (that
+        never computes and never polls -- sec 5b's live-update contract. A window holding a level
+        of its own asks its level resolver for that level, which the shared cache answers. The
+        draw is deliberately only ``_apply``'s overlay branch: no hide gate (that
         switch belongs to the ACTIVE layer's own overlay, not to a source's inspector) and no
         pick chains (routing the canvas's gestures across N open inspectors into the ONE
         ``GroupPalette`` is the next slice, sec 5b's inventory).
@@ -335,9 +340,13 @@ class InspectorWindow(QtWidgets.QWidget):
         # Held so this window's own control can re-index it later (:meth:`redraw_at`), and so the
         # scale it is DRAWN at is a number the window knows rather than one it has to infer.
         self._result = result
+        # A window holding a level of its own ("M" off) shows that level of the new result. A
+        # follower does not fetch here: the master's index reaches it next (``set_scale_index``).
+        if not self.follow_master:
+            self._hold_level(self.transport.slider.value())
         drawable = self._drawable(self.transport.slider.value())
         if drawable is not None:
-            self.canvas.set_result(result, drawable[0])
+            self.canvas.set_result(self._result, drawable[0])
             self.picture_scale_idx = drawable[1]
         self._render_status()
 
@@ -440,16 +449,35 @@ class InspectorWindow(QtWidgets.QWidget):
         idx, self._pending_scale_idx = self._pending_scale_idx, None
         self.set_scale_index(idx)
 
-    def redraw_at(self, idx: int) -> None:
-        """Show the HELD result at scale ``idx`` -- no resolve, no compute, no second worker.
+    def set_level_resolver(self, resolver: "Callable[[str, int], dict | None] | None") -> None:
+        """Let this window show a level of its own: ``resolver(source_id, idx)`` returns its
+        source's latest result at level ``idx`` from the shared cache, or ``None`` when that
+        would need a compute. ``MainWindow`` gives every inspector one."""
+        self._level_resolver = resolver
 
-        This is the whole of what this window's own scale control can honestly do (an
-        inspector never opens a compute path). It succeeds exactly when the held result still
-        carries the stack -- ``scale_select`` bypassed or absent -- because then re-indexing IS
-        what selecting a scale means. When the chain already reduced the stack to one layer
-        there is no other scale in this window to draw, and the status strip says which scale is
-        on screen and how to move it (:data:`SCALE_NOT_SHOWN_TEXT`).
+    def _hold_level(self, want: int) -> None:
+        """Replace a held ONE-level result at another scale with the resolver's result at
+        ``want``. Nothing changes without a resolver, for a held stack (re-indexing it is free,
+        :meth:`_drawable`), or when the resolver has nothing cached."""
+        result = self._result
+        if result is None or self._level_resolver is None:
+            return
+        layers = result.get("extrema")
+        if not layers or len(layers) != 1 or int(result.get("_scale_idx", 0)) == int(want):
+            return
+        fetched = self._level_resolver(self.source_id, int(want))
+        if isinstance(fetched, dict) and fetched.get("extrema"):
+            self._result = fetched
+
+    def redraw_at(self, idx: int) -> None:
+        """Show the held result at scale ``idx`` -- no compute, no second worker.
+
+        A held stack is re-indexed. A held ONE-level result at another scale is replaced by the
+        level resolver's result at ``idx`` (:meth:`_hold_level`), which the shared cache
+        answers. When neither can show ``idx``, the status strip says which scale is on screen
+        and how to move it (:data:`SCALE_NOT_SHOWN_TEXT`).
         """
+        self._hold_level(idx)
         drawable = self._drawable(idx)
         if drawable is not None and drawable[1] != self.picture_scale_idx:
             self.canvas.set_result(self._result, drawable[0])
