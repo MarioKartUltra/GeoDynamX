@@ -98,8 +98,8 @@ FAMILY_TREE = {
     "Reconstruction": {"mz_edges", "holder_measure", "holder_multiaffine", "ssa2d",
                        "tucker_HOOI_HOSVD"},
     "Topology": {"chain_topology"},
-    "Selection: extrema": {"scale_select", "orientation_wedge", "modulus_threshold",
-                           "hline_length", "hline_modulus", "hline_holder"},
+    "Selection: extrema": {"orientation_wedge", "modulus_threshold", "hline_length",
+                           "hline_modulus", "hline_holder"},
     "Selection: V-chains": {"chain_holder", "chain_modulus", "chain_length", "chain_classify",
                             "min_vchains", "group_filter"},
     "Points": {"backproject"},
@@ -107,7 +107,8 @@ FAMILY_TREE = {
 }
 
 #: Superseded and shell-placed devices: registered, listed in no family.
-NO_FAMILY = ("holder_map", "tucker_havok", "band_recon", "bus", "derived_vectors", "group_paint")
+NO_FAMILY = ("holder_map", "tucker_havok", "band_recon", "scale_select", "bus",
+             "derived_vectors", "group_paint")
 
 
 @pytest.fixture
@@ -155,3 +156,11 @@ def test_the_band_recon_variants_keep_their_label_in_no_family(builtins):
         device = get_device(name)
         assert families_of(device) == (), name
         assert display_name(device) == f"{label}  ({name})"
+
+
+def test_scale_select_keeps_its_label_in_no_family(builtins):
+    """The Transport sets the shown level: scale_select stays registered with its label "Scale"
+    and is listed in no family."""
+    device = get_device("scale_select")
+    assert families_of(device) == ()
+    assert display_name(device) == "Scale  (scale_select)"

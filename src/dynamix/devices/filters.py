@@ -45,7 +45,8 @@ class ScaleSelect:
 
     name = "scale_select"
     label = "Scale"
-    families = ("Selection: extrema",)
+    #: Superseded by the Transport, which sets the shown level: listed in no family.
+    families = ()
     consumes = ((EXTREMA,),)
     produces = ()
     selection_aware = True

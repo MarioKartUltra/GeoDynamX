@@ -338,3 +338,20 @@ def test_the_band_recon_variants_sit_in_dev_and_in_no_family(qtbot, registered_b
     reconstruction = set(_ids(_top_level(browser, "Reconstruction")))
     assert {"holder_measure", "holder_multiaffine"} <= reconstruction
     assert reconstruction.isdisjoint({"band_recon_measure", "band_recon_multiaffine"})
+
+
+def test_scale_select_sits_in_dev_with_its_label(qtbot, registered_builtins):
+    """The Transport sets the shown level, so scale_select leaves the palette: still registered
+    (saved chains name it, and there it shows inactive), listed once, under Dev, with its label
+    "Scale" and its id beside it."""
+    from dynamix.model.families import families_of
+    from dynamix.shell.browser import _SUPERSEDED, DeviceBrowser
+
+    browser = DeviceBrowser()
+    qtbot.addWidget(browser)
+    assert "scale_select" in _SUPERSEDED
+    assert "scale_select" in _ids(_top_level(browser, "Dev"))
+    assert families_of(get_device("scale_select")) == ()
+    [row] = browser._rows["scale_select"]
+    assert (row.text(0), row.text(1)) == ("Scale", "scale_select")
+    assert "scale_select" not in _ids(_top_level(browser, "Selection: extrema"))

@@ -39,9 +39,9 @@ _DEV_PREFIX = "stub_"
 #: the collapsed "Dev" category. tucker_havok is shown as tucker_HOOI_HOSVD, its algorithm a
 #: toggle.
 #: The band_recon variants' reconstruction is the band output rows of holder_measure and
-#: holder_multiaffine.
+#: holder_multiaffine. The level scale_select picks is set by the Transport.
 _SUPERSEDED = ("holder_map", "band_recon", "tucker_havok", "band_recon_measure",
-               "band_recon_multiaffine")
+               "band_recon_multiaffine", "scale_select")
 
 #: Devices only the shell places (a derivative dataset's vector loader, a bus, the arrangement
 #: view's committed groups): never dropped by hand, so they sit in "Dev" too.
