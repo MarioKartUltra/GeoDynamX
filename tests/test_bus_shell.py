@@ -187,3 +187,35 @@ def test_the_row_menus_offer_routing_and_a_bus_row_offers_editing(three_datasets
     item = win.layer_list._layer_items[host.layer_id]
     texts = [a.text() for a in win.layer_list._build_context_menu(item, host.layer_id).actions()]
     assert "Route bands to a new bus…" in texts and "Edit bus sends…" not in texts
+
+
+def test_tucker_dropped_on_a_bus_row_with_pca_forks_a_sibling_on_the_bus(three_datasets, qtbot,
+                                                                         monkeypatch):
+    """The sibling starts with the row's bus, its sends included, so tucker analyses the bus's
+    stack, never the host field."""
+    import dynamix.shell.main_window as mw
+    from dynamix.model.device import defaults_for, get_device
+
+    win, (host, tex, _far) = three_datasets
+    monkeypatch.setattr(mw, "BusDialog", _Route(
+        lambda cands: [s for c in cands if c["label"] in ("host", "tex") for s in c["sends"]]))
+    with qtbot.waitSignal(win.resolved, timeout=20000):
+        win._on_bus_requested(host.layer_id)
+    bus = win.layer
+    win._start_worker = lambda: None
+    sends = {"_sends": bus.chain.steps[0].params["_sends"]}
+    desc = [{"device": "bus", "params": dict(sends)},
+            {"device": "pca", "params": defaults_for(get_device("pca"))}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    assert win.layer is bus and [s.device for s in bus.chain.steps] == ["bus", "pca"]
+    desc = desc + [{"device": "tucker_HOOI_HOSVD",
+                    "params": defaults_for(get_device("tucker_HOOI_HOSVD"))}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    qtbot.wait(30)                                    # a fork spawns one tick later
+    sibling = win.layer
+    assert sibling is not bus and sibling.parent_id == bus.layer_id
+    assert [s.device for s in sibling.chain.steps] == ["bus", "tucker_HOOI_HOSVD"]
+    assert sibling.chain.steps[0].params["_sends"] == sends["_sends"]
+    assert [s.device for s in bus.chain.steps] == ["bus", "pca"]

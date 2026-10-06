@@ -185,3 +185,33 @@ def test_a_devloop_rebuild_keeps_every_dataset_with_its_own_field(aster, qtbot):
         assert rebuilt.layer is swir
     finally:
         devloop.SESSION.update(saved)
+
+
+def test_mz_edges_dropped_on_an_analysed_band_row_forks_a_sibling_on_that_band(window, qtbot):
+    """The sibling starts with the band row's band_select, so it analyses the band its parent
+    analyses, never the whole stack."""
+    from dynamix.model.device import defaults_for, get_device
+
+    win = window
+    win._start_worker = lambda: None
+    v = np.random.default_rng(0).standard_normal((16, 16, 3)).cumsum(0)
+    field = RasterField(name="stack", values=v, frame=LocalFrame(), x_axis=np.arange(16.0),
+                        y_axis=np.arange(16.0))
+    win.load_field(field, "mem:stack", inert=True)
+    band = _band_layers(win, win.layer)[1]
+    win.layer_list.select_layer(band.layer_id)
+    desc = [{"device": "band_select", "params": dict(band.chain.steps[0].params)},
+            {"device": "wtmm2d", "params": defaults_for(get_device("wtmm2d"))}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    assert win.layer is band
+    assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]
+    desc = desc + [{"device": "mz_edges", "params": defaults_for(get_device("mz_edges"))}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    qtbot.wait(30)                                    # a fork spawns one tick later
+    sibling = win.layer
+    assert sibling is not band and sibling.parent_id == band.layer_id
+    assert [s.device for s in sibling.chain.steps] == ["band_select", "mz_edges"]
+    assert sibling.chain.steps[0].params == band.chain.steps[0].params
+    assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]

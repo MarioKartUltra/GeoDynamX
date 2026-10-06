@@ -6536,7 +6536,7 @@ both ``Canvas`` signals report the
             # region plus one representation at a time, filters kept. The zone is resynced to
             # the transformed proposal after this signal unwinds (the armed-roi revert idiom).
             enabled = [d["device"] for d in descriptors if not d.get("bypassed")]
-            primaries = [n for n in enabled if n in _PRIMARY_ANALYZERS]
+            primaries = [n for n in enabled if is_primary(get_device(n))]
             if len(primaries) > 1:
                 old_primary, new_primary = primaries[0], primaries[-1]
                 new_desc = next(d for d in reversed(descriptors)
@@ -6581,8 +6581,11 @@ both ``Canvas`` signals report the
                          "click to place and run", "status")
             return
         fork = (None if self.layer.tags.get("roi.window")
-                else _analyzer_fork(self._names, self._bypassed, descriptors,
-                                    root=self.layer.parent_id is None))
+                else _contract_fork([DeviceRef(n, dict(p))
+                                     for n, p in zip(self._names, self._params)],
+                                    self._bypassed, descriptors,
+                                    root=self.layer.parent_id is None,
+                                    layer_input=self._layer_input()))
         if (fork is None and self.layer.parent_id is None
                 and not self.layer.tags.get("roi.window")
                 and (self._active_roi_for(self.layer.source_id) is not None
@@ -6658,7 +6661,7 @@ both ``Canvas`` signals report the
                         if not self._bypassed[i])).materialized()
                     self._snapshot_recipe()
                 label = next((d["device"] for d in sibling_steps
-                              if d["device"] in _PRIMARY_ANALYZERS),
+                              if is_primary(get_device(d["device"]))),
                              sibling_steps[0]["device"])
                 roi = self._active_roi_for(parent.source_id)
                 tags = _inherited_window(parent)

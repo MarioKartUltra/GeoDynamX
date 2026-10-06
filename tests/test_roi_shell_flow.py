@@ -1000,3 +1000,42 @@ def test_reconstruct_commits_a_band_recon_child_on_an_roi_result(plain_window, q
     assert child.parent_id == parent.layer_id
     assert child.tags.get("roi.window") == parent.tags.get("roi.window")
     assert np.asarray(win._active_result["raster_out"]).shape == h.shape
+
+
+def _append(win, qtbot, device):
+    from dynamix.model.device import defaults_for, get_device
+
+    desc = [{"device": n, "params": dict(p)} for n, p in zip(win._names, win._params)]
+    desc.append({"device": device, "params": defaults_for(get_device(device))})
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    qtbot.wait(30)                                    # a fork spawns one tick later
+
+
+def test_a_decomposition_dropped_on_an_analyzed_layer_forks_a_sibling(plain_window, qtbot):
+    win = plain_window
+    win._start_worker = lambda: None
+    master = win.layer
+    _drop(win, qtbot, "wtmm2d")
+    child = win.layer
+    assert child.parent_id == master.layer_id
+    _append(win, qtbot, "ssa2d")
+    sibling = win.layer
+    assert sibling is not child and sibling.parent_id == child.layer_id
+    assert [s.device for s in sibling.chain.steps] == ["ssa2d"]
+    assert [s.device for s in child.chain.steps] == ["wtmm2d"]       # the parent is untouched
+    assert sibling.name == f"{child.name} · ssa2d"
+
+
+def test_a_decomposition_dropped_on_an_roi_child_replaces_its_analyzer_in_place(plain_window,
+                                                                               qtbot):
+    win = plain_window
+    win._start_worker = lambda: None
+    win._on_roi_save({"roi_row": 4, "roi_col": 5, "roi_h": 16, "roi_w": 20,
+                      "boundary": "auto"})
+    _drop(win, qtbot, "wtmm2d")
+    child = win.layer
+    assert child.tags.get("roi.window") == "4,5,16,20"
+    _append(win, qtbot, "ssa2d")
+    assert win.layer is child
+    assert [s.device for s in child.chain.steps] == ["ssa2d"]
