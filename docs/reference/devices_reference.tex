@@ -307,7 +307,8 @@ in the chain, drawn inactive with the reason ``the scale is set by the Transport
 \hyperref[tab:families]{families table}), and a tool in several families is listed under
 each. The \emph{Dev} group, collapsed, holds the parameter-schema stubs, the superseded tools
 (kept registered so that saved projects open and resolve) and the steps the shell places
-itself. A tool that declares no family is listed by its id under \emph{Other}.
+itself. A tool that declares no family is listed by its id under \emph{Other}. The last
+group, \emph{Racks}, lists the built-in racks and the user's own (\S\ref{sec:racks}).
 
 \input{tables/families}
 
@@ -358,6 +359,8 @@ contract, so a tool from outside this build keeps working.
         \dev{band\_select}, a \dev{bus} with its sends), so it analyses the same field.
   \item \textbf{Shipping.} A filter on the parent moves to the sibling, with its knobs, when it
         applies after the sibling's analysis and does not apply after the parent's.
+  \item \textbf{Racks.} A rack is greyed where its first step cannot apply, and the rack editor
+        runs the rule along the rack (\S\ref{sec:racks}).
 \end{itemize}
 
 \textbf{Which tool applies after which.} The \hyperref[tab:applicability]{applicability
@@ -372,6 +375,45 @@ whose analysis stamps a per-point $\alpha$. A derivative dataset's frozen vector
 analysis, so the same tools apply after them.
 
 \input{tables/applicability}
+
+%======================================================================
+\section{Racks}\label{sec:racks}
+A \emph{rack} is a named chain to drop onto a layer. The browser's \emph{Racks} group lists the
+built-in racks and the user's own; double-clicking one opens it in the rack editor.
+
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.14\textwidth}>{\raggedright\arraybackslash}p{0.80\textwidth}}
+\toprule
+Built-in & read-only: \emph{WTMM standard} (the default chain), \emph{WTMM + H\"older},
+           \emph{M--Z edges}, \emph{CDF edges}, \emph{PM edges} and \emph{Wavelet skeleton};
+           \emph{Duplicate to edit} in the editor makes a user copy \\
+Save & \emph{Save chain as rack\ldots} (right-click a result or band row) or \emph{Save as
+       rack\ldots} (the chain strip) records every step with all its knobs, view-only ones
+       included, and its bypass state, under the name you give. A band row's own
+       \dev{band\_select} and a \dev{bus} with its sends belong to their layer and stay out \\
+Store & one JSON file per rack, named after the rack, in the \texttt{racks} folder beside the
+        settings file: \texttt{\textasciitilde/Library/Application Support/GeoDynamix/racks/}
+        on macOS, \texttt{\%APPDATA\%\textbackslash GeoDynamix\textbackslash racks\textbackslash}
+        on Windows; with \texttt{DYNAMIX\_SETTINGS\_PATH} set, beside the settings file it
+        names \\
+File & \texttt{\{"format": "geodynamix-rack", "schema": 1, "name", "description", "steps":
+       [\{"device", "params", "bypassed"\}], "created", "app\_version"\}}, with device ids and
+       parameter names as a saved chain stores them \\
+Editor & \emph{Racks $\to$ Rack Editor\ldots}: the family tree on the left and the rack's steps
+         on the right; drag a tool in to add it and drag a step to reorder; the selected step's
+         knobs; \emph{Save}, \emph{Save as\ldots}, \emph{Delete} (user racks) and
+         \emph{Duplicate to edit} \\
+Validation & live while editing: the order must be transforms-then-filters, and the contracts
+             rule (\S\ref{sec:contracts}) runs along the rack from the input chosen under
+             \emph{Validate from a}: a single-band field, a band stack or a point set \\
+Greyed & a rack whose first step cannot apply on the active layer is greyed with the reason. A
+         rack file that names a device or a parameter this build lacks, or that cannot be
+         read, is listed greyed with the reason, and the other racks load \\
+Drop & split and merge: the rack's Transforms go after the chain's Transforms and its Filters
+       after the chain's Filters, so the order stays legal. A rack Transform whose tool already
+       runs in the chain is left out. A rack headed by a different primary analyzer forks a
+       sibling, as dropping that analyzer does \\
+\bottomrule
+\end{longtable}
 
 %======================================================================
 \section{Field preparation}
