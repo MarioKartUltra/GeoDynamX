@@ -22,6 +22,8 @@ from importlib import metadata
 from pathlib import Path
 
 from dynamix.model.chain import Chain, DeviceRef
+from dynamix.model.contracts import StepState, next_step_state
+from dynamix.model.forking import is_primary, routing_head
 from dynamix.model.device import get_device, is_transform, validate_params
 from dynamix.model.presets import PRESETS
 
@@ -245,3 +247,36 @@ def contiguous_rack_titles(descriptors: list[dict]) -> list[dict]:
             seen.add(title)
         i = j
     return out
+
+
+def rack_state(rack: Rack, steps, layer_input: str, *, master: bool = False,
+               roi_holder: bool = False) -> StepState:
+    """Whether ``rack`` can head a drop on a layer whose enabled Transform steps are ``steps``
+    (``DeviceRef``) over ``layer_input``; ``master`` and ``roi_holder`` as in
+    ``dynamix.model.forking.drop_states``.
+
+    The step judged is the rack's first enabled step that :func:`merge_rack` keeps (a Transform
+    the chain already runs is left out), with its own params, the way ``drop_states`` judges its
+    device. A primary analyzer, or a device that reads the source file, dropped where a primary
+    already heads the chain or on a dataset's master row forks a sibling that starts with the
+    layer's routing steps (``dynamix.model.forking.routing_head``: a band row's ``band_select``,
+    a bus row's ``bus``), so it is judged after those alone. On an ROI-holder layer it takes the
+    heading primary's place, so it is judged on the steps ahead of that primary. Every other step
+    is judged as appended to ``steps``."""
+    steps = tuple(steps)
+    running = {ref.device for ref in steps}
+    first = next((s for s in rack.steps if not s.bypassed
+                  and not (s.device in running and is_transform(get_device(s.device)))), None)
+    if first is None:
+        return StepState(True)
+    device = get_device(first.device)
+    head = next((i for i, ref in enumerate(steps) if is_primary(get_device(ref.device))), None)
+    if not (is_primary(device) or getattr(device, "reads_source", False)):
+        base = steps
+    elif roi_holder:
+        base = steps if head is None else steps[:head]
+    elif master or head is not None:
+        base = routing_head(steps)
+    else:
+        base = steps
+    return next_step_state(base, layer_input, first.device, first.params)

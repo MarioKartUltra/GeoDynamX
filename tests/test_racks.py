@@ -258,3 +258,91 @@ def test_every_rack_title_names_one_contiguous_run(builtins):
     assert [d["rack"] for d in contiguous_rack_titles(taken)] == ["X", "X (2)", "X (3)"]
     whole = _d("wtmm2d", "chain_holder", rack="X")
     assert contiguous_rack_titles(whole) == whole
+
+
+# --------------------------------------------------------------------------- rack applicability
+
+
+def test_a_rack_applies_where_its_first_transform_does(builtins):
+    from dynamix.model.contracts import FIELD, STACK
+    from dynamix.model.racks import rack_state
+
+    wtmm = _rack()
+    assert rack_state(wtmm, (), FIELD).applies
+    on_stack = rack_state(wtmm, (), STACK)
+    assert not on_stack.applies and "band stack" in on_stack.reason
+    band_row = (DeviceRef("band_select", {"band": 1}),)
+    assert rack_state(wtmm, band_row, STACK).applies
+    pca = _rack("PCA", (("pca", {}),))
+    assert rack_state(pca, (), STACK).applies
+    on_band = rack_state(pca, band_row, STACK)                # one band: PCA cannot run there
+    assert not on_band.applies and "band stack" in on_band.reason
+
+
+def test_a_rack_headed_by_another_analyzer_applies_through_the_fork(builtins):
+    from dynamix.model.contracts import FIELD
+    from dynamix.model.racks import rack_state
+
+    analyzed = (DeviceRef("wtmm2d", {}), DeviceRef("chain_topology", {}))
+    assert rack_state(_rack("M-Z", (("mz_edges", {}), ("hline_length", {}))), analyzed,
+                      FIELD).applies
+
+
+def test_a_fork_from_a_band_or_bus_row_is_judged_after_its_band_select_or_bus(builtins):
+    """The sibling a primary-headed rack forks keeps the parent's leading band_select / bus, so
+    it reads the same band or bus stack."""
+    from dynamix.model.contracts import CONTRACTS, FIELD, STACK
+    from dynamix.model.racks import rack_state
+
+    band_row = (DeviceRef("band_select", {"band": 1}), DeviceRef("wtmm2d", {}))
+    assert rack_state(_rack("M-Z", (("mz_edges", {}), ("hline_length", {}))), band_row,
+                      STACK).applies
+    pca = rack_state(_rack("P", (("pca", {}),)), band_row, STACK)
+    assert not pca.applies and "band stack" in pca.reason
+    bus_row = (DeviceRef("bus", {}), DeviceRef("pca", {}))
+    assert rack_state(_rack("T", (("tucker_HOOI_HOSVD", {}),)), bus_row, FIELD).applies
+    wtmm = rack_state(_rack("W", (("wtmm2d", {}),)), bus_row, FIELD)
+    assert not wtmm.applies and CONTRACTS[FIELD] in wtmm.reason
+
+
+def test_a_rack_is_judged_as_the_browser_judges_its_first_device(builtins):
+    from dynamix.model.contracts import FIELD, STACK
+    from dynamix.model.forking import drop_states
+    from dynamix.model.racks import rack_state
+
+    band = DeviceRef("band_select", {"band": 1})
+    wtmm = DeviceRef("wtmm2d", {})
+    contexts = [((), FIELD, {"master": True}), ((), STACK, {"master": True}),
+                ((band,), STACK, {}), ((band, wtmm), STACK, {}),
+                ((DeviceRef("bus", {}), DeviceRef("pca", {})), FIELD, {}),
+                ((DeviceRef("mz_edges", {}),), FIELD, {}),
+                ((DeviceRef("noise", {}), wtmm), FIELD, {"roi_holder": True})]
+    for steps, layer_input, flags in contexts:
+        states = drop_states(steps, layer_input, **flags)
+        running = {ref.device for ref in steps}
+        for name in ("wtmm2d", "mz_edges", "pca", "tucker_HOOI_HOSVD", "ssa2d", "noise",
+                     "chain_holder", "hline_length"):
+            if name in running:
+                continue
+            assert rack_state(_rack(name, ((name, {}),)), steps, layer_input, **flags) == \
+                states[name], (name, steps, flags)
+
+
+def test_a_rack_transform_the_layer_already_runs_is_not_judged(builtins):
+    from dynamix.model.contracts import FIELD, next_step_state
+    from dynamix.model.racks import rack_state
+
+    mz = (DeviceRef("mz_edges", {}),)
+    state = rack_state(_rack("M-Z cuts", (("mz_edges", {}), ("chain_holder", {}))), mz, FIELD)
+    assert state == next_step_state(mz, FIELD, "chain_holder") and not state.applies
+    assert rack_state(_rack("M", (("mz_edges", {}),)), mz, FIELD).applies   # nothing to add
+
+
+def test_a_filters_only_rack_needs_what_its_first_filter_reads(builtins):
+    from dynamix.model.contracts import CONTRACTS, FIELD, VCHAINS
+    from dynamix.model.racks import rack_state
+
+    cuts = _rack("Cuts", (("chain_holder", {}),))
+    state = rack_state(cuts, (DeviceRef("mz_edges", {}),), FIELD)
+    assert not state.applies and CONTRACTS[VCHAINS] in state.reason
+    assert rack_state(cuts, (DeviceRef("wtmm2d", {}),), FIELD).applies
