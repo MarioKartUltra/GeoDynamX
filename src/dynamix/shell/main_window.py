@@ -343,6 +343,10 @@ _BAND_FOR_ANALYZER = {"holder_measure": "band_recon_measure",
                       "holder_multiaffine": "band_recon_multiaffine",
                       "holder_map": "band_recon"}
 
+#: The Microcanonical MFA tools whose band reconstruction is their own lazy output: on a
+#: whole-field layer a Band-dialog commit sets their band knobs and adds no layer.
+_MFA_BAND_TOOLS = ("holder_measure", "holder_multiaffine")
+
 
 def _eta_note_of(result: dict) -> tuple:
     """``(eta_seed, forward_note)`` derived HONESTLY from the result's own resolved params (the
@@ -2462,7 +2466,8 @@ off / z from this layer's own values / z from another loaded
         histogram always shows every exponent). Analysis only: live drags render the
         reconstruction preview, Reconstruct commits the band_recon step; no display tag is
         ever written, so the color ramp cannot move. Seeds from an
-        active band_recon step's own knobs."""
+        active band_recon step's own knobs, or from the Microcanonical MFA step's band while
+        its Show draws a band output."""
         if self.layer is None or self.field is None:
             return
         result = self._active_result
@@ -2476,6 +2481,11 @@ off / z from this layer's own values / z from another loaded
         if band_step is not None:
             pp = self._params[self._names.index(band_step)]
             h_lo, h_hi = pp.get("h_lo"), pp.get("h_hi")
+        else:
+            index = self._mfa_band_index()
+            if index is not None and self._params[index].get("show") in ("band", "band_mask"):
+                pp = self._params[index]
+                h_lo, h_hi = pp.get("h_lo"), pp.get("h_hi")
         dialog = BandDialog(np.asarray(h_map, dtype=np.float64), h_lo=h_lo, h_hi=h_hi,
                             parent=self)
         dialog.reconstructRequested.connect(self._on_band_reconstruct_requested)
@@ -2558,7 +2568,15 @@ off / z from this layer's own values / z from another loaded
 
     def _on_band_reconstruct_requested(self, h_lo: float, h_hi: float,
                                        min_island: int = 0) -> None:
-        """The Band dialog's "Reconstruct" (revised): the
+        """The Band dialog's "Reconstruct".
+
+        On a whole-field layer whose analysis is a Microcanonical MFA tool (holder_measure,
+        holder_multiaffine; :meth:`_mfa_band_index`) the band is that step's own view-only
+        knobs: it is written into the step with Show on "band", so the band row computes from
+        the cached h-map, the h-map stays the analysis (hiding the band row shows it again) and
+        no layer is added. A locked layer refuses it.
+
+        Elsewhere (an ROI layer, an h-map from holder_map) the
         reconstruction is a NEW GROUPED LAYER, never an edit of the microcanonical layer --
         "instead of making a new one ... replaces the microcanonical chain" was the wrong
         semantics. Mirrors ``_on_roi_create`` exactly: ``add_layer(..., parent_id=parent)``,
@@ -2575,6 +2593,20 @@ off / z from this layer's own values / z from another loaded
             return
         band = {"h_lo": float(h_lo), "h_hi": float(h_hi),
                 "min_island": int(min_island)}
+        index = self._mfa_band_index()
+        if index is not None:
+            notice = _lock_notice(parent)
+            if notice is not None:
+                self.strips._show_warning(notice)
+                return
+            params = [dict(pp) for pp in self._params]
+            params[index].update(band, show="band")
+            descriptors = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
+                           for n, pp, b, r in zip(self._names, params, self._bypassed,
+                                                  self._rack)]
+            self.strips.set_steps(descriptors, field=self.field)
+            self._on_chain_edited(descriptors)
+            return
         band_step = _band_step_for(self._names)
         if band_step is not None:
             names = list(self._names)
@@ -4573,6 +4605,18 @@ both ``Canvas`` signals report the
         if not applying or not declared_outputs(get_device(self._names[applying[-1]])):
             return None
         return applying[-1]
+
+    def _mfa_band_index(self) -> int | None:
+        """The index of the active chain's output step (:meth:`_output_step_index`) when it is
+        a Microcanonical MFA tool (:data:`_MFA_BAND_TOOLS`) on a whole-field layer: the step
+        whose own band outputs a Band-dialog commit sets. ``None`` on an ROI layer, for an
+        h-map from holder_map, and without an h-map tool."""
+        if self.layer is None or self.layer.tags.get("roi.window"):
+            return None
+        index = self._output_step_index()
+        if index is None or self._names[index] not in _MFA_BAND_TOOLS:
+            return None
+        return index
 
     def _sync_output_rows(self, layer) -> None:
         """Push ``layer``'s output state into its rows, non-emitting: the raster output its

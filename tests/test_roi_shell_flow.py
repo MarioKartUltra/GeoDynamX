@@ -1040,3 +1040,142 @@ def test_a_decomposition_dropped_on_an_roi_child_replaces_its_analyzer_in_place(
     _append(win, qtbot, "ssa2d")
     assert win.layer is child
     assert [s.device for s in child.chain.steps] == ["ssa2d"]
+
+
+def _band_reference(device, field, **band):
+    """``device``'s (a band_recon variant's) reconstruction of ``field`` at ``band``."""
+    from dynamix.model.device import get_device, validate_params
+
+    recon = get_device(device)
+    return recon.compute(field, validate_params(recon, band))["raster_out"]
+
+
+@pytest.mark.parametrize("tool", ["holder_measure", "holder_multiaffine"])
+def test_reconstruct_on_a_whole_field_mfa_layer_shows_its_band_row(plain_window, qtbot,
+                                                                   monkeypatch, tool):
+    """On a whole-field layer whose analysis is a Microcanonical MFA tool, Reconstruct writes
+    the band into that step and shows its band row: no layer is added, and the h-map is not
+    recomputed."""
+    import dynamix.devices.holder_methods as hm
+
+    win = plain_window
+    parent = _whole_field_child(win, qtbot, tool)
+    layers = len(win.project.layers)
+    h = np.asarray(win._active_result["h_map"])
+    lo, hi = float(np.nanmin(h)), float(np.nanmax(h)) + 1.0
+    computed = []
+    real = hm.method_arrays
+    monkeypatch.setattr(hm, "method_arrays",
+                        lambda *a, **k: computed.append(1) or real(*a, **k))
+    win._on_band_reconstruct_requested(lo, hi, 2)
+    qtbot.waitUntil(lambda: not win.is_computing
+                    and (win._active_result or {}).get("raster_out") is not None,
+                    timeout=60000)
+    assert computed == []                          # the h-map stayed cached
+    monkeypatch.undo()
+    want = _band_reference(f"band_recon_{tool[len('holder_'):]}",
+                           win._fields[parent.layer_id], h_lo=lo, h_hi=hi, min_island=2)
+    np.testing.assert_array_equal(win._active_result["raster_out"], want)
+    assert win.layer is parent and len(win.project.layers) == layers
+    step = next(s for s in parent.chain.steps if s.device == tool)
+    assert (step.params["h_lo"], step.params["h_hi"], step.params["min_island"],
+            step.params["show"]) == (lo, hi, 2, "band")
+    assert not win.layer_list._output_rows[parent.layer_id]["band"].hide_button.isChecked()
+
+
+def test_reconstruct_on_a_locked_mfa_layer_is_refused(plain_window, qtbot):
+    win = plain_window
+    parent = _whole_field_child(win, qtbot, "holder_measure")
+    warnings = []
+    win.strips._show_warning = warnings.append
+    win._on_lock_toggled(parent.layer_id, True)
+    before = dict(parent.chain.steps[0].params)
+    win._on_band_reconstruct_requested(-0.5, 0.25)
+    assert warnings and parent.chain.steps[0].params == before
+    assert win.layer is parent
+
+
+def test_reconstruct_on_a_whole_field_holder_map_layer_adds_a_band_recon_child(plain_window,
+                                                                               qtbot):
+    win = plain_window
+    parent = _whole_field_child(win, qtbot, "holder_map")
+    h = np.asarray(win._active_result["h_map"])
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._on_band_reconstruct_requested(float(np.nanmin(h)), float(np.nanmax(h)) + 1.0)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    child = win.layer
+    assert child.parent_id == parent.layer_id
+    assert [s.device for s in child.chain.steps] == ["band_recon"]
+
+
+def test_the_band_dialog_opens_on_the_band_an_mfa_step_shows(plain_window, qtbot, monkeypatch):
+    import dynamix.shell.main_window as mw
+
+    got = []
+
+    class _Signal:
+        def connect(self, slot):
+            pass
+
+    class _Dialog:
+        def __init__(self, h_values, *, h_lo=None, h_hi=None, parent=None):
+            got.append((h_lo, h_hi))
+            self.reconstructRequested = self.bandPreviewRequested = _Signal()
+
+        def show(self):
+            pass
+
+        raise_ = activateWindow = show
+
+    monkeypatch.setattr(mw, "BandDialog", _Dialog)
+    win = plain_window
+    layer = _whole_field_child(win, qtbot, "holder_measure")
+    win._on_band_dialog_requested()                # Show on the h-map: nothing to seed
+    win._on_recon_knob_changed("h_lo", -0.5)
+    win._on_recon_knob_changed("h_hi", 0.25)
+    win._on_band_dialog_requested()                # still the h-map on show
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "band_mask", False)
+    qtbot.waitUntil(lambda: not win.is_computing and win._out_request is None, timeout=60000)
+    win._on_band_dialog_requested()
+    assert got == [(None, None), (None, None), (-0.5, 0.25)]
+
+
+def test_reconstruct_on_a_band_row_of_a_stack_shows_that_rows_band(qtbot, registered_builtins):
+    """A stack's band row runs holder_measure on its own band (band_select first); Reconstruct
+    shows that band's reconstruction on the row itself."""
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.shell.main_window import MainWindow
+
+    rng = np.random.default_rng(4)
+    v = np.stack([rng.standard_normal((40, 50)).cumsum(0) for _ in range(2)], axis=-1)
+    stack = RasterField(name="stack", values=v, frame=LocalFrame(), x_axis=np.arange(50.0),
+                        y_axis=np.arange(40.0))
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    win.load_field(stack, "/nonexistent/stack.npz")
+    master = win.layer
+    row = next(l for l in win.project.layers
+               if l.parent_id == master.layer_id and l.tags.get("band.id") == "#1")
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.layer_list.select_layer(row.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    desc = [{"device": "band_select", "params": dict(row.chain.steps[0].params)},
+            {"device": "holder_measure", "params": defaults_for(get_device("holder_measure"))}]
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.strips.set_steps(desc, field=win.field)
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer is row
+    layers = len(win.project.layers)
+    h = np.asarray(win._active_result["h_map"])
+    lo, hi = float(np.nanmin(h)), float(np.nanmax(h)) + 1.0
+    win._on_band_reconstruct_requested(lo, hi)
+    plane = RasterField(name="b", values=v[..., 1], frame=LocalFrame(), x_axis=np.arange(50.0),
+                        y_axis=np.arange(40.0))
+    want = _band_reference("band_recon_measure", plane, h_lo=lo, h_hi=hi)
+    qtbot.waitUntil(lambda: not win.is_computing
+                    and (win._active_result or {}).get("raster_out") is not None,
+                    timeout=60000)
+    np.testing.assert_array_equal(win._active_result["raster_out"], want)
+    assert win.layer is row and len(win.project.layers) == layers
+    assert [s.device for s in row.chain.steps] == ["band_select", "holder_measure"]
