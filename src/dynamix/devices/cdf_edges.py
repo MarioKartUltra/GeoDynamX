@@ -96,7 +96,8 @@ class CDFEdges:
         # rides the raster_out display contract (stretch/colormap/hillshade/export free-ride).
         # The extrema pyramid still computes and overlays either way (hide with H if unwanted).
         Param("show", ParamKind.CHOICE, default="edges",
-              choices=("edges", "filtered", "edge_channel"), label="Show", view=True),
+              choices=("edges", "filtered", "edge_channel", "re_scale", "im_scale"),
+              label="Show", view=True),
         # Subpixel refinement, both conventions -- "mz" mode gets the wtmm2d
         # parabola along the gradient (dynamix.core.subpixel); "marr" mode gets the
         # zero-crossing offset t = -Im/||grad Im|| along the gradient (first-order root of the
@@ -108,9 +109,14 @@ class CDFEdges:
     )
     # The layer panel's output rows: the raster rows are a radio over ``show``, the edges row
     # hides the maxima drawing (``result["extrema"]`` stays for filters and tables).
+    # ``re_scale`` / ``im_scale`` are the snapshot at the level the Transport shows, read from
+    # ``snapshots``: the evolution run once with every snapshot kept, one entry for all levels.
     outputs = (Output("edges", "vector", label="edges"),
                Output("filtered", "raster", label="filtered"),
-               Output("edge_channel", "raster", label="edge channel"))
+               Output("edge_channel", "raster", label="edge channel"),
+               Output("re_scale", "raster", lazy=True, label="Re at σ", per_level=True),
+               Output("im_scale", "raster", lazy=True, label="Im at σ", per_level=True),
+               Output("snapshots", "raster", lazy=True, label="snapshots", row=False))
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         import numpy as np
@@ -225,9 +231,55 @@ class CDFEdges:
         replaces the raw field on the canvas (the display contract) -- switching is a cache hit."""
         out = {k: v for k, v in result.items() if k != "raster_out"}
         out["params"] = {**result.get("params", {}), "show": params["show"]}
-        if params["show"] != "edges":
+        if params["show"] in ("filtered", "edge_channel"):
             out["raster_out"] = result[params["show"]]
         return out
+
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
+                       progress=None, cancel=None, level=None) -> dict:
+        """``snapshots``: the evolution once more with every snapshot kept (:meth:`_snapshots`),
+        ``raster`` the (J, 2, ny, nx) float32 stack of each level's Re and Im. ``re_scale`` /
+        ``im_scale``: the Re / Im snapshot at σ = 2**level (``level`` 0-based, clipped into
+        0..J-1), read from ``snapshots`` through ``fetch``, so the evolution runs once for every
+        level and both channels."""
+        import numpy as np
+
+        if name == "snapshots":
+            snaps = self._snapshots(np.asarray(values, dtype=np.float64), params,
+                                    progress=progress, cancel=cancel)
+            stack = np.stack([np.stack([s.real, s.imag]) for s in snaps]).astype(np.float32)
+            return {"raster": stack, "diag": {}}
+        if name not in ("re_scale", "im_scale"):
+            raise ValueError(f"{self.name}: no lazy output named {name!r}")
+        stack = fetch("snapshots")["raster"]
+        idx = int(np.clip(0 if level is None else int(level), 0, stack.shape[0] - 1))
+        part = 0 if name == "re_scale" else 1
+        return {"raster": stack[idx, part].copy(),
+                "diag": {"level": idx, "scale_px": float(2.0 ** idx)}}
+
+    def _snapshots(self, vals, params: dict, *, progress=None, cancel=None) -> list:
+        """The complex state at each level's σ, finest first: :meth:`compute`'s evolution, the
+        same chunks in the same order, every snapshot kept."""
+        from dynamix.core import cdf as lcdf
+        from dynamix.core.wtmm_backend import ComputeCancelled
+
+        theta, dt = float(params["theta"]), float(params["dt"])
+        sigmas = [float(2.0 ** k) for k in range(int(params["n_levels"]))]
+        iters = lcdf.sigma_iters(sigmas, theta=theta, dt=dt)
+        total = max(iters.values())
+        snaps, I, done = [], vals, 0
+        for s in sigmas:
+            if cancel is not None and cancel():
+                raise ComputeCancelled()
+            if params["variant"] == "nonlinear":
+                I = lcdf.ncdf(I, float(params["k_edge"]), iters[s] - done, theta=theta, dt=dt)
+            else:
+                I, _ = lcdf.lcdf_evolve(I, iters[s] - done, theta=theta, dt=dt)
+            done = iters[s]
+            snaps.append(I)
+            if progress is not None:
+                progress("cdf snapshots", done / total)
+        return snaps
 
     def roi_margin(self, params: dict) -> int:
         """The evolution is an explicit 5-point stencil (edge-replicated),

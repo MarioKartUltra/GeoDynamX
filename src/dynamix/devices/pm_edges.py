@@ -56,7 +56,7 @@ class PMEdges:
         Param("lam", ParamKind.FLOAT, default=0.2, min=0.001, max=0.25,
               soft_min=0.1, soft_max=0.25, units="", label="λ"),
         Param("show", ParamKind.CHOICE, default="edges",
-              choices=("edges", "filtered"), label="Show", view=True),
+              choices=("edges", "filtered", "filtered_scale"), label="Show", view=True),
         # xsmurf's follow takes four IMAGES -- detector="follow" feeds it this device's own
         # smoothed snapshots via FD derivative stacks (dynamix.core.xsmurf_follow.kapa_from_field)
         # and runs the exact ported detector; edge_mode/interpolate are inert under it (follow's
@@ -71,8 +71,13 @@ class PMEdges:
     )
     # The layer panel's output rows (the cdf_edges pattern): "filtered" is the radio row over
     # ``show``, "edges" hides the maxima drawing only.
+    # ``filtered_scale`` is the snapshot at the level the Transport shows, read from
+    # ``snapshots``: the evolution run once with every snapshot kept, one entry for all levels.
     outputs = (Output("edges", "vector", label="edges"),
-               Output("filtered", "raster", label="filtered"))
+               Output("filtered", "raster", label="filtered"),
+               Output("filtered_scale", "raster", lazy=True, label="filtered at σ",
+                      per_level=True),
+               Output("snapshots", "raster", lazy=True, label="snapshots", row=False))
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         import numpy as np
@@ -159,6 +164,48 @@ class PMEdges:
         if params["show"] == "filtered":
             out["raster_out"] = result["filtered"]
         return out
+
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
+                       progress=None, cancel=None, level=None) -> dict:
+        """``snapshots``: the evolution once more with every snapshot kept (:meth:`_snapshots`),
+        ``raster`` the (J, ny, nx) float32 stack. ``filtered_scale``: the snapshot at the
+        nominal σ = 2**level (``level`` 0-based, clipped into 0..J-1), read from ``snapshots``
+        through ``fetch``, so the evolution runs once for every level."""
+        import numpy as np
+
+        if name == "snapshots":
+            snaps = self._snapshots(np.asarray(values, dtype=np.float64), params,
+                                    progress=progress, cancel=cancel)
+            return {"raster": np.stack(snaps).astype(np.float32), "diag": {}}
+        if name != "filtered_scale":
+            raise ValueError(f"{self.name}: no lazy output named {name!r}")
+        stack = fetch("snapshots")["raster"]
+        idx = int(np.clip(0 if level is None else int(level), 0, stack.shape[0] - 1))
+        return {"raster": stack[idx].copy(),
+                "diag": {"level": idx, "scale_px": float(2.0 ** idx)}}
+
+    def _snapshots(self, vals, params: dict, *, progress=None, cancel=None) -> list:
+        """The diffused field at each level's nominal σ, finest first: :meth:`compute`'s
+        evolution, the same chunks in the same order, every snapshot kept."""
+        import numpy as np
+
+        from dynamix.core import pm as _pm
+        from dynamix.core.wtmm_backend import ComputeCancelled
+
+        k_edge, lam = float(params["k_edge"]), float(params["lam"])
+        sigmas = [float(2.0 ** j) for j in range(int(params["n_levels"]))]
+        iters = _pm.sigma_iters(sigmas, lam=lam)
+        total = max(iters.values())
+        snaps, I, done = [], np.asarray(vals, dtype=np.float64), 0
+        for s in sigmas:
+            if cancel is not None and cancel():
+                raise ComputeCancelled()
+            I, _ = _pm.pm_evolve(I, k_edge, iters[s] - done, g=params["g"], lam=lam)
+            done = iters[s]
+            snaps.append(I)
+            if progress is not None:
+                progress("pm snapshots", done / total)
+        return snaps
 
     def roi_margin(self, params: dict) -> int:
         """Explicit Perona-Malik (edge-replicated neighbour differences)

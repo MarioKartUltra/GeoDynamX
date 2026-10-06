@@ -300,3 +300,90 @@ def test_mz_level_rows_join_the_declared_outputs(builtins):
     assert not any(o.per_level for n, o in by.items() if n not in ("modulus", "argument"))
     show = next(p for p in dev.params if p.name == "show")
     assert show.choices[-2:] == ("modulus", "argument")
+
+
+# --------------------------------------------------------------------- cdf_edges / pm_edges
+
+
+@pytest.mark.parametrize("variant", ["linear", "nonlinear"])
+def test_cdf_snapshots_are_the_analysis_evolution(builtins, variant):
+    from dynamix.core import cdf as lcdf
+    from dynamix.devices.cdf_edges import CDFEdges
+
+    values = _smooth(40, 48, seed=3)
+    values = (values - values.mean()) / values.std()
+    field, cache = _field(values), Cache()
+    layer = _layer(("cdf_edges", {"n_levels": 3, "variant": variant}))
+    r = resolve(layer, field, cache)
+    raw = cache.get(r.analysis_key)
+    snaps = CDFEdges()._snapshots(values, r.analysis_params)
+    np.testing.assert_array_equal(snaps[-1].real, raw["filtered"])
+    np.testing.assert_array_equal(snaps[-1].imag, raw["edge_channel"])
+    for k, snap in enumerate(snaps):                       # edge_mode "mz": grad-Re NMS
+        mask, _coeff = lcdf.grad_nms(snap.real, float(r.analysis_params["floor"]))
+        ys, xs = np.where(mask)
+        np.testing.assert_array_equal(xs, raw["extrema"][k]["x"])
+        np.testing.assert_array_equal(ys, raw["extrema"][k]["y"])
+    re = resolve_output(layer, field, cache, "re_scale", level=2)
+    im = resolve_output(layer, field, cache, "im_scale", level=2)
+    np.testing.assert_array_equal(re["raster"], raw["filtered"].astype(np.float32))
+    np.testing.assert_array_equal(im["raster"], raw["edge_channel"].astype(np.float32))
+    assert re["diag"] == {"level": 2, "scale_px": 4.0}
+
+
+def test_cdf_evolves_once_for_every_level_and_channel(builtins, monkeypatch):
+    from dynamix.devices.cdf_edges import CDFEdges
+
+    runs = []
+    real = CDFEdges._snapshots
+
+    def counted(self, *a, **k):
+        runs.append(1)
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(CDFEdges, "_snapshots", counted)
+    field, cache = _field(_smooth(40, 48, seed=3)), Cache()
+    layer = _layer(("cdf_edges", {"n_levels": 3}))
+    for level in range(3):
+        resolve_output(layer, field, cache, "re_scale", level=level)
+        resolve_output(layer, field, cache, "im_scale", level=level)
+    assert runs == [1]
+    snaps = resolve_output(layer, field, cache, "snapshots")
+    assert snaps["raster"].shape == (3, 2, 40, 48) and snaps["raster"].dtype == np.float32
+
+
+def test_cdf_show_of_a_lazy_row_leaves_the_display_to_the_window(builtins):
+    from dynamix.devices.cdf_edges import CDFEdges
+
+    dev = CDFEdges()
+    params = validate_params(dev, {"n_levels": 2})
+    res = dev.compute(_field(_smooth(32, 32)), params)
+    for show in ("re_scale", "im_scale"):
+        out = dev.view(res, dict(params, show=show))
+        assert "raster_out" not in out and out["params"]["show"] == show
+
+
+def test_pm_snapshots_are_the_analysis_evolution_and_run_once(builtins, monkeypatch):
+    from dynamix.devices.pm_edges import PMEdges
+
+    runs = []
+    real = PMEdges._snapshots
+
+    def counted(self, *a, **k):
+        runs.append(1)
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(PMEdges, "_snapshots", counted)
+    values = _smooth(40, 48, seed=3)
+    values = (values - values.mean()) / values.std()
+    field, cache = _field(values), Cache()
+    layer = _layer(("pm_edges", {"n_levels": 3}))
+    r = resolve(layer, field, cache)
+    raw = cache.get(r.analysis_key)
+    outs = [resolve_output(layer, field, cache, "filtered_scale", level=k) for k in range(3)]
+    assert runs == [1]
+    np.testing.assert_array_equal(outs[-1]["raster"], raw["filtered"].astype(np.float32))
+    assert [o["diag"]["scale_px"] for o in outs] == [1.0, 2.0, 4.0]
+    dev = get_device("pm_edges")
+    assert [o.name for o in declared_outputs(dev) if o.row] == ["edges", "filtered",
+                                                                 "filtered_scale"]

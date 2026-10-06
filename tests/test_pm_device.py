@@ -40,7 +40,7 @@ def test_param_surface():
     assert list(params) == ["n_levels", "k_edge", "g", "lam", "show", "detector",
                             "interpolate", "floor"]
     assert params["g"].choices == ("exp", "frac")
-    assert params["show"].choices == ("edges", "filtered")
+    assert params["show"].choices == ("edges", "filtered", "filtered_scale")
     assert params["lam"].max <= 0.25                   # the paper's stability cap
 
 
