@@ -22,7 +22,7 @@ from importlib import metadata
 from pathlib import Path
 
 from dynamix.model.chain import Chain, DeviceRef
-from dynamix.model.device import get_device, validate_params
+from dynamix.model.device import get_device, is_transform, validate_params
 from dynamix.model.presets import PRESETS
 
 RACK_FORMAT = "geodynamix-rack"
@@ -177,3 +177,71 @@ def builtin_racks() -> list[Rack]:
     return [Rack(name, tuple(RackStep(device, dict(params)) for device, params in steps),
                  builtin=True)
             for name, steps in PRESETS.items()]
+
+
+def _binds_layer(d: dict) -> bool:
+    """A step whose hidden params name the layer it was saved from: a band row's own band
+    (``band_select`` with ``_band_id``) or a bus's routed sends. It is that layer's identity, so
+    a rack leaves it out and stays usable on any other band row or dataset."""
+    params = d.get("params", {})
+    if d["device"] == "band_select":
+        return bool(params.get("_band_id"))
+    if d["device"] == "bus":
+        return params.get("_sends", "[]") not in ("", "[]")
+    return False
+
+
+def rack_from_descriptors(name: str, descriptors) -> Rack:
+    """A rack of the chain the workflow zone holds: every step with all its params filled
+    (view-only included) and its bypass state, in order. ``created`` is stamped by
+    :func:`save_rack`."""
+    return Rack(name, tuple(
+        RackStep(d["device"], validate_params(get_device(d["device"]), d.get("params", {})),
+                 bool(d.get("bypassed", False)))
+        for d in descriptors if not _binds_layer(d)))
+
+
+def merge_rack(descriptors: list[dict], rack: Rack) -> list[dict]:
+    """``descriptors`` with ``rack`` dropped in, split and merged: the rack's transforms after the
+    chain's transforms, its filters after the chain's filters. A rack Transform whose device id
+    already runs (not bypassed) in the chain is left out: the chain's own step stays the analysis
+    and the rack's other steps join it. Each new descriptor carries ``"rack": rack.name``; the
+    input list is not modified."""
+    chain = [{**d, "params": dict(d.get("params", {}))} for d in descriptors]
+    boundary = next((i for i, d in enumerate(chain)
+                     if not is_transform(get_device(d["device"]))), len(chain))
+    running = {d["device"] for d in chain
+               if not d.get("bypassed") and is_transform(get_device(d["device"]))}
+    new = [{"device": s.device, "params": dict(s.params), "bypassed": bool(s.bypassed),
+            "rack": rack.name} for s in rack.steps
+           if not (s.device in running and is_transform(get_device(s.device)))]
+    transforms = [d for d in new if is_transform(get_device(d["device"]))]
+    filters = [d for d in new if not is_transform(get_device(d["device"]))]
+    return chain[:boundary] + transforms + chain[boundary:] + filters
+
+
+def contiguous_rack_titles(descriptors: list[dict]) -> list[dict]:
+    """``descriptors`` with every rack title naming one contiguous run, as the workflow zone draws
+    a rack. A merge can split a rack in two; each later run of a title takes the first free
+    ``"<title> (k)"``, k = 2, 3, ..."""
+    out = [dict(d) for d in descriptors]
+    taken = {d.get("rack") for d in out} - {None}
+    seen: set[str] = set()
+    i = 0
+    while i < len(out):
+        title = out[i].get("rack")
+        j = i
+        while j < len(out) and out[j].get("rack") == title:
+            j += 1
+        if title is not None:
+            if title in seen:
+                k = 2
+                while f"{title} ({k})" in taken:
+                    k += 1
+                title = f"{title} ({k})"
+                taken.add(title)
+                for d in out[i:j]:
+                    d["rack"] = title
+            seen.add(title)
+        i = j
+    return out

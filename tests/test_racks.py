@@ -11,6 +11,7 @@ from importlib import metadata
 import pytest
 
 from dynamix.devices import register_builtin_devices
+from dynamix.model.chain import Chain, DeviceRef
 
 
 @pytest.fixture
@@ -136,3 +137,124 @@ def test_builtin_racks_are_the_presets_read_only(builtins):
     for rack in racks:
         assert [(s.device, s.params) for s in rack.steps] == \
             [(d, dict(p)) for d, p in PRESETS[rack.name]]
+
+
+def _d(*names, rack=None, bypassed=()):
+    return [{"device": n, "params": {}, "bypassed": n in bypassed, "rack": rack} for n in names]
+
+
+# --------------------------------------------------------------------------- save as rack
+
+
+def test_rack_from_descriptors_keeps_every_param_and_bypass(builtins):
+    from dynamix.model.device import get_device, validate_params
+    from dynamix.model.racks import RackStep, rack_from_descriptors
+
+    descriptors = [
+        {"device": "cdf_edges", "params": {"n_levels": 3, "show": "filtered"}, "bypassed": False,
+         "rack": "CDF edges"},
+        {"device": "hline_length", "params": {"min_len": 7, "max_len": 0}, "bypassed": True,
+         "rack": None},
+    ]
+    rack = rack_from_descriptors("mine", descriptors)
+    cdf = validate_params(get_device("cdf_edges"), {"n_levels": 3, "show": "filtered"})
+    assert rack.name == "mine"
+    assert rack.steps == (RackStep("cdf_edges", cdf, False),
+                          RackStep("hline_length", {"min_len": 7, "max_len": 0}, True))
+    assert rack.steps[0].params["show"] == "filtered"          # a view-only param rides along
+
+
+def test_a_band_rows_own_band_and_a_routed_bus_stay_with_their_layer(builtins):
+    """A band row's band_select (its _band_id) and a bus's sends name the layer the rack was
+    saved from; the rack keeps the analysis, so it drops onto any other band row."""
+    from dynamix.model.racks import rack_from_descriptors
+
+    row = [{"device": "band_select", "params": {"band": 2, "_band_id": "#1"}, "bypassed": False},
+           {"device": "wtmm2d", "params": {}, "bypassed": False}]
+    assert [s.device for s in rack_from_descriptors("r", row).steps] == ["wtmm2d"]
+    chosen = [{"device": "band_select", "params": {"band": 2, "_band_id": ""}},
+              {"device": "wtmm2d", "params": {}}]
+    assert [s.device for s in rack_from_descriptors("r", chosen).steps] == \
+        ["band_select", "wtmm2d"]
+    bus = [{"device": "bus", "params": {"_sends": '[{"path": "a.tif", "band": 1}]'}},
+           {"device": "pca", "params": {}}]
+    assert [s.device for s in rack_from_descriptors("r", bus).steps] == ["pca"]
+    unrouted = [{"device": "bus", "params": {"_sends": "[]"}}, {"device": "pca", "params": {}}]
+    assert [s.device for s in rack_from_descriptors("r", unrouted).steps] == ["bus", "pca"]
+
+
+# --------------------------------------------------------------------------- split and merge
+
+
+def test_merge_puts_rack_transforms_after_the_chains_and_filters_last(builtins):
+    from dynamix.model.racks import merge_rack
+
+    merged = merge_rack(_d("wtmm2d", "modulus_threshold", "hline_length"),
+                        _rack("Topology cut", (("chain_topology", {}), ("chain_holder", {}))))
+    assert [d["device"] for d in merged] == ["wtmm2d", "chain_topology", "modulus_threshold",
+                                             "hline_length", "chain_holder"]
+    assert [d["rack"] for d in merged] == [None, "Topology cut", None, None, "Topology cut"]
+    Chain(tuple(DeviceRef(d["device"], d["params"]) for d in merged)).validate()
+
+
+def test_merge_leaves_out_a_rack_transform_the_chain_already_runs(builtins):
+    """The rack's wtmm2d would run a second WTMM; the chain's own wtmm2d, with its params, stays
+    the analysis and the rack's other steps join it."""
+    from dynamix.model.racks import merge_rack
+
+    merged = merge_rack(_d("wtmm2d", "modulus_threshold"), _rack())
+    assert [(d["device"], d["params"], d["rack"]) for d in merged] == [
+        ("wtmm2d", {}, None), ("chain_topology", {}, "Hölder chain"),
+        ("modulus_threshold", {}, None), ("chain_holder", {}, "Hölder chain")]
+    bypassed = merge_rack(_d("wtmm2d", bypassed=("wtmm2d",)), _rack())   # not running: kept
+    assert [(d["device"], d["bypassed"]) for d in bypassed] == [
+        ("wtmm2d", True), ("wtmm2d", False), ("chain_topology", False), ("chain_holder", False)]
+    assert bypassed[1]["params"] == {"n_oct": 4}
+    filters = merge_rack(_d("wtmm2d", "chain_holder"), _rack())          # a filter is kept
+    assert [d["device"] for d in filters] == ["wtmm2d", "chain_topology", "chain_holder",
+                                              "chain_holder"]
+
+
+def test_merge_onto_an_empty_chain_is_the_rack(builtins):
+    from dynamix.model.racks import merge_rack
+
+    merged = merge_rack([], _rack())
+    assert [(d["device"], d["params"], d["bypassed"], d["rack"]) for d in merged] == [
+        ("wtmm2d", {"n_oct": 4}, False, "Hölder chain"),
+        ("chain_topology", {}, False, "Hölder chain"),
+        ("chain_holder", {}, False, "Hölder chain")]
+
+
+def test_a_filters_only_rack_lands_after_the_chains_filters(builtins):
+    from dynamix.model.racks import merge_rack
+
+    merged = merge_rack(_d("wtmm2d", "scale_select"),
+                        _rack("Cuts", (("modulus_threshold", {"frac": 0.2}),
+                                       ("chain_length", {}))))
+    assert [d["device"] for d in merged] == ["wtmm2d", "scale_select", "modulus_threshold",
+                                             "chain_length"]
+
+
+def test_merge_keeps_bypass_flags_and_leaves_its_input_alone(builtins):
+    from dynamix.model.racks import Rack, RackStep, merge_rack
+
+    chain = _d("wtmm2d", "modulus_threshold", bypassed=("modulus_threshold",))
+    before = json.dumps(chain)
+    rack = Rack("R", (RackStep("mz_edges", {}), RackStep("hline_length", {}, bypassed=True)))
+    merged = merge_rack(chain, rack)
+    assert [(d["device"], d["bypassed"]) for d in merged] == [
+        ("wtmm2d", False), ("mz_edges", False), ("modulus_threshold", True),
+        ("hline_length", True)]
+    assert json.dumps(chain) == before
+
+
+def test_every_rack_title_names_one_contiguous_run(builtins):
+    from dynamix.model.racks import contiguous_rack_titles, merge_rack
+
+    merged = merge_rack(_d("wtmm2d", "chain_holder", rack="X"),
+                        _rack("Y", (("mz_edges", {}), ("hline_length", {}))))
+    assert [d["rack"] for d in contiguous_rack_titles(merged)] == ["X", "Y", "X (2)", "Y (2)"]
+    taken = [{"rack": "X"}, {"rack": "X (2)"}, {"rack": "X"}]
+    assert [d["rack"] for d in contiguous_rack_titles(taken)] == ["X", "X (2)", "X (3)"]
+    whole = _d("wtmm2d", "chain_holder", rack="X")
+    assert contiguous_rack_titles(whole) == whole
