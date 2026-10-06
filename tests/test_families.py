@@ -55,7 +55,7 @@ def test_an_empty_families_tuple_lists_the_device_in_no_family():
 
 # --- the builtin devices ----------------------------------------------------------------------
 
-#: id -> display name, for every tool the browser lists in a family.
+#: id -> display name, for every tool that declares one.
 LABELS = {
     "band_select": "Band select",
     "noise": "Noise / dither",
@@ -96,7 +96,7 @@ FAMILY_TREE = {
     "Skeletons": {"wavelet_skeleton"},
     "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d"},
     "Reconstruction": {"mz_edges", "holder_measure", "holder_multiaffine", "ssa2d",
-                       "tucker_HOOI_HOSVD", "band_recon_measure", "band_recon_multiaffine"},
+                       "tucker_HOOI_HOSVD"},
     "Topology": {"chain_topology"},
     "Selection: extrema": {"scale_select", "orientation_wedge", "modulus_threshold",
                            "hline_length", "hline_modulus", "hline_holder"},
@@ -145,3 +145,13 @@ def test_the_family_tree_is_the_family_table(builtins):
 def test_superseded_and_shell_placed_devices_are_in_no_family(builtins):
     for name in NO_FAMILY:
         assert families_of(get_device(name)) == (), name
+
+
+def test_the_band_recon_variants_keep_their_label_in_no_family(builtins):
+    """Their band reconstruction is the band rows of holder_measure and holder_multiaffine: the
+    variants stay registered with their labels and are listed in no family."""
+    for name, label in (("band_recon_measure", "Band reconstruction, measure"),
+                        ("band_recon_multiaffine", "Band reconstruction, multiaffine")):
+        device = get_device(name)
+        assert families_of(device) == (), name
+        assert display_name(device) == f"{label}  ({name})"

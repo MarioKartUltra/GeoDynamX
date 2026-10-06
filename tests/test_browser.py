@@ -317,3 +317,24 @@ def test_step_states_grey_rows_with_the_reason_and_keep_them_draggable(qtbot,
     for row in rows:
         assert row.toolTip(0) == display_name(get_device("wtmm2d"))
         assert row.data(0, QtCore.Qt.ForegroundRole) is None
+
+
+def test_the_band_recon_variants_sit_in_dev_and_in_no_family(qtbot, registered_builtins):
+    """The band reconstruction is the band and band mask output rows of holder_measure and
+    holder_multiaffine, so band_recon_measure and band_recon_multiaffine leave the palette: still
+    registered (saved projects and ROI band children name them), listed once, under Dev, with
+    their label and their id beside it."""
+    from dynamix.model.families import families_of, label_of
+    from dynamix.shell.browser import _SUPERSEDED, DeviceBrowser
+
+    browser = DeviceBrowser()
+    qtbot.addWidget(browser)
+    dev = _ids(_top_level(browser, "Dev"))
+    for name in ("band_recon_measure", "band_recon_multiaffine"):
+        assert name in _SUPERSEDED and name in dev, name
+        assert families_of(get_device(name)) == (), name
+        [row] = browser._rows[name]
+        assert (row.text(0), row.text(1)) == (label_of(get_device(name)), name)
+    reconstruction = set(_ids(_top_level(browser, "Reconstruction")))
+    assert {"holder_measure", "holder_multiaffine"} <= reconstruction
+    assert reconstruction.isdisjoint({"band_recon_measure", "band_recon_multiaffine"})

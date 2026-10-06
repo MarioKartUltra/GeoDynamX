@@ -38,7 +38,10 @@ _DEV_PREFIX = "stub_"
 #: holds — but the palette shows their per-method successors instead, so these join the stubs in
 #: the collapsed "Dev" category. tucker_havok is shown as tucker_HOOI_HOSVD, its algorithm a
 #: toggle.
-_SUPERSEDED = ("holder_map", "band_recon", "tucker_havok")
+#: The band_recon variants' reconstruction is the band output rows of holder_measure and
+#: holder_multiaffine.
+_SUPERSEDED = ("holder_map", "band_recon", "tucker_havok", "band_recon_measure",
+               "band_recon_multiaffine")
 
 #: Devices only the shell places (a derivative dataset's vector loader, a bus, the arrangement
 #: view's committed groups): never dropped by hand, so they sit in "Dev" too.

@@ -171,7 +171,8 @@ def _split_arrays(method: str):
 class BandReconMeasure:
     name = "band_recon_measure"
     label = "Band reconstruction, measure"
-    families = ("Reconstruction",)
+    #: Superseded by holder_measure's band rows: listed in no family.
+    families = ()
     consumes = ((FIELD,),)
     produces = (HMAP,)
     params = HolderMeasure.engine_params + _BAND_KNOBS
@@ -202,7 +203,8 @@ class BandReconMeasure:
 class BandReconMultiaffine:
     name = "band_recon_multiaffine"
     label = "Band reconstruction, multiaffine"
-    families = ("Reconstruction",)
+    #: Superseded by holder_multiaffine's band rows: listed in no family.
+    families = ()
     consumes = ((FIELD,),)
     produces = (HMAP,)
     params = HolderMultiaffine.engine_params + _BAND_KNOBS
