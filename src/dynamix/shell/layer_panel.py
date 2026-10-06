@@ -304,6 +304,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
     stackRequested = QtCore.Signal(list)
     #: ``(layer_id, output name, hidden)`` -- an output row's H under a result's "Outputs".
     outputHideToggled = QtCore.Signal(int, str, bool)
+    #: "Save chain as rack…": the layer whose chain becomes a user rack.
+    saveRackRequested = QtCore.Signal(int)
 
     def __init__(self, project=None, parent=None):
         super().__init__(parent)
@@ -1050,6 +1052,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
             fork_action.triggered.connect(lambda: self.forkDerivativeRequested.emit(layer_id))
             bus_action = menu.addAction("Route bands to a new bus…")
             bus_action.triggered.connect(lambda: self.busRequested.emit(layer_id))
+            rack_action = menu.addAction("Save chain as rack…")
+            rack_action.triggered.connect(lambda: self.saveRackRequested.emit(layer_id))
             return menu
         rename_action = menu.addAction("Rename")
         rename_action.triggered.connect(lambda: self.editItem(item, 0))
@@ -1073,6 +1077,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
             edit_bus.triggered.connect(lambda: self.busEditRequested.emit(layer_id))
         bus_action = menu.addAction("Route bands to a new bus…")
         bus_action.triggered.connect(lambda: self.busRequested.emit(layer_id))
+        rack_action = menu.addAction("Save chain as rack…")
+        rack_action.triggered.connect(lambda: self.saveRackRequested.emit(layer_id))
         return menu
 
     def _build_source_context_menu(self, source_id: str) -> QtWidgets.QMenu:

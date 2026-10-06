@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PySide6 import QtCore
+from PySide6 import QtCore, QtWidgets
 
+from dynamix.core.frames import LocalFrame
+from dynamix.core.rasterfield import RasterField
 from dynamix.devices import register_builtin_devices
 from dynamix.model.chain import Chain, DeviceRef
 from tests.test_shell_window import stub_devices, window  # noqa: F401
@@ -223,3 +225,116 @@ def test_a_rack_headed_by_a_different_analyzer_forks_a_sibling(qtbot, window):
     assert sibling.parent_id == child.layer_id and win.layer is sibling
     assert [s.device for s in sibling.chain.steps] == [d for d, _ in PRESETS["WTMM + Hölder"]]
     assert [s.device for s in child.chain.steps] == ["mz_edges", "hline_length"]
+
+
+# --------------------------------------------------------------------------- the window
+
+
+def _answer(monkeypatch, name):
+    monkeypatch.setattr(QtWidgets.QInputDialog, "getText",
+                        staticmethod(lambda *a, **k: (name, True)))
+
+
+def test_save_as_rack_from_the_layer_menu_keeps_params_and_bypass(qtbot, window, monkeypatch):
+    from dynamix.model.device import get_device, validate_params
+    from dynamix.model.racks import load_racks
+    from dynamix.shell.settings import racks_dir
+
+    win = window
+    win._start_worker = lambda: None
+    win.load_field(np.linspace(0.0, 1.0, 256).reshape(16, 16), "mem:rack")
+    descriptors = [dict(d, params=dict(d["params"])) for d in win.strips._descriptors]
+    descriptors[-1]["bypassed"] = True
+    win.strips.set_steps(descriptors, field=win.field)
+    win._on_chain_edited(descriptors)
+    _answer(monkeypatch, "Stub rack")
+    menu = win.layer_list._build_context_menu(win.layer_list._layer_items[win.layer.layer_id],
+                                              win.layer.layer_id)
+    next(a for a in menu.actions() if a.text() == "Save chain as rack…").trigger()
+
+    (entry,) = load_racks(racks_dir())
+    n = len(win._names)
+    assert entry.rack.name == "Stub rack" and entry.problem == ""
+    assert [s.device for s in entry.rack.steps] == win._names
+    assert [s.bypassed for s in entry.rack.steps] == [False] * (n - 1) + [True]
+    assert entry.rack.steps[1].params == validate_params(get_device(win._names[1]),
+                                                         win._params[1])   # every param
+    assert "Stub rack" in _rows(win.browser)
+
+
+def test_save_as_rack_from_the_strip_saves_the_active_layer(qtbot, window, monkeypatch):
+    from dynamix.model.racks import load_racks
+    from dynamix.shell.settings import racks_dir
+
+    win = window
+    win._start_worker = lambda: None
+    win.load_field(np.linspace(0.0, 1.0, 256).reshape(16, 16), "mem:rack")
+    _answer(monkeypatch, "From strip")
+    win.strips.source_box.save_rack_button.click()
+    assert [e.rack.name for e in load_racks(racks_dir())] == ["From strip"]
+
+
+def test_save_as_rack_refuses_a_builtin_name(qtbot, window, monkeypatch):
+    from dynamix.model.racks import load_racks
+    from dynamix.shell.settings import racks_dir
+
+    win = window
+    win._start_worker = lambda: None
+    win.load_field(np.linspace(0.0, 1.0, 256).reshape(16, 16), "mem:rack")
+    _answer(monkeypatch, "WTMM + Hölder")
+    win._on_save_rack_requested(win.layer.layer_id)
+    assert load_racks(racks_dir()) == []
+
+
+def _stack_window(win):
+    win._start_worker = lambda: None
+    v = np.stack([np.full((12, 10), float(k)) + np.linspace(0, 1, 120).reshape(12, 10)
+                  for k in range(3)], axis=-1)
+    win.load_field(RasterField(name="stack", values=v, frame=LocalFrame(),
+                               x_axis=np.arange(10.0), y_axis=np.arange(12.0)), "mem:stack")
+    master = win.layer
+    bands = [l for l in win.project.layers
+             if l.parent_id == master.layer_id and l.tags.get("band.id")]
+    return master, bands
+
+
+def test_a_rack_dropped_on_a_band_row_runs_on_that_band(qtbot, window):
+    """Multiband: a band row's band_select stays at the head; the rack's analysis follows it."""
+    from dynamix.model.presets import PRESETS
+
+    win = window
+    master, bands = _stack_window(win)
+    assert _greyed(win.browser, _rows(win.browser)["WTMM + Hölder"])   # the stack itself
+    win.layer_list.select_layer(bands[1].layer_id)
+    assert not _greyed(win.browser, _rows(win.browser)["WTMM + Hölder"])
+    win.strips.dropEvent(_rack_drop("WTMM + Hölder"))
+    assert win.layer is bands[1]
+    assert [s.device for s in bands[1].chain.steps] == \
+        ["band_select"] + [d for d, _ in PRESETS["WTMM + Hölder"]]
+    assert bands[1].chain.steps[0].params["_band_id"] == "#1"
+
+
+def test_a_rack_dropped_on_an_analysed_band_row_forks_a_sibling_on_that_band(qtbot, window):
+    """The sibling keeps the band row's band_select, so the M-Z analysis reads that band and
+    never the whole stack."""
+    from dynamix.model.presets import PRESETS
+
+    win = window
+    master, bands = _stack_window(win)
+    band = bands[1]
+    win.layer_list.select_layer(band.layer_id)
+    descriptors = [dict(d, params=dict(d["params"])) for d in win.strips._descriptors]
+    descriptors.append({"device": "wtmm2d", "params": {}, "bypassed": False, "rack": None})
+    win.strips.set_steps(descriptors, field=win.field)
+    win._on_chain_edited(descriptors)                  # the committed edit re-greys the browser
+    assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]
+    assert not _greyed(win.browser, _rows(win.browser)["M–Z edges"])
+    before = len(win.project.layers)
+    win.strips.dropEvent(_rack_drop("M–Z edges"))
+    qtbot.waitUntil(lambda: len(win.project.layers) == before + 1, timeout=5000)
+    sibling = win.project.layers[-1]
+    assert sibling.parent_id == band.layer_id and win.layer is sibling
+    assert [s.device for s in sibling.chain.steps] == \
+        ["band_select"] + [d for d, _ in PRESETS["M–Z edges"]]
+    assert sibling.chain.steps[0].params["_band_id"] == band.chain.steps[0].params["_band_id"]
+    assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]

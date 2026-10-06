@@ -84,6 +84,8 @@ from dynamix.model.projectfile import (ProjectFormatError, ProjectSchemaError, c
                                        missing_sources, open_project, resolve_source,
                                        save_project, sha256_of)
 from dynamix.model.provenance import provenance_tree
+from dynamix.model.racks import (Rack, RackEntry, RackStep, builtin_racks, load_racks,
+                                 rack_from_descriptors, save_rack)
 from dynamix.roi.halo import _EDGES, MIN_A_MIN
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
@@ -108,7 +110,8 @@ from dynamix.shell.point_import import load_points
 from dynamix.shell.profile_dialog import ProfileDialog
 from dynamix.shell.right_panel import CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
-from dynamix.shell.settings import Settings, load_settings, save_settings, update_settings
+from dynamix.shell.settings import (Settings, load_settings, racks_dir, save_settings,
+                                    update_settings)
 from dynamix.shell.skeleton_dialog import SkeletonDialog
 from dynamix.shell.surface_dialog import SurfaceDialog
 from dynamix.shell.topology_panel import TopologyPanel
@@ -1154,6 +1157,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # browser knows nothing of MainWindow, so its "WTMM standard" preset is handed in as data.
         self.browser = DeviceBrowser()
         self.browser.set_presets({"WTMM standard": MainWindow.DEFAULT_STEPS, **PRESETS})
+        # The rack rows: the built-in racks and the user's rack files (set_racks replaces the
+        # rows set_presets made).
+        self._user_racks = load_racks(racks_dir())
+        self.browser.set_racks(self._rack_entries())
         self.layer_list = LayerPanel(self.project)
         self.layer_list.layerSelected.connect(self._on_layer_selected)
         self.layer_list.hideToggled.connect(self._on_hide_toggled)
@@ -1188,6 +1195,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # A result's output rows: a raster row is a radio over its step's Show, the edges row
         # hides the maxima drawing.
         self.layer_list.outputHideToggled.connect(self._on_output_hide_toggled)
+        self.layer_list.saveRackRequested.connect(self._on_save_rack_requested)
         self.resolved.connect(self._fan_out_to_inspectors)
         # What the browser rows were last greyed for (_sync_browser_states).
         self._browser_key = None
@@ -6442,6 +6450,9 @@ both ``Canvas`` signals report the
             self.strips.deleteLater()
         self.strips = WorkflowZone()
         self.strips.set_presets({"WTMM standard": MainWindow.DEFAULT_STEPS, **PRESETS})
+        self.strips.set_racks([e.rack for e in self._rack_entries()
+                               if e.rack is not None and not e.problem])
+        self.strips.saveRackRequested.connect(self._on_save_rack_from_strip)
         self.strips.paramChanged.connect(self._on_param_changed)
         self.strips.chainEdited.connect(self._on_chain_edited)
         # A fresh SourceBox lives inside this fresh WorkflowZone, so the chip-hover ->
@@ -6525,6 +6536,9 @@ both ``Canvas`` signals report the
         self._browser_key = key
         self.browser.set_step_states(drop_states(transforms, layer_input, master=master,
                                                  roi_holder=roi_holder, level_view=level_view))
+        # The rack rows follow the same layer, judged as their first device is.
+        self.browser.set_rack_context(transforms, layer_input, master=master,
+                                      roi_holder=roi_holder)
 
     def _mark_transforms_pending(self) -> None:
         """A transform edit under manual run: record it, show it, dispatch nothing.
@@ -6597,6 +6611,79 @@ both ``Canvas`` signals report the
             {"device": n, "params": dict(p), "bypassed": b, "rack": r}
             for n, p, b, r in zip(self._names, self._params, self._bypassed, self._rack)
         ]
+
+    # -- racks -----------------------------------------------------------------------------
+    @staticmethod
+    def _builtin_racks() -> list:
+        """The read-only racks: the default chain as "WTMM standard", then ``PRESETS``."""
+        standard = Rack("WTMM standard", tuple(RackStep(n, dict(p))
+                                               for n, p in MainWindow.DEFAULT_STEPS),
+                        builtin=True)
+        return [standard] + builtin_racks()
+
+    def _rack_entries(self) -> list:
+        """Every rack row: the built-in racks, then the user's. A user rack named like a
+        built-in one is listed with that problem, so a drop by name is never ambiguous."""
+        builtins = [RackEntry(rack, None) for rack in self._builtin_racks()]
+        taken = {entry.rack.name for entry in builtins}
+        users = [dataclasses.replace(entry, problem="a built-in rack has this name")
+                 if entry.rack is not None and not entry.problem and entry.rack.name in taken
+                 else entry for entry in self._user_racks]
+        return builtins + users
+
+    def _reload_racks(self) -> None:
+        """Re-read the rack files and push every rack to the browser and the zone. The browser
+        greys the new rows for the context it holds."""
+        self._user_racks = load_racks(racks_dir())
+        entries = self._rack_entries()
+        self.browser.set_racks(entries)
+        if self.strips is not None:
+            self.strips.set_racks([e.rack for e in entries
+                                   if e.rack is not None and not e.problem])
+
+    def _on_save_rack_from_strip(self) -> None:
+        if self.layer is not None:
+            self._on_save_rack_requested(self.layer.layer_id)
+
+    def _on_save_rack_requested(self, layer_id: int) -> None:
+        """Save a layer's chain as a user rack: every step, all its params (view-only included)
+        and its bypass state, under a name the user gives."""
+        layer = self._layer_by_id.get(layer_id)
+        if layer is None:
+            return
+        if layer is self.layer:
+            descriptors = [{"device": n, "params": dict(p), "bypassed": b}
+                           for n, p, b in zip(self._names, self._params, self._bypassed)]
+        elif layer_id in self._recipes:
+            descriptors = [dict(d) for d in self._recipes[layer_id]]
+        else:
+            descriptors = [{"device": r.device, "params": dict(r.params), "bypassed": False}
+                           for r in layer.chain.steps]
+        if not rack_from_descriptors("", descriptors).steps:
+            self._notify(f"{layer.name}: the chain has no step to save as a rack", "status")
+            return
+        name, ok = QtWidgets.QInputDialog.getText(self, "Save as rack", "Rack name:",
+                                                  QtWidgets.QLineEdit.Normal, layer.name)
+        name = name.strip()
+        if not ok or not name:
+            return
+        if any(rack.name == name for rack in self._builtin_racks()):
+            self._notify(f"{name} is a built-in rack — choose another name", "status")
+            return
+        if any(e.rack is not None and e.rack.name == name for e in self._user_racks):
+            reply = QtWidgets.QMessageBox.question(
+                self, "Replace rack", f"A rack named {name} exists. Replace it?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
+        rack = rack_from_descriptors(name, descriptors)
+        try:
+            save_rack(racks_dir(), rack)
+        except OSError as exc:
+            self._notify(f"rack not saved: {exc}", "status")
+            return
+        self._reload_racks()
+        self._notify(f"saved rack {name} ({len(rack.steps)} steps)", "status")
 
     # -- the two paths ---------------------------------------------------------------------
     def _on_param_changed(self, step_index: int, name: str, value) -> None:
