@@ -59,3 +59,82 @@ def test_ships_to_moves_a_step_that_applies_only_to_the_siblings_analysis(builti
     assert not ships_to("orientation_wedge", wtmm, mz)     # it applies to both: it stays
     assert ships_to("hline_modulus", mz, wtmm, FIELD, {"frac": 0.0, "mode": "sup_all_scales"})
     assert not ships_to("hline_modulus", mz, wtmm, FIELD, {"frac": 0.0, "mode": "sup"})
+
+
+def test_drop_states_on_a_field_master(builtins):
+    from dynamix.model.device import DEVICES
+    from dynamix.model.forking import drop_states
+
+    states = drop_states((), FIELD, master=True)
+    assert set(states) == set(DEVICES)
+    assert states["wtmm2d"].applies and states["noise"].applies
+    assert not states["pca"].applies and not states["chain_holder"].applies
+    assert states["pca"] == next_step_state((), FIELD, "pca")
+
+
+def test_drop_states_offer_stack_tools_on_a_stack_and_single_band_tools_on_its_band_rows(
+        builtins):
+    from dynamix.model.forking import drop_states
+
+    stack = drop_states((), STACK, master=True)
+    for name in ("pca", "tucker_HOOI_HOSVD", "noise", "band_select"):
+        assert stack[name].applies, name
+    for name in ("wtmm2d", "mz_edges", "holder_measure", "ssa2d"):
+        assert not stack[name].applies, name
+    band_row = drop_states((DeviceRef("band_select", {"band": 1}),), STACK)
+    for name in ("wtmm2d", "mz_edges", "holder_measure", "ssa2d", "tucker_HOOI_HOSVD"):
+        assert band_row[name].applies, name
+    assert not band_row["pca"].applies
+    bus_row = drop_states((DeviceRef("bus", {}),), FIELD)
+    assert bus_row["pca"].applies and not bus_row["wtmm2d"].applies
+
+
+def test_drop_states_judge_a_forking_analyzer_on_the_layers_input(builtins):
+    from dynamix.model.forking import drop_states
+
+    on_wtmm = drop_states((DeviceRef("wtmm2d", {}),), FIELD)
+    for name in ("mz_edges", "holder_measure", "ssa2d", "chain_holder", "chain_topology",
+                 "orientation_wedge", "wtmm2d_roi"):
+        assert on_wtmm[name].applies, name
+    assert not on_wtmm["noise"].applies               # appended after the analysis
+    cdf = (DeviceRef("cdf_edges", {}),)
+    on_cdf = drop_states(cdf, FIELD)
+    assert on_cdf["orientation_wedge"].applies
+    assert on_cdf["chain_holder"] == next_step_state(cdf, FIELD, "chain_holder")
+    assert not on_cdf["chain_holder"].applies
+
+
+def test_routing_head_is_the_leading_run_of_band_select_and_bus(builtins):
+    from dynamix.model.forking import routing_head
+
+    band, bus = DeviceRef("band_select", {"band": 2}), DeviceRef("bus", {})
+    assert routing_head((band, DeviceRef("wtmm2d", {}))) == (band,)
+    assert routing_head((bus, DeviceRef("pca", {}))) == (bus,)
+    assert routing_head((DeviceRef("noise", {}), band)) == ()
+    assert routing_head(()) == ()
+
+
+def test_drop_states_judge_a_forking_analyzer_after_the_layers_routing_steps(builtins):
+    """A sibling forked from a band row or a bus row starts with its band_select or bus, so a
+    second analyzer is judged on the band or the bus's stack, never on the dataset's input."""
+    from dynamix.model.forking import drop_states
+
+    band = DeviceRef("band_select", {"band": 1})
+    band_row = drop_states((band, DeviceRef("wtmm2d", {})), STACK)
+    assert band_row["mz_edges"] == next_step_state((band,), STACK, "mz_edges")
+    assert band_row["mz_edges"].applies and band_row["ssa2d"].applies
+    assert not band_row["pca"].applies
+    bus = DeviceRef("bus", {})
+    bus_row = drop_states((bus, DeviceRef("pca", {})), FIELD)
+    assert bus_row["tucker_HOOI_HOSVD"].applies
+    assert bus_row["wtmm2d"] == next_step_state((bus,), FIELD, "wtmm2d")
+    assert not bus_row["wtmm2d"].applies
+
+
+def test_drop_states_on_an_roi_holder_judge_an_analyzer_in_the_heading_ones_place(builtins):
+    from dynamix.model.forking import drop_states
+
+    noise = DeviceRef("noise", {})
+    states = drop_states((noise, DeviceRef("wtmm2d", {})), FIELD, roi_holder=True)
+    assert states["mz_edges"] == next_step_state((noise,), FIELD, "mz_edges")
+    assert states["mz_edges"].applies

@@ -9,8 +9,11 @@ to the sibling when it applies to the sibling's analysis and not to the parent's
 """
 from __future__ import annotations
 
+from collections.abc import Iterable
+
+from dynamix.model.chain import DeviceRef
 from dynamix.model.contracts import FIELD, STACK, consumes_of, next_step_state, produces_of
-from dynamix.model.device import defaults_for, is_transform
+from dynamix.model.device import DEVICES, defaults_for, get_device, is_transform
 
 _RASTERS = frozenset((FIELD, STACK))
 
@@ -42,3 +45,46 @@ def ships_to(consumer_name: str, parent_analysis, sibling_analysis, layer_input:
     own (``None``: its defaults)."""
     return (next_step_state(sibling_analysis, layer_input, consumer_name, params).applies
             and not next_step_state(parent_analysis, layer_input, consumer_name, params).applies)
+
+
+#: The routing steps: they decide which raster a layer's analysis reads (one band of a stack, a
+#: bus's stack of sends), so a sibling forked from the layer carries them over.
+_ROUTING = ("band_select", "bus")
+
+
+def routing_head(steps: Iterable[DeviceRef]) -> tuple[DeviceRef, ...]:
+    """The leading run of routing steps (``band_select``, ``bus``) of ``steps``, as the same
+    ``DeviceRef`` objects in order: the steps a sibling forked from the layer starts with, ahead
+    of its own analysis."""
+    head = []
+    for ref in steps:
+        if ref.device not in _ROUTING:
+            break
+        head.append(ref)
+    return tuple(head)
+
+
+def drop_states(steps, layer_input: str, *, master: bool = False,
+                roi_holder: bool = False) -> dict:
+    """``{device id: StepState}`` for every registered device as the next drop on a layer whose
+    enabled Transform steps are ``steps`` (``DeviceRef``; filters never change which contracts are
+    available, so they are left out), over an input of kind ``layer_input``.
+
+    A primary analyzer, or a device that reads the source file, dropped where a primary already
+    heads the chain or on a dataset's master row forks a sibling over the same input that starts
+    with the layer's routing steps (:func:`routing_head`), so it is judged after those steps
+    alone. On an ROI-holder layer it takes the heading primary's place, so it is judged on the
+    steps ahead of that primary. Every other device is judged as appended to ``steps``."""
+    steps = tuple(steps)
+    head = next((i for i, ref in enumerate(steps) if is_primary(get_device(ref.device))), None)
+    if roi_holder:
+        base = steps if head is None else steps[:head]
+    elif master or head is not None:
+        base = routing_head(steps)
+    else:
+        base = steps
+    states = {}
+    for name, device in DEVICES.items():
+        heads = is_primary(device) or getattr(device, "reads_source", False)
+        states[name] = next_step_state(base if heads else steps, layer_input, name)
+    return states
