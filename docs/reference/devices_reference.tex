@@ -127,12 +127,13 @@ outside data into the statistic).
 \textbf{Output rows.} A result whose tool produces several things carries a collapsed
 \emph{Outputs} group under its row: one row per output, each with its own H
 (the \hyperref[tab:outputs]{output-rows table} below lists every tool's rows). Raster outputs share the canvas one at a time: showing one
-hides the others, and hiding the one shown puts the data back. They follow the tool's
+hides the others, and hiding the one shown puts back what the tool's \texttt{show} shows by
+default (the data, or an MFA tool's $h$ map). They follow the tool's
 \texttt{show} knob, and switching between them re-uses what was computed. The \emph{edges} row
 hides the maxima dots and gradient arrows (and the H-lines in the Vector and Geo views); the
 result keeps its maxima, so filters, the spectrum and the anisotropy window still read them.
 The layer's own H hides everything the result draws. An output that needs its own computation
-(the \dev{mz\_edges} reconstruction) runs the first time it is shown, with progress and Stop,
+(the \dev{mz\_edges} reconstruction, an MFA tool's band) runs the first time it is shown, with progress and Stop,
 and stays cached; Freeze (the row's F) keeps it.
 
 \input{tables/outputs}
@@ -961,25 +962,41 @@ across the two tools, and $\gamma$ values are not comparable across wavelets.}
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{band\_recon\_measure} / \dev{band\_recon\_multiaffine} --- reconstruction from an $h$ band}
-The same $h(x)$ engine as the matching holder tool (its params verbatim, shared by
-identity) $+$ the singularity band $h\in[h_{\text{lo}},h_{\text{hi}})$ and an island
-sieve, then gradient-restricted Fourier reconstruction (Turiel eq.~65, symmetric-extension
-border fix). Sweeping the band and watching the reconstruction \emph{is} the workflow;
-the Band dialog commits the variant matching the layer's producer.
+\subsection{Band reconstruction: the \texttt{band} and \texttt{band\_mask} outputs}\label{sec:band}
+Both Microcanonical MFA tools reconstruct the field from a singularity band. The band
+$h\in[h_{\text{lo}},h_{\text{hi}})$ of the cached $h$ map, cleared of islands outside the size
+range, is the mask; the reconstruction is the gradient-restricted Fourier inversion of the
+analysed values on that mask (Turiel eq.~65, symmetric-extension border fix). Two output rows
+carry them, \emph{band reconstruction} (\texttt{band}) and \emph{band mask}
+(\texttt{band\_mask}), and \texttt{Show} picks what the canvas draws: the $h$ map, the band or
+its mask. The band row reads its PSNR against the data and the share of pixels in the band, the
+mask row the share.
+
+The band knobs are view-only and sit in the right panel's \emph{Reconstruction} section. Only
+the two outputs read them: scrubbing the band recomputes the reconstruction from the cached $h$
+map, and the analysis key leaves them out. A saved project gains them at their defaults.
+Sweeping the band and watching the reconstruction is the workflow. \emph{Reconstruct\ldots}
+(the Band dialog) previews the band live; on a whole-field layer headed by a Microcanonical MFA
+tool, a band row of a stack included, it writes the band into that step's knobs and shows the
+band row. On an ROI layer, and on a layer headed by \dev{holder\_map}, it adds a
+\dev{band\_recon\_measure} or \dev{band\_recon\_multiaffine} child, which runs the same $h(x)$
+engine with the band as keyed knobs and shows the reconstruction as its raster.
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning (band knobs; engine knobs above) \\ \midrule
-\texttt{h\_lo} / \texttt{h\_hi} & $-2$ / $0$ & $[-6,6]$ & the band $h_{\text{lo}}\le h<h_{\text{hi}}$, in the estimator's own frame \\
-\texttt{min\_island} / \texttt{max\_island} & 0 / 0 & px & drop mask components outside this size range before inversion \\
-\texttt{connectivity} & 8 & 8 / 4 & island connectivity (8 keeps diagonal ribbons whole) \\
+\texttt{show} (\emph{view}) & h\_map & 3 outputs & what the canvas draws: \texttt{h\_map}, or the \texttt{band} reconstruction or its \texttt{band\_mask} (the Outputs rows) \\
+\texttt{h\_lo} / \texttt{h\_hi} (\emph{view}) & $-2$ / $0$ & $[-6,6]$ & the band $h_{\text{lo}}\le h<h_{\text{hi}}$, in the estimator's own frame \\
+\texttt{min\_island} / \texttt{max\_island} (\emph{view}) & 0 / 0 & px & drop mask components outside this size range before inversion \\
+\texttt{connectivity} (\emph{view}) & 8 & 8 / 4 & island connectivity (8 keeps diagonal ribbons whole) \\
 \bottomrule
 \end{longtable}
 
-\emph{Superseded:} \dev{holder\_map} and \dev{band\_recon} (the pre-split conflated
-tools, estimator $\times$ wavelet crossed) remain registered for saved projects and live
-in the browser's Dev group; their physics is identical to the split tools at the old
-defaults.
+\emph{Superseded:} \dev{band\_recon\_measure} and \dev{band\_recon\_multiaffine} stay
+registered in the browser's Dev group, so a project that holds one opens and resolves as
+before; at the same knobs their reconstruction equals the \texttt{band} output bit for bit.
+\dev{holder\_map} and \dev{band\_recon} (the pre-split conflated tools, estimator $\times$
+wavelet crossed) remain registered for saved projects and live in the Dev group too; their
+physics is identical to the split tools at the old defaults.
 
 %======================================================================
 \section{Topology}
@@ -1073,7 +1090,8 @@ step after them applies.
 
 \textbf{Superseded tools} stay registered in the Dev group, so a saved project that names one
 opens and resolves: \dev{holder\_map} and \dev{band\_recon} (the pre-split H\"older tools),
-\dev{band\_recon\_measure} and \dev{band\_recon\_multiaffine}, \dev{tucker\_havok}, and
+\dev{band\_recon\_measure} and \dev{band\_recon\_multiaffine} (\S\ref{sec:band}),
+\dev{tucker\_havok}, and
 \dev{scale\_select}.
 
 %======================================================================
@@ -1158,7 +1176,9 @@ wavelet or the sinc function.''
         $-1$ marks isolated points. \texttt{scales} is the matching scale array (px).
   \item \textbf{h-map contract} (holder tools): \texttt{h\_map} displays in place of the
         field through the ordinary raster path; \texttt{r2\_map} rides along
-        (all-NaN under punctual). \texttt{raster\_out} (band tools) displays the
+        (all-NaN under punctual). The \texttt{band} and \texttt{band\_mask} outputs are
+        lazy rasters with keys of their own (\S\ref{sec:band}). \texttt{raster\_out}
+        (\dev{band\_recon\_measure}, \dev{band\_recon\_multiaffine}) displays the
         reconstruction; \texttt{h\_map}/\texttt{band\_mask} ride for the dialogs.
   \item \textbf{cdf extras}: \texttt{filtered} (final Re) and \texttt{edge\_channel}
         (final Im) rasters.
