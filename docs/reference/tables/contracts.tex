@@ -1,0 +1,22 @@
+% Written by make_tables.py from the device registry: change a declaration, then
+% run python docs/reference/make_tables.py.
+\phantomsection\label{tab:contracts}%
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.18\textwidth}>{\raggedright\arraybackslash}p{0.34\textwidth}>{\raggedright\arraybackslash}p{0.4\textwidth}}
+\caption*{\textbf{Contracts}: the named kinds of data and the result keys each one covers.}\\
+\toprule
+Contract & Meaning & Result keys \\ \midrule
+\endfirsthead
+\toprule
+Contract & Meaning & Result keys \\ \midrule
+\endhead
+Field & a single-band field & the \texttt{RasterField} itself \\
+Stack & a band stack & the \texttt{RasterField} itself \\
+Points & a point set & the \texttt{PointSet} itself \\
+ExtremaStack & an extrema stack & \texttt{extrema}, \texttt{scales}, \texttt{\_shape} \\
+PointAlpha & a per-point $\alpha$ & \texttt{extrema[i]["alpha"]} \\
+VChains & V-chains & \texttt{chains} \\
+Topology & the H/V topology & \texttt{topology}, \texttt{\_topology\_vids} \\
+HMap & an h-map & \texttt{h\_map}, \texttt{r2\_map} \\
+Components & decomposition components & \texttt{raster\_out} \\
+\bottomrule
+\end{longtable}

@@ -1,0 +1,24 @@
+% Written by make_tables.py from the device registry: change a declaration, then
+% run python docs/reference/make_tables.py.
+\phantomsection\label{tab:families}%
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.2\textwidth}>{\raggedright\arraybackslash}p{0.74\textwidth}}
+\caption*{\textbf{Families}: the tools the device browser lists under each family.}\\
+\toprule
+Family & Tools (display name \textperiodcentered{} device id) \\ \midrule
+\endfirsthead
+\toprule
+Family & Tools (display name \textperiodcentered{} device id) \\ \midrule
+\endhead
+Data preparation & \tool{Noise / dither}{noise}; \tool{Band select}{band\_select} \\
+Edge detection & \tool{WTMM 2D}{wtmm2d}; \tool{WTMM 2D, ROI}{wtmm2d\_roi}; \tool{Mallat--Zhong edges}{mz\_edges}; \tool{CDF edges}{cdf\_edges}; \tool{Perona--Malik edges}{pm\_edges} \\
+Regularity & \tool{WTMM 2D}{wtmm2d}; \tool{WTMM 2D, ROI}{wtmm2d\_roi}; \tool{Mallat--Zhong edges}{mz\_edges}; \tool{Microcanonical MFA, measure}{holder\_measure}; \tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} \\
+Skeletons & \tool{Wavelet skeleton}{wavelet\_skeleton} \\
+Decomposition & \tool{PCA}{pca}; \tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD}; \tool{2-D SSA}{ssa2d} \\
+Reconstruction & \tool{Mallat--Zhong edges}{mz\_edges}; \tool{Microcanonical MFA, measure}{holder\_measure}; \tool{Microcanonical MFA, multiaffine}{holder\_multiaffine}; \tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD}; \tool{2-D SSA}{ssa2d} \\
+Topology & \tool{Chain topology}{chain\_topology} \\
+Selection: extrema & \tool{Orientation wedge}{orientation\_wedge}; \tool{Modulus threshold}{modulus\_threshold}; \tool{H-line length}{hline\_length}; \tool{H-line modulus}{hline\_modulus}; \tool{H-line H\"older}{hline\_holder} \\
+Selection: V-chains & \tool{Min V-chains per H-line}{min\_vchains}; \tool{Chain H\"older}{chain\_holder}; \tool{Chain modulus}{chain\_modulus}; \tool{Chain length}{chain\_length}; \tool{Seam classifier}{chain\_classify}; \tool{Group filter}{group\_filter} \\
+Points & \tool{Back-project points}{backproject} \\
+Dev (collapsed) & \dev{bus}; \dev{holder\_map}; \dev{band\_recon}; \tool{Band reconstruction, measure}{band\_recon\_measure}; \tool{Band reconstruction, multiaffine}{band\_recon\_multiaffine}; \dev{tucker\_havok}; \tool{Scale}{scale\_select}; \dev{group\_paint}; \dev{derived\_vectors}; \dev{stub\_wavelet}; \dev{stub\_holder}; \dev{stub\_wedge} \\
+\bottomrule
+\end{longtable}

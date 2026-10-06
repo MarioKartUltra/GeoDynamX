@@ -1,0 +1,37 @@
+% Written by make_tables.py from the device registry: change a declaration, then
+% run python docs/reference/make_tables.py.
+\phantomsection\label{tab:outputs}%
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.26\textwidth}>{\raggedright\arraybackslash}p{0.18\textwidth}>{\raggedright\arraybackslash}p{0.15\textwidth}l>{\raggedright\arraybackslash}p{0.11\textwidth}c}
+\caption*{\textbf{Output rows}: the rows each tool carries under its result.}\\
+\toprule
+Tool & Output & Row & Kind & Computed & Per level \\ \midrule
+\endfirsthead
+\toprule
+Tool & Output & Row & Kind & Computed & Per level \\ \midrule
+\endhead
+\tool{WTMM 2D}{wtmm2d} & \texttt{modulus} & modulus & raster & when shown & yes \\
+ & \texttt{argument} & argument & raster & when shown & yes \\
+\tool{WTMM 2D, ROI}{wtmm2d\_roi} & \texttt{modulus} & modulus & raster & when shown & yes \\
+ & \texttt{argument} & argument & raster & when shown & yes \\
+\tool{Mallat--Zhong edges}{mz\_edges} & \texttt{edges} & edges & vector & with the analysis &  \\
+ & \texttt{coarse} & coarse & raster & when shown &  \\
+ & \texttt{thumbnail} & thumbnail & raster & when shown &  \\
+ & \texttt{recon} & recon (edges + coarse) & raster & when shown &  \\
+ & \texttt{recon\_edges\_only} & recon (edges only) & raster & when shown &  \\
+ & \texttt{residual} & residual & raster & when shown &  \\
+ & \texttt{modulus} & modulus & raster & when shown & yes \\
+ & \texttt{argument} & argument & raster & when shown & yes \\
+\tool{CDF edges}{cdf\_edges} & \texttt{edges} & edges & vector & with the analysis &  \\
+ & \texttt{filtered} & filtered & raster & with the analysis &  \\
+ & \texttt{edge\_channel} & edge channel & raster & with the analysis &  \\
+ & \texttt{re\_scale} & Re at $\sigma$ & raster & when shown & yes \\
+ & \texttt{im\_scale} & Im at $\sigma$ & raster & when shown & yes \\
+\tool{Perona--Malik edges}{pm\_edges} & \texttt{edges} & edges & vector & with the analysis &  \\
+ & \texttt{filtered} & filtered & raster & with the analysis &  \\
+ & \texttt{filtered\_scale} & filtered at $\sigma$ & raster & when shown & yes \\
+\tool{Microcanonical MFA, measure}{holder\_measure} & \texttt{band} & band reconstruction & raster & when shown &  \\
+ & \texttt{band\_mask} & band mask & raster & when shown &  \\
+\tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} & \texttt{band} & band reconstruction & raster & when shown &  \\
+ & \texttt{band\_mask} & band mask & raster & when shown &  \\
+\bottomrule
+\end{longtable}

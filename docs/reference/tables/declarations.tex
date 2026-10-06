@@ -1,0 +1,48 @@
+% Written by make_tables.py from the device registry: change a declaration, then
+% run python docs/reference/make_tables.py.
+\phantomsection\label{tab:declarations}%
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.36\textwidth}c>{\raggedright\arraybackslash}p{0.25\textwidth}>{\raggedright\arraybackslash}p{0.25\textwidth}}
+\caption*{\textbf{Declarations}: what each tool consumes and produces (T: Transform, F: Filter; $\dagger$: depends on the parameters).}\\
+\toprule
+Tool & & Consumes & Produces \\ \midrule
+\endfirsthead
+\toprule
+Tool & & Consumes & Produces \\ \midrule
+\endhead
+\tool{Noise / dither}{noise} & T & Field or Stack & what it received \\
+\tool{Band select}{band\_select} & T & Stack or Field & Field \\
+\dev{bus} & T & Field or Stack & Stack$^\dagger$ \\
+\tool{WTMM 2D}{wtmm2d} & T & Field & ExtremaStack + VChains \\
+\tool{WTMM 2D, ROI}{wtmm2d\_roi} & T & Field or Stack & ExtremaStack + VChains \\
+\tool{Mallat--Zhong edges}{mz\_edges} & T & Field & ExtremaStack + PointAlpha$^\dagger$; \texttt{algorithm} $=$ \texttt{printed}: ExtremaStack \\
+\tool{Wavelet skeleton}{wavelet\_skeleton} & T & Field & ExtremaStack \\
+\tool{CDF edges}{cdf\_edges} & T & Field & ExtremaStack \\
+\tool{Perona--Malik edges}{pm\_edges} & T & Field & ExtremaStack \\
+\dev{holder\_map} & T & Field & HMap \\
+\tool{Microcanonical MFA, measure}{holder\_measure} & T & Field & HMap \\
+\tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} & T & Field & HMap \\
+\dev{band\_recon} & T & Field & HMap \\
+\tool{Band reconstruction, measure}{band\_recon\_measure} & T & Field & HMap \\
+\tool{Band reconstruction, multiaffine}{band\_recon\_multiaffine} & T & Field & HMap \\
+\tool{PCA}{pca} & T & Stack & Components \\
+\dev{tucker\_havok} & T & Field or Stack & Components \\
+\tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD} & T & Field or Stack & Components \\
+\tool{2-D SSA}{ssa2d} & T & Field & Components \\
+\tool{Chain topology}{chain\_topology} & T & ExtremaStack + VChains & what it received + Topology \\
+\tool{Min V-chains per H-line}{min\_vchains} & F & Topology & --- \\
+\tool{Scale}{scale\_select} & F & ExtremaStack & --- \\
+\tool{Orientation wedge}{orientation\_wedge} & F & ExtremaStack & --- \\
+\tool{Modulus threshold}{modulus\_threshold} & F & ExtremaStack & --- \\
+\tool{H-line length}{hline\_length} & F & ExtremaStack & --- \\
+\tool{H-line modulus}{hline\_modulus} & F & ExtremaStack$^\dagger$; \texttt{mode} $=$ \texttt{sup\_all\_scales}: ExtremaStack + VChains & --- \\
+\tool{H-line H\"older}{hline\_holder} & F & ExtremaStack + PointAlpha & --- \\
+\tool{Chain H\"older}{chain\_holder} & F & VChains & --- \\
+\tool{Chain modulus}{chain\_modulus} & F & VChains & --- \\
+\tool{Chain length}{chain\_length} & F & VChains & --- \\
+\tool{Seam classifier}{chain\_classify} & F & VChains & --- \\
+\dev{group\_paint} & F & VChains & --- \\
+\tool{Group filter}{group\_filter} & F & VChains & --- \\
+\tool{Back-project points}{backproject} & T & Points & Points \\
+\dev{derived\_vectors} & T & Field or Stack & ExtremaStack + VChains \\
+\bottomrule
+\end{longtable}
