@@ -619,13 +619,17 @@ def _edges_hidden(layer, layer_input: str | None = None) -> bool:
 
 
 def _output_note(value) -> str:
-    """A lazy output row's reading: a reconstruction's iterations, residual status and SNR;
+    """A lazy output row's reading: a reconstruction's iterations, residual status and SNR; a
+    band reconstruction's PSNR and the share of pixels in its band (a band mask's share alone);
     empty for an output that carries none (the coarse channel, the thumbnail)."""
     diag = (value or {}).get("diag") or {}
     if "n_iter" in diag:
         return f"{diag['n_iter']} it · {diag['status']} · {float(diag['snr_db']):.1f} dB"
     if "iterations" in diag and "stop" in diag:          # the LastWave engine's diagnostics
         return f"{diag['iterations']} it · {diag['stop']} · {float(diag['snr_db']):.1f} dB"
+    if "band_density" in diag:                           # a Microcanonical MFA band row
+        share = f"{100.0 * float(diag['band_density']):.0f}% of pixels"
+        return f"{float(diag['psnr_db']):.1f} dB · {share}" if "psnr_db" in diag else share
     return ""
 
 
@@ -4517,7 +4521,8 @@ both ``Canvas`` signals report the
         spectrum and anisotropy keep reading them.
 
         A raster row is a radio over the step's view-only ``show``: un-hiding it shows it,
-        hiding the shown one puts the raw field back (``show = "edges"``). The write goes through
+        hiding the shown one puts back what Show shows by default (the raw field under
+        ``"edges"``, the h-map under ``"h_map"``). The write goes through
         the Show knob's own control on the ACTIVE layer, so a row of another layer selects that
         layer first. The control is the one path that reaches the box, the zone's descriptor
         list and :meth:`_on_param_changed` (a cache-hit re-resolve) together; the next zone
@@ -4549,8 +4554,10 @@ both ``Canvas`` signals report the
                 if notice is not None:
                     self.strips._show_warning(notice)
                 else:
+                    off = next((p.default for p in get_device(step.device).params
+                                if p.name == "show"), "edges")
                     self.strips.strip(index)._on_control_changed(
-                        "show", "edges" if hidden else name)
+                        "show", off if hidden else name)
         self._sync_output_rows(layer)
 
     def _output_step_index(self) -> int | None:
@@ -4628,7 +4635,9 @@ both ``Canvas`` signals report the
                                     self._shown_level(), reading)
         step, outputs = layer_outputs(self.layer, self._layer_input())
         recon = next((o for o in outputs if o.name == "recon"), None)
-        if values.get("algorithm") != "lastwave":
+        if "algorithm" not in values:
+            reason = "these rows compute when shown"
+        elif values.get("algorithm") != "lastwave":
             reason = "the printed algorithm runs on show"
         elif step is None or recon is None:
             reason = "no reconstruction on this chain"
@@ -4637,7 +4646,7 @@ both ``Canvas`` signals report the
         panel.set_run(reason is None, reason or "compute the reconstruction with these knobs, "
                                                 "continuing from the preview")
         notes = self._output_row_state(self.layer, step, outputs)[0] if step is not None else {}
-        reading = notes.get("recon", "")
+        reading = notes.get("recon", notes.get("band", ""))
         panel.set_reading(f"manual · {reading}" if reading == _AWAITS_RUN else reading)
 
     def _on_recon_knob_changed(self, name: str, value) -> None:
@@ -7833,10 +7842,11 @@ both ``Canvas`` signals report the
                     # in the scene (belt-and-braces); identity stamps feed _STYLE_KEYS diffing.
                     drape = _display_raster_of(res)
                     drape_offset = None
-                    if drape is None and res is not None:
+                    if res is not None:
                         # A lazily computed output on show drapes once cached (never computed
-                        # here); one on its own coarser grid leaves the field draped. One whose
-                        # samples register off their pixel index drapes on the moved axes.
+                        # here), over the analysis's own raster (an h-map); one on its own
+                        # coarser grid leaves the field draped. One whose samples register off
+                        # their pixel index drapes on the moved axes.
                         value = self._cached_output_value(layer, renderable)
                         if value is not None:
                             drape = value["raster"]
