@@ -161,7 +161,7 @@ def test_an_mz_layer_gets_its_output_rows(win, qtbot):
     group = win.layer_list._output_groups[layer.layer_id]
     assert [group.child(i).text(0) for i in range(group.childCount())] == [
         "edges", "coarse", "thumbnail", "recon (edges + coarse)", "recon (edges only)",
-        "residual"]
+        "residual", "modulus", "argument"]
     assert all(not group.child(i).isDisabled() for i in range(group.childCount()))
 
 

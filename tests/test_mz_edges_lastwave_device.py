@@ -110,7 +110,7 @@ def test_param_names_order_defaults_and_sections(builtins):
     assert by["coarse"].choices == ("full", "thumbnail")
     assert by["mode"].choices == mz.RECON_MODES
     assert by["show"].choices == ("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
-                                  "residual")
+                                  "residual", "modulus", "argument")
     assert {p.name for p in dev.params if p.section == "reconstruction"} == set(_SECTION_KNOBS)
     assert all(p.section == "" for p in dev.params if p.name not in _SECTION_KNOBS)
     assert {p.name for p in dev.params if p.view} == set(_SECTION_KNOBS) | {"show"}
@@ -133,7 +133,7 @@ def test_a_knob_that_does_not_apply_to_the_algorithm_says_so(builtins):
 def test_the_recon_outputs_key_every_reconstruction_setting(builtins):
     names = [o.name for o in declared_outputs(get_device("mz_edges"))]
     assert names == ["edges", "coarse", "thumbnail", "recon", "recon_edges_only", "residual",
-                     "recon_preview"]
+                     "recon_preview", "modulus", "argument"]
     for name in ("recon", "residual"):
         assert set(_output(name).params) == set(_RECON_KNOBS + _SELECT_KNOBS)
     assert (set(_output("recon_edges_only").params)

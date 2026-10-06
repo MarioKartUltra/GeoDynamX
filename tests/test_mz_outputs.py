@@ -99,7 +99,7 @@ def test_param_order_choices_and_view_only_knobs(builtins):
                                             "near_radius", "alpha_check", "alpha_tol",
                                             "alpha_fallback", "show"]
     assert by["show"].choices == ("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
-                                  "residual")
+                                  "residual", "modulus", "argument")
     assert by["show"].default == "edges"
     it = by["iterations"]
     assert (it.default, it.min, it.max, it.soft_min, it.soft_max, it.label) == (
@@ -116,11 +116,13 @@ def test_param_order_choices_and_view_only_knobs(builtins):
 def test_declared_outputs(builtins):
     outs = declared_outputs(get_device("mz_edges"))
     assert [o.name for o in outs] == ["edges", "coarse", "thumbnail", "recon",
-                                      "recon_edges_only", "residual", "recon_preview"]
+                                      "recon_edges_only", "residual", "recon_preview",
+                                      "modulus", "argument"]
     assert [o.label for o in outs] == ["edges", "coarse", "thumbnail", "recon (edges + coarse)",
-                                       "recon (edges only)", "residual", "recon preview"]
-    assert [o.kind for o in outs] == ["vector"] + ["raster"] * 6
-    assert [o.lazy for o in outs] == [False] + [True] * 6
+                                       "recon (edges only)", "residual", "recon preview",
+                                       "modulus", "argument"]
+    assert [o.kind for o in outs] == ["vector"] + ["raster"] * 8
+    assert [o.lazy for o in outs] == [False] + [True] * 8
     assert _output("thumbnail").grid == "stride"
     assert all(o.grid == "native" for o in outs if o.name != "thumbnail")
     recon = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")

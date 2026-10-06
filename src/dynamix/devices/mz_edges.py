@@ -140,7 +140,7 @@ class MZEdges:
         # maxima over it); each other choice names a lazy output below.
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
-                       "residual"), label="Show", view=True),
+                       "residual", "modulus", "argument"), label="Show", view=True),
     )
 
     outputs = (
@@ -159,6 +159,10 @@ class MZEdges:
         Output("recon_preview", "raster", lazy=True,
                params=("kappa", "clip", "coarse") + _SELECT_PARAMS, label="recon preview",
                row=False, selects=True),
+        # The gradient modulus and argument of one dyadic level, at the level the Transport
+        # shows: one entry per level, computed on request.
+        Output("modulus", "raster", lazy=True, label="modulus", per_level=True),
+        Output("argument", "raster", lazy=True, label="argument", per_level=True),
     )
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
@@ -228,7 +232,7 @@ class MZEdges:
         return {**result, "params": {**result.get("params", {}), **current}}
 
     def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
-                       progress=None, cancel=None, keeps=None) -> dict:
+                       progress=None, cancel=None, keeps=None, level=None) -> dict:
         """The lazy output ``name`` from the cached analysis ``result`` of ``values``:
         ``{"raster": float32 ndarray, "diag": dict}``, plus ``display_stride``/``full_dims``
         for the thumbnail, whose samples sit every 2^J pixels of the (ny, nx) field. The
@@ -238,8 +242,11 @@ class MZEdges:
         ``recon_edges_only`` and ``recon_preview`` carry ``state``, the ``ReconState`` a
         further run continues from. ``keeps`` (per level, what the chain's filters keep there)
         and the selection knobs choose the maxima a LastWave reconstruction reads
-        (:meth:`_selected`); the printed algorithm reads them all."""
+        (:meth:`_selected`); the printed algorithm reads them all. ``modulus`` and
+        ``argument`` are one dyadic level's gradient (:meth:`_level_output`)."""
         values = np.asarray(values)
+        if name in ("modulus", "argument"):
+            return self._level_output(name, values, params, level)
         if name == "residual":
             recon = fetch("recon")
             return {"raster": (values - recon["raster"]).astype(np.float32),
@@ -311,6 +318,40 @@ class MZEdges:
         else:
             raise ValueError(f"{self.name}: no lazy output named {name!r}")
         return {"raster": img.astype(np.float32), "diag": diag, "state": state}
+
+    def _level_output(self, name, values, params, level):
+        """The gradient modulus or argument of dyadic level ``l = level + 1`` (``level``
+        0-based, clipped into 0..J-1) on the field's grid, from the transform the analysis ran,
+        computed through level l alone (its first l levels are the J-level run's). LastWave:
+        ``dwt2d`` on the analysis's border, the modulus normalised as ``extrema2`` stores it, so
+        a stored maximum reads its own ``mod``; registered as the maxima are. Printed:
+        ``atrous2d_forward`` on the field dithered as the analysis dithered it, cropped from the
+        torus."""
+        J = int(params["n_levels"])
+        idx = int(np.clip(0 if level is None else int(level), 0, J - 1))
+        l = idx + 1
+        diag = {"level": idx, "scale_px": float(2 ** l)}
+        if params["algorithm"] == "lastwave":
+            from dynamix.core import mz_lastwave as lw
+            from dynamix.core.mz_lastwave.detect import _g1_factor
+
+            t = lw.dwt2d(values, l, border=params["border"])
+            M, A = lw.polar(t, l)
+            raster = (M * _g1_factor(l)) * (1.0 / lw.fact(l)) if name == "modulus" else A
+            return {"raster": np.asarray(raster, dtype=np.float32), "diag": diag,
+                    "display_offset": _DISPLAY_OFFSET}
+        from dynamix.core import mzlib
+        from dynamix.core.mz_edges import _dithered, measure_lsb
+
+        work = np.asarray(values, dtype=np.float64)
+        lsb = measure_lsb(values) if params["dither"] else None
+        if lsb:
+            work = _dithered(work, lsb)
+        _S, pairs = mzlib.atrous2d_forward(work, l)
+        W1, W2 = pairs[l - 1]
+        ny, nx = values.shape
+        raster = np.hypot(W1, W2) if name == "modulus" else np.arctan2(W2, W1)
+        return {"raster": np.asarray(raster[:ny, :nx], dtype=np.float32), "diag": diag}
 
     def _selected(self, values, result, params, keeps):
         """The working-field extrema a LastWave reconstruction reads: each level's per its state in

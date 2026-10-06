@@ -267,3 +267,36 @@ def test_wtmm2d_roi_level_reads_its_stored_maxima_on_the_roi_grid(builtins, tmp_
                                           stored["mod"].astype(np.float32))
             np.testing.assert_array_equal(out["roi_axes"][0], grid.x_axis)
             np.testing.assert_array_equal(out["roi_axes"][1], grid.y_axis)
+
+
+# --------------------------------------------------------------------- mz_edges
+
+
+@pytest.mark.parametrize("extra", [{}, {"border": "periodic"}, {"colocate_l1": True},
+                                   {"algorithm": "printed"},
+                                   {"algorithm": "printed", "dither": True}])
+def test_mz_level_modulus_reads_each_stored_maximum(builtins, extra):
+    values = np.round(_smooth(64, 56) * 8.0) / 8.0
+    field, cache = _field(values), Cache()
+    layer = _layer(("mz_edges", {"n_levels": 3, **extra}))
+    r = resolve(layer, field, cache)
+    raw = cache.get(r.analysis_key)
+    for idx, stored in enumerate(raw["extrema"]):
+        mod = resolve_output(layer, field, cache, "modulus", level=idx)
+        arg = resolve_output(layer, field, cache, "argument", level=idx)
+        assert mod["diag"] == {"level": idx, "scale_px": float(2 ** (idx + 1))}
+        np.testing.assert_array_equal(mod["raster"][stored["y"], stored["x"]],
+                                      stored["mod"].astype(np.float32))
+        np.testing.assert_array_equal(arg["raster"][stored["y"], stored["x"]],
+                                      stored["arg"].astype(np.float32))
+    lastwave = r.analysis_params["algorithm"] == "lastwave"
+    assert ("display_offset" in mod) is lastwave
+
+
+def test_mz_level_rows_join_the_declared_outputs(builtins):
+    dev = get_device("mz_edges")
+    by = {o.name: o for o in declared_outputs(dev)}
+    assert by["modulus"].per_level and by["argument"].per_level
+    assert not any(o.per_level for n, o in by.items() if n not in ("modulus", "argument"))
+    show = next(p for p in dev.params if p.name == "show")
+    assert show.choices[-2:] == ("modulus", "argument")
