@@ -5,6 +5,9 @@ an undeclared device is shown by its id under "Other", and an empty ``families``
 no family."""
 from __future__ import annotations
 
+import pytest
+
+from dynamix.model.device import DEVICES, get_device
 from dynamix.model.families import FAMILY_ORDER, display_name, families_of, label_of
 
 
@@ -48,3 +51,97 @@ def test_an_empty_families_tuple_lists_the_device_in_no_family():
     assert families_of(device) == ()
     assert label_of(device) == "holder_map"
     assert display_name(device) == "holder_map"
+
+
+# --- the builtin devices ----------------------------------------------------------------------
+
+#: id -> display name, for every tool the browser lists in a family.
+LABELS = {
+    "band_select": "Band select",
+    "noise": "Noise / dither",
+    "wtmm2d": "WTMM 2D",
+    "wtmm2d_roi": "WTMM 2D, ROI",
+    "mz_edges": "Mallat–Zhong edges",
+    "cdf_edges": "CDF edges",
+    "pm_edges": "Perona–Malik edges",
+    "holder_measure": "Microcanonical MFA, measure",
+    "holder_multiaffine": "Microcanonical MFA, multiaffine",
+    "wavelet_skeleton": "Wavelet skeleton",
+    "pca": "PCA",
+    "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
+    "ssa2d": "2-D SSA",
+    "band_recon_measure": "Band reconstruction, measure",
+    "band_recon_multiaffine": "Band reconstruction, multiaffine",
+    "chain_topology": "Chain topology",
+    "scale_select": "Scale",
+    "orientation_wedge": "Orientation wedge",
+    "modulus_threshold": "Modulus threshold",
+    "hline_length": "H-line length",
+    "hline_modulus": "H-line modulus",
+    "hline_holder": "H-line Hölder",
+    "chain_holder": "Chain Hölder",
+    "chain_modulus": "Chain modulus",
+    "chain_length": "Chain length",
+    "chain_classify": "Seam classifier",
+    "min_vchains": "Min V-chains per H-line",
+    "group_filter": "Group filter",
+    "backproject": "Back-project points",
+}
+
+#: family -> the ids listed under it.
+FAMILY_TREE = {
+    "Data preparation": {"band_select", "noise"},
+    "Edge detection": {"wtmm2d", "wtmm2d_roi", "mz_edges", "cdf_edges", "pm_edges"},
+    "Regularity": {"wtmm2d", "wtmm2d_roi", "mz_edges", "holder_measure", "holder_multiaffine"},
+    "Skeletons": {"wavelet_skeleton"},
+    "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d"},
+    "Reconstruction": {"mz_edges", "holder_measure", "holder_multiaffine", "ssa2d",
+                       "tucker_HOOI_HOSVD", "band_recon_measure", "band_recon_multiaffine"},
+    "Topology": {"chain_topology"},
+    "Selection: extrema": {"scale_select", "orientation_wedge", "modulus_threshold",
+                           "hline_length", "hline_modulus", "hline_holder"},
+    "Selection: V-chains": {"chain_holder", "chain_modulus", "chain_length", "chain_classify",
+                            "min_vchains", "group_filter"},
+    "Points": {"backproject"},
+    "Other": set(),
+}
+
+#: Superseded and shell-placed devices: registered, listed in no family.
+NO_FAMILY = ("holder_map", "tucker_havok", "band_recon", "bus", "derived_vectors", "group_paint")
+
+
+@pytest.fixture
+def builtins(clean_registry):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    return clean_registry
+
+
+def test_every_registered_device_is_listed_in_a_family_or_in_none(builtins):
+    stubs = {n for n in DEVICES if n.startswith("stub_")}
+    assert stubs == {"stub_wavelet", "stub_holder", "stub_wedge"}
+    assert set(DEVICES) == set(LABELS) | set(NO_FAMILY) | stubs
+    for name, device in DEVICES.items():
+        assert hasattr(device, "families") == (name not in stubs), name
+
+
+def test_every_listed_tool_declares_its_display_name(builtins):
+    for name, label in LABELS.items():
+        assert get_device(name).label == label, name
+    assert display_name(get_device("chain_classify")) == "Seam classifier  (chain_classify)"
+
+
+def test_the_family_tree_is_the_family_table(builtins):
+    tree = {family: set() for family in FAMILY_ORDER}
+    for name, device in DEVICES.items():
+        if name.startswith("stub_"):
+            continue
+        for family in families_of(device):
+            tree[family].add(name)
+    assert tree == FAMILY_TREE
+
+
+def test_superseded_and_shell_placed_devices_are_in_no_family(builtins):
+    for name in NO_FAMILY:
+        assert families_of(get_device(name)) == (), name

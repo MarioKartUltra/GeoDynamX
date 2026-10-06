@@ -21,6 +21,8 @@ class BandSelect:
     """One band of the stack, picked by its 1-based index."""
 
     name = "band_select"
+    label = "Band select"
+    families = ("Data preparation",)
     #: A FIELD STAGE (field -> field), pointwise: no margin.
     field_stage = True
 

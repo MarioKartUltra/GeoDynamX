@@ -21,6 +21,8 @@ class WTMM2D:
     """
 
     name = "wtmm2d"
+    label = "WTMM 2D"
+    families = ("Edge detection", "Regularity")
     #: Progressive compute: resolve() threads its ``cancel`` predicate into this device's
     #: ``compute`` because it opts in here. Reaches ``run_wtmm2d``'s per-stage check so a
     #: superseding edit kills the in-flight stack instead of waiting it out.

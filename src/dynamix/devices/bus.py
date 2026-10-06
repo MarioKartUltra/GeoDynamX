@@ -18,6 +18,8 @@ class Bus:
     """Raw bands routed into one ``(ny, nx, n)`` stack on the host's grid."""
 
     name = "bus"
+    #: Placed by the shell's routing dialog: listed in no family.
+    families = ()
     #: A FIELD STAGE (field -> field) at the head of the rack; per-pixel reads, no margin.
     field_stage = True
 

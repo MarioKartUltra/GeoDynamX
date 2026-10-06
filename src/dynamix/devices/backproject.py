@@ -75,6 +75,8 @@ class Backproject:
     alone -- see the module docstring."""
 
     name = "backproject"
+    label = "Back-project points"
+    families = ("Points",)
     params = (
         Param("target", ParamKind.TEXT, default="", label="Target layer", editable=True),
         # The seven scalars below are shell-stamped, never user-edited -- see the module

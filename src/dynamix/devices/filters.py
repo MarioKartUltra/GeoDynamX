@@ -43,6 +43,8 @@ class ScaleSelect:
     """
 
     name = "scale_select"
+    label = "Scale"
+    families = ("Selection: extrema",)
     selection_aware = True
     params = (
         Param("scale_idx", ParamKind.INT, default=0, min=0, max=1023,
@@ -93,6 +95,8 @@ class OrientationWedge:
     """
 
     name = "orientation_wedge"
+    label = "Orientation wedge"
+    families = ("Selection: extrema",)
     selection_aware = True
     params = (
         Param("centre", ParamKind.ANGLE, default=0.0, wrap=_AXIAL_PERIOD,
@@ -148,6 +152,8 @@ class ModulusThreshold:
     """
 
     name = "modulus_threshold"
+    label = "Modulus threshold"
+    families = ("Selection: extrema",)
     selection_aware = True
     params = (
         Param("frac", ParamKind.FLOAT, default=0.0, min=0.0, max=1.0,
@@ -199,6 +205,8 @@ class HLineLength:
     """
 
     name = "hline_length"
+    label = "H-line length"
+    families = ("Selection: extrema",)
     selection_aware = True
     params = (
         Param("min_len", ParamKind.INT, default=1, min=1, max=100000,
@@ -349,6 +357,8 @@ class HLineModulus:
     """
 
     name = "hline_modulus"
+    label = "H-line modulus"
+    families = ("Selection: extrema",)
     selection_aware = True
     params = (
         Param("frac", ParamKind.FLOAT, default=0.0, min=0.0, max=1.0,
@@ -435,6 +445,8 @@ class HLineHolder:
     """
 
     name = "hline_holder"
+    label = "H-line Hölder"
+    families = ("Selection: extrema",)
     params = (
         Param("min_alpha", ParamKind.FLOAT, default=-3.0, min=-3.0, max=3.0,
               soft_min=-3.0, soft_max=2.0, label="Min α"),

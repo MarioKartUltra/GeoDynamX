@@ -32,6 +32,8 @@ class Noise:
     """Add (or subtract) seeded noise to the field before the analysing transform."""
 
     name = "noise"
+    label = "Noise / dither"
+    families = ("Data preparation",)
     #: A FIELD STAGE (field -> field) -- on an ROI layer it runs over the
     #: whole processing window before the analyzer (noise covers the ROI and its surrounding pixels before processing). Pointwise: no margin.
     field_stage = True

@@ -32,6 +32,8 @@ from dynamix.model.param import Param, ParamKind
 
 class BandRecon:
     name = "band_recon"
+    #: Superseded: listed in no family.
+    families = ()
     #: holder_map's engine params verbatim (same names, same defaults -- one mental model),
     #: plus the band. Soft bounds cover the gamma ranges real fields showed
     #: (house/DEMs: roughly -1.5 .. 2.5).
@@ -165,6 +167,8 @@ def _split_arrays(method: str):
 
 class BandReconMeasure:
     name = "band_recon_measure"
+    label = "Band reconstruction, measure"
+    families = ("Reconstruction",)
     params = HolderMeasure.params + _BAND_KNOBS
 
     def roi_margin(self, params: dict) -> int:
@@ -192,6 +196,8 @@ class BandReconMeasure:
 
 class BandReconMultiaffine:
     name = "band_recon_multiaffine"
+    label = "Band reconstruction, multiaffine"
+    families = ("Reconstruction",)
     params = HolderMultiaffine.params + _BAND_KNOBS
 
     def roi_margin(self, params: dict) -> int:

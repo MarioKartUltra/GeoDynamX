@@ -110,6 +110,8 @@ class PCADevice:
     """Principal component analysis across a stack's bands; shows one component raster."""
 
     name = "pca"
+    label = "PCA"
+    families = ("Decomposition",)
 
     def roi_margin(self, params: dict) -> int:
         """A global decomposition is a statistic OF the analysed region
@@ -162,6 +164,8 @@ class TuckerHavok:
     or its residual."""
 
     name = "tucker_havok"
+    #: Superseded by tucker_HOOI_HOSVD: listed in no family.
+    families = ()
 
     def roi_margin(self, params: dict) -> int:
         """A global decomposition is a statistic OF the analysed region
@@ -316,6 +320,8 @@ class TuckerHOOIHOSVD(TuckerHavok):
     as before."""
 
     name = "tucker_HOOI_HOSVD"
+    label = "Tucker (HOOI / HOSVD)"
+    families = ("Decomposition", "Reconstruction")
     param_groups = {**TuckerHavok.param_groups, "METHOD": ("method", "sweeps")}
     params = (
         *(_TUCKER_PARAMS[n] for n in ("embed", "axis", "n_delays", "rank_delay", "rank_time",

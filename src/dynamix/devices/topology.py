@@ -15,6 +15,8 @@ class ChainTopology:
     """Build the H-chain/segment/extremum/V-chain incidence graph from a WTMM result."""
 
     name = "chain_topology"
+    label = "Chain topology"
+    families = ("Topology",)
     params = ()
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
@@ -52,6 +54,8 @@ class MinVChains:
     """
 
     name = "min_vchains"
+    label = "Min V-chains per H-line"
+    families = ("Selection: V-chains",)
     params = (
         Param("min_vchains", ParamKind.INT, default=2, min=1, max=64,
               soft_min=1, soft_max=8, label="Min V-chains"),

@@ -132,6 +132,8 @@ class GroupPaint:
     """
 
     name = "group_paint"
+    #: Appended by the arrangement view's commit: listed in no family.
+    families = ()
     params = (
         Param("spec_json", ParamKind.TEXT, default="", label="Groups"),
         Param("signature", ParamKind.TEXT, default="", label="Signature"),
@@ -215,6 +217,8 @@ class GroupFilter:
     its own "no-op" setting."""
 
     name = "group_filter"
+    label = "Group filter"
+    families = ("Selection: V-chains",)
     params = (
         # editable=True: unlike group_paint's spec_json/signature
         # (write-only from the commit transaction), this is the one TEXT param a user must

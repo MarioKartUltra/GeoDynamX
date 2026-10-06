@@ -52,6 +52,8 @@ class SSA2D:
     """2D-SSA: eigentriples of every window of the field, components, groups, w-correlations."""
 
     name = "ssa2d"
+    label = "2-D SSA"
+    families = ("Decomposition", "Reconstruction")
     params = (
         Param("rows_window", ParamKind.INT, default=16, min=2, max=512, soft_min=4,
               soft_max=40, label="Window: rows"),

@@ -36,6 +36,8 @@ from dynamix.model.param import Param, ParamKind
 class PMEdges:
     wants_cancel = True                  # the stop button reaches the snapshot loop
     name = "pm_edges"
+    label = "Perona–Malik edges"
+    families = ("Edge detection",)
     params = (
         Param("n_levels", ParamKind.INT, default=4, min=1, max=8,
               soft_min=2, soft_max=5, label="Levels J"),

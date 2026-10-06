@@ -50,6 +50,8 @@ _DISPLAY_OFFSET = (-0.5, -0.5)
 
 class MZEdges:
     name = "mz_edges"
+    label = "Mallat–Zhong edges"
+    families = ("Edge detection", "Regularity", "Reconstruction")
     params = (
         Param("n_levels", ParamKind.INT, default=4, min=1, max=10,
               soft_min=2, soft_max=6, label="Levels J"),

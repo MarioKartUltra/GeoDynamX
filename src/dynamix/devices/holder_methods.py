@@ -354,6 +354,8 @@ def _compute(device, method: str, field, params: dict, progress=None) -> dict:
 
 class HolderMeasure:
     name = "holder_measure"
+    label = "Microcanonical MFA, measure"
+    families = ("Regularity", "Reconstruction")
     params = _ESTIMATOR_AND_SCALES + (
         # Positive unit-mass kernels only (log T must exist) — Turiel 2008 appendix A's
         # resolution trade-off: Gaussian resolves every h, Lorentzian truncates at
@@ -387,6 +389,8 @@ class HolderMeasure:
 
 class HolderMultiaffine:
     name = "holder_multiaffine"
+    label = "Microcanonical MFA, multiaffine"
+    families = ("Regularity", "Reconstruction")
     params = _ESTIMATOR_AND_SCALES + (
         # Zero-mean wavelets with n vanishing moments, named the method's way: the g-ladder
         # is the derivative-order axis (order n measures only γ < n; g2 = the Ricker, the

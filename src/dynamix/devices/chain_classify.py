@@ -119,6 +119,8 @@ class ChainClassify:
     """
 
     name = "chain_classify"
+    label = "Seam classifier"
+    families = ("Selection: V-chains",)
     params = (
         Param("estimator", ParamKind.CHOICE, default="ols", choices=("ols", "max"),
               label="Hölder estimator"),

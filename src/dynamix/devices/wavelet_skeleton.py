@@ -28,6 +28,8 @@ from dynamix.model.param import Param, ParamKind
 
 class WaveletSkeleton:
     name = "wavelet_skeleton"
+    label = "Wavelet skeleton"
+    families = ("Skeletons",)
     params = (
         # Scales are the theta support RADIUS in px (scales-in-pixels law; the paper's
         # maxima separation == s). The method's own hypothesis: s1 must COVER the ribbon

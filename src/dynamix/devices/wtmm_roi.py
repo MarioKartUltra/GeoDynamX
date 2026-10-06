@@ -38,6 +38,8 @@ class WTMM2DROI:
     """
 
     name = "wtmm2d_roi"
+    label = "WTMM 2D, ROI"
+    families = ("Edge detection", "Regularity")
     #: Reads its own pixels off ``field.provenance["source"]`` (never ``field.values``), so the
     #: engine lets it run over a display picture -- it is region-aware.
     reads_source = True

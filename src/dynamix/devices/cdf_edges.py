@@ -60,6 +60,8 @@ def _line_ids(mask, ys, xs):
 class CDFEdges:
     wants_cancel = True                  # the stop button reaches the snapshot loop
     name = "cdf_edges"
+    label = "CDF edges"
+    families = ("Edge detection",)
     params = (
         Param("n_levels", ParamKind.INT, default=4, min=1, max=8,
               soft_min=2, soft_max=5, label="Levels J"),

@@ -19,6 +19,8 @@ class DerivedVectors:
     """Emit a derivative dataset's frozen extrema and maxima lines."""
 
     name = "derived_vectors"
+    #: Placed by the shell on a derivative dataset: listed in no family.
+    families = ()
     #: The dataset's own vectors, not an analyzer (``MainWindow._is_raw_raster_dataset``).
     vector_source = True
     params = (
