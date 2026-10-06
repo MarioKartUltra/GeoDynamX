@@ -244,6 +244,25 @@ def shown_level(layer) -> int | None:
         return None
 
 
+def seed_shown_level(layer) -> bool:
+    """Give ``layer`` the shown level its chain was saved with: when it has no ``ui.scale_idx``
+    tag and its chain holds a ``scale_select`` step, that step's ``scale_idx`` becomes the tag.
+    The chain is not edited; under a shown level the step does not apply
+    (:func:`~dynamix.model.contracts.step_states` with ``level_view``). True when the tag was
+    written."""
+    if layer is None or "ui.scale_idx" in layer.tags:
+        return False
+    ref = next((r for r in layer.chain.steps if r.device == "scale_select"), None)
+    if ref is None:
+        return False
+    try:
+        idx = int(ref.params.get("scale_idx", 0))
+    except (TypeError, ValueError):
+        return False
+    layer.tags["ui.scale_idx"] = str(max(idx, 0))
+    return True
+
+
 def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             progress: Callable[[str, float], None] | None = None,
             cancel: Callable[[], bool] | None = None,
