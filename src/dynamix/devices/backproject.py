@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from dynamix.model.contracts import POINTS
 from dynamix.model.param import Param, ParamKind
 
 #: Generous, never-realistically-binding bounds on the stamped FLOAT scalars -- present only so
@@ -77,6 +78,8 @@ class Backproject:
     name = "backproject"
     label = "Back-project points"
     families = ("Points",)
+    consumes = ((POINTS,),)
+    produces = (POINTS,)
     params = (
         Param("target", ParamKind.TEXT, default="", label="Target layer", editable=True),
         # The seven scalars below are shell-stamped, never user-edited -- see the module

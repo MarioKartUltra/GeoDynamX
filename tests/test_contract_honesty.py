@@ -19,8 +19,8 @@ from conftest import fbm2d
 from dynamix.core.frames import LocalFrame
 from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import DeviceRef
-from dynamix.model.contracts import (ALPHA, CONTRACT_KEYS, EXTREMA, FIELD, next_step_state,
-                                     produces_of)
+from dynamix.model.contracts import (ALPHA, CONTRACT_KEYS, EXTREMA, FIELD, input_contract,
+                                     next_step_state, produces_of)
 from dynamix.model.device import apply_view, get_device, is_transform, validate_params
 
 N = 64
@@ -152,3 +152,65 @@ def test_every_declared_contract_is_in_the_result(builtins, results, producer):
             assert key in result, (producer, contract, key)
         if contract == ALPHA:
             assert all("alpha" in level for level in result["extrema"]), producer
+
+
+# --- multiband: a raster tool applies on a field or a stack exactly where it runs ---------------
+
+#: Every Transform that analyses the layer's own raster, at small settings. wtmm2d_roi reads its
+#: pixels from the source file, bus from its sends and derived_vectors from its npz, so the field
+#: alone does not decide whether they run; they are left out.
+RASTER_TOOLS = {
+    "noise": {"amplitude": 0.1},
+    "band_select": {"_band_id": "b1"},
+    "wtmm2d": {"n_oct": 2, "n_voice": 4, "a_min": 1.0},
+    "mz_edges": {"n_levels": 3},
+    "wavelet_skeleton": {},
+    "cdf_edges": {"n_levels": 3},
+    "pm_edges": {"n_levels": 3},
+    "holder_map": {},
+    "holder_measure": {},
+    "holder_multiaffine": {},
+    "band_recon": {},
+    "band_recon_measure": {},
+    "band_recon_multiaffine": {},
+    "pca": {"n_components": 2},
+    "tucker_havok": {"n_delays": 8},
+    "tucker_HOOI_HOSVD": {"n_delays": 8},
+    "ssa2d": {"rows_window": 4, "cols_window": 4, "n_components": 4},
+}
+
+
+def _raster(kind: str) -> RasterField:
+    """A 32 x 32 single-band field (its one band named, as a band row's is) or a 3-band stack."""
+    planes = [fbm2d(32, 0.5, seed=s) for s in (1, 2, 3)]
+    if kind == "field":
+        values, bands = planes[0], ["b1"]
+    else:
+        values, bands = np.stack(planes, axis=-1), ["b1", "b2", "b3"]
+    return RasterField(name=kind, values=values, frame=LocalFrame(units="px"),
+                       x_axis=np.arange(32.0), y_axis=np.arange(32.0),
+                       provenance={"bands": bands})
+
+
+@pytest.mark.parametrize("kind", ["field", "stack"])
+@pytest.mark.parametrize("name", list(RASTER_TOOLS))
+def test_a_raster_tool_applies_exactly_where_it_runs(builtins, name, kind):
+    field = _raster(kind)
+    layer_input = input_contract(field)
+    device = get_device(name)
+    params = validate_params(device, RASTER_TOOLS[name])
+    state = next_step_state((), layer_input, name, RASTER_TOOLS[name])
+    try:
+        result = device.compute(field, params)
+    except Exception:                       # noqa: BLE001 -- "does not run" is the observation
+        result = None
+    assert state.applies == (result is not None), state.reason
+    if result is None:
+        return
+    produced = produces_of(device, params, frozenset({layer_input}))
+    if isinstance(result, dict):
+        for contract in produced:
+            for key in CONTRACT_KEYS[contract]:
+                assert key in result, (contract, key)
+    else:
+        assert produced == {input_contract(result)}

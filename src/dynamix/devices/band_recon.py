@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from dynamix.devices.holder_map import HolderMap, field_values_2d, holder_arrays
 from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
+from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.param import Param, ParamKind
 
 
@@ -34,6 +35,8 @@ class BandRecon:
     name = "band_recon"
     #: Superseded: listed in no family.
     families = ()
+    consumes = ((FIELD,),)
+    produces = (HMAP,)
     #: holder_map's engine params verbatim (same names, same defaults -- one mental model),
     #: plus the band. Soft bounds cover the gamma ranges real fields showed
     #: (house/DEMs: roughly -1.5 .. 2.5).
@@ -169,6 +172,8 @@ class BandReconMeasure:
     name = "band_recon_measure"
     label = "Band reconstruction, measure"
     families = ("Reconstruction",)
+    consumes = ((FIELD,),)
+    produces = (HMAP,)
     params = HolderMeasure.params + _BAND_KNOBS
 
     def roi_margin(self, params: dict) -> int:
@@ -198,6 +203,8 @@ class BandReconMultiaffine:
     name = "band_recon_multiaffine"
     label = "Band reconstruction, multiaffine"
     families = ("Reconstruction",)
+    consumes = ((FIELD,),)
+    produces = (HMAP,)
     params = HolderMultiaffine.params + _BAND_KNOBS
 
     def roi_margin(self, params: dict) -> int:

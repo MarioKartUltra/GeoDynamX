@@ -36,6 +36,7 @@ import dataclasses
 import functools
 
 from dynamix.devices.holder_map import field_values_2d
+from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.param import Param, ParamKind
 
 
@@ -356,6 +357,8 @@ class HolderMeasure:
     name = "holder_measure"
     label = "Microcanonical MFA, measure"
     families = ("Regularity", "Reconstruction")
+    consumes = ((FIELD,),)
+    produces = (HMAP,)
     params = _ESTIMATOR_AND_SCALES + (
         # Positive unit-mass kernels only (log T must exist) — Turiel 2008 appendix A's
         # resolution trade-off: Gaussian resolves every h, Lorentzian truncates at
@@ -391,6 +394,8 @@ class HolderMultiaffine:
     name = "holder_multiaffine"
     label = "Microcanonical MFA, multiaffine"
     families = ("Regularity", "Reconstruction")
+    consumes = ((FIELD,),)
+    produces = (HMAP,)
     params = _ESTIMATOR_AND_SCALES + (
         # Zero-mean wavelets with n vanishing moments, named the method's way: the g-ladder
         # is the derivative-order axis (order n measures only γ < n; g2 = the Ricker, the

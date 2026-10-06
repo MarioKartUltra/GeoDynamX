@@ -25,6 +25,7 @@ import dataclasses
 
 import numpy as np
 
+from dynamix.model.contracts import FIELD, RECEIVED, STACK
 from dynamix.model.param import Param, ParamKind
 
 
@@ -34,6 +35,9 @@ class Noise:
     name = "noise"
     label = "Noise / dither"
     families = ("Data preparation",)
+    consumes = ((FIELD,), (STACK,))
+    #: Input-preserving: a noised field stays a field, a noised stack a stack.
+    produces = (RECEIVED,)
     #: A FIELD STAGE (field -> field) -- on an ROI layer it runs over the
     #: whole processing window before the analyzer (noise covers the ROI and its surrounding pixels before processing). Pointwise: no margin.
     field_stage = True

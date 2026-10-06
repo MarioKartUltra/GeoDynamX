@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import math
 
+from dynamix.model.contracts import COMPONENTS, FIELD
 from dynamix.model.param import Param, ParamKind
 
 #: Window entries (L_r * L_c) above which the dense lag-covariance route gets slow (~4 s at
@@ -54,6 +55,8 @@ class SSA2D:
     name = "ssa2d"
     label = "2-D SSA"
     families = ("Decomposition", "Reconstruction")
+    consumes = ((FIELD,),)
+    produces = (COMPONENTS,)
     params = (
         Param("rows_window", ParamKind.INT, default=16, min=2, max=512, soft_min=4,
               soft_max=40, label="Window: rows"),

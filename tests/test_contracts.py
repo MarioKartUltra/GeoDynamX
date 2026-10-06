@@ -353,3 +353,104 @@ def test_under_a_shown_level_the_builtin_scale_select_does_not_apply(builtins):
     assert step_states(steps, FIELD) == [StepState(True)] * 3
     assert step_states(steps, FIELD, level_view=True) == [
         StepState(True), StepState(False, "the scale is set by the Transport"), StepState(True)]
+
+
+_E, _V = frozenset({EXTREMA}), frozenset({VCHAINS})
+
+#: id -> (consumes at default params, what it receives, what it then produces).
+DECLARATIONS = {
+    "noise": (((FIELD,), (STACK,)), {STACK}, {STACK}),
+    "band_select": (((STACK,), (FIELD,)), {STACK}, {FIELD}),
+    "bus": (((FIELD,), (STACK,)), {FIELD}, {STACK}),
+    "wtmm2d": (((FIELD,),), {FIELD}, {EXTREMA, VCHAINS}),
+    "wtmm2d_roi": (((FIELD,), (STACK,)), {STACK}, {EXTREMA, VCHAINS}),
+    "mz_edges": (((FIELD,),), {FIELD}, {EXTREMA, ALPHA}),
+    "wavelet_skeleton": (((FIELD,),), {FIELD}, {EXTREMA}),
+    "cdf_edges": (((FIELD,),), {FIELD}, {EXTREMA}),
+    "pm_edges": (((FIELD,),), {FIELD}, {EXTREMA}),
+    "holder_map": (((FIELD,),), {FIELD}, {HMAP}),
+    "holder_measure": (((FIELD,),), {FIELD}, {HMAP}),
+    "holder_multiaffine": (((FIELD,),), {FIELD}, {HMAP}),
+    "band_recon": (((FIELD,),), {FIELD}, {HMAP}),
+    "band_recon_measure": (((FIELD,),), {FIELD}, {HMAP}),
+    "band_recon_multiaffine": (((FIELD,),), {FIELD}, {HMAP}),
+    "pca": (((STACK,),), {STACK}, {COMPONENTS}),
+    "tucker_havok": (((FIELD,), (STACK,)), {STACK}, {COMPONENTS}),
+    "tucker_HOOI_HOSVD": (((FIELD,), (STACK,)), {STACK}, {COMPONENTS}),
+    "ssa2d": (((FIELD,),), {FIELD}, {COMPONENTS}),
+    "chain_topology": (((EXTREMA, VCHAINS),), {EXTREMA, VCHAINS},
+                       {EXTREMA, VCHAINS, TOPOLOGY}),
+    "min_vchains": (((TOPOLOGY,),), {TOPOLOGY}, set()),
+    "scale_select": (((EXTREMA,),), _E, set()),
+    "orientation_wedge": (((EXTREMA,),), _E, set()),
+    "modulus_threshold": (((EXTREMA,),), _E, set()),
+    "hline_length": (((EXTREMA,),), _E, set()),
+    "hline_modulus": (((EXTREMA,),), _E, set()),
+    "hline_holder": (((EXTREMA, ALPHA),), _E, set()),
+    "chain_holder": (((VCHAINS,),), _V, set()),
+    "chain_modulus": (((VCHAINS,),), _V, set()),
+    "chain_length": (((VCHAINS,),), _V, set()),
+    "chain_classify": (((VCHAINS,),), _V, set()),
+    "group_paint": (((VCHAINS,),), _V, set()),
+    "group_filter": (((VCHAINS,),), _V, set()),
+    "backproject": (((POINTS,),), {POINTS}, {POINTS}),
+    "derived_vectors": (((FIELD,), (STACK,)), {STACK}, {EXTREMA, VCHAINS}),
+}
+
+
+def test_every_builtin_device_declares_its_contracts(builtins):
+    from dynamix.model.device import DEVICES, defaults_for
+
+    stubs = {n for n in DEVICES if n.startswith("stub_")}
+    assert set(DEVICES) - stubs == set(DECLARATIONS)
+    for name, (consumes, received, produces) in DECLARATIONS.items():
+        device = DEVICES[name]
+        params = defaults_for(device)
+        assert consumes_of(device, params) == consumes, name
+        assert produces_of(device, params, frozenset(received)) == produces, name
+    for name in stubs:
+        assert not hasattr(DEVICES[name], "consumes") and not hasattr(DEVICES[name], "produces")
+
+
+def test_the_param_dependent_declarations(builtins):
+    import json
+
+    from dynamix.model.device import get_device, validate_params
+
+    def declared(name, **params):
+        device = get_device(name)
+        p = validate_params(device, params)
+        return consumes_of(device, p), produces_of(device, p, frozenset({FIELD}))
+
+    assert declared("mz_edges", algorithm="printed")[1] == {EXTREMA}
+    assert declared("mz_edges", algorithm="lastwave")[1] == {EXTREMA, ALPHA}
+    assert declared("hline_modulus", mode="sup_all_scales")[0] == ((EXTREMA, VCHAINS),)
+    for mode in ("sup", "mean", "segments"):
+        assert declared("hline_modulus", mode=mode)[0] == ((EXTREMA,),)
+    one = json.dumps([{"path": "a.tif"}])
+    two = json.dumps([{"path": "a.tif"}, {"path": "b.tif"}])
+    assert declared("bus", _sends=one)[1] == {FIELD}
+    assert declared("bus", _sends=two)[1] == {STACK}
+
+
+def test_multiband_chains_apply_as_they_run_today(builtins):
+    import json
+
+    two = {"_sends": json.dumps([{"path": "a.tif"}, {"path": "b.tif"}])}
+    one = {"_sends": json.dumps([{"path": "a.tif"}])}
+    assert _applies(_steps("band_select", "wtmm2d", "chain_holder"), STACK) == [True] * 3
+    assert _applies(_steps("noise", "pca"), STACK) == [True, True]
+    assert _applies(_steps("noise", "band_select", "mz_edges", "hline_holder"),
+                    STACK) == [True] * 4
+    assert _applies(_steps("noise", "tucker_HOOI_HOSVD"), STACK) == [True, True]
+    assert _applies(_steps("tucker_HOOI_HOSVD"), FIELD) == [True]
+    assert _applies(_steps(("bus", two), "pca"), FIELD) == [True, True]
+    assert _applies(_steps(("bus", two), "tucker_HOOI_HOSVD"), FIELD) == [True, True]
+    assert _applies(_steps(("bus", one), "wtmm2d"), FIELD) == [True, True]
+    assert _applies(_steps("band_select"), FIELD) == [True]
+    assert _applies(_steps("wtmm2d_roi", "chain_holder"), STACK) == [True, True]
+    assert step_states(_steps("wtmm2d"), STACK) == [StepState(
+        False, "needs a single-band field: Band select produces it; the layer's input is a "
+               "band stack")]
+    assert step_states(_steps("pca"), FIELD) == [StepState(
+        False, "needs a band stack; the layer's input is a single-band field")]

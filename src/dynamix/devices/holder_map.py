@@ -24,6 +24,7 @@ refused here with a pointed message rather than mis-analysed.
 """
 from __future__ import annotations
 
+from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.param import Param, ParamKind
 
 
@@ -86,6 +87,8 @@ class HolderMap:
     name = "holder_map"
     #: Superseded by holder_measure / holder_multiaffine: listed in no family.
     families = ()
+    consumes = ((FIELD,),)
+    produces = (HMAP,)
     params = (
         # Turiel 2008's own dichotomy, named HIS way (the Ricker is a WAVELET, the estimator
         # is the FUNCTIONAL):

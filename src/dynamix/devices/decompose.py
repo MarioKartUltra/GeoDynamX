@@ -15,6 +15,7 @@ future step). Tucker-HAVOK takes scalar 2-D or multi-component fields alike.
 """
 from __future__ import annotations
 
+from dynamix.model.contracts import COMPONENTS, FIELD, STACK
 from dynamix.model.param import Param, ParamKind
 
 
@@ -112,6 +113,8 @@ class PCADevice:
     name = "pca"
     label = "PCA"
     families = ("Decomposition",)
+    consumes = ((STACK,),)
+    produces = (COMPONENTS,)
 
     def roi_margin(self, params: dict) -> int:
         """A global decomposition is a statistic OF the analysed region
@@ -166,6 +169,8 @@ class TuckerHavok:
     name = "tucker_havok"
     #: Superseded by tucker_HOOI_HOSVD: listed in no family.
     families = ()
+    consumes = ((FIELD,), (STACK,))
+    produces = (COMPONENTS,)
 
     def roi_margin(self, params: dict) -> int:
         """A global decomposition is a statistic OF the analysed region
@@ -322,6 +327,8 @@ class TuckerHOOIHOSVD(TuckerHavok):
     name = "tucker_HOOI_HOSVD"
     label = "Tucker (HOOI / HOSVD)"
     families = ("Decomposition", "Reconstruction")
+    consumes = ((FIELD,), (STACK,))
+    produces = (COMPONENTS,)
     param_groups = {**TuckerHavok.param_groups, "METHOD": ("method", "sweeps")}
     params = (
         *(_TUCKER_PARAMS[n] for n in ("embed", "axis", "n_delays", "rank_delay", "rank_time",

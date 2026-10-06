@@ -11,6 +11,7 @@ cache key is the routing itself: re-route and the bus recomputes; route back and
 """
 from __future__ import annotations
 
+from dynamix.model.contracts import FIELD, STACK
 from dynamix.model.param import Param, ParamKind
 
 
@@ -20,6 +21,20 @@ class Bus:
     name = "bus"
     #: Placed by the shell's routing dialog: listed in no family.
     families = ()
+    consumes = ((FIELD,), (STACK,))
+
+    @staticmethod
+    def produces(params: dict) -> tuple:
+        """One send is materialised as a single plane, several as a stack
+        (``core.bus.materialize``)."""
+        from dynamix.core.bus import parse_sends
+
+        try:
+            n = len(parse_sends(params.get("_sends")))
+        except ValueError:
+            n = 0
+        return (FIELD,) if n == 1 else (STACK,)
+
     #: A FIELD STAGE (field -> field) at the head of the rack; per-pixel reads, no margin.
     field_stage = True
 

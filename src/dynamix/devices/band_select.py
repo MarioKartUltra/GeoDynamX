@@ -14,6 +14,7 @@ import dataclasses
 
 import numpy as np
 
+from dynamix.model.contracts import FIELD, STACK
 from dynamix.model.param import Param, ParamKind
 
 
@@ -23,6 +24,9 @@ class BandSelect:
     name = "band_select"
     label = "Band select"
     families = ("Data preparation",)
+    #: A stack, or a band row's one-band field (the identity path in compute).
+    consumes = ((STACK,), (FIELD,))
+    produces = (FIELD,)
     #: A FIELD STAGE (field -> field), pointwise: no margin.
     field_stage = True
 

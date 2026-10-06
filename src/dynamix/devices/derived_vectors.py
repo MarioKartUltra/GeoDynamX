@@ -12,6 +12,7 @@ other result's.
 """
 from __future__ import annotations
 
+from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.param import Param, ParamKind
 
 
@@ -21,6 +22,8 @@ class DerivedVectors:
     name = "derived_vectors"
     #: Placed by the shell on a derivative dataset: listed in no family.
     families = ()
+    consumes = ((FIELD,), (STACK,))
+    produces = (EXTREMA, VCHAINS)
     #: The dataset's own vectors, not an analyzer (``MainWindow._is_raw_raster_dataset``).
     vector_source = True
     params = (
