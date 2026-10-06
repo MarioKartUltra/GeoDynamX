@@ -68,6 +68,11 @@ def settings_path() -> Path:
         base = Path.home() / "Library" / "Application Support"
     return base / "GeoDynamix" / "settings.json"
 
+def racks_dir() -> Path:
+    """The user's rack files (``dynamix.model.racks``): a ``racks`` folder beside the settings
+    file, so ``DYNAMIX_SETTINGS_PATH`` moves both."""
+    return settings_path().parent / "racks"
+
 def load_settings() -> Settings:
     try:
         d = json.loads(settings_path().read_text())

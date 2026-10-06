@@ -138,3 +138,14 @@ def test_windows_settings_live_under_appdata(monkeypatch, tmp_path):
     monkeypatch.setattr("sys.platform", "win32")
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
     assert settings_path() == tmp_path / "Roaming" / "GeoDynamix" / "settings.json"
+
+
+def test_racks_live_in_a_racks_folder_beside_the_settings_file(monkeypatch, tmp_path):
+    from dynamix.shell.settings import racks_dir
+
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    assert racks_dir() == tmp_path / "racks"
+    monkeypatch.delenv("DYNAMIX_SETTINGS_PATH")
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    assert racks_dir() == tmp_path / "Roaming" / "GeoDynamix" / "racks"
