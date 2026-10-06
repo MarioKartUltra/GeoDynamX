@@ -71,6 +71,10 @@ class Output:
     #: True for an output computed from the extrema the chain's filters keep at each level: it
     #: receives them as ``compute_output(..., keeps=)`` and its key folds in the filter steps.
     selects: bool = False
+    #: True for an output with one value per level of the analysis's scale stack (0-based,
+    #: finest first, the index ``scale_select`` takes): its key folds in the level and
+    #: ``compute_output`` receives it as ``level=``, so each level is its own cache entry.
+    per_level: bool = False
 
 
 def declared_outputs(device) -> tuple[Output, ...]:

@@ -462,21 +462,26 @@ def level_keeps(layer, raw: dict, device, params: dict, level: int,
 
 
 def output_key(device_name: str, output: Output, params: dict, analysis_key: str,
-               selection: list | None = None) -> str:
+               selection: list | None = None, level: int | None = None) -> str:
     """The cache key of lazy ``output`` of ``device_name``: its own name, the view-only ``params``
     it declares, and the analysis key as its upstream -- so any change to the analysis or
     anything before it re-keys the output, and a knob the output does not read never does. A
     selecting output (``Output.selects``) also folds in ``selection``, the layer's
-    :func:`selection_recipe`."""
+    :func:`selection_recipe`; a per-level output (``Output.per_level``) folds in ``level``
+    (``None`` is level 0, the finest), so each level is its own entry. Any other output's key
+    is the same whatever ``level`` says."""
     own = {p: params[p] for p in output.params}
     if output.selects:
         own["_selection"] = selection or []
+    if output.per_level:
+        own["_level"] = 0 if level is None else int(level)
     return cache_key(f"{device_name}/{output.name}", "", own, upstream=analysis_key)
 
 
 def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | None = None,
                    progress: Callable[[str, float], None] | None = None,
-                   cancel: Callable[[], bool] | None = None) -> dict:
+                   cancel: Callable[[], bool] | None = None,
+                   level: int | None = None) -> dict:
     """The lazy output ``name`` of ``layer``'s last transform: ``{"raster": float32 ndarray,
     "diag": dict, **extras}``. Resolves the layer first (cache hits once it has run), then
     computes the output under :func:`output_key` via ``cache.get_or_compute`` -- a cancelled run
@@ -487,6 +492,11 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
     receives the analysed values, the CACHED analysis result (before its ``view``), the
     validated params, and ``fetch(other)``, which resolves another lazy output of the same layer
     through the cache -- so an output derived from another is keyed under that one's work.
+
+    ``level`` (0-based, finest first, the ``ui.scale_idx`` numbering; ``None`` is 0) reaches a
+    per-level output (``Output.per_level``) as ``compute_output(..., level=)`` and its key;
+    ``fetch`` passes it on, and every other output ignores it. The layer itself resolves without
+    a level, so ``compute_output`` reads the whole stack's result.
     """
     if layer.tags.get("roi.window"):
         raise ValueError(f"{name}: lazy outputs are not computed on ROI results")
@@ -497,13 +507,15 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
         raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
     layer_input = input_contract(field)
     selection = selection_recipe(layer, layer_input) if output.selects else None
-    key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key, selection)
+    lvl = (0 if level is None else int(level)) if output.per_level else None
+    key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key, selection,
+                     level=lvl)
     raw = cache.get(r.analysis_key)
     values = np.asarray(r.analysis_input.values)
 
     def fetch(other: str) -> dict:
         return resolve_output(layer, field, cache, other, source_id=source_id,
-                              progress=progress, cancel=cancel)
+                              progress=progress, cancel=cancel, level=level)
 
     def _compute():
         device = get_device(r.analysis_device)
@@ -513,6 +525,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
             extra["keeps"] = [level_keeps(layer, raw, device, r.analysis_params, l,
                                           layer_input)
                               for l in range(1, len(raw.get("extrema") or ()) + 1)]
+        if output.per_level:
+            extra["level"] = lvl
         return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
                                      progress=progress, cancel=cancel, **extra)
 
