@@ -17,6 +17,7 @@ import numpy as np
 
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
+from dynamix.model.contracts import input_contract, step_states
 from dynamix.model.device import (Output, apply_view, declared_outputs, get_device,
                                   is_transform, keyed_params, validate_params)
 
@@ -29,11 +30,14 @@ class Renderable:
     counters exist so a UI can honestly report what it did rather than implying everything was
     recomputed.
 
-    The ``analysis_*`` fields record the chain's LAST transform -- the one whose lazy outputs
-    :func:`resolve_output` computes: its device name, its validated params (view-only ones
-    included), its cache key, and the input it consumed (the field for a first transform, the
-    previous transform's result otherwise; ``None`` for an ROI result, whose input is a region
-    window the runner reads). All ``None`` when the chain runs no transform.
+    The ``analysis_*`` fields record the chain's last APPLYING transform -- the one whose lazy
+    outputs :func:`resolve_output` computes: its device name, its validated params (view-only
+    ones included), its cache key, and the input it consumed (the field for a first transform,
+    the previous transform's result otherwise; ``None`` for an ROI result, whose input is a
+    region window the runner reads). All ``None`` when the chain runs no transform.
+
+    ``step_states`` holds one :class:`~dynamix.model.contracts.StepState` per chain step, in
+    chain order: whether the step applies on what reaches it, and the reason when it does not.
     """
 
     layer_id: int
@@ -47,6 +51,7 @@ class Renderable:
     analysis_params: dict | None = None
     analysis_key: str | None = None
     analysis_input: Any = None
+    step_states: tuple = ()
 
     @property
     def from_cache(self) -> bool:
@@ -155,16 +160,17 @@ def preview_resolve(layer, field):
     return result
 
 
-def _roi_prefix(layer) -> list:
-    """``[(device, params), ...]`` the ROI runner owns for ``layer``: its leading field-stage
-    transforms (``field_stage = True``, e.g. ``noise``) plus the first analyzer -- or ``[]``
-    when the layer carries no ``roi.window`` or its chain does not open with a transform. A
-    device that reads its own pixels off the file (``reads_source``: ``wtmm2d_roi``) is
-    already region-aware and runs as an ordinary step."""
+def _roi_prefix(layer, steps) -> list:
+    """``[(device, params), ...]`` the ROI runner owns for ``layer``: the leading field-stage
+    transforms (``field_stage = True``, e.g. ``noise``) of ``steps`` plus the first analyzer --
+    or ``[]`` when the layer carries no ``roi.window`` or ``steps`` do not open with a
+    transform. ``steps`` are the chain's applying steps, so a step that does not apply never
+    joins the region job. A device that reads its own pixels off the file (``reads_source``:
+    ``wtmm2d_roi``) is already region-aware and runs as an ordinary step."""
     if layer is None or not layer.tags.get("roi.window"):
         return []
     run = []
-    for ref in layer.chain.steps:
+    for ref in steps:
         device = get_device(ref.device)
         if not is_transform(device) or getattr(device, "reads_source", False):
             break
@@ -174,24 +180,25 @@ def _roi_prefix(layer) -> list:
     return []                               # a field stage with no analyzer: nothing to crop
 
 
-def _refuse_the_picture(layer, field) -> None:
+def _refuse_the_picture(layer, field, steps) -> None:
     """No tool runs on a display PICTURE: its samples are a drawing of the
     file, never data -- analysing them would be analysis of resampled pixels. Tools run on a
     saved ROI (``tags["roi.window"]``), which reads native pixels; a device that reads its own
     pixels off ``provenance["source"]`` (``reads_source``, i.e. ``wtmm2d_roi``) is region-aware
-    already and passes."""
+    already and passes. ``steps`` are the chain's applying steps: a step that does not apply
+    never runs, so it is never refused."""
     from dynamix.roi.picture import display_stride
 
     if display_stride(field) <= 1:
         return
     if layer.tags.get("roi.window"):
-        if _roi_prefix(layer) or not any(is_transform(get_device(r.device))
-                                         for r in layer.chain.steps):
+        if _roi_prefix(layer, steps) or not any(is_transform(get_device(r.device))
+                                                for r in steps):
             return                          # the region runner reads native pixels
         raise ValueError(
             "a field stage alone (noise) does not analyse -- add an analyzer after it; it "
             "then runs on the ROI and its margin")
-    for ref in layer.chain.steps:
+    for ref in steps:
         device = get_device(ref.device)
         if is_transform(device):
             if getattr(device, "reads_source", False):
@@ -216,9 +223,18 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     reaches ``run_wtmm2d``'s per-stage check. A set flag raises ``ComputeCancelled`` out of the
     compute (and thus out of ``resolve``) without caching a partial result. Only long transforms
     opt in, so the common path adds nothing.
+
+    A step that does not apply on what reaches it (:func:`~dynamix.model.contracts.step_states`,
+    from ``field``'s contract) is skipped: it is never computed or applied and adds no cache key,
+    and a skipped transform neither advances ``upstream`` nor becomes the analysis. Running such a
+    step is not equivalent (``min_vchains`` after a chainless analysis deletes every labelled
+    H-line), so a skipped step passes everything by construction.
     """
     sid = source_identity(layer, source_id)
-    _refuse_the_picture(layer, field)
+    layer_input = input_contract(field)
+    states = step_states(layer.chain.steps, layer_input)
+    steps = [ref for ref, state in zip(layer.chain.steps, states) if state.applies]
+    _refuse_the_picture(layer, field, steps)
     hits0, misses0 = cache.hits, cache.misses
     ran_t: list[str] = []
     ran_f: list[str] = []
@@ -228,7 +244,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     analysis: tuple = (None, None, None, None)   # (device, params, key, input) of the last one
     analysis_raw = None                          # the last transform's (viewed) result
     start = 0
-    roi_steps = _roi_prefix(layer)
+    roi_steps = _roi_prefix(layer, steps)
     if roi_steps:
         # The leading field stage + the analyzer run ON THE REGION as one
         # step -- ROI + the tools' declared margins read once off the dataset, cropped back to
@@ -252,7 +268,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         analysis = (analyzer.name, analyzer_params, upstream, None)
         ran_t.extend(d.name for d, _p in roi_steps)
         start = len(roi_steps)
-    for ref in layer.chain.steps[start:]:
+    for ref in steps[start:]:
         device = get_device(ref.device)
         params = validate_params(device, ref.params)
 
@@ -307,6 +323,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         analysis_params=analysis[1],
         analysis_key=analysis[2],
         analysis_input=analysis[3],
+        step_states=tuple(states),
     )
 
 
