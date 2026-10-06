@@ -69,6 +69,7 @@ from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overvi
 from dynamix.geo.mapping import axis_at, has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
+from dynamix.model.contracts import input_contract, step_states
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
 from dynamix.model.inspector_state import (InspectorState, SubLayerState,
@@ -4724,10 +4725,13 @@ both ``Canvas`` signals report the
 
     def _output_keys(self, layer) -> dict:
         """``{name: key}`` of ``layer``'s lazy outputs, derived from its chain the way
-        :func:`~dynamix.engine.resolve.resolve_output` derives them (the analysis key from
-        :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI result. Outputs
-        without a row of their own (a preview, :data:`_PREVIEW_OF`) are keyed too."""
-        step, _outputs = layer_outputs(layer)
+        :func:`~dynamix.engine.resolve.resolve_output` derives them (the analysis step and its
+        selection with the steps that do not apply on :meth:`_layer_input` passed over, the
+        analysis key from :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI
+        result. Outputs without a row of their own (a preview, :data:`_PREVIEW_OF`) are keyed
+        too."""
+        layer_input = self._layer_input(layer)
+        step, _outputs = layer_outputs(layer, layer_input)
         if step is None or layer.tags.get("roi.window"):
             return {}
         device = get_device(step.device)
@@ -4738,7 +4742,7 @@ both ``Canvas`` signals report the
         if not keys:
             return {}
         params = validate_params(device, step.params)
-        selection = selection_recipe(layer)
+        selection = selection_recipe(layer, layer_input)
         return {o.name: output_key(device.name, o, params, keys[-1],
                                    selection if o.selects else None) for o in lazy}
 
@@ -4819,7 +4823,7 @@ both ``Canvas`` signals report the
         if (output is None or renderable.analysis_device != step.device
                 or self._output_refusal(layer, step, output) is not None):
             return None
-        selection = selection_recipe(layer)
+        selection = selection_recipe(layer, self._layer_input(layer))
         key = output_key(renderable.analysis_device, output, renderable.analysis_params,
                          renderable.analysis_key, selection if output.selects else None)
         if self._draws_preview(layer, step, name, key):
@@ -5077,6 +5081,15 @@ both ``Canvas`` signals report the
             self.strips.setEnabled(enabled)
         self.transport.setEnabled(enabled)
 
+    def _layer_input(self, layer=None) -> str:
+        """The contract ``layer``'s chain starts from (:func:`~dynamix.model.contracts.
+        input_contract`) on the field it resolves against: the window's field for the active
+        layer (``layer`` omitted or ``self.layer``) and the recorded field otherwise, as
+        :meth:`_start_worker_for` picks it."""
+        if layer is None or layer is self.layer:
+            return input_contract(self.field)
+        return input_contract(self._fields.get(layer.layer_id))
+
     def _cache_keys_for(self, layer) -> list[str]:
         """Every transform step's cache key for ``layer``'s OWN chain, threaded through
         ``upstream`` exactly as :func:`dynamix.engine.resolve.resolve` derives them -- reused via
@@ -5086,13 +5099,16 @@ both ``Canvas`` signals report the
         docstring warns about). Filters are skipped -- they are never cached, and ``resolve`` never
         advances ``upstream`` for one either, so skipping them here reproduces its threading
         precisely for a chain that is (per the engine's own transforms-then-filters invariant) all
-        transforms first."""
+        transforms first. A step that does not apply on the layer's input (:meth:`_layer_input`,
+        :func:`~dynamix.model.contracts.step_states`) is skipped the same way: ``resolve`` never
+        runs it and never advances ``upstream`` for it."""
         sid = source_identity(layer)
+        states = step_states(layer.chain.steps, self._layer_input(layer))
         keys: list[str] = []
         upstream: str | None = None
-        for ref in layer.chain.steps:
+        for ref, state in zip(layer.chain.steps, states):
             device = get_device(ref.device)
-            if not is_transform(device):
+            if not state.applies or not is_transform(device):
                 continue
             params = validate_params(device, ref.params)
             key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream)
@@ -6344,11 +6360,17 @@ both ``Canvas`` signals report the
         A change here is the ONLY thing that needs the worker; anything else -- a filter, or any
         change to a BYPASSED step -- is not (rack membership never appears here at all: it is
         pure rendering, invisible to the computed chain, which is what keeps the zero-cache-miss
-        law true across rack flattening)."""
+        law true across rack flattening). A transform that does not apply on the layer's input
+        (:meth:`_layer_input`, :func:`~dynamix.model.contracts.step_states`) never runs either,
+        so it has no share, as in :meth:`_cache_keys_for`."""
+        enabled = [i for i, b in enumerate(self._bypassed) if not b]
+        states = step_states([DeviceRef(self._names[i], self._params[i]) for i in enabled],
+                             self._layer_input())
+        applying = {i for i, state in zip(enabled, states) if state.applies}
         return (self.layer.source_id if self.layer is not None else None,
                 tuple((self._names[i], tuple(sorted(
                     keyed_params(get_device(self._names[i]), self._params[i]).items())))
-                      for i in self._transform_indices()))
+                      for i in self._transform_indices() if i in applying))
 
     def _snapshot_recipe(self) -> None:
         """Record the CURRENT ``_names``/``_params``/``_bypassed``/``_rack`` for ``self.layer`` in
@@ -7024,11 +7046,14 @@ both ``Canvas`` signals report the
         live ``_names``/``_params`` working copy, which only ever reflects the ACTIVE layer's
         current editing session. For the active layer the two agree by construction (``_chain()``
         is what wrote ``layer.chain`` in the first place); this is the form a background
-        arrangement-queue layer -- one nobody is live-editing -- needs instead."""
+        arrangement-queue layer -- one nobody is live-editing -- needs instead. A transform that
+        does not apply on the layer's input is left out, as there."""
+        states = step_states(layer.chain.steps, self._layer_input(layer))
         return (layer.source_id,
                 tuple((ref.device, tuple(sorted(
                     keyed_params(get_device(ref.device), ref.params).items())))
-                      for ref in layer.chain.steps if is_transform(get_device(ref.device))))
+                      for ref, state in zip(layer.chain.steps, states)
+                      if state.applies and is_transform(get_device(ref.device))))
 
     def _start_worker_for(self, layer) -> None:
         """Dispatch ``layer``'s resolve on the ONE shared worker thread. ``_start_worker()`` is

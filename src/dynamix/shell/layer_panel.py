@@ -62,14 +62,22 @@ _OUTPUT_KEY_ROLE = QtCore.Qt.UserRole + 5
 _OUTPUT_LAYER_ROLE = QtCore.Qt.UserRole + 6
 
 
-def layer_outputs(layer) -> tuple:
+def layer_outputs(layer, layer_input: str | None = None) -> tuple:
     """``(step, outputs)`` for ``layer``: its chain's LAST transform step and the outputs that
     step's device declares, or ``(None, ())`` when the last transform declares none (a filter
-    never does; an unregistered device counts as declaring none)."""
+    never does; an unregistered device counts as declaring none). Given the chain's
+    ``layer_input`` contract, a step that does not apply
+    (:func:`~dynamix.model.contracts.step_states`) is passed over as the engine passes it, so the
+    step is the engine's analysis."""
     from dynamix.model.device import declared_outputs, get_device, is_transform
 
+    steps = layer.chain.steps
+    if layer_input is not None:
+        from dynamix.model.contracts import step_states
+
+        steps = [s for s, state in zip(steps, step_states(steps, layer_input)) if state.applies]
     last = None
-    for step in layer.chain.steps:
+    for step in steps:
         try:
             device = get_device(step.device)
         except KeyError:
