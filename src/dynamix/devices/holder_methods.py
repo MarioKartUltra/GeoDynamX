@@ -29,6 +29,11 @@ and the never-delete rule holds; these two supersede it in the palette (the brow
 superseded names to the collapsed Dev category). Display/result contract, chain-head
 refusal, and cache keying are holder_map's exactly — everything downstream is
 method-agnostic and consumes ``h_map``/``raster_out``.
+
+Each tool's band reconstruction is its own pair of lazy raster outputs, ``band`` and
+``band_mask`` (:func:`band_output`), computed from the cached ``h_map``: the band knobs are
+view-only params, so the analysis key holds the engine knobs alone and a band scrub
+recomputes only the output.
 """
 from __future__ import annotations
 
@@ -374,6 +379,51 @@ _MFA_VIEW_PARAMS = (
           label="Show", view=True),
 ) + _BAND_VIEW_KNOBS
 
+_BAND_OUTPUTS = (
+    Output("band", "raster", lazy=True, params=_BAND_PARAMS, label="band reconstruction"),
+    Output("band_mask", "raster", lazy=True, params=_BAND_PARAMS, label="band mask"),
+)
+
+
+def band_mask_of(h_map, params: dict):
+    """The band ``h_lo <= h < h_hi`` of ``h_map`` (:func:`dynamix.core.microcanonical.band_mask`)
+    with the island sieve applied when either island bound is set: band_recon's mask, step for
+    step."""
+    from dynamix.core import microcanonical as mc
+
+    mask = mc.band_mask(h_map, params["h_lo"], params["h_hi"])
+    if params["min_island"] or params["max_island"]:
+        from dynamix.core.sieve import sieve_mask
+        mask = sieve_mask(mask, int(params["min_island"]), int(params["max_island"]),
+                          connectivity=int(params["connectivity"]))
+    return mask
+
+
+def band_output(device_name: str, name: str, values, result: dict, params: dict,
+                progress=None) -> dict:
+    """The lazy output ``name`` of a Microcanonical MFA result: ``"band_mask"`` is the band of
+    the cached ``h_map`` as 0/1, ``"band"`` the field reconstructed from its gradient on that
+    mask (:func:`~dynamix.core.microcanonical.reconstruct_from_msc` on the analysed ``values``).
+    Both are ``{"raster": float32, "diag": {...}}``; the band's diag carries ``psnr_db``,
+    ``rel_err`` and ``band_density``, the mask's ``band_density``."""
+    import numpy as np
+
+    from dynamix.core import microcanonical as mc
+
+    if name not in ("band", "band_mask"):
+        raise ValueError(f"{device_name}: no lazy output named {name!r}")
+    mask = band_mask_of(result["h_map"], params)
+    density = float(mask.mean())
+    if name == "band_mask":
+        return {"raster": mask.astype(np.float32), "diag": {"band_density": density}}
+    if progress is not None:
+        progress("band reconstruction", 0.0)
+    recon, psnr, rel_err = mc.reconstruct_from_msc(np.asarray(values, dtype=np.float64), mask)
+    if progress is not None:
+        progress("band reconstruction", 1.0)
+    return {"raster": np.asarray(recon, dtype=np.float32),
+            "diag": {"psnr_db": psnr, "rel_err": rel_err, "band_density": density}}
+
 
 def _compute(device, method: str, field, params: dict, progress=None) -> dict:
     vals = field_values_2d(field, device.name)
@@ -403,6 +453,7 @@ class HolderMeasure:
     #: The h-map engine's knobs; band_recon_measure carries them verbatim.
     engine_params = params
     params = engine_params + _MFA_VIEW_PARAMS
+    outputs = _BAND_OUTPUTS
 
     def check(self, params: dict) -> None:
         q_width_check("measure", params)
@@ -410,6 +461,10 @@ class HolderMeasure:
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "measure", field, params, progress)
+
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
+                       progress=None, cancel=None) -> dict:
+        return band_output(self.name, name, values, result, params, progress)
 
     def view(self, result: dict, params: dict) -> dict:
         """The cached h-map result itself: Show and the band knobs choose a lazy output, which
@@ -450,6 +505,7 @@ class HolderMultiaffine:
     #: The h-map engine's knobs; band_recon_multiaffine carries them verbatim.
     engine_params = params
     params = engine_params + _MFA_VIEW_PARAMS
+    outputs = _BAND_OUTPUTS
 
     def check(self, params: dict) -> None:
         q_width_check("multiaffine", params)
@@ -457,6 +513,10 @@ class HolderMultiaffine:
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "multiaffine", field, params, progress)
+
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
+                       progress=None, cancel=None) -> dict:
+        return band_output(self.name, name, values, result, params, progress)
 
     def view(self, result: dict, params: dict) -> dict:
         """The cached h-map result itself: Show and the band knobs choose a lazy output, which

@@ -112,3 +112,76 @@ def test_the_view_hands_over_the_cached_result_which_records_the_engine_knobs(bu
     assert b.result is a.result and b.result is cache.get(b.analysis_key)
     dev = get_device(mfa)
     assert b.result["params"] == keyed_params(dev, validate_params(dev, {}))
+
+
+# --------------------------------------------------------------- the outputs
+
+@pytest.mark.parametrize("mfa", MFA)
+def test_the_band_outputs_are_declared_lazy_on_the_band_knobs(builtins, mfa):
+    outputs = {o.name: o for o in declared_outputs(get_device(mfa))}
+    assert sorted(outputs) == ["band", "band_mask"]
+    for o in outputs.values():
+        assert o.kind == "raster" and o.lazy and o.row and o.params == BAND_KNOBS
+    assert outputs["band"].label == "band reconstruction"
+    assert outputs["band_mask"].label == "band mask"
+
+
+@pytest.mark.parametrize("mfa", MFA)
+def test_the_band_output_is_band_recons_reconstruction_bit_for_bit(builtins, mfa):
+    field, cache = _field(), Cache()
+    knobs = BANDS[mfa]
+    recon = get_device(RECON_OF[mfa])
+    ref = recon.compute(field, validate_params(recon, knobs))
+    assert 0.05 < ref["band_density"] < 0.95
+    band = resolve_output(_layer((mfa, {**knobs, "show": "band"})), field, cache, "band")
+    assert band["raster"].dtype == np.float32
+    np.testing.assert_array_equal(band["raster"], ref["raster_out"])
+    assert band["diag"] == {"psnr_db": ref["psnr_db"], "rel_err": ref["rel_err"],
+                            "band_density": ref["band_density"]}
+    mask = resolve_output(_layer((mfa, knobs)), field, cache, "band_mask")
+    assert mask["raster"].dtype == np.float32
+    np.testing.assert_array_equal(mask["raster"], ref["band_mask"].astype(np.float32))
+    assert mask["diag"] == {"band_density": ref["band_density"]}
+    # the sieve ran: the unsieved band holds more pixels than the mask
+    from dynamix.core import microcanonical as mc
+
+    assert mc.band_mask(ref["h_map"], knobs["h_lo"], knobs["h_hi"]).sum() > ref["band_mask"].sum()
+
+
+@pytest.mark.parametrize("mfa", MFA)
+def test_a_band_scrub_recomputes_only_the_output(builtins, mfa):
+    field, cache = _field(), Cache()
+    knobs = {**BANDS[mfa], "show": "band"}
+    first = resolve(_layer((mfa, knobs)), field, cache)
+    a = resolve_output(_layer((mfa, knobs)), field, cache, "band")
+    misses = cache.misses
+    scrubbed = {**knobs, "h_lo": knobs["h_lo"] + 0.05}
+    r = resolve(_layer((mfa, scrubbed)), field, cache)
+    assert r.cache_misses == 0 and r.analysis_key == first.analysis_key
+    b = resolve_output(_layer((mfa, scrubbed)), field, cache, "band")
+    assert cache.misses == misses + 1                       # the band output alone
+    assert not np.array_equal(a["raster"], b["raster"])
+    again = resolve_output(_layer((mfa, scrubbed)), field, cache, "band")
+    assert cache.misses == misses + 1 and again is b
+
+
+def test_the_band_output_runs_on_a_band_row_of_a_stack(builtins):
+    """A stack's band row (band_select first) reconstructs that band's own plane."""
+    lo, hi = fbm2d(64, 0.8, seed=2), fbm2d(64, 0.6, seed=5)
+    stack = RasterField(name="stack", values=np.stack([lo, hi], axis=-1), frame=LocalFrame(),
+                        x_axis=np.arange(64.0), y_axis=np.arange(64.0))
+    knobs = BANDS["holder_measure"]
+    layer = _layer(("band_select", {"band": 2}), ("holder_measure", {**knobs, "show": "band"}))
+    band = resolve_output(layer, stack, Cache(), "band")
+    plane = RasterField(name="b2", values=hi, frame=LocalFrame(), x_axis=np.arange(64.0),
+                        y_axis=np.arange(64.0))
+    recon = get_device("band_recon_measure")
+    ref = recon.compute(plane, validate_params(recon, knobs))
+    np.testing.assert_array_equal(band["raster"], ref["raster_out"])
+
+
+@pytest.mark.parametrize("mfa", MFA)
+def test_an_unknown_output_name_is_refused(builtins, mfa):
+    with pytest.raises(ValueError, match="no lazy output named 'recon'"):
+        get_device(mfa).compute_output("recon", np.zeros((4, 4)), {"h_map": np.zeros((4, 4))},
+                                       validate_params(get_device(mfa), {}), fetch=None)
