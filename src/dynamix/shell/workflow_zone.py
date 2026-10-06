@@ -214,6 +214,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.device import Device, defaults_for, get_device, is_transform
+from dynamix.model.families import label_of
 from dynamix.model.param import Param
 from dynamix.shell.browser import DEVICE_MIME, PRESET_MIME
 from dynamix.shell.knob_widgets import make_control
@@ -400,8 +401,14 @@ class DeviceBox(QtWidgets.QFrame):
         self._title_bar = _TitleBar(on_drag=self._start_drag, on_click=self.selected.emit)
         title_row = QtWidgets.QHBoxLayout(self._title_bar)
         title_row.setContentsMargins(0, 0, 0, 0)
-        self.name_label = QtWidgets.QLabel(device.name)
+        self.name_label = QtWidgets.QLabel(label_of(device))
         title_row.addWidget(self.name_label)
+        # The device id, muted beside the label; hidden when the device declares no label of its
+        # own, the label then being the id.
+        self.id_label = QtWidgets.QLabel(device.name)
+        self.id_label.setProperty("muted", "true")
+        self.id_label.setVisible(label_of(device) != device.name)
+        title_row.addWidget(self.id_label)
         self.state_dot: QtWidgets.QLabel | None = None
         if is_transform(device):
             self.state_dot = QtWidgets.QLabel(_STATE_DOT_GLYPH)
@@ -490,7 +497,9 @@ class DeviceBox(QtWidgets.QFrame):
         outer.addWidget(self.reading_label)
 
         total_cols = max(col_cursor, 1)
-        self.setFixedWidth(_MARGINS[0] + _MARGINS[2] + total_cols * _COLUMN_WIDTH)
+        # At least as wide as the title bar, so a long label and its id are never clipped.
+        self.setFixedWidth(_MARGINS[0] + _MARGINS[2] + max(total_cols * _COLUMN_WIDTH,
+                                                           self._title_bar.sizeHint().width()))
 
         # Rendering-only: see the module docstring's "bypass rendering vs. the bypass GESTURE"
         # note. Applied once, from the ctor argument -- never reactively from the button itself.

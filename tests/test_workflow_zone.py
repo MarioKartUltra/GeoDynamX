@@ -1675,3 +1675,24 @@ def test_a_param_with_a_section_gets_no_strip_control_and_still_takes_an_edit(qt
     box.paramChanged.connect(lambda name, value: seen.append((name, value)))
     box._on_control_changed("kappa", 2.0)
     assert box._params["kappa"] == 2.0 and seen == [("kappa", 2.0)]
+
+
+def test_device_box_title_is_the_label_with_the_id_muted_beside_it(qtbot, registered_builtins):
+    from dynamix.model.families import label_of
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    dev = get_device("holder_multiaffine")
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    assert box.name_label.text() == label_of(dev) != "holder_multiaffine"
+    assert box.id_label.text() == "holder_multiaffine"
+    assert box.id_label.property("muted") == "true" and not box.id_label.isHidden()
+    assert box.minimumWidth() >= box._title_bar.sizeHint().width()
+
+
+def test_device_box_of_a_device_without_a_label_shows_its_id_once(qtbot, stub_transform):
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    box = DeviceBox(0, stub_transform, {"scale": 4})
+    qtbot.addWidget(box)
+    assert box.name_label.text() == "t" and box.id_label.isHidden()
