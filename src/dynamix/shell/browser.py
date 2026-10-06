@@ -19,6 +19,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model import DEVICES, is_transform
 from dynamix.model.families import FAMILY_ORDER, display_name, families_of, label_of
+from dynamix.model.racks import rack_state
 
 #: Drag mime types a row encodes itself as. The drop target reads these back.
 DEVICE_MIME = "application/x-dynamix-device"
@@ -55,15 +56,23 @@ _MIME_ROLE = QtCore.Qt.UserRole
 #: device row's text is its display label, so the payload is read from here.
 _ID_ROLE = QtCore.Qt.UserRole + 1
 
+#: Item-data role holding a rack row's ``RackEntry`` (``dynamix.model.racks``): what
+#: :meth:`DeviceBrowser.set_rack_context` checks against the active layer and what a double-click
+#: opens in the rack editor.
+_RACK_ROLE = QtCore.Qt.UserRole + 2
+
 
 class DeviceBrowser(QtWidgets.QTreeWidget):
     """Registered devices by family, plus rack presets, each row draggable as one mime payload.
 
     Built once, from whatever is in ``DEVICES`` at construction time -- the registry is populated
     by ``register_builtin_devices()`` before ``MainWindow`` builds its panel, so this always sees
-    the real device set. There is no re-population API: nothing in this slice adds a device or a
-    preset after the window opens (YAGNI).
+    the real device set. The device rows are never re-populated; the rack rows are replaced by
+    :meth:`set_racks` whenever the rack files change.
     """
+
+    #: A rack row was double-clicked: its rack's name, for the rack editor.
+    rackEditRequested = QtCore.Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -101,6 +110,9 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
                 self._add_device_row(self._categories[title], name)
         self.expandAll()
         self.collapseItem(self._categories["Dev"])
+        #: ``(steps, layer_input, master, roi_holder)`` of the active layer, or None before one.
+        self._rack_context: tuple | None = None
+        self.itemDoubleClicked.connect(self._on_item_double_clicked)
 
     def set_presets(self, presets: dict[str, tuple]) -> None:
         """Add one row per preset name under "Racks". ``presets`` maps a display name to a chain
@@ -125,10 +137,61 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
                     item.setForeground(0, self._muted)
                     item.setToolTip(0, state.reason)
 
-    def _add_row(self, parent: QtWidgets.QTreeWidgetItem, name: str, mime_type: str) -> None:
+    def set_racks(self, entries) -> None:
+        """Replace the rows under "Racks" with one row per ``RackEntry`` (built-in and user racks,
+        in the given order). A row drags its rack's name, as a preset row does. A rack with a
+        ``problem`` is listed disabled, the problem as its tooltip: it cannot be dragged or
+        opened."""
+        racks = self._categories["Racks"]
+        racks.takeChildren()
+        for entry in entries:
+            name = entry.rack.name if entry.rack is not None else entry.path.stem
+            item = self._add_row(racks, name, PRESET_MIME)
+            item.setData(0, _RACK_ROLE, entry)
+            if entry.problem:
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEnabled)
+                item.setToolTip(0, entry.problem)
+        self._apply_rack_context()
+
+    def set_rack_context(self, steps, layer_input: str, *, master: bool = False,
+                         roi_holder: bool = False) -> None:
+        """The active layer: its enabled Transform steps, its input contract and the flags
+        :meth:`set_step_states`' caller passes to ``drop_states``. A rack that cannot head a drop
+        there (``dynamix.model.racks.rack_state``) is greyed as a device row is, the reason as its
+        tooltip, and stays draggable."""
+        self._rack_context = (tuple(steps), layer_input, master, roi_holder)
+        self._apply_rack_context()
+
+    def _apply_rack_context(self) -> None:
+        racks = self._categories["Racks"]
+        for i in range(racks.childCount()):
+            item = racks.child(i)
+            entry = item.data(0, _RACK_ROLE)
+            if entry is None or entry.problem:
+                continue
+            state = None
+            if self._rack_context is not None:
+                steps, layer_input, master, roi_holder = self._rack_context
+                state = rack_state(entry.rack, steps, layer_input, master=master,
+                                   roi_holder=roi_holder)
+            if state is None or state.applies:
+                item.setData(0, QtCore.Qt.ForegroundRole, None)
+                item.setToolTip(0, "built-in rack" if entry.rack.builtin else str(entry.path))
+            else:
+                item.setForeground(0, self._muted)
+                item.setToolTip(0, state.reason)
+
+    def _on_item_double_clicked(self, item, _column) -> None:
+        entry = item.data(0, _RACK_ROLE)
+        if entry is not None and entry.rack is not None:
+            self.rackEditRequested.emit(entry.rack.name)
+
+    def _add_row(self, parent: QtWidgets.QTreeWidgetItem, name: str,
+                 mime_type: str) -> QtWidgets.QTreeWidgetItem:
         item = QtWidgets.QTreeWidgetItem(parent, [name])
         item.setData(0, _MIME_ROLE, mime_type)
         item.setData(0, _ID_ROLE, name)
+        return item
 
     def _add_device_row(self, parent: QtWidgets.QTreeWidgetItem, name: str) -> None:
         """One device row: its label, its id muted in the second column (empty when the label is
