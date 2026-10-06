@@ -295,3 +295,65 @@ def test_a_derivative_fork_writes_the_shown_level(qtbot, stub_devices, monkeypat
     (kept,) = written["vectors"]["extrema"]
     np.testing.assert_array_equal(kept["x"], shown["x"])
     assert written["vectors"]["_scale_idx"] == 2
+
+
+def _saved_project(qtbot, tmp_path, name, level=None):
+    """A one-layer project over a real raster file (``STUB_CHAIN``), shown at ``level`` when
+    given, saved; returns the project file."""
+    from dynamix.shell.main_window import MainWindow
+
+    raster = tmp_path / f"{name}.npz"
+    np.savez(raster, np.asarray(_FIELD, dtype=np.float64))
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.open_path(str(raster))
+    if level is not None:
+        with qtbot.waitSignal(win.resolved, timeout=5000):
+            win.transport.slider.setValue(level)
+    return win._save_project_to(tmp_path / f"{name}.dynamix")
+
+
+def test_the_shown_level_persists_through_save_and_open(qtbot, stub_devices, tmp_path):
+    from dynamix.shell.main_window import MainWindow
+
+    written = _saved_project(qtbot, tmp_path, "level", level=2)
+    assert json.loads(written.read_text())["layers"][0]["tags"]["ui.scale_idx"] == "2"
+
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=10000) as sig:
+        win._open_project_path(written)
+    assert win.layer.tags["ui.scale_idx"] == "2"
+    assert win.transport.slider.value() == 2
+    assert sig.args[0].result["_scale_idx"] == 2
+
+
+def test_an_old_project_with_scale_select_opens_at_its_scale_and_shows_the_step_inactive(
+        qtbot, stub_devices, tmp_path):
+    from dynamix.model.contracts import StepState
+    from dynamix.shell.main_window import MainWindow
+
+    written = _saved_project(qtbot, tmp_path, "old")
+    payload = json.loads(written.read_text())
+    (saved,) = payload["layers"]
+    saved["tags"].pop("ui.scale_idx", None)              # written before the Transport owned it
+    (step,) = [s for s in saved["chain"]["steps"] if s["device"] == "scale_select"]
+    step["params"]["scale_idx"] = 2
+    written.write_text(json.dumps(payload))
+
+    idle = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(idle)
+    idle._start_worker = lambda: None
+    idle._open_project_path(written)
+    assert idle.layer.tags["ui.scale_idx"] == "2"        # seeded on open, before any landing
+
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=10000) as sig:
+        win._open_project_path(written)
+    assert win.layer.tags["ui.scale_idx"] == "2"
+    assert win.transport.slider.value() == 2
+    assert sig.args[0].result["_scale_idx"] == 2
+    assert win.layer.chain.steps[1].params["scale_idx"] == 2      # the chain is not edited
+    assert sig.args[0].step_states[1] == StepState(False, "the scale is set by the Transport")

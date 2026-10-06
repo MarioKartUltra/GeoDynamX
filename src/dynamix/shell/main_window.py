@@ -4142,6 +4142,10 @@ both ``Canvas`` signals report the
             return
         missing = set(missing_sources(project, path))
         drifted = set(changed_sources(project, path))
+        # A chain saved with a scale_select step opens at the level that step showed. Every
+        # layer is seeded here, so the arrangement draws a layer that is not active at its level.
+        for layer in project.layers:
+            seed_shown_level(layer)
         self.project = project
         self._reload_reference_layers()        # reference layers ride the project
         self._project_path = path
