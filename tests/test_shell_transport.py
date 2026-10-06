@@ -9,10 +9,14 @@ text via an injected formatter -- the transport itself holds no unit logic.
 """
 from __future__ import annotations
 
+import json
+
+import numpy as np
 import pytest
 from PySide6 import QtCore
 
 from dynamix.shell.transport import PAUSE_GLYPH, PLAY_GLYPH, SweepClock, Transport
+from tests.test_shell_window import STUB_CHAIN, _FIELD, loaded, stub_devices, window  # noqa: F401
 
 
 # --- SweepClock (pure, headless) -------------------------------------------------------------
@@ -179,3 +183,25 @@ def test_set_n_scales_emits_at_most_once_when_growing(qtbot, scale_reading):
     t.set_n_scales(8)
 
     assert len(emissions) <= 1
+
+
+# --- The shown level: worker, window, project (MainWindow wiring) ----------------------------
+
+def test_the_resolve_worker_resolves_at_the_level_it_is_handed(qtbot, stub_devices):
+    from dynamix.engine.cache import Cache
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+    from dynamix.shell.worker import ResolveWorker
+
+    chain = Chain((DeviceRef("stub_stack", {}),
+                   DeviceRef("modulus_threshold", {"frac": 0.0}))).materialized()
+    layer = Layer(layer_id=1, name="stub", source_id="mem:worker", chain=chain)
+    landed = []
+    worker = ResolveWorker(layer, _FIELD, Cache(), "mem:worker", level=2)
+    worker.finished.connect(landed.append)
+    worker._run()                              # on this thread: the signal is delivered directly
+
+    (renderable,) = landed
+    assert renderable.result["_scale_idx"] == 2
+    assert len(renderable.result["extrema"]) == 1
+    assert "ui.scale_idx" not in layer.tags    # the worker never writes view state

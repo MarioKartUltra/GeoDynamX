@@ -49,7 +49,7 @@ class ResolveWorker(QtCore.QObject):
     #: result dict the canvas draws; the later ``finished`` replaces it with the full stack.
     partial = QtCore.Signal(object)
 
-    def __init__(self, layer, field, cache, source_id, *, preview=False, prelude=()):
+    def __init__(self, layer, field, cache, source_id, *, preview=False, prelude=(), level=None):
         super().__init__()
         #: ``[(ref_layer, ref_field, stamp)]`` a bus's LAYER sends need first, dependencies
         #: before dependents: each is resolved here, on this thread, and the raster it shows
@@ -60,6 +60,9 @@ class ResolveWorker(QtCore.QObject):
         self._cache = cache
         self._source_id = source_id
         self._preview = preview
+        #: The shown level the resolve reduces the stack to (``resolve(level=...)``); ``None``
+        #: resolves every level.
+        self._level = level
         #: Set from the GUI thread via :meth:`cancel`; read cooperatively inside ``resolve`` at
         #: each WTMM stage boundary (``run_wtmm2d``'s ``cancel`` check). A ``threading.Event`` so
         #: the cross-thread read is safe without a lock.
@@ -93,7 +96,7 @@ class ResolveWorker(QtCore.QObject):
                 # A preview that isn't previewable (no leading wtmm2d) or that raises is simply
                 # skipped -- never a reason to fail or delay the real compute.
                 try:
-                    prev = preview_resolve(self._layer, self._field)
+                    prev = preview_resolve(self._layer, self._field, level=self._level)
                 except Exception:
                     prev = None
                 if prev is not None and not self._cancel.is_set():
@@ -112,7 +115,7 @@ class ResolveWorker(QtCore.QObject):
             renderable = resolve(
                 self._layer, self._field, self._cache,
                 source_id=self._source_id, progress=self._on_progress,
-                cancel=self._cancel.is_set,
+                cancel=self._cancel.is_set, level=self._level,
             )
         except ComputeCancelled:
             # Superseded by a newer edit -- not an error. The window drops it and dispatches the
