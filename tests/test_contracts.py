@@ -326,3 +326,30 @@ def test_producers_leave_out_stubs_and_devices_in_no_family(registry):
     assert producers_of(VCHAINS) == ("chains_src", "chains_src_roi")
     assert producers_of(ALPHA) == ("algo",)
     assert producers_of(STACK) == ()
+
+
+# --- the builtin devices ----------------------------------------------------------------------
+
+@pytest.fixture
+def builtins(clean_registry):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    return clean_registry
+
+
+def test_a_chain_filter_after_a_chainless_analyzer_says_who_makes_chains(builtins):
+    state = next_step_state(_steps("cdf_edges"), FIELD, "chain_holder")
+    assert state == StepState(False, "needs V-chains: WTMM 2D and WTMM 2D, ROI produce it; the "
+                                     "current analysis (CDF edges) does not")
+    state = next_step_state(_steps("cdf_edges"), FIELD, "hline_holder")
+    assert state.reason == ("needs a per-point α: Mallat–Zhong edges produces it; the current "
+                            "analysis (CDF edges) does not")
+    assert not next_step_state(_steps("mz_edges", "chain_topology"), FIELD, "min_vchains").applies
+
+
+def test_under_a_shown_level_the_builtin_scale_select_does_not_apply(builtins):
+    steps = _steps("wtmm2d", "scale_select", "chain_holder")
+    assert step_states(steps, FIELD) == [StepState(True)] * 3
+    assert step_states(steps, FIELD, level_view=True) == [
+        StepState(True), StepState(False, "the scale is set by the Transport"), StepState(True)]

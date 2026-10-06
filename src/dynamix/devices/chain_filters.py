@@ -29,6 +29,7 @@ import numpy as np
 
 from dynamix.core import chain_stats
 from dynamix.core.chain_product import narrow_selection, selection_of
+from dynamix.model.contracts import VCHAINS
 from dynamix.model.param import Param, ParamKind
 
 
@@ -77,6 +78,8 @@ class ChainHolderFilter:
     name = "chain_holder"
     label = "Chain Hölder"
     families = ("Selection: V-chains",)
+    consumes = ((VCHAINS,),)
+    produces = ()
     selection_aware = True
     params = (
         # -3.0 (the HARD min) is unambiguously "off" against the histogram's own documented
@@ -199,6 +202,8 @@ class ChainModulusFilter:
     name = "chain_modulus"
     label = "Chain modulus"
     families = ("Selection: V-chains",)
+    consumes = ((VCHAINS,),)
+    produces = ()
     selection_aware = True
     params = (
         Param("threshold", ParamKind.FLOAT, default=-99.0, min=-99.0, max=32.0,
@@ -260,6 +265,8 @@ class ChainLengthFilter:
     name = "chain_length"
     label = "Chain length"
     families = ("Selection: V-chains",)
+    consumes = ((VCHAINS,),)
+    produces = ()
     selection_aware = True
     params = (
         Param("min_len", ParamKind.INT, default=2, min=1, max=1024,

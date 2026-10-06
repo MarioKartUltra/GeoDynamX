@@ -11,6 +11,7 @@ import numpy as np
 
 from dynamix.core.chain_product import (materialize_selection, narrow_selection,
                                         selection_of)
+from dynamix.model.contracts import ALPHA, EXTREMA, VCHAINS
 from dynamix.model.param import Param, ParamKind
 
 #: Orientation is axial: an NE-SW lineament is one orientation regardless of gradient polarity, so
@@ -45,6 +46,8 @@ class ScaleSelect:
     name = "scale_select"
     label = "Scale"
     families = ("Selection: extrema",)
+    consumes = ((EXTREMA,),)
+    produces = ()
     selection_aware = True
     params = (
         Param("scale_idx", ParamKind.INT, default=0, min=0, max=1023,
@@ -97,6 +100,8 @@ class OrientationWedge:
     name = "orientation_wedge"
     label = "Orientation wedge"
     families = ("Selection: extrema",)
+    consumes = ((EXTREMA,),)
+    produces = ()
     selection_aware = True
     params = (
         Param("centre", ParamKind.ANGLE, default=0.0, wrap=_AXIAL_PERIOD,
@@ -154,6 +159,8 @@ class ModulusThreshold:
     name = "modulus_threshold"
     label = "Modulus threshold"
     families = ("Selection: extrema",)
+    consumes = ((EXTREMA,),)
+    produces = ()
     selection_aware = True
     params = (
         Param("frac", ParamKind.FLOAT, default=0.0, min=0.0, max=1.0,
@@ -207,6 +214,8 @@ class HLineLength:
     name = "hline_length"
     label = "H-line length"
     families = ("Selection: extrema",)
+    consumes = ((EXTREMA,),)
+    produces = ()
     selection_aware = True
     params = (
         Param("min_len", ParamKind.INT, default=1, min=1, max=100000,
@@ -359,6 +368,16 @@ class HLineModulus:
     name = "hline_modulus"
     label = "H-line modulus"
     families = ("Selection: extrema",)
+    produces = ()
+
+    @staticmethod
+    def consumes(params: dict) -> tuple:
+        """``sup_all_scales`` reads the V-chains threading each line; the other
+        modes read one level's extrema."""
+        if params.get("mode") == "sup_all_scales":
+            return ((EXTREMA, VCHAINS),)
+        return ((EXTREMA,),)
+
     selection_aware = True
     params = (
         Param("frac", ParamKind.FLOAT, default=0.0, min=0.0, max=1.0,
@@ -447,6 +466,8 @@ class HLineHolder:
     name = "hline_holder"
     label = "H-line Hölder"
     families = ("Selection: extrema",)
+    consumes = ((EXTREMA, ALPHA),)
+    produces = ()
     params = (
         Param("min_alpha", ParamKind.FLOAT, default=-3.0, min=-3.0, max=3.0,
               soft_min=-3.0, soft_max=2.0, label="Min α"),

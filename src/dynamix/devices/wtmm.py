@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
 from dynamix.model.param import Param, ParamKind
 
 
@@ -23,6 +24,8 @@ class WTMM2D:
     name = "wtmm2d"
     label = "WTMM 2D"
     families = ("Edge detection", "Regularity")
+    consumes = ((FIELD,),)
+    produces = (EXTREMA, VCHAINS)
     #: Progressive compute: resolve() threads its ``cancel`` predicate into this device's
     #: ``compute`` because it opts in here. Reaches ``run_wtmm2d``'s per-stage check so a
     #: superseding edit kills the in-flight stack instead of waiting it out.

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 
+from dynamix.model.contracts import VCHAINS
 from dynamix.model.param import Param, ParamKind
 
 
@@ -134,6 +135,8 @@ class GroupPaint:
     name = "group_paint"
     #: Appended by the arrangement view's commit: listed in no family.
     families = ()
+    consumes = ((VCHAINS,),)
+    produces = ()
     params = (
         Param("spec_json", ParamKind.TEXT, default="", label="Groups"),
         Param("signature", ParamKind.TEXT, default="", label="Signature"),
@@ -219,6 +222,8 @@ class GroupFilter:
     name = "group_filter"
     label = "Group filter"
     families = ("Selection: V-chains",)
+    consumes = ((VCHAINS,),)
+    produces = ()
     params = (
         # editable=True: unlike group_paint's spec_json/signature
         # (write-only from the commit transaction), this is the one TEXT param a user must

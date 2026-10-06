@@ -23,6 +23,7 @@ after another Transform is refused with the shared pointed message.
 from __future__ import annotations
 
 from dynamix.devices.holder_map import field_values_2d
+from dynamix.model.contracts import EXTREMA, FIELD
 from dynamix.model.param import Param, ParamKind
 
 
@@ -30,6 +31,8 @@ class WaveletSkeleton:
     name = "wavelet_skeleton"
     label = "Wavelet skeleton"
     families = ("Skeletons",)
+    consumes = ((FIELD,),)
+    produces = (EXTREMA,)
     params = (
         # Scales are the theta support RADIUS in px (scales-in-pixels law; the paper's
         # maxima separation == s). The method's own hypothesis: s1 must COVER the ribbon

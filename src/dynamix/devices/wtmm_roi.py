@@ -23,6 +23,7 @@ keeps its wider floor (0.25) because the whole-raster path has no halo to contam
 """
 from __future__ import annotations
 
+from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
 
@@ -40,6 +41,10 @@ class WTMM2DROI:
     name = "wtmm2d_roi"
     label = "WTMM 2D, ROI"
     families = ("Edge detection", "Regularity")
+    #: It reads band 1 of its source file, whatever field it is handed, so it runs on a
+    #: dataset row's band stack as well as on a single-band field.
+    consumes = ((FIELD,), (STACK,))
+    produces = (EXTREMA, VCHAINS)
     #: Reads its own pixels off ``field.provenance["source"]`` (never ``field.values``), so the
     #: engine lets it run over a display picture -- it is region-aware.
     reads_source = True

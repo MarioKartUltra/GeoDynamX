@@ -40,6 +40,7 @@ with the shared pointed message.
 from __future__ import annotations
 
 from dynamix.devices.holder_map import field_values_2d
+from dynamix.model.contracts import EXTREMA, FIELD
 from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
 
@@ -62,6 +63,8 @@ class CDFEdges:
     name = "cdf_edges"
     label = "CDF edges"
     families = ("Edge detection",)
+    consumes = ((FIELD,),)
+    produces = (EXTREMA,)
     params = (
         Param("n_levels", ParamKind.INT, default=4, min=1, max=8,
               soft_min=2, soft_max=5, label="Levels J"),

@@ -33,6 +33,7 @@ from __future__ import annotations
 import numpy as np
 
 from dynamix.devices.estimators import HOLDER_ESTIMATORS
+from dynamix.model.contracts import VCHAINS
 from dynamix.model.param import Param, ParamKind
 
 #: The fit-floor doctrine's upper edge, the design's "a ≤ L/8" -- a doctrine constant, not a Param
@@ -121,6 +122,8 @@ class ChainClassify:
     name = "chain_classify"
     label = "Seam classifier"
     families = ("Selection: V-chains",)
+    consumes = ((VCHAINS,),)
+    produces = ()
     params = (
         Param("estimator", ParamKind.CHOICE, default="ols", choices=("ols", "max"),
               label="Hölder estimator"),

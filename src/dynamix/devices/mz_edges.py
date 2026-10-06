@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from dynamix.model.contracts import ALPHA, EXTREMA, FIELD
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 
@@ -52,6 +53,16 @@ class MZEdges:
     name = "mz_edges"
     label = "Mallat–Zhong edges"
     families = ("Edge detection", "Regularity", "Reconstruction")
+    consumes = ((FIELD,),)
+
+    @staticmethod
+    def produces(params: dict) -> tuple:
+        """The LastWave engine stamps a per-point α on every level; the printed one
+        does not."""
+        if params.get("algorithm") == "lastwave":
+            return (EXTREMA, ALPHA)
+        return (EXTREMA,)
+
     params = (
         Param("n_levels", ParamKind.INT, default=4, min=1, max=10,
               soft_min=2, soft_max=6, label="Levels J"),
