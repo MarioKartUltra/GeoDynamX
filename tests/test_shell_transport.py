@@ -382,6 +382,32 @@ def test_the_anisotropy_window_reads_every_level_the_chain_keeps(qtbot, stub_dev
     assert win.is_computing is False
 
 
+def test_the_anisotropy_window_reads_every_level_past_a_saved_scale_select(qtbot, stub_devices):
+    """A chain that still holds ``scale_select`` (the default chain, an old project) keeps its
+    pick for nothing: the window reads every level, as it does without the step."""
+    from dynamix.shell.main_window import MainWindow
+
+    win = MainWindow(steps=(("stub_stack", {}), ("scale_select", {"scale_idx": 0}),
+                            ("modulus_threshold", {"frac": 0.0})))
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.load_field(_FIELD, "mem:aniso-scale-select")
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        win.transport.slider.setValue(1)
+    fed = {}
+
+    class _Window:
+        def set_result(self, result, field, *, offset, scale_idx):
+            fed.update(result=result, scale_idx=scale_idx)
+
+    win._feed_anisotropy(_Window())
+
+    assert len(fed["result"]["extrema"]) == 3
+    assert fed["scale_idx"] == 1
+    assert any(ref.device == "scale_select" for ref in win.layer.chain.steps)   # chain untouched
+    assert win.is_computing is False
+
+
 def test_a_pending_layers_scale_select_strip_shows_inactive(qtbot, loaded):
     """A pending layer's strips are judged on their own recipe (``_strip_states``' fallback),
     under the layer's shown level as the engine judges a landing: the scale_select strip stays

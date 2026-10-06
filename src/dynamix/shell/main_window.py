@@ -3228,8 +3228,13 @@ both ``Canvas`` signals report the
         tail = self._arr_tail_key(layer)
         if tail is not None and tail not in self.cache:
             return self._active_result
+        # A scale_select step the chain still holds would reduce the stack to its saved pick;
+        # the shown level is the Transport's, so the step is left out here as it is at every
+        # shown level. It is a filter, so the analysis keys are the layer's own.
+        whole = dataclasses.replace(layer, chain=dataclasses.replace(layer.chain, steps=tuple(
+            ref for ref in layer.chain.steps if ref.device != "scale_select")))
         try:
-            result = resolve(layer, field, self.cache, source_id=layer.source_id).result
+            result = resolve(whole, field, self.cache, source_id=layer.source_id).result
         except Exception:
             return self._active_result
         return result if isinstance(result, dict) else self._active_result
