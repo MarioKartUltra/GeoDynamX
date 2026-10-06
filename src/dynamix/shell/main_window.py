@@ -78,8 +78,9 @@ from dynamix.model.inspector_state import (InspectorState, SubLayerState,
 from dynamix.model.param import Param, ParamKind
 from dynamix.model.presets import PRESETS
 from dynamix.model.project import Project
-from dynamix.model.projectfile import (changed_sources, missing_sources, open_project,
-                                       resolve_source, save_project, sha256_of)
+from dynamix.model.projectfile import (ProjectFormatError, ProjectSchemaError, changed_sources,
+                                       missing_sources, open_project, resolve_source,
+                                       save_project, sha256_of)
 from dynamix.model.provenance import provenance_tree
 from dynamix.roi.halo import _EDGES, MIN_A_MIN
 from dynamix.shell.arrangement.group_palette import GroupPalette
@@ -4089,7 +4090,14 @@ both ``Canvas`` signals report the
         fresh open.
         """
         path = Path(path)
-        project = open_project(path)
+        try:
+            project = open_project(path)
+        except (ProjectFormatError, ProjectSchemaError, KeyError, ValueError) as exc:
+            # Nothing below has run: the window keeps the project it has.
+            detail = exc.args[0] if exc.args else exc
+            self._notify(f"could not open {path.name}: {detail} — the current project stays "
+                         "open", "modal")
+            return
         missing = set(missing_sources(project, path))
         drifted = set(changed_sources(project, path))
         self.project = project

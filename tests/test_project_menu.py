@@ -92,3 +92,30 @@ def test_open_project_restores_the_transect_panel_and_line(qtbot, stub_devices, 
     assert win2._transect_panel._list.item(0).text() == f"T{original.transect_id}"
     xs, ys = win2.canvas.transect_item.getData()
     assert xs is not None and xs.size > 0                   # the line reached the canvas
+
+
+def test_open_project_naming_an_unknown_device_reports_it_and_keeps_the_project(
+        qtbot, window, saved_project):
+    import json
+
+    payload = json.loads(saved_project.read_text())
+    payload["layers"][0]["chain"]["steps"][0]["device"] = "no_such_device"
+    broken = saved_project.with_name("broken.dynamix")
+    broken.write_text(json.dumps(payload))
+    before, layer = window.project, window.layer
+    window._open_project_path(broken)                  # must not raise
+    assert window.project is before and window.layer is layer
+    message = window._status_message
+    assert "broken.dynamix" in message and "no_such_device" in message
+    assert repr(payload["layers"][0]["name"]) in message
+
+
+def test_open_project_on_a_foreign_file_reports_it_and_keeps_the_project(
+        qtbot, window, saved_project):
+    foreign = saved_project.with_name("foreign.dynamix")
+    foreign.write_text("this is a GeoTIFF, not JSON at all")
+    before = window.project
+    window._open_project_path(foreign)                 # must not raise
+    assert window.project is before
+    assert "foreign.dynamix" in window._status_message
+    assert "not a DynamiX project" in window._status_message
