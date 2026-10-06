@@ -56,6 +56,10 @@ class Settings:
     #: ``opening.open_field``'s hard-coded ``max_pixels`` (~8000 x 8000; one float64 copy =
     #: 512 MB). Anything that is not a positive int falls back to 64M.
     open_max_pixels: int = 64_000_000
+    #: The engine cache's byte budget for computed raster outputs (``Cache.max_bytes``): past it
+    #: the least-recent unpinned output levels are evicted; a marked level is pinned and rides
+    #: above it. Anything that is not a positive int falls back to 2 GB.
+    output_cache_bytes: int = 2_000_000_000
 
 def settings_path() -> Path:
     env = os.environ.get("DYNAMIX_SETTINGS_PATH")
@@ -109,6 +113,7 @@ def load_settings() -> Settings:
         compute_engine=compute_engine,
         open_max_pixels=_positive_int(d.get("open_max_pixels"), 64_000_000),
         compute_precision=compute_precision,
+        output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
     )
 
 def _positive_int(value, default: int) -> int:

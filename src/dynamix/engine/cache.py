@@ -15,6 +15,8 @@ import hashlib
 import json
 from typing import Any, Callable
 
+import numpy as np
+
 
 def cache_key(device_name: str, source_id: str, params: dict, *,
               upstream: str | None = None) -> str:
@@ -55,10 +57,18 @@ class Cache:
     multi-layer arrangement's working set never thrashes into recomputes.
 
     Pins are a freeze contract, honored exactly as promised: a pinned key is never evicted,
-    however old or large, and rides ABOVE the bound rather than shrinking it for the rest."""
+    however old or large, and rides ABOVE the bound rather than shrinking it for the rest.
 
-    def __init__(self, maxsize: int = 64):
+    ``max_bytes`` (``None``: no byte bound) bounds the bytes of the unpinned raster OUTPUTS --
+    entries whose value is a dict holding a ``"raster"`` ndarray, what ``resolve_output`` caches
+    -- because one 4096² float32 level is about 67 MB and a scrub through the levels mints one
+    per level. Past it the least-recent of them go first. An analysis result, a field (a
+    multiband stack included) and a pinned output are never counted or evicted by it, and the
+    newest entry always stays, so an output larger than the whole budget is still served."""
+
+    def __init__(self, maxsize: int = 64, max_bytes: int | None = None):
         self.maxsize = int(maxsize)
+        self.max_bytes = None if max_bytes is None else int(max_bytes)
         self._store: dict[str, Any] = {}          # insertion-ordered; order IS recency
         self._pinned: set[str] = set()
         self.hits = 0
@@ -74,6 +84,21 @@ class Cache:
                 return
             del self._store[victim]
 
+    def _evict_over_bytes(self, newest: str) -> None:
+        """Drop the least-recent unpinned raster outputs while their bytes exceed ``max_bytes``,
+        never ``newest`` (the entry just stored)."""
+        if self.max_bytes is None:
+            return
+        sizes = [(k, _raster_nbytes(v)) for k, v in self._store.items()
+                 if k not in self._pinned]
+        total = sum(n for _k, n in sizes)
+        for k, n in sizes:                           # insertion order: least recent first
+            if total <= self.max_bytes:
+                return
+            if n and k != newest:
+                del self._store[k]
+                total -= n
+
     def get_or_compute(self, key: str, compute: Callable[[], Any]) -> Any:
         if key in self._store:
             self.hits += 1
@@ -83,6 +108,7 @@ class Cache:
         value = compute()
         self._store[key] = value
         self._evict_over_capacity()
+        self._evict_over_bytes(key)
         return value
 
     def get(self, key: str, default=None):
@@ -94,6 +120,7 @@ class Cache:
         self._store.pop(key, None)
         self._store[key] = value
         self._evict_over_capacity()
+        self._evict_over_bytes(key)
 
     def invalidate(self, key: str) -> bool:
         """Drop one entry. Returns whether it was present.
@@ -130,3 +157,13 @@ class Cache:
     def pinned(self) -> frozenset[str]:
         """Return a frozenset of all pinned keys."""
         return frozenset(self._pinned)
+
+
+def _raster_nbytes(value) -> int:
+    """The bytes of ``value``'s ``"raster"`` when it is a raster output (a dict holding a
+    ``"raster"`` ndarray), else 0."""
+    if isinstance(value, dict):
+        raster = value.get("raster")
+        if isinstance(raster, np.ndarray):
+            return int(raster.nbytes)
+    return 0
