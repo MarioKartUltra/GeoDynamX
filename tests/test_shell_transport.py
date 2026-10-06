@@ -380,3 +380,38 @@ def test_the_anisotropy_window_reads_every_level_the_chain_keeps(qtbot, stub_dev
     assert len(fed["result"]["extrema"]) == 3                # the window reads across scales
     assert fed["scale_idx"] == 1
     assert win.is_computing is False
+
+
+def test_a_pending_layers_scale_select_strip_shows_inactive(qtbot, loaded):
+    """A pending layer's strips are judged on their own recipe (``_strip_states``' fallback),
+    under the layer's shown level as the engine judges a landing: the scale_select strip stays
+    inactive, with the Transport's reason, and is never bypassed."""
+    from dynamix.model.contracts import SCALE_BY_TRANSPORT
+
+    with qtbot.waitSignal(loaded.resolved, timeout=5000):
+        loaded.transport.slider.setValue(2)
+    assert loaded.strips.strip(1).inactive_reason == SCALE_BY_TRANSPORT
+    loaded._auto_run_action.setChecked(False)
+    loaded._on_param_changed(0, "n_scales", 2)                # a transform edit waits for Run
+    assert loaded.layer.layer_id in loaded._pending_layers
+    with qtbot.waitSignal(loaded.resolved, timeout=5000) as sig:
+        loaded._on_param_changed(3, "frac", 0.1)              # a filter edit lands at once
+    assert sig.args[0].result["_scale_idx"] == 2
+    box = loaded.strips.strip(1)
+    assert box.inactive_reason == SCALE_BY_TRANSPORT
+    assert box.reading_label.text() == SCALE_BY_TRANSPORT
+    assert loaded._bypassed[1] is False
+
+
+def test_the_browser_greys_scale_while_the_layer_has_a_shown_level(qtbot, loaded):
+    from dynamix.model.contracts import SCALE_BY_TRANSPORT
+    from dynamix.model.device import get_device
+    from dynamix.model.families import display_name
+
+    row = loaded.browser._rows["scale_select"][0]
+    assert loaded.layer.tags["ui.scale_idx"] == "0"           # the landing wrote the level
+    assert row.toolTip(0) == SCALE_BY_TRANSPORT
+    assert row.foreground(0).color() == loaded.browser._muted.color()
+    del loaded.layer.tags["ui.scale_idx"]                     # no shown level
+    loaded._sync_browser_states()
+    assert row.toolTip(0) == display_name(get_device("scale_select"))

@@ -6506,8 +6506,9 @@ both ``Canvas`` signals report the
         its reason in the tooltip (:func:`dynamix.model.forking.drop_states`). Run on every
         landing (from :meth:`_fan_out_to_inspectors`), open, layer switch, committed chain edit
         and pending transform edit. Filters never change which contracts are available, so the
-        verdicts depend on the enabled transforms alone, and a landing that moved only a filter
-        keeps the rows as they are."""
+        verdicts depend on the enabled transforms and on whether the layer has a shown level (a
+        ``scale_select`` drop does not apply under one), and a landing that moved only a filter
+        or the level keeps the rows as they are."""
         if self.layer is None:
             return
         transforms = tuple(DeviceRef(n, dict(p))
@@ -6515,13 +6516,15 @@ both ``Canvas`` signals report the
                            if not b and is_transform(get_device(n)))
         master = self.layer.parent_id is None
         roi_holder = bool(self.layer.tags.get("roi.window"))
+        level_view = shown_level(self.layer) is not None
         layer_input = self._layer_input()
-        key = (self.layer.layer_id, repr(transforms), layer_input, master, roi_holder)
+        key = (self.layer.layer_id, repr(transforms), layer_input, master, roi_holder,
+               level_view)
         if key == self._browser_key:
             return
         self._browser_key = key
         self.browser.set_step_states(drop_states(transforms, layer_input, master=master,
-                                                 roi_holder=roi_holder))
+                                                 roi_holder=roi_holder, level_view=level_view))
 
     def _mark_transforms_pending(self) -> None:
         """A transform edit under manual run: record it, show it, dispatch nothing.
@@ -7213,13 +7216,16 @@ both ``Canvas`` signals report the
         the chain it resolved) laid over the enabled strips in order. A pending layer resolves
         the last run's transforms with the current filters, a recipe other than the strips', so
         its strips, and any landing whose count does not match them, are judged on the strips'
-        own recipe by the same rule."""
+        own recipe by the same rule, under the layer's shown level as ``resolve`` judges it (a
+        ``scale_select`` step does not apply while the layer has one)."""
         enabled = [i for i, b in enumerate(self._bypassed) if not b]
         states = tuple(renderable.step_states)
         if (len(states) != len(enabled)
                 or (self.layer is not None and self.layer.layer_id in self._pending_layers)):
+            level_view = self.layer is not None and shown_level(self.layer) is not None
             states = step_states([DeviceRef(self._names[i], dict(self._params[i]))
-                                  for i in enabled], self._layer_input())
+                                  for i in enabled], self._layer_input(),
+                                 level_view=level_view)
         out = [StepState(True)] * len(self._names)
         for i, state in zip(enabled, states):
             out[i] = state

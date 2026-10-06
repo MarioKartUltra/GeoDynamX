@@ -65,7 +65,7 @@ def routing_head(steps: Iterable[DeviceRef]) -> tuple[DeviceRef, ...]:
 
 
 def drop_states(steps, layer_input: str, *, master: bool = False,
-                roi_holder: bool = False) -> dict:
+                roi_holder: bool = False, level_view: bool = False) -> dict:
     """``{device id: StepState}`` for every registered device as the next drop on a layer whose
     enabled Transform steps are ``steps`` (``DeviceRef``; filters never change which contracts are
     available, so they are left out), over an input of kind ``layer_input``.
@@ -74,7 +74,9 @@ def drop_states(steps, layer_input: str, *, master: bool = False,
     heads the chain or on a dataset's master row forks a sibling over the same input that starts
     with the layer's routing steps (:func:`routing_head`), so it is judged after those steps
     alone. On an ROI-holder layer it takes the heading primary's place, so it is judged on the
-    steps ahead of that primary. Every other device is judged as appended to ``steps``."""
+    steps ahead of that primary. Every other device is judged as appended to ``steps``.
+    ``level_view``: the layer is shown at a level, so ``scale_select`` does not apply
+    (:func:`~dynamix.model.contracts.next_step_state`)."""
     steps = tuple(steps)
     head = next((i for i, ref in enumerate(steps) if is_primary(get_device(ref.device))), None)
     if roi_holder:
@@ -86,5 +88,6 @@ def drop_states(steps, layer_input: str, *, master: bool = False,
     states = {}
     for name, device in DEVICES.items():
         heads = is_primary(device) or getattr(device, "reads_source", False)
-        states[name] = next_step_state(base if heads else steps, layer_input, name)
+        states[name] = next_step_state(base if heads else steps, layer_input, name,
+                                       level_view=level_view)
     return states

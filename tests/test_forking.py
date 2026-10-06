@@ -138,3 +138,16 @@ def test_drop_states_on_an_roi_holder_judge_an_analyzer_in_the_heading_ones_plac
     states = drop_states((noise, DeviceRef("wtmm2d", {})), FIELD, roi_holder=True)
     assert states["mz_edges"] == next_step_state((noise,), FIELD, "mz_edges")
     assert states["mz_edges"].applies
+
+
+def test_drop_states_under_a_shown_level_grey_scale_select_alone(builtins):
+    from dynamix.model.contracts import SCALE_BY_TRANSPORT, StepState
+    from dynamix.model.forking import drop_states
+
+    wtmm = (DeviceRef("wtmm2d", {}),)
+    plain = drop_states(wtmm, FIELD)
+    viewed = drop_states(wtmm, FIELD, level_view=True)
+    assert plain["scale_select"].applies
+    assert viewed["scale_select"] == StepState(False, SCALE_BY_TRANSPORT)
+    assert {n: s for n, s in viewed.items() if n != "scale_select"} == \
+        {n: s for n, s in plain.items() if n != "scale_select"}
