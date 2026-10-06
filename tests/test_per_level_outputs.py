@@ -236,3 +236,34 @@ def test_a_band_row_of_a_stack_gets_its_bands_levels(builtins):
     o = _out("wtmm2d", "modulus")
     assert (output_key("wtmm2d", o, r1.analysis_params, r1.analysis_key, level=1)
             != output_key("wtmm2d", o, r2.analysis_params, r2.analysis_key, level=1))
+
+
+# --------------------------------------------------------------------- wtmm2d_roi
+
+
+def test_wtmm2d_roi_level_reads_its_stored_maxima_on_the_roi_grid(builtins, tmp_path):
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+
+    n = 80
+    values = _smooth(n, n, seed=5).astype(np.float32)
+    path = str(tmp_path / "parent.tif")
+    with rasterio.open(path, "w", driver="GTiff", height=n, width=n, count=1,
+                       dtype="float32", crs="EPSG:32615",
+                       transform=from_origin(500000.0, 3200000.0, 2.0, 2.0)) as dst:
+        dst.write(values, 1)
+    field = RasterField.from_geotiff_window(path, row_off=0, col_off=0, height=n, width=n)
+    roi = {"n_oct": 1, "n_voice": 2, "roi_row": 20, "roi_col": 24, "roi_h": 30, "roi_w": 28}
+    grid = RasterField.from_geotiff_window(path, row_off=20, col_off=24, height=30, width=28)
+    for boundary in ("auto", "reflective"):
+        cache = Cache()
+        layer = _layer(("wtmm2d_roi", {**roi, "boundary": boundary}))
+        r = resolve(layer, field, cache)
+        raw = cache.get(r.analysis_key)
+        for k, stored in enumerate(raw["extrema"]):
+            out = resolve_output(layer, field, cache, "modulus", level=k)
+            assert out["raster"].shape == (30, 28)
+            np.testing.assert_array_equal(out["raster"][stored["y"], stored["x"]],
+                                          stored["mod"].astype(np.float32))
+            np.testing.assert_array_equal(out["roi_axes"][0], grid.x_axis)
+            np.testing.assert_array_equal(out["roi_axes"][1], grid.y_axis)

@@ -87,8 +87,8 @@ import math
 import numpy as np
 
 __all__ = ["MARGIN_PER_SCALE", "SIGMA_PER_A_MIN", "SIGMA_PER_SCALE", "halo_margin",
-           "read_halo_window", "run_wtmm2d_roi", "run_wtmm2d_roi_on_window", "sigma_px_amin",
-           "sigma_px_scale"]
+           "read_halo_window", "run_wtmm2d_roi", "run_wtmm2d_roi_level",
+           "run_wtmm2d_roi_on_window", "sigma_px_amin", "sigma_px_scale"]
 
 #: Pixels of real-space Gaussian sigma per unit of the ``a_min`` MULTIPLIER. The one home of this
 #: number: the device readings and ``dynamix.shell.units`` import it from here.
@@ -360,6 +360,42 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
     }
+
+
+def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
+                         boundary: str = "auto", nodata=None) -> dict:
+    """One scale of :func:`run_wtmm2d_roi`: the lifted modulus and the argument of scale
+    ``level`` (0-based, finest first) over ``roi``, computed as :func:`_wtmm2d_roi_core`
+    computes that scale -- the scale's own halo read off ``source`` (``boundary`` and
+    ``nodata`` as the analysis ran), the backend's one-scale ``cwt2d`` with the derivatives the
+    run's detector asks for, the ``fracint_alpha`` lift -- then cropped to the ROI.
+
+    Returns ``{"mod": (h, w) float32, "arg": (h, w) float32, "scale": float, "margin": int}``.
+    """
+    from dynamix.core.wtmm_backend import (_apply_fracint2d, _resolve_wtmm2d_params,
+                                           compute_scales2d, get_backend)
+
+    if boundary not in _BOUNDARIES:
+        raise ValueError(f"unknown boundary {boundary!r}; expected one of {list(_BOUNDARIES)}")
+    r0, c0, h, w = (int(v) for v in roi)
+    resolved = _resolve_wtmm2d_params(params)
+    scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
+    level = int(level)
+    if not 0 <= level < len(scales):
+        raise ValueError(f"run_wtmm2d_roi_level: level {level} is outside 0..{len(scales) - 1}")
+    a = scales[level]
+    parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
+                   else (r0, c0, h, w))
+    margin = halo_margin(a)
+    window, _info = _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata)
+    follow = resolved["detector"] == "follow"
+    cwt = get_backend("python").cwt2d(window, [a], wavelet=resolved["wavelet"],
+                                      pad=resolved["pad"], derivs="all" if follow else "first")
+    cwt = _apply_fracint2d({"mod": cwt["mod"], "arg": cwt["arg"]}, [a],
+                           resolved["fracint_alpha"])
+    crop = (slice(margin, margin + h), slice(margin, margin + w))
+    return {"mod": cwt["mod"][0][crop], "arg": cwt["arg"][0][crop], "scale": float(a),
+            "margin": margin}
 
 
 def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):

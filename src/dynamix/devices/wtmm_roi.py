@@ -24,6 +24,7 @@ keeps its wider floor (0.25) because the whole-raster path has no halo to contam
 from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
+from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
 
@@ -107,7 +108,14 @@ class WTMM2DROI:
               label="ROI width"),
         Param("boundary", ParamKind.CHOICE, default="auto", choices=("auto", "reflective"),
               label="Boundary"),
+        # Mirrors wtmm2d's Show: the raster drawn in place of the field. View-only.
+        Param("show", ParamKind.CHOICE, default="edges",
+              choices=("edges", "modulus", "argument"), label="Show", view=True),
     )
+
+    #: wtmm2d's per-scale output rows, on the ROI's own grid.
+    outputs = (Output("modulus", "raster", lazy=True, label="modulus", per_level=True),
+               Output("argument", "raster", lazy=True, label="argument", per_level=True))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         from dynamix.core.rasterfield import geotiff_info
@@ -160,6 +168,51 @@ class WTMM2DROI:
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
         return res
+
+    def view(self, result: dict, params: dict) -> dict:
+        """``show`` picks a per-scale output, which the window computes and caches under its
+        own key; the analysis arrays are shown as they are."""
+        return result
+
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
+                       progress=None, cancel=None, level=None) -> dict:
+        """The per-scale output ``name`` (``modulus`` or ``argument``) of scale ``level``
+        (0-based, finest first, clipped into the result's scales), read and transformed as the
+        analysis read and transformed that scale (:func:`~dynamix.roi.halo.run_wtmm2d_roi_level`
+        over the ROI and boundary the result records, the scale's own halo off the source
+        file). ``values`` is not read: this device reads its pixels off the file. ``roi_axes``
+        are the ROI's own ``(x_axis, y_axis)``, which place the raster where the region sits."""
+        import numpy as np
+
+        from dynamix.core.rasterfield import RasterField, geotiff_info
+        from dynamix.core.wtmm_backend import ComputeCancelled
+        from dynamix.roi.halo import run_wtmm2d_roi_level
+
+        if name not in ("modulus", "argument"):
+            raise ValueError(f"{self.name}: no lazy output named {name!r}")
+        if cancel is not None and cancel():
+            raise ComputeCancelled()
+        roi = result["_roi"]
+        source = roi["source"]
+        r0, c0, h, w = (int(v) for v in roi["roi"])
+        info = geotiff_info(source)
+        n = len(result["scales"])
+        idx = int(np.clip(0 if level is None else int(level), 0, n - 1))
+        if progress is not None:
+            progress(f"{name} scale {idx + 1}/{n}", 0.0)
+        one = run_wtmm2d_roi_level(
+            source, (info["height"], info["width"]), (r0, c0, h, w),
+            {k: params[k] for k in ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha",
+                                    "detector")},
+            idx, boundary=roi["boundary"])
+        grid = RasterField.from_geotiff_window(source, row_off=r0, col_off=c0, height=h,
+                                               width=w)
+        if progress is not None:
+            progress(f"{name} scale {idx + 1}/{n}", 1.0)
+        raster = one["mod"] if name == "modulus" else one["arg"]
+        return {"raster": np.asarray(raster, dtype=np.float32),
+                "diag": {"level": idx, "scale_px": one["scale"]},
+                "roi_axes": (np.asarray(grid.x_axis), np.asarray(grid.y_axis))}
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
