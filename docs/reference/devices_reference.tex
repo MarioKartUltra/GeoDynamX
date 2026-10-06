@@ -9,6 +9,8 @@
 \graphicspath{{figures/}}
 \setlength{\parindent}{0pt}
 \newcommand{\dev}[1]{\texttt{#1}}
+% A tool as the browser and the chain strip show it: display name, then device id.
+\newcommand{\tool}[2]{#1~\textperiodcentered~\dev{#2}}
 \newcolumntype{L}{>{\raggedright\arraybackslash}p{0.30\textwidth}}
 \newcolumntype{M}{>{\raggedright\arraybackslash}p{0.42\textwidth}}
 % Tables whose choice lists are long: a narrower name column and a wrapping range column.
@@ -30,6 +32,15 @@ A \emph{device} is one processing tool in a layer's chain. \textbf{Transforms} c
 result (list indexes and masks --- scrubbing a filter knob redraws without recomputing).
 Chains are always transforms-then-filters; interleaving is rejected at construction.
 
+Each tool has a display name and a device id. The device browser lists tools by scientific
+family and, like the chain strip, shows a tool's display name with its id in grey; this reference
+names a tool the same way: \tool{WTMM 2D}{wtmm2d}. Saved chains, rack files, layer
+names, cache keys and provenance record the device id. Each tool declares the data it consumes
+and produces, and one rule derived from those declarations says whether a step applies
+(\S\ref{sec:contracts}). The tables of families, contracts, applicability and output rows are
+written by \texttt{make\_tables.py} from the tools' own declarations, as the kernel figures are
+drawn from the kernel code.
+
 Conventions that hold everywhere:
 \begin{itemize}\itemsep2pt
   \item \textbf{Scales are stored in pixels}, converted only for display.
@@ -48,6 +59,9 @@ Conventions that hold everywhere:
         FFT dust) are NaN in every exponent map.
   \item Each table lists: parameter (UI label), default, hard range, and meaning. Soft
         ranges (knob-drag limits) are narrower than hard ranges.
+  \item \textbf{A step that does not apply} (a V-chain filter after an analysis without
+        V-chains) stays in its chain with its knobs, drawn inactive with the reason, and the
+        engine skips it. Bypassing a step is the user's own act.
 \end{itemize}
 
 \subsection*{Wavelet normalization: $L^1$}
@@ -110,9 +124,9 @@ their own declared margin around the ROI; decompositions (\dev{pca},
 \dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}) analyse the ROI itself (margin $0$: a margin would mix
 outside data into the statistic).
 
-\textbf{Output rows.} A result whose tool produces several things (\dev{cdf\_edges},
-\dev{pm\_edges}, \dev{mz\_edges}) carries a collapsed \emph{Outputs} group under its row: one
-row per output, each with its own H. Raster outputs share the canvas one at a time: showing one
+\textbf{Output rows.} A result whose tool produces several things carries a collapsed
+\emph{Outputs} group under its row: one row per output, each with its own H
+(the \hyperref[tab:outputs]{output-rows table} below lists every tool's rows). Raster outputs share the canvas one at a time: showing one
 hides the others, and hiding the one shown puts the data back. They follow the tool's
 \texttt{show} knob, and switching between them re-uses what was computed. The \emph{edges} row
 hides the maxima dots and gradient arrows (and the H-lines in the Vector and Geo views); the
@@ -120,6 +134,8 @@ result keeps its maxima, so filters, the spectrum and the anisotropy window stil
 The layer's own H hides everything the result draws. An output that needs its own computation
 (the \dev{mz\_edges} reconstruction) runs the first time it is shown, with progress and Stop,
 and stays cached; Freeze (the row's F) keeps it.
+
+\input{tables/outputs}
 
 \textbf{Progress} is live: every compute reports one increasing fraction from inside its own
 loops.
@@ -261,9 +277,82 @@ deleted one is reported by name. The layers share the stack's grid (an ROI resul
 grid and is refused). Layer sends and file sends mix in one bus.
 
 %======================================================================
+\section{Tool families and data contracts}\label{sec:contracts}
+
+\textbf{Families.} The device browser lists tools by scientific family (the
+\hyperref[tab:families]{families table}), and a tool in several families is listed under
+each. The \emph{Dev} group, collapsed, holds the parameter-schema stubs, the superseded tools
+(kept registered so that saved projects open and resolve) and the steps the shell places
+itself. A tool that declares no family is listed by its id under \emph{Other}.
+
+\input{tables/families}
+
+\textbf{Contracts.} Devices pass named kinds of data, the
+\hyperref[tab:contracts]{contracts}, and every tool declares the ones it consumes and the ones
+it produces (the \hyperref[tab:declarations]{declarations table}). In a declaration ``or''
+separates alternatives (Tucker takes a Field or a Stack) and ``+'' joins contracts needed
+together. \emph{What it received} passes the step's input through: \dev{noise} keeps a field a
+field and a stack a stack, and \dev{chain\_topology} adds the topology to the analysis it
+reads. A declaration marked $\dagger$ depends on the parameters; the table gives it at the
+defaults, then each choice that changes it. A \dev{bus} produces a Field from one send and a
+Stack from several.
+
+\input{tables/contracts}
+\input{tables/declarations}
+
+\textbf{The rule.} Before the first step the layer's input is available: a Field for a
+single-band raster, a Stack for an $(n_y,n_x,n_c)$ raster with $n_c>1$, Points for a point
+set. A band row's \dev{band\_select} turns its dataset's Stack into a Field. Then, step by
+step:
+\begin{itemize}\itemsep2pt
+  \item a Transform applies when one of its alternatives is available, and its products then
+        replace the available set;
+  \item a Filter applies when one of its alternatives is available, and leaves the set as it
+        is;
+  \item a step that does not apply leaves the set as it is.
+\end{itemize}
+The engine skips a step that does not apply, so the step is absent from the dependency set and
+from the cache keys, and the last Transform that applies is the analysis the layer's output
+rows come from. The chain strip draws the step inactive with the reason, which names the
+missing contract, the tools that produce it and the current analysis: ``needs V-chains: WTMM 2D
+and WTMM 2D, ROI produce it; the current analysis (CDF edges) does not''. The step keeps its
+place and its knobs, and it runs again as soon as its input is there. A tool that declares no
+consumes always applies, and a Transform that declares no products counts as producing every
+contract, so a tool from outside this build keeps working.
+
+\textbf{Where the rule is used.}
+\begin{itemize}\itemsep2pt
+  \item \textbf{Browser.} A tool that cannot apply as the next step on the active layer is
+        greyed, with the reason in its tooltip. A greyed row still drags, and the step lands
+        drawn inactive. A tool that reads a Field or a Stack stays available on an analysed
+        layer, because dropping it there forks a sibling.
+  \item \textbf{Chain strip.} Each step that does not apply is drawn inactive with its reason.
+  \item \textbf{Fork.} A primary analyzer reads a Field or a Stack and produces neither: the
+        edge, regularity, skeleton and decomposition tools. Dropped onto a layer headed by a
+        different one, it forks a sibling layer; dropped onto a dataset row, it spawns a child.
+        The sibling begins with the parent's leading routing steps (a band row's
+        \dev{band\_select}, a \dev{bus} with its sends), so it analyses the same field.
+  \item \textbf{Shipping.} A filter on the parent moves to the sibling, with its knobs, when it
+        applies after the sibling's analysis and does not apply after the parent's.
+\end{itemize}
+
+\textbf{Which tool applies after which.} The \hyperref[tab:applicability]{applicability
+table} is the rule run for every selection tool after every analysis. The extrema filters
+apply after each tool that produces an extrema stack. The V-chain filters,
+\tool{Chain topology}{chain\_topology} and \dev{hline\_modulus} in mode
+\texttt{sup\_all\_scales} apply after the WTMM tools, which produce V-chains.
+\tool{Min V-chains per H-line}{min\_vchains} applies after Chain topology, and
+\tool{H-line H\"older}{hline\_holder} after the Mallat--Zhong edges of the authors' algorithm,
+whose analysis stamps a per-point $\alpha$. A derivative dataset's frozen vectors
+(\dev{derived\_vectors}) carry an extrema stack and V-chains, the contracts of a WTMM~2D
+analysis, so the same tools apply after them.
+
+\input{tables/applicability}
+
+%======================================================================
 \section{Field preparation}
 
-\subsection{\dev{noise} --- dither / perturbation}
+\subsection{\tool{Noise / dither}{noise} --- perturbation}
 Adds controlled noise to the field before analysis. Its main use is \emph{dithering}
 quantized data ($\pm\tfrac12$\,LSB) so that quantization plateaus do not read as
 zero-gradient flats.
@@ -277,7 +366,7 @@ zero-gradient flats.
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{band\_select} --- one band of a stack}
+\subsection{\tool{Band select}{band\_select} --- one band of a stack}
 Slices one band out of a multiband field as the working field; grid, frame and CRS are
 unchanged. Band rows start with it and name their band, so removing another band from the
 dataset leaves each row on its own band.
@@ -295,15 +384,16 @@ dataset leaves each row on its own band.
 The head of a bus layer's rack (\S\ref{sec:buses}, Buses). It has no knobs: the routing dialog writes
 its send list. Its output is the stack $(n_y,n_x,n)$ in channel order, or one band for one
 send, on the incoming field's grid (the whole dataset, or an ROI's processing window). The
-shell places it; it is not in the device browser.
+shell places it, and the browser lists it in the Dev group.
 
 %======================================================================
 \section{Primary analyzers}
-Each primary analyzer is its own representation of the field. Dropping a
-\emph{different} primary analyzer onto an analyzed layer forks a sibling layer rather
-than mutating the chain; consumers (filters) follow their producer on forks.
+Each primary analyzer is its own representation of the field: it reads a single-band field
+(or a band stack) and produces an analysis. Dropping a different primary analyzer onto an
+analysed layer forks a sibling layer, and the filters that apply only after the new analyzer
+move with it (\S\ref{sec:contracts}).
 
-\subsection{\dev{wtmm2d} --- canonical WTMM (Arn\'eodo)}
+\subsection{\tool{WTMM 2D}{wtmm2d} --- canonical WTMM (Arn\'eodo)}
 The canonical multifractal machinery: a continuous wavelet transform over a geometric
 scale grid, modulus \emph{maxima} detected per scale (along-gradient non-maxima suppression,
 or xsmurf's \texttt{follow}), maxima chained
@@ -361,7 +451,7 @@ north by adding the meridian convergence at each point, and from true north dire
 longitude/latitude grid. A dataset without a CRS (a sensor swath, a pixel grid) offers the
 pixel frame only.
 
-\subsection{\dev{wtmm2d\_roi} --- WTMM over one ROI window}
+\subsection{\tool{WTMM 2D, ROI}{wtmm2d\_roi} --- WTMM over one ROI window}
 The parent's WTMM re-pointed at a native-resolution window: the knobs of \dev{wtmm2d} plus
 the window itself. Used by the overview
 drill-down: draw an ROI on the decimated whole-extent, compute native.
@@ -374,7 +464,7 @@ drill-down: draw an ROI on the decimated whole-extent, compute native.
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{mz\_edges} --- Mallat--Zhong dyadic multiscale edges}
+\subsection{\tool{Mallat--Zhong edges}{mz\_edges} --- dyadic multiscale edges}
 Mallat and Zhong's multiscale edges (``Characterization of Signals from Multiscale Edges'', 1992),
 computed with the authors' own algorithm: LastWave's \texttt{dwtrans2d} package (Bacry, Mallat,
 Zhong, Hwang et al.), ported to numba and matching its C bit for bit on square fields. The dyadic
@@ -474,7 +564,7 @@ on the filters and the table, so each selection caches on its own.
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{wavelet\_skeleton} --- medial-axis (modulus-minima) extractor}
+\subsection{\tool{Wavelet skeleton}{wavelet\_skeleton} --- medial-axis (modulus-minima) extractor}
 Tang--You 2003 (the constructed compact-support wavelet $\kappa$: support radius $=$
 scale, maxima-pair separation $=$ scale, width- and gray-invariant) $+$ You et al.\ 2006
 (modulus \emph{minima} sit on the medial axis, scale-independently). A detector, not
@@ -500,7 +590,7 @@ fault trace. Output is single-scale extrema (H-lines via \texttt{line\_id}).
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{cdf\_edges} --- complex cross-diffusion edges}
+\subsection{\tool{CDF edges}{cdf\_edges} --- complex cross-diffusion edges}
 One complex cross-diffusion evolution (Gilboa small-$\theta$; Barbeiro 2023 for the
 scale-space reading), snapshotted at the dyadic schedule
 $n=\sigma^2/(2\cos\theta)/\mathrm{d}t$: the Re channel evolves as the Gaussian-smoothed
@@ -529,7 +619,7 @@ $\sigma$ in px.
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{pm\_edges} --- Perona--Malik anisotropic diffusion edges}
+\subsection{\tool{Perona--Malik edges}{pm\_edges} --- anisotropic diffusion edges}
 One Perona--Malik (1990) evolution --- real, gradient-driven conduction
 $g(|\nabla I|)$, $\lambda\le\tfrac14$, adiabatic borders --- snapshotted at the same
 nominal dyadic $\sigma$ schedule as \dev{cdf\_edges}, with gradient-NMS maxima per
@@ -555,8 +645,9 @@ rides the result.
 %======================================================================
 \section{Decompositions}
 Standalone transforms heading their own chain, displaying through the ordinary raster
-path. Every output is computed once and cached; which one is on screen is a \emph{view}
-choice. To keep an output as data of its own, fork it (\S\ref{sec:workspace}).
+path. They are primary analyzers: dropped onto a layer headed by another analyzer, each forks a
+sibling layer (\S\ref{sec:contracts}). Every output is computed once and cached; which one is on
+screen is a \emph{view} choice. To keep an output as data of its own, fork it (\S\ref{sec:workspace}).
 
 \textbf{Group} (\dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}; \emph{view}): which components form the
 reconstruction --- \texttt{all} (the whole kept reconstruction, exactly), or a list such as
@@ -567,7 +658,7 @@ just the first component is Group \texttt{1} with Show $=$ residual. The layer r
 unreadable group shows the whole reconstruction and says so. The Components window picks the
 group by clicking thumbnails.
 
-\subsection{\dev{pca} --- principal components of a multi-band field}
+\subsection{\tool{PCA}{pca} --- principal components of a multi-band field}
 Principal component analysis over the bands of a multi-component field
 $(n_y,n_x,n_c\ge2)$ (covariance-trick PCA); shows one component as a raster.
 
@@ -579,7 +670,7 @@ $(n_y,n_x,n_c\ge2)$ (covariance-trick PCA); shows one component as a raster.
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{tucker\_HOOI\_HOSVD} --- delay-embedded Tucker decomposition (Tucker-SSA)}
+\subsection{\tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD} --- delay-embedded Tucker decomposition (Tucker-SSA)}
 A Tucker decomposition of a delay embedding of the field --- Broomhead--King singular-spectrum
 analysis carried to 2-D and multiband data by a Tucker decomposition instead of one SVD. (It was
 first named \dev{tucker\_havok}; HAVOK's regression on the delay coordinates was never part of
@@ -631,7 +722,7 @@ reconstruction averages each pixel over the windows covering it.
 open and resolve exactly as before; its single \emph{HOOI sweeps} knob chose the algorithm
 ($0$ = HOSVD).
 
-\subsection{\dev{ssa2d} --- 2D singular-spectrum analysis}
+\subsection{\tool{2-D SSA}{ssa2d} --- 2D singular-spectrum analysis}
 Golyandina \& Usevich (2010). Every $L_r\times L_c$ window of the image is one column of the
 Hankel-block-Hankel matrix $\mathbf W$ ($L_rL_c\times K_rK_c$, $K=N-L+1$); \emph{one} SVD
 $\mathbf W=\sum_i\sqrt{\lambda_i}\,U_iV_i^{\mathsf T}$ gives the eigentriples. Reshaped, $U_i$
@@ -705,7 +796,7 @@ it by about 10\%.
 \end{longtable}
 
 %======================================================================
-\section{Microcanonical tools}\label{sec:micro}
+\section{Microcanonical MFA}\label{sec:micro}
 Per-pixel singularity exponents $h(x)$ from the model
 $T(x,r)\approx\alpha(x)\,r^{h(x)}$ (Turiel 2008), $D(h)$ by direct histogram --- the
 formalism that is \emph{not} canonical/Legendre. One tool per functional; both expose the
@@ -718,7 +809,7 @@ no-support mask --- they agree on \emph{where} an exponent exists and differ in
 \emph{how}. Under punctual, $\kappa$/\texttt{n\_scales} shape only the mask and
 \texttt{r2\_map} is honestly all-NaN.
 
-\subsection{\dev{holder\_measure} --- gradient-measure route}
+\subsection{\tool{Microcanonical MFA, measure}{holder\_measure} --- gradient-measure route}
 $T$ = positive unit-mass kernel over $\lVert\nabla s\rVert$ (finite differences first,
 then $g_0$-class smoothing). For measure-like / edge-sparse fields; slope $=h$.
 The scale knob $r_1$ is the kernel's \emph{dilation scale} (for the Gaussian: its
@@ -740,7 +831,7 @@ is the steepest decrease there is, so it carries a resolution floor: the $r_1$ k
 its support disc, of radius $r/\sqrt{\beta(1-q)}$ for width $\beta$, is less than 2\,px across,
 i.e.\ below $r_1=\sqrt{\beta(1-q)}$ (at most 1\,px at the default width).
 
-\subsection{\dev{holder\_multiaffine} --- wavelet-projection route}
+\subsection{\tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} --- wavelet-projection route}
 $T=|\psi_r * s|$ with a zero-mean wavelet applied to the \emph{raw signal} (derivative
 order lives inside the kernel). For smooth / function-class fields (DEMs); slope
 $=\gamma$, with $h_{\text{measure}}=\gamma-1$. Here $r_1$ is the \emph{zero-crossing
@@ -893,18 +984,22 @@ defaults.
 %======================================================================
 \section{Topology}
 
-\subsection{\dev{chain\_topology} (Transform)}
-Builds the incidence graph over the WTMM maxima-line skeleton (no parameters). Must
-follow \dev{wtmm2d}; downstream topology filters query the graph it builds.
+\subsection{\tool{Chain topology}{chain\_topology} (Transform)}
+Builds the incidence graph over the WTMM maxima-line skeleton (no parameters). It applies after
+an analysis that carries an extrema stack and V-chains (the WTMM tools), passes that analysis
+through and adds the topology, which downstream topology filters query.
 
-\subsection{\dev{min\_vchains} (Filter)}
-Keeps H-line points that at least \texttt{min\_vchains} maxima lines (V-chains) thread.
-Default UI opens at 1 (show everything computed; turn up to prune).
+\subsection{\tool{Min V-chains per H-line}{min\_vchains} (Filter)}
+Keeps H-line points that at least \texttt{min\_vchains} maxima lines (V-chains) thread. It
+applies after Chain topology. Default UI opens at 1 (show everything computed; turn up to
+prune).
 
 %======================================================================
-\section{Extrema filters}
-Act on the per-scale extrema layers of any producing analyzer
-(\dev{wtmm2d}, \dev{mz\_edges}, \dev{wavelet\_skeleton}, \dev{cdf\_edges}).
+\section{Selection: extrema}
+Act on the per-scale extrema layers of any tool that produces an extrema stack (the
+\hyperref[tab:applicability]{applicability table}, \S\ref{sec:contracts}). In mode
+\texttt{sup\_all\_scales}, \dev{hline\_modulus} also reads the V-chains threading each line,
+and \dev{hline\_holder} reads the per-point $\alpha$ the Mallat--Zhong analysis stamps.
 
 \begin{longtable}{L l l M}
 \toprule Device.param & Default & Range & Meaning \\ \midrule
@@ -922,9 +1017,11 @@ Act on the per-scale extrema layers of any producing analyzer
 \end{longtable}
 
 %======================================================================
-\section{Chain filters (WTMM maxima lines)}
-Act on cross-scale chains --- \dev{wtmm2d} results only (the other analyzers stamp
-\texttt{chains: []}; their cross-scale linking is reserved work).
+\section{Selection: V-chains}
+Act on cross-scale chains, the WTMM maxima lines (V-chains). They apply after an analysis that
+produces V-chains (the \hyperref[tab:applicability]{applicability table},
+\S\ref{sec:contracts}); the other analyzers stamp \texttt{chains: []}, and their cross-scale
+linking is reserved work.
 
 \begin{longtable}{L l l M}
 \toprule Device.param & Default & Range & Meaning \\ \midrule
@@ -935,7 +1032,7 @@ Act on cross-scale chains --- \dev{wtmm2d} results only (the other analyzers sta
 \bottomrule
 \end{longtable}
 
-\subsection{\dev{chain\_classify}}
+\subsection{\tool{Seam classifier}{chain\_classify}}
 Classifies chains by their H\"older exponent and geometry into step-like
 ($h\approx 0$: fault-scarp class) vs delta-like ($h\approx -1$: thin-ridge class)
 lineaments, with a straightness gate; flagged or excluded per \texttt{action}, excluded
@@ -945,8 +1042,8 @@ chains optionally drawn as ghosts.
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{estimator} & ols & ols / max & per-chain $h$ estimator \\
 \texttt{fit\_a\_min} & 2.0 & $[0.01,64]$ & fit floor: scales below this are excluded from the $h$ fit \\
-\texttt{h\_step\_lo/hi} & $-0.15$ / $0.15$ & $[-3,3]$ & the step-class $h$ window \\
-\texttt{h\_delta\_lo/hi} & $-1.2$ / $-0.8$ & $[-3,3]$ & the delta-class $h$ window \\
+\texttt{h\_step\_lo} / \texttt{h\_step\_hi} & $-0.15$ / $0.15$ & $[-3,3]$ & the step-class $h$ window \\
+\texttt{h\_delta\_lo} / \texttt{h\_delta\_hi} & $-1.2$ / $-0.8$ & $[-3,3]$ & the delta-class $h$ window \\
 \texttt{straightness\_min} & 0.85 & $[0,1]$ & end-to-end / arc-length straightness gate \\
 \texttt{action} & flag & flag / exclude & tag matches, or drop non-matches \\
 \texttt{show\_ghosts} & on & bool & draw excluded chains desaturated \\
@@ -954,14 +1051,14 @@ chains optionally drawn as ghosts.
 \end{longtable}
 
 %======================================================================
-\section{Groups, points, dev}
+\section{Groups, points, Dev}
 
-\textbf{\dev{group\_paint} / \dev{group\_filter}}: the arrangement view's commit
+\textbf{\dev{group\_paint} / \tool{Group filter}{group\_filter}}: the arrangement view's commit
 transaction --- \dev{group\_paint} stamps committed group tags onto chain copies
 (\texttt{spec\_json}/\texttt{signature} are written by the commit flow, not hand-edited);
 \dev{group\_filter} keeps or drops one named group.
 
-\textbf{\dev{backproject}}: registers a point catalogue onto a raster layer's grid
+\textbf{\tool{Back-project points}{backproject}}: registers a point catalogue onto a raster layer's grid
 (the point-layer transform). \texttt{target} names the raster layer; the
 \texttt{\_target\_*} params are the resolved grid geometry, written by the shell ---
 not hand-edited.
@@ -971,7 +1068,13 @@ from its own file (\S\ref{sec:workspace}). Placed by the shell (browser Dev grou
 parameter (the file) is hidden.
 
 \textbf{\dev{stub\_wavelet} / \dev{stub\_holder} / \dev{stub\_wedge}}: parameter-schema
-test fixtures (the browser's Dev group); no analysis role.
+test fixtures (the browser's Dev group); no analysis role. They declare no contracts, so every
+step after them applies.
+
+\textbf{Superseded tools} stay registered in the Dev group, so a saved project that names one
+opens and resolves: \dev{holder\_map} and \dev{band\_recon} (the pre-split H\"older tools),
+\dev{band\_recon\_measure} and \dev{band\_recon\_multiaffine}, \dev{tucker\_havok}, and
+\dev{scale\_select}.
 
 %======================================================================
 \section{Planned: q-generalized wavelets}\label{sec:todo}
@@ -1048,6 +1151,8 @@ wavelet or the sinc function.''
 %======================================================================
 \section*{Appendix: result contracts}
 \begin{itemize}\itemsep2pt
+  \item The named data contracts with the result keys each covers, and what each tool
+        consumes and produces, are tabled in \S\ref{sec:contracts}.
   \item \textbf{Extrema schema} (all edge/skeleton analyzers): per-scale
         \texttt{\{x, y, mod, arg, line\_id\}}; \texttt{line\_id} groups H-lines,
         $-1$ marks isolated points. \texttt{scales} is the matching scale array (px).

@@ -115,3 +115,20 @@ def test_the_outputs_table_lists_the_band_and_per_level_rows(make_tables, builti
     assert r"\texttt{snapshots}" not in text
     per_level = [line for line in text.splitlines() if line.endswith("& yes \\\\")]
     assert len(per_level) == 9
+
+
+def test_the_reference_inputs_every_table(make_tables):
+    text = (REFERENCE / "devices_reference.tex").read_text(encoding="utf-8")
+    for name in make_tables.TABLES:
+        assert text.count(rf"\input{{tables/{name}}}") == 1, name
+
+
+def test_every_public_param_is_named_in_the_reference(make_tables, builtins):
+    from dynamix.model.device import DEVICES
+
+    text = (REFERENCE / "devices_reference.tex").read_text(encoding="utf-8")
+    missing = [f"{name}.{p.name}" for name, device in DEVICES.items()
+               if not name.startswith("stub_")
+               for p in device.params
+               if not p.name.startswith("_") and make_tables.tex(p.name) not in text]
+    assert not missing, missing
