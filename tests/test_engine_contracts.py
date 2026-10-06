@@ -192,3 +192,50 @@ def test_a_single_band_tool_on_a_stack_does_not_apply(builtins):
     r = resolve(_layer(("wtmm2d", WTMM)), _stack(), Cache())
     assert [s.applies for s in r.step_states] == [False]
     assert r.transforms_run == () and r.analysis_device is None
+
+
+class _DropAll:
+    """A filter that needs V-chains and drops every extremum: after a chainless analysis it does
+    not apply, so it must reach no selection."""
+
+    name = "drop_all_t"
+    params = ()
+    consumes = ((EXTREMA, VCHAINS),)
+
+    def apply(self, result, params):
+        return {**result, "extrema": [{k: np.asarray(v)[:0] for k, v in e.items()}
+                                      for e in result["extrema"]]}
+
+
+def test_an_inactive_filter_does_not_reach_a_selecting_output(builtins):
+    field, cache = _field(), Cache()
+    plain = _layer(("mz_edges", MZ), ("hline_length", {"min_len": 4}))
+    layer = _layer(("mz_edges", MZ), ("chain_length", {"min_len": 5}),
+                   ("hline_length", {"min_len": 4}))
+    assert [k for k, _ref in selection_steps(layer.chain.steps, FIELD)] == ["hline_length"]
+    assert [k for k, _ref in selection_steps(layer.chain.steps)] == ["chain_length",
+                                                                     "hline_length"]
+    assert selection_recipe(layer, FIELD) == selection_recipe(plain, FIELD)
+    r = resolve(layer, field, cache)
+    out = next(o for o in declared_outputs(get_device("mz_edges")) if o.name == "recon_preview")
+    resolve_output(layer, field, cache, "recon_preview")
+    assert output_key("mz_edges", out, r.analysis_params, r.analysis_key,
+                      selection_recipe(plain, FIELD)) in cache
+
+
+def test_a_skipped_filter_keeps_its_repeat_number(builtins):
+    layer = _layer(("mz_edges", MZ), ("hline_modulus", {"mode": "sup_all_scales"}),
+                   ("hline_modulus", {"mode": "sup"}))
+    assert [k for k, _ref in selection_steps(layer.chain.steps, FIELD)] == ["hline_modulus#2"]
+
+
+def test_level_keeps_leaves_out_a_filter_that_does_not_apply(builtins):
+    register_device(_DropAll())
+    field, cache = _field(), Cache()
+    layer = _layer(("mz_edges", MZ), ("drop_all_t", {}))
+    r = resolve(layer, field, cache)
+    raw = cache.get(r.analysis_key)
+    dev = get_device("mz_edges")
+    for level in range(1, len(raw["extrema"]) + 1):
+        assert level_keeps(layer, raw, dev, r.analysis_params, level, FIELD).all()
+        assert not level_keeps(layer, raw, dev, r.analysis_params, level).any()

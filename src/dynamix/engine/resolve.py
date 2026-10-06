@@ -309,7 +309,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     if shown is not None and analysis_raw is not None:
         device, params = get_device(analysis[0]), analysis[1]
         result = shown(result, analysis_raw, params,
-                       lambda l: level_keeps(layer, analysis_raw, device, params, l))
+                       lambda l: level_keeps(layer, analysis_raw, device, params, l,
+                                             layer_input))
 
     return Renderable(
         layer_id=layer.layer_id,
@@ -327,37 +328,46 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     )
 
 
-def selection_steps(steps) -> list:
+def selection_steps(steps, layer_input: str | None = None) -> list:
     """``[(key, ref), ...]``: the filter steps of ``steps`` a selecting output reads (every filter
     but ``scale_select``, whose level pick is the display's), keyed by device name, ``#2``, ``#3``
-    ... for a device's repeats, the keys per-level filter settings are stored under."""
+    ... for a device's repeats, the keys per-level filter settings are stored under. Given the
+    chain's ``layer_input`` contract, a filter that does not apply
+    (:func:`~dynamix.model.contracts.step_states`) is left out; it still counts toward its
+    device's repeat numbering, so the keys stored for the others stay put."""
+    states = step_states(steps, layer_input) if layer_input is not None else None
     seen: dict = {}
     out = []
-    for ref in steps:
+    for i, ref in enumerate(steps):
         if ref.device == "scale_select" or is_transform(get_device(ref.device)):
             continue
         seen[ref.device] = seen.get(ref.device, 0) + 1
         n = seen[ref.device]
+        if states is not None and not states[i].applies:
+            continue
         out.append((ref.device if n == 1 else f"{ref.device}#{n}", ref))
     return out
 
 
-def selection_recipe(layer) -> list:
+def selection_recipe(layer, layer_input: str | None = None) -> list:
     """What a selecting output's key folds in: ``[key, keyed params]`` of each of ``layer``'s
-    :func:`selection_steps`. The window predicts output keys through this same function."""
+    :func:`selection_steps` (given ``layer_input``, the applying ones). The window predicts
+    output keys through this same function."""
     out = []
-    for key, ref in selection_steps(layer.chain.steps):
+    for key, ref in selection_steps(layer.chain.steps, layer_input):
         device = get_device(ref.device)
         out.append([key, keyed_params(device, validate_params(device, ref.params))])
     return out
 
 
-def level_keeps(layer, raw: dict, device, params: dict, level: int) -> np.ndarray:
+def level_keeps(layer, raw: dict, device, params: dict, level: int,
+                layer_input: str | None = None) -> np.ndarray:
     """Which extrema of level ``level`` (1-based) of the analysis result ``raw`` ``layer``'s
     filters keep: the :func:`selection_steps` applied to that level alone, as ``scale_select``
     would hand it over, with the analysis device's per-level settings for the level
     (``device.filter_overrides(params, level)``, ``{key: params}``) over each step's own. A bool
-    per extremum, in the level's own order."""
+    per extremum, in the level's own order. Given the chain's ``layer_input`` contract, the
+    filters that do not apply are left out (:func:`selection_steps`)."""
     base = raw["extrema"][level - 1]
     result = {**raw, "extrema": [base], "_scale_idx": level - 1, "_ext_base": base}
     scales = raw.get("scales")
@@ -365,7 +375,7 @@ def level_keeps(layer, raw: dict, device, params: dict, level: int) -> np.ndarra
         result["_scale_px"] = float(np.asarray(scales)[level - 1])
     overrides_of = getattr(device, "filter_overrides", None)
     overrides = overrides_of(params, level) if overrides_of is not None else {}
-    for key, ref in selection_steps(layer.chain.steps):
+    for key, ref in selection_steps(layer.chain.steps, layer_input):
         filt = get_device(ref.device)
         names = {p.name for p in filt.params}
         extra = {k: v for k, v in overrides.get(key, {}).items() if k in names}
@@ -417,7 +427,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
     output = next((o for o in outputs if o.name == name and o.lazy), None)
     if output is None:
         raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
-    selection = selection_recipe(layer) if output.selects else None
+    layer_input = input_contract(field)
+    selection = selection_recipe(layer, layer_input) if output.selects else None
     key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key, selection)
     raw = cache.get(r.analysis_key)
     values = np.asarray(r.analysis_input.values)
@@ -431,7 +442,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
         extra = {}
         if output.selects:
             # What the filters keep at every level, each with its own settings.
-            extra["keeps"] = [level_keeps(layer, raw, device, r.analysis_params, l)
+            extra["keeps"] = [level_keeps(layer, raw, device, r.analysis_params, l,
+                                          layer_input)
                               for l in range(1, len(raw.get("extrema") or ()) + 1)]
         return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
                                      progress=progress, cancel=cancel, **extra)
