@@ -292,3 +292,28 @@ def test_superseded_devices_sit_under_dev_only(qtbot, registered_builtins):
             assert name not in _ids(_top_level(browser, title)), (name, title)
     assert {"holder_measure", "holder_multiaffine"} <= set(
         _ids(_top_level(browser, "Regularity")))
+
+
+def test_step_states_grey_rows_with_the_reason_and_keep_them_draggable(qtbot,
+                                                                     registered_builtins):
+    from PySide6 import QtCore
+
+    from dynamix.model.contracts import StepState
+    from dynamix.model.families import display_name, families_of
+    from dynamix.shell.browser import DEVICE_MIME, DeviceBrowser
+
+    browser = DeviceBrowser()
+    qtbot.addWidget(browser)
+    browser.set_step_states({"wtmm2d": StepState(False, "needs a single-band field")})
+    rows = browser._rows["wtmm2d"]
+    assert len(rows) == len(families_of(get_device("wtmm2d")))     # every family's row
+    for row in rows:
+        assert row.toolTip(0) == "needs a single-band field"
+        assert row.foreground(0).color() == browser._muted.color()
+        assert browser.mimeData([row]).hasFormat(DEVICE_MIME)      # still draggable
+    assert browser._rows["mz_edges"][0].toolTip(0) == display_name(get_device("mz_edges"))
+
+    browser.set_step_states({"wtmm2d": StepState(True)})
+    for row in rows:
+        assert row.toolTip(0) == display_name(get_device("wtmm2d"))
+        assert row.data(0, QtCore.Qt.ForegroundRole) is None

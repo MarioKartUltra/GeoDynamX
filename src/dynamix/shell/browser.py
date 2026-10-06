@@ -107,6 +107,21 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         for name in presets:
             self._add_row(racks, name, PRESET_MIME)
 
+    def set_step_states(self, states) -> None:
+        """Grey the rows of every device that cannot apply as the next step on the active layer,
+        its reason in the tooltip; ``states`` maps a device id to its
+        :class:`~dynamix.model.contracts.StepState`. A greyed row stays draggable: a dropped step
+        that does not apply is drawn inactive in the chain. Rows of a device absent from
+        ``states`` keep what they show."""
+        for name, state in states.items():
+            for item in self._rows.get(name, ()):
+                if state.applies:
+                    item.setData(0, QtCore.Qt.ForegroundRole, None)
+                    item.setToolTip(0, self._tips[name])
+                else:
+                    item.setForeground(0, self._muted)
+                    item.setToolTip(0, state.reason)
+
     def _add_row(self, parent: QtWidgets.QTreeWidgetItem, name: str, mime_type: str) -> None:
         item = QtWidgets.QTreeWidgetItem(parent, [name])
         item.setData(0, _MIME_ROLE, mime_type)
