@@ -806,3 +806,25 @@ def test_a_pre_v2_project_file_carrying_none_of_the_new_keys_opens_unchanged(tmp
     assert on_disk["rois"] == [] and on_disk["cameras"] == {} and on_disk["annotations"] == []
     assert on_disk["layers"][0]["roi_id"] is None
     assert on_disk["transects"] == payload["transects"]
+
+
+def test_opening_a_layer_with_an_unknown_device_names_the_layer(tmp_path, _registry):
+    """The registry's own message, with the layer's id and name in front, so the window can say
+    where to look."""
+    p, path, _ = _project_with_data(tmp_path)
+    save_project(p, path)
+    payload = json.loads(path.read_text())
+    payload["layers"][0]["chain"]["steps"][0]["device"] = "no_such_device"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(KeyError, match=r"layer \d+ 'dem': no device named 'no_such_device'"):
+        open_project(path)
+
+
+def test_opening_a_layer_with_an_unknown_parameter_names_the_layer(tmp_path, _registry):
+    p, path, _ = _project_with_data(tmp_path)
+    save_project(p, path)
+    payload = json.loads(path.read_text())
+    payload["layers"][0]["chain"]["steps"][0]["params"]["bogus"] = 1
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match=r"layer \d+ 'dem': t: unknown parameter"):
+        open_project(path)

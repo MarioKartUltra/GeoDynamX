@@ -290,6 +290,16 @@ def _camera_from_payload(d: dict) -> dict:
     return {k: (tuple(v) if isinstance(v, list) else v) for k, v in d.items()}
 
 
+def _layer_from_payload(d: dict) -> Layer:
+    """One saved layer, its chain resolved against this build's registry. A device or parameter
+    the build does not have raises naming the layer, as :meth:`Project.validate` does."""
+    try:
+        return Layer.from_payload(d)
+    except (KeyError, ValueError) as exc:
+        detail = exc.args[0] if exc.args else exc
+        raise type(exc)(f"layer {d.get('layer_id')} {d.get('name')!r}: {detail}") from exc
+
+
 @dataclasses.dataclass
 class Project:
     title: str = ""
@@ -533,7 +543,7 @@ Passing neither raises -- see :class:`AnnotationRecord`. Ids are monotonic and
     def from_payload(cls, payload: dict) -> "Project":
         sources = {s["source_id"]: SourceRef.from_payload(s)
                    for s in payload.get("sources", [])}
-        layers = [Layer.from_payload(d) for d in payload.get("layers", [])]
+        layers = [_layer_from_payload(d) for d in payload.get("layers", [])]
         topologies = [TopologyModel.from_payload(t) for t in payload.get("topologies", [])]
         user_links = LinkStore.from_payload(payload.get("user_links", {}))
         transects = [TransectRecord.from_payload(d) for d in payload.get("transects", [])]
