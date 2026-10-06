@@ -136,3 +136,38 @@ def test_a_band_stacks_chain_is_read_as_a_stack(stack_win):
     r = _resolved(win, row)
     assert r.transforms_run == ("band_select", "wtmm2d")
     assert win._cache_keys_for(row) == [*win._cache_keys_for(row)[:1], r.analysis_key]
+
+
+def test_the_output_rows_are_the_engines_analysis_past_an_inactive_transform(win):
+    from dynamix.shell.layer_panel import layer_outputs
+
+    layer = _with_chain(win.layer, ("mz_edges", {**MZ, "show": "coarse"}),
+                        ("chain_topology", {}))
+    rows = [o.name for o in declared_outputs(get_device("mz_edges")) if o.row]
+    assert layer_outputs(layer) == (None, ())          # one argument: the last transform
+    step, outputs = layer_outputs(layer, FIELD)
+    assert step.device == "mz_edges" and [o.name for o in outputs] == rows
+    keys = win._output_keys(layer)
+    coarse = next(o for o in outputs if o.name == "coarse")
+    assert win._shown_lazy(layer, _resolved(win, layer)) == (coarse, keys["coarse"])
+    assert win._displayed_output_key(layer) == keys["coarse"]
+
+
+def test_the_active_layers_rows_and_recon_section_follow_the_engines_analysis(qtbot, builtins):
+    from dynamix.shell.main_window import MainWindow, _edges_hidden
+
+    win = MainWindow(steps=(("mz_edges", MZ), ("chain_topology", {})))
+    qtbot.addWidget(win)
+    win._start_worker_for = lambda layer: None      # the rows are read; nothing computes
+    win.load_field(RasterField(name="f", values=_values(), frame=LocalFrame(),
+                               x_axis=np.arange(64.0), y_axis=np.arange(64.0)),
+                   "/nonexistent/f.npz")
+    layer = win.layer
+    assert [ref.device for ref in layer.chain.steps] == ["mz_edges", "chain_topology"]
+    rows = [o.name for o in declared_outputs(get_device("mz_edges")) if o.row]
+    assert win._output_step_index() == 0
+    assert win._recon_step()[0] == 0
+    win._sync_output_rows(layer)
+    assert list(win.layer_list._output_items[layer.layer_id]) == rows
+    layer.tags["ui.edges_hidden"] = "1"
+    assert _edges_hidden(layer, win._layer_input()) and not _edges_hidden(layer)

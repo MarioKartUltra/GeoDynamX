@@ -608,12 +608,14 @@ def _display_raster_of(result) -> "np.ndarray | None":
     return out if out is not None else result.get("h_map")
 
 
-def _edges_hidden(layer) -> bool:
+def _edges_hidden(layer, layer_input: str | None = None) -> bool:
     """Whether ``layer``'s maxima are off the drawing: its ``ui.edges_hidden`` tag (the edges
-    output row's H), honoured only while its last transform declares that vector row. A tag
-    left behind by an analyzer since swapped for one without it hides nothing."""
+    output row's H), honoured only while the step whose outputs the rows show declares that
+    vector row (:func:`layer_outputs`; given the chain's ``layer_input``, the engine's
+    analysis). A tag left behind by an analyzer since swapped for one without it hides
+    nothing."""
     return (layer.tags.get("ui.edges_hidden") == "1"
-            and any(o.kind == "vector" for o in layer_outputs(layer)[1]))
+            and any(o.kind == "vector" for o in layer_outputs(layer, layer_input)[1]))
 
 
 def _output_note(value) -> str:
@@ -4524,7 +4526,7 @@ both ``Canvas`` signals report the
         layer = self._layer_by_id.get(layer_id)
         if layer is None:
             return
-        step, outputs = layer_outputs(layer)
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
         output = next((o for o in outputs if o.name == name), None)
         if output is not None and output.kind == "vector":
             if hidden:
@@ -4551,12 +4553,17 @@ both ``Canvas`` signals report the
 
     def _output_step_index(self) -> int | None:
         """The index (into ``_names``) of the active chain's step whose outputs the rows show:
-        the last enabled transform, when its device declares outputs; else ``None``."""
-        enabled = [i for i, (n, b) in enumerate(zip(self._names, self._bypassed))
-                   if not b and is_transform(get_device(n))]
-        if not enabled or not declared_outputs(get_device(self._names[enabled[-1]])):
+        the last enabled transform that applies on the layer's input (:meth:`_layer_input`,
+        :func:`~dynamix.model.contracts.step_states`), the engine's analysis, when its device
+        declares outputs; else ``None``."""
+        enabled = [i for i, b in enumerate(self._bypassed) if not b]
+        states = step_states([DeviceRef(self._names[i], self._params[i]) for i in enabled],
+                             self._layer_input())
+        applying = [i for i, state in zip(enabled, states)
+                    if state.applies and is_transform(get_device(self._names[i]))]
+        if not applying or not declared_outputs(get_device(self._names[applying[-1]])):
             return None
-        return enabled[-1]
+        return applying[-1]
 
     def _sync_output_rows(self, layer) -> None:
         """Push ``layer``'s output state into its rows, non-emitting: the raster output its
@@ -4566,8 +4573,9 @@ both ``Canvas`` signals report the
         layer's Reconstruction section follows (:meth:`_sync_recon_section`)."""
         if layer is None:
             return
-        self.layer_list.sync_output_rows(layer)
-        step, outputs = layer_outputs(layer)
+        layer_input = self._layer_input(layer)
+        self.layer_list.sync_output_rows(layer, layer_input)
+        step, outputs = layer_outputs(layer, layer_input)
         if step is not None:
             notes, disabled = self._output_row_state(layer, step, outputs)
             self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
@@ -4616,7 +4624,7 @@ both ``Canvas`` signals report the
             reading = (self._active_result or {}).get("_recon_reading", "")
             panel.levels.set_levels(int(values["n_levels"]), values["recon_levels"],
                                     self._shown_level(), reading)
-        step, outputs = layer_outputs(self.layer)
+        step, outputs = layer_outputs(self.layer, self._layer_input())
         recon = next((o for o in outputs if o.name == "recon"), None)
         if values.get("algorithm") != "lastwave":
             reason = "the printed algorithm runs on show"
@@ -4742,7 +4750,7 @@ both ``Canvas`` signals report the
         layer = self.layer
         if layer is None or self._recon_step() is None:
             return
-        step, outputs = layer_outputs(layer)
+        step, outputs = layer_outputs(layer, self._layer_input())
         shown = shown_output(step, outputs)
         target = shown if shown in _RUN_ROWS else "recon"
         key = self._output_keys(layer).get(target)
@@ -4755,7 +4763,7 @@ both ``Canvas`` signals report the
             self._reresolve()
             return
         self._on_output_hide_toggled(layer.layer_id, "recon", False)
-        step, outputs = layer_outputs(layer)
+        step, outputs = layer_outputs(layer, self._layer_input())
         if shown_output(step, outputs) != "recon" and self._recon_run == run:  # refused (locked)
             self._recon_run = None
 
@@ -4885,7 +4893,7 @@ both ``Canvas`` signals report the
         waits for Run (:meth:`_awaits_run`)."""
         if layer is None or renderable.analysis_key is None:
             return None
-        step, outputs = layer_outputs(layer)
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
         name = shown_output(step, outputs)
         output = next((o for o in outputs if o.name == name and o.lazy), None)
         if (output is None or renderable.analysis_device != step.device
@@ -4909,7 +4917,7 @@ both ``Canvas`` signals report the
         """The key of the output ``layer``'s shown row draws (its own, or its preview's; none
         while it waits for Run, :meth:`_awaits_run`), derived from the chain as
         :meth:`_output_keys` derives it."""
-        step, outputs = layer_outputs(layer)
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
         name = shown_output(step, outputs)
         keys = self._output_keys(layer)
         key = keys.get(name)
@@ -7001,7 +7009,8 @@ both ``Canvas`` signals report the
         # The edges output row's gate, set on every landing before any overlay draws: the
         # maxima of a layer whose "edges" row is hidden stay off the canvas across redraws,
         # layer switches and flips back from the Vector tab (the canvas keeps the flag).
-        self.canvas.set_maxima_visible(self.layer is None or not _edges_hidden(self.layer))
+        self.canvas.set_maxima_visible(self.layer is None
+                                       or not _edges_hidden(self.layer, self._layer_input()))
         if self.layer is not None and not self.layer.visible:
             self.canvas.clear_overlays()
             self.canvas.clear_points()
@@ -7841,7 +7850,8 @@ both ``Canvas`` signals report the
                                     "levels": levels,
                                     # The edges output row's H: the scene drops this
                                     # layer's H-lines/dots while it is set.
-                                    "edges_hidden": _edges_hidden(layer)})
+                                    "edges_hidden": _edges_hidden(layer,
+                                                                  self._layer_input(layer))})
                     self._arr_errors.pop(layer.layer_id, None)
                     continue
                 recorded = self._arr_errors.get(layer.layer_id)

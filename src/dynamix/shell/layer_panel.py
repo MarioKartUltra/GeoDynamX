@@ -525,16 +525,17 @@ class LayerPanel(QtWidgets.QTreeWidget):
         group.setText(0, f"Bands ({group.childCount()})")
 
     # -- output rows (what a result produces, each shown or hidden on its own) -------------------
-    def sync_output_rows(self, layer) -> None:
+    def sync_output_rows(self, layer, layer_input: str | None = None) -> None:
         """Keep ``layer``'s "Outputs" group matching what its chain's last transform declares
-        (:func:`layer_outputs`): built collapsed the first time, rebuilt when the declared set
+        (:func:`layer_outputs`; given ``layer_input``, the last one that applies): built
+        collapsed the first time, rebuilt when the declared set
         changes, removed when there is none. A new row reads its state from the layer once, at
         construction (the :class:`_LayerRow` rule): a raster row is hidden unless the step's
         ``show`` names it, the vector row is hidden while the ``ui.edges_hidden`` tag is set.
         Idempotent; the window calls it after every chain edit."""
         lid = layer.layer_id
         item = self._layer_items.get(lid)
-        step, outputs = layer_outputs(layer) if item is not None else (None, ())
+        step, outputs = layer_outputs(layer, layer_input) if item is not None else (None, ())
         if [o.name for o in outputs] == list(self._output_items.get(lid, {})):
             return
         self._forget_output_rows(lid)
