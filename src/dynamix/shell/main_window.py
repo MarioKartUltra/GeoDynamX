@@ -3186,10 +3186,29 @@ both ``Canvas`` signals report the
     def _feed_anisotropy(self, win) -> None:
         from dynamix.shell.canvas import display_offset
 
-        result = self._active_result
+        # P_a(A) is a statistic ACROSS scales: the window reads every level the chain keeps,
+        # while the canvas shows the Transport's one.
+        result = self._stack_result()
         offset = display_offset(result, self.field) if self.field is not None else (0, 0)
         win.set_result(result, self.field, offset=offset,
                        scale_idx=int(self.transport.slider.value()))
+
+    def _stack_result(self) -> "dict | None":
+        """The active layer's result over every level its chain keeps -- resolved with no shown
+        level, through the cache -- for the views that read across scales. The active result
+        when the analysis is not cached or the resolve raises: such a view never starts a
+        compute."""
+        layer, field = self.layer, self.field
+        if layer is None or field is None:
+            return self._active_result
+        tail = self._arr_tail_key(layer)
+        if tail is not None and tail not in self.cache:
+            return self._active_result
+        try:
+            result = resolve(layer, field, self.cache, source_id=layer.source_id).result
+        except Exception:
+            return self._active_result
+        return result if isinstance(result, dict) else self._active_result
 
     def _on_anisotropy_button_clicked(self) -> None:
         if self._anisotropy_window is None:

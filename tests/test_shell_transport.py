@@ -357,3 +357,26 @@ def test_an_old_project_with_scale_select_opens_at_its_scale_and_shows_the_step_
     assert sig.args[0].result["_scale_idx"] == 2
     assert win.layer.chain.steps[1].params["scale_idx"] == 2      # the chain is not edited
     assert sig.args[0].step_states[1] == StepState(False, "the scale is set by the Transport")
+
+
+def test_the_anisotropy_window_reads_every_level_the_chain_keeps(qtbot, stub_devices):
+    from dynamix.shell.main_window import MainWindow
+
+    win = MainWindow(steps=(("stub_stack", {}), ("modulus_threshold", {"frac": 0.0})))
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.load_field(_FIELD, "mem:aniso-stack")
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        win.transport.slider.setValue(1)
+    assert len(win._active_result["extrema"]) == 1          # the canvas shows the shown level
+    fed = {}
+
+    class _Window:
+        def set_result(self, result, field, *, offset, scale_idx):
+            fed.update(result=result, scale_idx=scale_idx)
+
+    win._feed_anisotropy(_Window())
+
+    assert len(fed["result"]["extrema"]) == 3                # the window reads across scales
+    assert fed["scale_idx"] == 1
+    assert win.is_computing is False
