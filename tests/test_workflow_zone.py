@@ -1696,3 +1696,30 @@ def test_device_box_of_a_device_without_a_label_shows_its_id_once(qtbot, stub_tr
     box = DeviceBox(0, stub_transform, {"scale": 4})
     qtbot.addWidget(box)
     assert box.name_label.text() == "t" and box.id_label.isHidden()
+
+
+def test_an_inactive_box_shows_its_reason_and_keeps_its_params_and_bypass(qtbot,
+                                                                         registered_builtins):
+    from dynamix.shell.workflow_zone import DeviceBox
+
+    dev = get_device("chain_length")
+    box = DeviceBox(0, dev, defaults_for(dev))
+    qtbot.addWidget(box)
+    reason = "needs cross-scale maxima chains"
+    box.set_inactive(reason)
+    assert box.inactive_reason == reason
+    assert box.reading_label.text() == reason
+    assert box.reading_label.property("muted") == "true"
+    assert box.property("inactive") == "true"
+    assert box.name_label.property("muted") == "true"
+    assert box._title_bar.toolTip() == reason
+    assert box.bypass_button.isChecked() is False          # never bypassed by the app
+    assert box._body.isEnabled() is True                   # its knobs stay live
+    assert box._params == defaults_for(dev)
+
+    box.set_inactive("")
+    assert box.inactive_reason == "" and box.reading_label.text() == ""
+    assert box.property("inactive") == "false" and box._title_bar.toolTip() == ""
+    box.set_reading("kept 3/4")
+    box.set_inactive("")
+    assert box.reading_label.text() == "kept 3/4"          # an ordinary reading is kept

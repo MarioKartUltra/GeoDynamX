@@ -386,6 +386,7 @@ class DeviceBox(QtWidgets.QFrame):
         self._params = params
         self.controls: dict[str, QtWidgets.QWidget] = {}
         self._derived_labels: dict[str, QtWidgets.QLabel] = {}
+        self.inactive_reason = ""
 
         self.setProperty("strip", "true")     # reuse the strip QSS chrome -- no new properties
         self.setProperty("selected", "false")
@@ -570,6 +571,27 @@ class DeviceBox(QtWidgets.QFrame):
         self.reading_label.setProperty("muted", "true" if text == "dropped 0" else "false")
         self.style().unpolish(self.reading_label)
         self.style().polish(self.reading_label)
+
+    def set_inactive(self, reason: str) -> None:
+        """Draw this step as one that does not apply to what reaches it (``reason`` non-empty),
+        or as an ordinary step again (``reason`` empty). Rendering only: the params, the control
+        grid and the bypass button are untouched, since a step that does not apply stays in the
+        chain as the user left it. Inactive, the title is muted, the reading states the reason
+        and the title bar's tooltip repeats it; back to ordinary, a reading still showing the old
+        reason is cleared for the next landing to fill."""
+        previous = self.inactive_reason
+        self.inactive_reason = reason
+        self.setProperty("inactive", "true" if reason else "false")
+        self.name_label.setProperty("muted", "true" if reason else "false")
+        self._title_bar.setToolTip(reason)
+        if reason:
+            self.reading_label.setText(reason)
+            self.reading_label.setProperty("muted", "true")
+        elif previous and self.reading_label.text() == previous:
+            self.reading_label.setText("")
+        for widget in (self, self.name_label, self.reading_label):
+            widget.style().unpolish(widget)
+            widget.style().polish(widget)
 
     def sync_from_result(self, result: dict) -> None:
         """Applies a device's optional ``reading(result,
