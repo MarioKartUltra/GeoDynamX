@@ -100,7 +100,8 @@ from dynamix.shell.import_dialog import ImportGridsDialog
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
 # existing Transport, both of which this module already imports eagerly anyway.
 from dynamix.shell.inspector import NO_RESULT_TEXT, InspectorWindow
-from dynamix.shell.layer_panel import LayerPanel, ReferencePanel, layer_outputs, shown_output
+from dynamix.shell.layer_panel import (LayerPanel, ReferencePanel, layer_outputs, row_level,
+                                      shown_output)
 from dynamix.shell.levels_dialog import BandDialog, LevelsDialog
 from dynamix.shell.multifractal_window import MultifractalWindow
 from dynamix.shell.opening import open_field
@@ -640,6 +641,8 @@ def _output_note(value) -> str:
     if "band_density" in diag:                           # a Microcanonical MFA band row
         share = f"{100.0 * float(diag['band_density']):.0f}% of pixels"
         return f"{float(diag['psnr_db']):.1f} dB · {share}" if "psnr_db" in diag else share
+    if "scale_px" in diag:                               # a per-level output: its level's scale
+        return f"{float(diag['scale_px']):g} px"
     return ""
 
 
@@ -892,7 +895,7 @@ class MainWindow(QtWidgets.QMainWindow):
         register_builtin_devices()
         self.setWindowTitle(TITLE)
 
-        self.cache = Cache()
+        self.cache = Cache(max_bytes=load_settings().output_cache_bytes)
         self.project = Project(title=TITLE)
         self.field = None
         self.layer = None
@@ -4899,13 +4902,14 @@ both ``Canvas`` signals report the
                 disabled[output.name] = reason
         return disabled
 
-    def _output_keys(self, layer) -> dict:
+    def _output_keys(self, layer, level: int | None = None) -> dict:
         """``{name: key}`` of ``layer``'s lazy outputs, derived from its chain the way
         :func:`~dynamix.engine.resolve.resolve_output` derives them (the analysis step and its
         selection with the steps that do not apply on :meth:`_layer_input` passed over, the
         analysis key from :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI
         result. Outputs without a row of their own (a preview, :data:`_PREVIEW_OF`) are keyed
-        too."""
+        too; a per-level output at ``level`` (0-based), by default the level its row shows
+        (:func:`row_level`)."""
         layer_input = self._layer_input(layer)
         step, _outputs = layer_outputs(layer, layer_input)
         if step is None or layer.tags.get("roi.window"):
@@ -4919,8 +4923,10 @@ both ``Canvas`` signals report the
             return {}
         params = validate_params(device, step.params)
         selection = selection_recipe(layer, layer_input)
+        level = row_level(layer) if level is None else int(level)
         return {o.name: output_key(device.name, o, params, keys[-1],
-                                   selection if o.selects else None) for o in lazy}
+                                   selection if o.selects else None, level=level)
+                for o in lazy}
 
     def _output_row_state(self, layer, step, outputs) -> tuple:
         """``(notes, disabled)`` for ``LayerPanel.set_output_state``: "computing…" on a row whose
@@ -5001,7 +5007,8 @@ both ``Canvas`` signals report the
             return None
         selection = selection_recipe(layer, self._layer_input(layer))
         key = output_key(renderable.analysis_device, output, renderable.analysis_params,
-                         renderable.analysis_key, selection if output.selects else None)
+                         renderable.analysis_key, selection if output.selects else None,
+                         level=row_level(layer))
         if self._draws_preview(layer, step, name, key):
             output = next(o for o in declared_outputs(get_device(step.device))
                           if o.name == _PREVIEW_OF[name])
@@ -5049,8 +5056,10 @@ both ``Canvas`` signals report the
         value = self.cache.get(key)
         if value is not None:
             self._remember_output(layer, key, value)
-            out = {**result, "raster_out": value["raster"],
-                   "_view_note": output.label or output.name}
+            note = output.label or output.name
+            if output.per_level and "scale_px" in (value.get("diag") or {}):
+                note = f"{note} · {float(value['diag']['scale_px']):g} px"
+            out = {**result, "raster_out": value["raster"], "_view_note": note}
             if output.grid == "stride":
                 out["_display_stride"] = int(value["display_stride"])
                 out["_full_dims"] = tuple(value["full_dims"])
@@ -5058,6 +5067,10 @@ both ``Canvas`` signals report the
                 # Where the output's samples register; the result's own ``_display_offset``
                 # stays the maxima's.
                 out["_raster_display_offset"] = tuple(value["display_offset"])
+            if value.get("roi_axes") is not None:
+                # A region's raster on the region's own grid: its axes place it where the
+                # region sits (_roi_display_field).
+                out["_roi_axes"] = value["roi_axes"]
             return out
         if (self._out_held is None and layer.visible
                 and layer.layer_id not in self._pending_layers
@@ -5119,7 +5132,10 @@ both ``Canvas`` signals report the
             return
         self._out_request = None
         snapshot = dataclasses.replace(layer, tags=dict(layer.tags))
-        worker = OutputWorker(snapshot, self.field, self.cache, layer.source_id, name)
+        # The level the request was keyed at, the one the key check above read: a per-level
+        # output computes it, and every other output ignores it.
+        worker = OutputWorker(snapshot, self.field, self.cache, layer.source_id, name,
+                              level=row_level(layer))
         # BOUND METHODS ONLY (worker.py's documented trap), as for the analysis worker.
         worker.progress.connect(self._on_output_progress)
         worker.finished.connect(self._on_output_finished)

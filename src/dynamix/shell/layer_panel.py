@@ -96,6 +96,16 @@ def shown_output(step, outputs) -> str | None:
     show = step.params.get("show") if step is not None else None
     return show if any(o.name == show and o.kind == "raster" for o in outputs) else None
 
+
+def row_level(layer) -> int:
+    """The level a per-level output row of ``layer`` shows: the Transport's (``ui.scale_idx``),
+    or the finest (0) before the Transport has set one."""
+    from dynamix.engine.resolve import shown_level
+
+    level = shown_level(layer)
+    return 0 if level is None else level
+
+
 #: The chip-hover feedback:
 #: "chip hover emits chipHovered(parent_layer_id) -> LayerPanel.flash_row(layer_id) (temporary
 #: selection-color property, 1 s timer)". The hover gesture elsewhere calls :meth:`LayerPanel.flash_row`; this module only has to make the flash

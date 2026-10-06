@@ -145,13 +145,16 @@ class OutputWorker(QtCore.QObject):
     error = QtCore.Signal(str)
     cancelled = QtCore.Signal()
 
-    def __init__(self, layer, field, cache, source_id, name):
+    def __init__(self, layer, field, cache, source_id, name, *, level=None):
         super().__init__()
         self._layer = layer
         self._field = field
         self._cache = cache
         self._source_id = source_id
         self._name = name
+        #: The level a per-level output is computed at (``resolve_output(level=...)``), the one
+        #: the request was keyed at; every other output ignores it.
+        self._level = level
         self._cancel = threading.Event()
 
     def cancel(self) -> None:
@@ -178,7 +181,7 @@ class OutputWorker(QtCore.QObject):
         try:
             value = resolve_output(self._layer, self._field, self._cache, self._name,
                                    source_id=self._source_id, progress=self._on_progress,
-                                   cancel=self._cancel.is_set)
+                                   cancel=self._cancel.is_set, level=self._level)
         except ComputeCancelled:
             self.cancelled.emit()
             return

@@ -69,9 +69,9 @@ def dispatches(monkeypatch):
     real = mw.OutputWorker
 
     class _Counted(real):
-        def __init__(self, layer, field, cache, source_id, name):
+        def __init__(self, layer, field, cache, source_id, name, **kw):
             seen.append(name)
-            super().__init__(layer, field, cache, source_id, name)
+            super().__init__(layer, field, cache, source_id, name, **kw)
 
     monkeypatch.setattr(mw, "OutputWorker", _Counted)
     return seen
