@@ -207,6 +207,16 @@ placement. A separate signal from ``dropPlaced`` on purpose:
 ``tests/test_workflow_zone.py::test_droppplaced_signal_fires_only_on_a_clamped_placement`` already
 pins ``dropPlaced`` to firing ONLY on a clamped drop/reorder placement, and reusing it here would
 quietly broaden that contract.
+
+**Rack drops split and merge.** A rack row resolves through :meth:`WorkflowZone.set_racks` (the
+built-in and user racks of ``dynamix.model.racks``) and lands by
+:func:`dynamix.model.racks.merge_rack`: its transforms after the chain's transforms, its filters
+after the chain's filters, so a chain that already holds filters takes it. A rack Transform the
+chain already runs is left out, so the chain's own analysis never runs twice. A rack the merge
+splits in two keeps one ``RackBox`` per run, the later run titled "<name> (2)"
+(:func:`dynamix.model.racks.contiguous_rack_titles`), so every title still names one contiguous
+span. Drops route to :meth:`WorkflowZone._handle_rack_drop`; :meth:`_handle_preset_drop`, the
+append-at-the-end path, stays defined.
 """
 from __future__ import annotations
 
@@ -216,6 +226,7 @@ from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.device import Device, defaults_for, get_device, is_transform
 from dynamix.model.families import label_of
 from dynamix.model.param import Param
+from dynamix.model.racks import Rack, RackStep, contiguous_rack_titles, merge_rack
 from dynamix.shell.browser import DEVICE_MIME, PRESET_MIME
 from dynamix.shell.knob_widgets import make_control
 from dynamix.shell.knobs import control_spec
@@ -717,6 +728,8 @@ class SourceBox(QtWidgets.QFrame):
     """
 
     chipHovered = QtCore.Signal(int)
+    #: "Save as rack…" was clicked: the window names the rack and writes it.
+    saveRackRequested = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -737,6 +750,11 @@ class SourceBox(QtWidgets.QFrame):
         self.chip_label.setVisible(False)
         outer.addWidget(self.chip_label)
         outer.addStretch(1)
+        self.save_rack_button = QtWidgets.QToolButton()
+        self.save_rack_button.setText("Save as rack…")
+        self.save_rack_button.setToolTip("Save this chain, every param and bypass, as a rack")
+        self.save_rack_button.clicked.connect(self.saveRackRequested.emit)
+        outer.addWidget(self.save_rack_button)
 
         self._fed_by_layer_id: int | None = None
 
@@ -899,6 +917,8 @@ class WorkflowZone(QtWidgets.QFrame):
     #: ``dropPlaced`` is already pinned by a test to firing only on a clamped placement). Wired by
     #: ``main_window._build_strips`` to ``self._notify(msg, "status")``, same as ``dropPlaced``.
     rackRemoved = QtCore.Signal(str, str)
+    #: Relayed from the ``SourceBox``'s "Save as rack…" button.
+    saveRackRequested = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -907,6 +927,7 @@ class WorkflowZone(QtWidgets.QFrame):
         self._boxes: list[DeviceBox] = []
         self._descriptors: list[dict] = []
         self._presets: dict[str, tuple] = {}
+        self._racks: dict[str, Rack] = {}
         self._field = None
         # Set by ``_handle_device_drop``/``_reorder`` for the ``_commit_or_revert`` call
         # that immediately follows them (never outlives one drop cycle -- ``_commit_or_revert``
@@ -924,6 +945,7 @@ class WorkflowZone(QtWidgets.QFrame):
 
         self.source_box = SourceBox()
         self.source_box.chipHovered.connect(self.chipHovered.emit)
+        self.source_box.saveRackRequested.connect(self.saveRackRequested.emit)
         self._host = QtWidgets.QWidget()
         self._row = QtWidgets.QHBoxLayout(self._host)
         self._row.setContentsMargins(0, 0, 0, 0)
@@ -955,6 +977,12 @@ class WorkflowZone(QtWidgets.QFrame):
         """Injected by ``main_window`` with the same dict the browser gets -- a preset drop
         resolves its device-step tuple through here, by name."""
         self._presets = dict(presets)
+
+    def set_racks(self, racks) -> None:
+        """Injected by ``main_window`` with every rack the browser lists without a problem
+        (built-in and user) -- a rack drop resolves through here, by name, ahead of the
+        presets."""
+        self._racks = {rack.name: rack for rack in racks}
 
     def set_steps(self, descriptors, field=None) -> None:
         """(Re)build the zone from ``descriptors``, left to right after the ``SourceBox``: one
@@ -1129,7 +1157,7 @@ class WorkflowZone(QtWidgets.QFrame):
         if md.hasFormat(DEVICE_MIME):
             self._handle_device_drop(bytes(md.data(DEVICE_MIME)).decode("utf-8"), into_rack, before)
         elif md.hasFormat(PRESET_MIME):
-            self._handle_preset_drop(bytes(md.data(PRESET_MIME)).decode("utf-8"))
+            self._handle_rack_drop(bytes(md.data(PRESET_MIME)).decode("utf-8"))
         elif md.hasFormat(_REORDER_MIME):
             self._reorder(bytes(md.data(_REORDER_MIME)).decode("utf-8"), into_rack, before)
         else:
@@ -1261,6 +1289,20 @@ class WorkflowZone(QtWidgets.QFrame):
             self._descriptors = new
             return
         self._descriptors.extend(new)
+
+    def _handle_rack_drop(self, name: str) -> None:
+        """Split and merge (the module docstring's rack-drop paragraph): the rack named ``name``
+        -- a :meth:`set_racks` rack, else a :meth:`set_presets` step tuple -- joins the chain with
+        its transforms after the chain's transforms and its filters after the chain's filters.
+        The drop target is not consulted. A rack headed by a different analyzer reaches
+        ``main_window._on_chain_edited`` like any drop and forks a sibling there."""
+        rack = self._racks.get(name)
+        if rack is None:
+            steps = self._presets.get(name)
+            if not steps:
+                return
+            rack = Rack(name, tuple(RackStep(n, dict(p)) for n, p in steps))
+        self._descriptors = contiguous_rack_titles(merge_rack(self._descriptors, rack))
 
     def _reorder(self, payload: str, into_rack: str | None, before: "DeviceBox | None") -> None:
         """A box or rack's own title-bar drag: pull its span out and reinsert it at the drop

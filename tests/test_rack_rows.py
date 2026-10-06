@@ -7,11 +7,13 @@ on a band row, and rack fork.
 Offscreen Qt; drops call ``dropEvent`` with a stub event, as tests/test_workflow_zone.py does."""
 from __future__ import annotations
 
+import numpy as np
 import pytest
 from PySide6 import QtCore
 
 from dynamix.devices import register_builtin_devices
-from dynamix.model.chain import DeviceRef
+from dynamix.model.chain import Chain, DeviceRef
+from tests.test_shell_window import stub_devices, window  # noqa: F401
 
 
 @pytest.fixture
@@ -120,3 +122,104 @@ def test_double_clicking_a_rack_row_asks_for_the_editor(qtbot, registered_builti
     with qtbot.waitSignal(browser.rackEditRequested) as sig:
         browser.itemDoubleClicked.emit(_rows(browser)["W"], 0)
     assert sig.args == ["W"]
+
+
+# --------------------------------------------------------------------------- zone drop
+
+
+class _StubDropEvent:
+    def __init__(self, mime: QtCore.QMimeData):
+        self._mime = mime
+        self.accepted: bool | None = None
+
+    def position(self):
+        return QtCore.QPointF(0, 0)
+
+    def mimeData(self):
+        return self._mime
+
+    def proposedAction(self):
+        return QtCore.Qt.MoveAction
+
+    def acceptProposedAction(self):
+        self.accepted = True
+
+    def ignore(self):
+        self.accepted = False
+
+
+def _rack_drop(name: str) -> _StubDropEvent:
+    from dynamix.shell.browser import PRESET_MIME
+
+    mime = QtCore.QMimeData()
+    mime.setData(PRESET_MIME, name.encode("utf-8"))
+    return _StubDropEvent(mime)
+
+
+def _descriptors(*names):
+    return [{"device": n, "params": {}, "bypassed": False, "rack": None} for n in names]
+
+
+def test_a_rack_drop_splits_and_merges_onto_a_chain_with_filters(qtbot, registered_builtins):
+    from dynamix.shell.workflow_zone import RackBox, WorkflowZone
+
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps(_descriptors("wtmm2d", "modulus_threshold", "hline_length"))
+    zone.set_racks([_rack("Hölder chain", ("wtmm2d", {}), ("chain_topology", {}),
+                          ("chain_holder", {}))])
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.dropEvent(_rack_drop("Hölder chain"))
+    # The chain's own wtmm2d stays the analysis; the rack's topology and filter join it.
+    assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "chain_topology", "modulus_threshold",
+                                                  "hline_length", "chain_holder"]
+    assert [d["rack"] for d in sig.args[0]] == [None, "Hölder chain", None, None,
+                                                "Hölder chain (2)"]
+    assert sorted(r.title for r in zone.findChildren(RackBox)) == ["Hölder chain",
+                                                                   "Hölder chain (2)"]
+
+
+def test_a_preset_drop_onto_a_chain_with_filters_now_lands(qtbot, registered_builtins):
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps(_descriptors("wtmm2d", "modulus_threshold"))
+    zone.set_presets({"Edges": (("mz_edges", {"n_levels": 3}), ("hline_length", {}))})
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.dropEvent(_rack_drop("Edges"))
+    assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "mz_edges", "modulus_threshold",
+                                                  "hline_length"]
+    assert sig.args[0][1]["params"] == {"n_levels": 3}
+
+
+def test_the_strip_offers_save_as_rack(qtbot, registered_builtins):
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    with qtbot.waitSignal(zone.saveRackRequested):
+        zone.source_box.save_rack_button.click()
+
+
+def test_a_rack_headed_by_a_different_analyzer_forks_a_sibling(qtbot, window):
+    from dynamix.model.presets import PRESETS
+
+    win = window
+    win._start_worker = lambda: None
+    field = np.linspace(0.0, 1.0, 256).reshape(16, 16)
+    win.load_field(field, "mem:fork")
+    master = win.layer
+    child = win.project.add_layer(
+        "mz", master.source_id,
+        Chain((DeviceRef("mz_edges", {}), DeviceRef("hline_length", {}))).materialized(),
+        parent_id=master.layer_id)
+    win.add_layer_row(child, field)
+    win.layer_list.select_layer(child.layer_id)
+    before = len(win.project.layers)
+    win.strips.dropEvent(_rack_drop("WTMM + Hölder"))
+    qtbot.waitUntil(lambda: len(win.project.layers) == before + 1, timeout=5000)
+    sibling = win.project.layers[-1]
+    assert sibling.parent_id == child.layer_id and win.layer is sibling
+    assert [s.device for s in sibling.chain.steps] == [d for d, _ in PRESETS["WTMM + Hölder"]]
+    assert [s.device for s in child.chain.steps] == ["mz_edges", "hline_length"]
