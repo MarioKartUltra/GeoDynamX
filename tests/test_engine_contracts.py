@@ -293,3 +293,23 @@ def test_shown_level_reads_the_layer_tag():
     assert shown_level(layer) == 3
     layer.tags["ui.scale_idx"] = "three"
     assert shown_level(layer) is None
+
+
+def test_the_preview_skips_a_leading_step_that_does_not_apply(builtins):
+    field = _field()
+    want = preview_resolve(_layer(("wtmm2d", WTMM)), field)
+    got = preview_resolve(_layer(("pca", {}), ("wtmm2d", WTMM)), field)
+    assert got is not None
+    for key, value in want["extrema"][0].items():
+        np.testing.assert_array_equal(got["extrema"][0][key], value)
+
+
+def test_the_preview_takes_the_level_and_its_single_level_passes_whole(builtins):
+    prev = preview_resolve(_layer(("wtmm2d", WTMM)), _field(), level=2)
+    assert len(prev["extrema"]) == 1 and "_scale_idx" not in prev
+
+
+def test_the_preview_with_a_level_skips_an_old_scale_select_step(builtins):
+    old = _layer(("wtmm2d", WTMM), ("scale_select", {"scale_idx": 3}))
+    assert preview_resolve(old, _field())["_scale_idx"] == 0
+    assert "_scale_idx" not in preview_resolve(old, _field(), level=2)

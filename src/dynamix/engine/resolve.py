@@ -124,7 +124,7 @@ def source_identity(layer, source_id: str | None = None) -> str:
     return sid
 
 
-def preview_resolve(layer, field):
+def preview_resolve(layer, field, level: int | None = None):
     """A finest-scale-only preview of ``layer``'s chain (progressive compute, design §3): call the
     leading transform's ``preview(field, params)`` (only ``wtmm2d`` offers one), then apply the
     chain's cheap FILTER steps on top. Transforms AFTER the first are skipped -- ``chain_topology``
@@ -133,12 +133,16 @@ def preview_resolve(layer, field):
     result dict the canvas can draw, or ``None`` when the chain has no previewable leading
     transform (nothing to show early -- the caller just waits for the full resolve).
 
+    Steps that do not apply (:func:`~dynamix.model.contracts.step_states`) are skipped as
+    :func:`resolve` skips them, so the leading transform is the first applying one; ``level``
+    reduces the preview before its filters as :func:`resolve` does (a one-level preview passes
+    whole), and with ``level`` given a ``scale_select`` step does not apply.
+
     Uncached and side-effect-free: it never touches ``cache`` and produces a throwaway frame the
     full ``resolve`` replaces. Any exception propagates to the worker, which treats a failed
     preview as simply "no early frame".
     """
-    steps = layer.chain.steps
-    if not steps:
+    if not layer.chain.steps:
         return None
     # No preview on a display PICTURE or for an ROI
     # layer -- the preview would analyse the resampled picture (or the whole parent) and draw
@@ -147,11 +151,18 @@ def preview_resolve(layer, field):
 
     if layer.tags.get("roi.window") or display_stride(field) > 1:
         return None
+    states = step_states(layer.chain.steps, input_contract(field),
+                         level_view=level is not None)
+    steps = [ref for ref, state in zip(layer.chain.steps, states) if state.applies]
+    if not steps:
+        return None
     first = get_device(steps[0].device)
     preview = getattr(first, "preview", None)
     if preview is None:
         return None
     result = preview(field, validate_params(first, steps[0].params))
+    if level is not None:
+        result = _at_level(result, level)
     for ref in steps[1:]:
         device = get_device(ref.device)
         if is_transform(device):
