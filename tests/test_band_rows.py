@@ -215,3 +215,93 @@ def test_mz_edges_dropped_on_an_analysed_band_row_forks_a_sibling_on_that_band(w
     assert [s.device for s in sibling.chain.steps] == ["band_select", "mz_edges"]
     assert sibling.chain.steps[0].params == band.chain.steps[0].params
     assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]
+
+
+def test_the_browser_offers_stack_tools_on_a_stack_and_single_band_tools_on_its_band_rows(
+        window, qtbot):
+    """An inert open (the app's default) lands no result: the browser follows the open and the
+    switch to a band row by itself."""
+    from dynamix.model.contracts import STACK, next_step_state
+    from dynamix.model.device import get_device
+    from dynamix.model.families import display_name
+
+    win = window
+    win._start_worker = lambda: None
+    v = np.random.default_rng(0).standard_normal((16, 16, 3)).cumsum(0)
+    field = RasterField(name="stack", values=v, frame=LocalFrame(), x_axis=np.arange(16.0),
+                        y_axis=np.arange(16.0))
+    win.load_field(field, "mem:stack", inert=True)
+    master = win.layer
+    rows = win.browser._rows
+
+    def offered(name):
+        return rows[name][0].toolTip(0) == display_name(get_device(name))
+
+    assert offered("pca") and offered("tucker_HOOI_HOSVD") and offered("noise")
+    assert rows["wtmm2d"][0].toolTip(0) == next_step_state((), STACK, "wtmm2d").reason
+    assert not offered("ssa2d") and not offered("holder_measure")
+    band = _band_layers(win, master)[0]
+    win.layer_list.select_layer(band.layer_id)
+    assert win.layer is band
+    assert offered("wtmm2d") and offered("ssa2d") and offered("holder_measure")
+    assert offered("tucker_HOOI_HOSVD") and not offered("pca")
+
+
+def test_the_browser_judges_a_second_analyzer_on_an_analysed_band_row_after_its_band_select(
+        window, qtbot):
+    """A sibling forked from a band row starts with the row's band_select, so a second
+    single-band analyzer is offered there and pca is not."""
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.model.families import display_name
+
+    win = window
+    win._start_worker = lambda: None
+    win._auto_run_action.setChecked(False)            # a transform edit marks the layer pending
+    v = np.random.default_rng(0).standard_normal((16, 16, 3)).cumsum(0)
+    field = RasterField(name="stack", values=v, frame=LocalFrame(), x_axis=np.arange(16.0),
+                        y_axis=np.arange(16.0))
+    win.load_field(field, "mem:stack", inert=True)
+    band = _band_layers(win, win.layer)[0]
+    win.layer_list.select_layer(band.layer_id)
+    desc = [{"device": "band_select", "params": dict(band.chain.steps[0].params)},
+            {"device": "wtmm2d", "params": defaults_for(get_device("wtmm2d"))}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]
+    rows = win.browser._rows
+
+    def offered(name):
+        return rows[name][0].toolTip(0) == display_name(get_device(name))
+
+    assert offered("mz_edges") and offered("ssa2d") and offered("holder_measure")
+    assert not offered("pca")
+
+
+def test_the_browser_follows_a_committed_edit_before_any_landing(window, qtbot):
+    """With auto-run on, a drop starts a worker that lands later: the browser re-greys as the
+    edit commits."""
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.model.families import display_name
+
+    win = window
+    win._start_worker = lambda: None                  # nothing lands
+    assert win._auto_run_action.isChecked()
+    v = np.random.default_rng(0).standard_normal((16, 16, 3)).cumsum(0)
+    field = RasterField(name="stack", values=v, frame=LocalFrame(), x_axis=np.arange(16.0),
+                        y_axis=np.arange(16.0))
+    win.load_field(field, "mem:stack", inert=True)
+    band = _band_layers(win, win.layer)[0]
+    win.layer_list.select_layer(band.layer_id)
+    rows = win.browser._rows
+
+    def offered(name):
+        return rows[name][0].toolTip(0) == display_name(get_device(name))
+
+    assert not offered("chain_holder")
+    desc = [{"device": "band_select", "params": dict(band.chain.steps[0].params)},
+            {"device": "wtmm2d", "params": defaults_for(get_device("wtmm2d"))}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]
+    assert win.layer.layer_id not in win._pending_layers
+    assert offered("chain_holder")

@@ -72,7 +72,7 @@ from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, input_contract, step_states
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
-from dynamix.model.forking import is_primary, routing_head, ships_to
+from dynamix.model.forking import drop_states, is_primary, routing_head, ships_to
 from dynamix.model.inspector_state import (InspectorState, SubLayerState,
                                            inspectors_from_payload, inspectors_to_payload)
 from dynamix.model.param import Param, ParamKind
@@ -1176,6 +1176,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # hides the maxima drawing.
         self.layer_list.outputHideToggled.connect(self._on_output_hide_toggled)
         self.resolved.connect(self._fan_out_to_inspectors)
+        # What the browser rows were last greyed for (_sync_browser_states).
+        self._browser_key = None
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self._left_split.addWidget(self.browser)
         self._left_split.addWidget(self.layer_list)
@@ -5786,6 +5788,8 @@ both ``Canvas`` signals report the
         The last-Renderable stamp happens even with nothing open, so an inspector opened AFTER a
         result landed still comes up showing it instead of an empty canvas.
         """
+        # Every landing passes through this one receiver, so the browser follows it here.
+        self._sync_browser_states()
         layer = self._layer_by_id.get(renderable.layer_id)
         source_id = getattr(layer, "source_id", None)
         if source_id is None:
@@ -6336,6 +6340,7 @@ both ``Canvas`` signals report the
         self._update_source_box()
         self._apply_pending_ui()
         self._sync_recon_section()
+        self._sync_browser_states()
 
     def _update_source_box(self) -> None:
         """Make the zone's ``SourceBox`` real. Called at the end of :meth:`_build_strips`
@@ -6372,6 +6377,28 @@ both ``Canvas`` signals report the
     def _index_of(self, device_name: str) -> int | None:
         return self._names.index(device_name) if device_name in self._names else None
 
+    def _sync_browser_states(self) -> None:
+        """Grey every browser row whose device cannot apply as the next drop on the active layer,
+        its reason in the tooltip (:func:`dynamix.model.forking.drop_states`). Run on every
+        landing (from :meth:`_fan_out_to_inspectors`), open, layer switch, committed chain edit
+        and pending transform edit. Filters never change which contracts are available, so the
+        verdicts depend on the enabled transforms alone, and a landing that moved only a filter
+        keeps the rows as they are."""
+        if self.layer is None:
+            return
+        transforms = tuple(DeviceRef(n, dict(p))
+                           for n, p, b in zip(self._names, self._params, self._bypassed)
+                           if not b and is_transform(get_device(n)))
+        master = self.layer.parent_id is None
+        roi_holder = bool(self.layer.tags.get("roi.window"))
+        layer_input = self._layer_input()
+        key = (self.layer.layer_id, repr(transforms), layer_input, master, roi_holder)
+        if key == self._browser_key:
+            return
+        self._browser_key = key
+        self.browser.set_step_states(drop_states(transforms, layer_input, master=master,
+                                                 roi_holder=roi_holder))
+
     def _mark_transforms_pending(self) -> None:
         """A transform edit under manual run: record it, show it, dispatch nothing.
         The display keeps the LAST RUN's result; Run (or ⌘↩) commits everything at once."""
@@ -6379,6 +6406,7 @@ both ``Canvas`` signals report the
             return
         self._pending_layers.add(self.layer.layer_id)
         self._apply_pending_ui()
+        self._sync_browser_states()
         self._notify("transform edited — press Run (⌘↩) to compute", "status")
 
     def _run_transforms(self) -> None:
@@ -6709,6 +6737,8 @@ both ``Canvas`` signals report the
                 self._mark_transforms_pending()
         else:
             self._reresolve()
+        # The browser follows the committed chain now; a worker started above lands later.
+        self._sync_browser_states()
 
     def _on_scale_changed(self, idx: int) -> None:
         """The transport writes ``scale_select``'s param and takes the filter path -- the same one

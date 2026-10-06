@@ -68,3 +68,41 @@ def test_strip_states_map_over_the_enabled_strips_and_skip_bypassed_ones(window,
     expected = step_states(refs, window._layer_input())
     assert [window.strips.strip(i).inactive_reason for i in (0, 2, 3)] == \
         ["" if s.applies else s.reason for s in expected]
+
+
+def test_the_browser_greys_what_cannot_follow_the_active_layers_analysis(pm_window):
+    rows = pm_window.browser._rows
+    pm = [DeviceRef("pm_edges", {})]
+    chain_holder = rows["chain_holder"][0]
+    assert chain_holder.toolTip(0) == next_step_state(pm, FIELD, "chain_holder").reason
+    assert chain_holder.foreground(0).color() == pm_window.browser._muted.color()
+    assert rows["orientation_wedge"][0].toolTip(0) == \
+        display_name(get_device("orientation_wedge"))
+    # an analyzer dropped on the master forks a sibling over the field: offered
+    assert rows["wtmm2d"][0].toolTip(0) == display_name(get_device("wtmm2d"))
+    assert rows["pca"][0].toolTip(0) == next_step_state((), FIELD, "pca").reason
+
+
+def test_a_filter_edit_lands_without_recomputing_the_browser_states(pm_window, monkeypatch):
+    import dynamix.shell.main_window as mw
+
+    calls = []
+    real = mw.drop_states
+    monkeypatch.setattr(mw, "drop_states", lambda *a, **k: calls.append(a) or real(*a, **k))
+    pm_window._params[1] = {**pm_window._params[1], "min_len": 5}
+    pm_window._sync_browser_states()
+    assert calls == []
+    pm_window._params[0] = {**pm_window._params[0], "n_levels": 3}
+    pm_window._sync_browser_states()
+    assert len(calls) == 1
+
+
+def test_a_landing_re_greys_the_browser_through_the_one_resolved_connection(pm_window, qtbot):
+    from PySide6 import QtCore
+
+    calls = []
+    pm_window._sync_browser_states = lambda: calls.append(True)
+    with qtbot.waitSignal(pm_window.resolved, timeout=10000):
+        pm_window._reresolve()
+    assert calls
+    assert pm_window.receivers(QtCore.SIGNAL("resolved(PyObject)")) == 1
