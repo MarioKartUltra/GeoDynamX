@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 #: name -> ((device, params-overrides), ...). Params must validate against each
-#: device's own schema; a test enforces it.
+#: device's own schema; a test enforces it. The shown level of a multi-scale analyzer is the
+#: Transport's (the layer's ``ui.scale_idx``): ``resolve`` reduces the stack to it before the
+#: filters run, so no rack carries a level step.
 PRESETS: dict[str, tuple] = {
     "WTMM + Hölder": (
         ("wtmm2d", {"n_oct": 3, "n_voice": 4}),
@@ -15,24 +17,20 @@ PRESETS: dict[str, tuple] = {
     ),
     "M–Z edges": (
         ("mz_edges", {"n_levels": 4}),
-        ("scale_select", {"scale_idx": 0}),
         ("hline_length", {}),
     ),
-    # Scrubbing IS scale_select, seeded in the default wtmm chain -- the multi-scale analyzers
-    # get it from their rack instead of arriving bare and stacking every level.
+    # A multi-scale analyzer scrubbed by the Transport; hline_length kills the orphan confetti.
     "CDF edges": (
         ("cdf_edges", {"n_levels": 4}),
-        ("scale_select", {"scale_idx": 0}),
         ("hline_length", {}),
     ),
-    # Perona-Malik proper: same multi-scale rack shape as CDF edges -- the
-    # analyzer plus seeded scale scrubbing and orphan-confetti control.
+    # Perona-Malik proper: the same multi-scale rack shape as CDF edges -- the analyzer plus
+    # orphan-confetti control.
     "PM edges": (
         ("pm_edges", {"n_levels": 4}),
-        ("scale_select", {"scale_idx": 0}),
         ("hline_length", {}),
     ),
-    # Single-scale output -- no scale_select needed; hline_length kills the orphan confetti.
+    # Single-scale output; hline_length kills the orphan confetti.
     "Wavelet skeleton": (
         ("wavelet_skeleton", {}),
         ("hline_length", {"min_len": 10}),

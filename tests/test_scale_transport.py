@@ -129,3 +129,22 @@ def test_a_level_leaves_stacks_band_rows_and_the_source_identity_alone(builtins)
     r = resolve(band, stack, cache, level=1)
     assert r.result["_scale_idx"] == 1 and len(r.result["extrema"]) == 1
     assert r.transforms_run == ("band_select", "mz_edges")
+
+
+def test_the_built_in_racks_hold_no_scale_select_and_validate(builtins):
+    from dynamix.model.presets import PRESETS
+
+    for name, steps in PRESETS.items():
+        assert "scale_select" not in [device for device, _ in steps], name
+        Chain(tuple(DeviceRef(d, dict(p)) for d, p in steps)).materialized().validate()
+
+
+def test_the_m_z_rack_shows_one_level_through_the_transport(builtins):
+    from dynamix.model.presets import PRESETS
+
+    steps = tuple(DeviceRef(d, {**p, **FAST} if d == "mz_edges" else dict(p))
+                  for d, p in PRESETS["M–Z edges"])
+    layer = Layer(layer_id=1, name="mz", source_id="s", chain=Chain(steps).materialized())
+    assert [s.device for s in layer.chain.steps] == ["mz_edges", "hline_length"]
+    r = resolve(layer, _field(), Cache(), level=1)
+    assert r.result["_scale_idx"] == 1 and len(r.result["extrema"]) == 1
