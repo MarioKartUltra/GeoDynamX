@@ -44,6 +44,8 @@ drawn from the kernel code.
 Conventions that hold everywhere:
 \begin{itemize}\itemsep2pt
   \item \textbf{Scales are stored in pixels}, converted only for display.
+  \item \textbf{The shown level is view state}: the Transport sets it for each layer
+        (\S\ref{sec:transport}), and no chain step holds it.
   \item \textbf{The wavelet family belongs to the method}: each tool's menu lists only the
         kernel class its method admits, under the method's own names.
   \item \textbf{Inert knobs}: a parameter that binds only under one choice of another
@@ -276,6 +278,27 @@ a fingerprint of its layer's chain; editing a referenced layer changes the finge
 the stack recomputes when next shown. Referenced layers are computed first when needed, and a
 deleted one is reported by name. The layers share the stack's grid (an ROI result has its own
 grid and is refused). Layer sends and file sends mix in one bus.
+
+\subsection*{The shown level: the Transport}\label{sec:transport}
+The Transport under the canvas (a slider, play, and a reading of the scale in pixels and in the
+dataset's units) sets the level the active layer shows. The level is view state: each layer
+keeps its own, saved with the project, and scrubbing it leaves the chain as it is. After the
+last Transform that applies, when the analysis holds an extrema stack of more than one level,
+the engine takes the shown level out of the stack and then runs the filters, so a filter knob
+redraws one level. The V-chains stay whole: the 3-D scale-space view lifts them through every
+scale, and the anisotropy window reads every level. The Transport works on every multi-scale
+layer, the \emph{WTMM + H\"older} rack's included, and the vector (3-D) view draws a layer's
+extrema at the level that layer shows. Bands stay rows of their dataset; the Transport ranges
+over scales only.
+
+Each inspector window has a Transport of its own. With its \emph{M} button on (the default) it
+follows the main Transport; with it off the inspector holds a level of its own. Two views of
+one layer at two levels resolve the same cached analysis, each at its level.
+
+\textbf{\dev{scale\_select} is superseded.} It stays registered, in the browser's Dev group. Of
+the built-in racks only \emph{WTMM standard}, the default chain, holds it. Opening a project
+whose chain holds it sets the layer's level from its \texttt{scale\_idx} once; the step stays
+in the chain, drawn inactive with the reason ``the scale is set by the Transport''.
 
 %======================================================================
 \section{Tool families and data contracts}\label{sec:contracts}
@@ -515,8 +538,8 @@ coarse part). ROI results do not reconstruct yet (their rows say so), and the th
 with its own \texttt{Mode}, run for the iteration count when a row is shown.
 
 \paragraph{Reconstructing from selected maxima (LastWave).} The rack's filters reach the
-reconstruction: at every level the engine runs the chain's filters (all but \dev{scale\_select},
-whose pick is the display's) on that level alone, and the Reconstruction section's level table
+reconstruction: at every level the engine runs the chain's filters that apply on that level
+alone, and the Reconstruction section's level table
 decides what each level contributes. \emph{all}: every maximum; \emph{own} (the default): the maxima
 the filters keep there; \emph{near} $s$: the level's own maxima within \texttt{near\_radius} px of a
 maximum kept at level $s$ (with the $\alpha$ check, only those whose modulus fits the source chain's
@@ -526,7 +549,7 @@ level $s$ carrying this level's own transform values (Mallat \& Zhong's coding m
 \emph{open}: no constraints, so the alternating projections fill the level from the others. The
 \emph{\S IX preset} selects at level 2 and codes levels 1 and 3 from it (the paper codes with $J=3$).
 A source must have a selection of its own (\emph{all}, \emph{own} or \emph{near}). With Per-level
-filters on, the filter knobs edit the level the Scale slider shows and each level keeps its own
+filters on, the filter knobs edit the level the Transport shows and each level keeps its own
 settings (turning it on starts every level from the current ones). The canvas draws, at the level
 on show, the maxima the reconstruction reads there, and the section reads how many of the level's
 maxima those are. $\alpha$ comes from the analysis: each maximum propagates up the levels to the
@@ -557,7 +580,7 @@ on the filters and the table, so each selection caches on its own.
 \texttt{coarse} (\emph{view}) & full & full / thumbnail & the coarse channel a reconstruction pins: $S_{2^J}$, or the one decoded from its thumbnail \\
 \texttt{mode} (printed, \emph{view}) & separable & 3 modes & how the research port's projection interpolates between the maxima \\
 \texttt{recon\_levels} (Levels, \emph{view}) & (every level own) & table & each level's state and source, and with Per-level filters each level's filter settings \\
-\texttt{per\_level} (Per-level filters, \emph{view}) & off & bool & the filter knobs edit the level the Scale slider shows \\
+\texttt{per\_level} (Per-level filters, \emph{view}) & off & bool & the filter knobs edit the level the Transport shows \\
 \texttt{near\_radius} (\emph{view}) & 1 & $[0,8]$ px & how far a \emph{near} maximum may sit from a kept source maximum \\
 \texttt{alpha\_check} ($\alpha$ check, \emph{view}) & off & bool & a \emph{near} maximum must also fit its source chain's decay \\
 \texttt{alpha\_tol} ($\alpha$ tolerance, \emph{view}) & 0.5 & $[0.05,4]$ & the $\log_2$ misfit the $\alpha$ check allows \\
@@ -1013,14 +1036,14 @@ prune).
 
 %======================================================================
 \section{Selection: extrema}
-Act on the per-scale extrema layers of any tool that produces an extrema stack (the
-\hyperref[tab:applicability]{applicability table}, \S\ref{sec:contracts}). In mode
+Act on the extrema of the level the Transport shows (\S\ref{sec:transport}), after any tool
+that produces an extrema stack (the \hyperref[tab:applicability]{applicability table},
+\S\ref{sec:contracts}). In mode
 \texttt{sup\_all\_scales}, \dev{hline\_modulus} also reads the V-chains threading each line,
 and \dev{hline\_holder} reads the per-point $\alpha$ the Mallat--Zhong analysis stamps.
 
 \begin{longtable}{L l l M}
 \toprule Device.param & Default & Range & Meaning \\ \midrule
-\dev{scale\_select}.\texttt{scale\_idx} & 0 & $[0,255]$ & pick ONE scale from the stack --- \emph{this is the scale scrubber}; a list index, instant redraw \\
 \dev{orientation\_wedge}.\texttt{centre} & 0 & deg & keep extrema whose gradient strike falls in the wedge \\
 \dev{orientation\_wedge}.\texttt{half\_width} & 90 & $[0,90]$ deg & wedge half-width ($90$ = no-op) \\
 \dev{orientation\_wedge}.\texttt{north} & grid & grid/true/magnetic & the NorthRef of \texttt{centre}; frame errors are multi-degree errors \\
@@ -1092,7 +1115,7 @@ step after them applies.
 opens and resolves: \dev{holder\_map} and \dev{band\_recon} (the pre-split H\"older tools),
 \dev{band\_recon\_measure} and \dev{band\_recon\_multiaffine} (\S\ref{sec:band}),
 \dev{tucker\_havok}, and
-\dev{scale\_select}.
+\dev{scale\_select} (\S\ref{sec:transport}).
 
 %======================================================================
 \section{Planned: q-generalized wavelets}\label{sec:todo}
@@ -1182,8 +1205,8 @@ wavelet or the sinc function.''
         reconstruction; \texttt{h\_map}/\texttt{band\_mask} ride for the dialogs.
   \item \textbf{cdf extras}: \texttt{filtered} (final Re) and \texttt{edge\_channel}
         (final Im) rasters.
-  \item The vector (3-D) view draws the \emph{finest} extrema layer only ---
-        put \dev{scale\_select} in the chain to choose which.
+  \item The vector (3-D) view draws one extrema layer: the level the layer shows
+        (\S\ref{sec:transport}).
   \item \sloppy\textbf{Decomposition extras}: \dev{ssa2d} --- \texttt{ssa\_recon},
         \texttt{ssa\_residual}, \texttt{ssa\_components} $(n,n_y,n_x)$,
         \texttt{ssa\_eigen\_share}, \texttt{ssa\_eigenarrays} $(n,L_r,L_c)$,
