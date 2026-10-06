@@ -66,8 +66,17 @@ class Param:
     #: section (``"reconstruction"``). Presentation only: validation, defaults and cache keys
     #: never read it.
     section: str = ""
+    #: CHOICE only: a display label per entry of ``choices``, in the same order; empty, the knob
+    #: shows the stored values. Presentation only: validation, defaults and cache keys read the
+    #: stored value.
+    choice_labels: tuple[str, ...] = ()
 
     def __post_init__(self):
+        # A payload or a keyword copy hands a list; a frozen, hashable Param holds a tuple.
+        object.__setattr__(self, "choice_labels", tuple(self.choice_labels))
+        if self.choice_labels and len(self.choice_labels) != len(self.choices):
+            raise ValueError(f"{self.name}: {len(self.choice_labels)} choice labels for "
+                             f"{len(self.choices)} choices {self.choices}")
         if self.kind is ParamKind.CHOICE:
             if not self.choices:
                 raise ValueError(f"{self.name}: CHOICE param needs choices")
@@ -149,6 +158,7 @@ class Param:
         d = dataclasses.asdict(self)
         d["kind"] = self.kind.value
         d["choices"] = list(self.choices)
+        d["choice_labels"] = list(self.choice_labels)
         return d
 
     @classmethod

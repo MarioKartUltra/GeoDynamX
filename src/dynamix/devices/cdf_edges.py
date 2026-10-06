@@ -80,8 +80,11 @@ class CDFEdges:
         # scripts' own value.
         Param("dt", ParamKind.FLOAT, default=0.2, min=0.001, max=0.24,
               soft_min=0.1, soft_max=0.22, units="", label="dt"),
+        # Re is read by Canny's non-maximum suppression, Im by Marr's zero crossings. Saved
+        # chains name the stored values, so they stay "mz" and "marr".
         Param("edge_mode", ParamKind.CHOICE, default="mz",
-              choices=("mz", "marr"), label="Edges"),
+              choices=("mz", "marr"), choice_labels=("Canny (Re)", "Marr (Im)"),
+              label="Edges"),
         # xsmurf's follow takes four IMAGES -- detector="follow" feeds it this device's own
         # smoothed snapshots via FD derivative stacks (dynamix.core.xsmurf_follow.kapa_from_field)
         # and runs the exact ported detector; edge_mode/interpolate are inert under it

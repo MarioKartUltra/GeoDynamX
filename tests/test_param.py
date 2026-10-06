@@ -175,3 +175,34 @@ def test_section_payload_round_trips_and_an_older_payload_reads_as_the_strip():
     older = p.to_payload()
     del older["section"]
     assert Param.from_payload(older).section == ""
+
+
+def test_choice_labels_name_each_stored_choice_and_survive_the_payload():
+    p = Param("edge_mode", ParamKind.CHOICE, default="mz", choices=("mz", "marr"),
+              choice_labels=("Canny (Re)", "Marr (Im)"), label="Edges")
+    assert p.validate("marr") == "marr"
+    with pytest.raises(ValueError):
+        p.validate("Marr (Im)")                          # a label is never a stored value
+    assert Param.from_payload(p.to_payload()) == p
+    older = p.to_payload()
+    del older["choice_labels"]
+    assert Param.from_payload(older).choice_labels == ()
+    # shell/demo.py's keyword copy of a param, with the payload's list of labels
+    copy = Param(**{**p.to_payload(), "kind": p.kind, "choices": tuple(p.choices)})
+    assert copy == p and hash(copy) == hash(p)
+
+
+def test_choice_labels_must_match_the_choices():
+    with pytest.raises(ValueError, match="choice labels"):
+        Param("edge_mode", ParamKind.CHOICE, default="mz", choices=("mz", "marr"),
+              choice_labels=("Canny (Re)",))
+    with pytest.raises(ValueError, match="choice labels"):
+        Param("n", ParamKind.INT, default=1, choice_labels=("one",))
+
+
+def test_cdf_edges_labels_its_edge_readouts_and_stores_mz_and_marr():
+    from dynamix.devices.cdf_edges import CDFEdges
+
+    p = next(p for p in CDFEdges.params if p.name == "edge_mode")
+    assert p.choices == ("mz", "marr") and p.default == "mz"
+    assert p.choice_labels == ("Canny (Re)", "Marr (Im)")

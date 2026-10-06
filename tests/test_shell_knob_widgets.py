@@ -161,3 +161,54 @@ def test_editable_text_unchanged_commit_does_not_emit(qtbot):
     w.editingFinished.emit()             # Enter without touching the text
 
     assert seen == []
+
+
+def _labelled_edges():
+    return Param("edge_mode", ParamKind.CHOICE, default="mz", choices=("mz", "marr"),
+                 choice_labels=("Canny (Re)", "Marr (Im)"))
+
+
+def test_cycle_shows_the_choice_label_and_emits_the_stored_value(qtbot):
+    w = make_control(control_spec(_labelled_edges()), "mz")
+    qtbot.addWidget(w)
+    assert w.text() == "Canny (Re)"
+    with qtbot.waitSignal(w.valueChanged) as sig:
+        qtbot.mouseClick(w, QtCore.Qt.LeftButton)
+    assert sig.args[0] == "marr" and w.text() == "Marr (Im)"
+    w.set_value("mz")
+    assert w.text() == "Canny (Re)"
+
+
+def test_cycle_menu_lists_the_labels_and_selects_the_stored_value(qtbot, monkeypatch):
+    """The right-click menu, with a stand-in for the modal QMenu that picks the second entry."""
+    from PySide6 import QtGui, QtWidgets
+
+    w = make_control(control_spec(_labelled_edges()), "mz")
+    qtbot.addWidget(w)
+    listed = []
+
+    class PickTheSecond:
+        def __init__(self, _parent):
+            self.texts = []
+
+        def addAction(self, text):
+            self.texts.append(text)
+            return text
+
+        def exec(self, _pos):
+            listed.extend(self.texts)
+            return self.texts[1]
+
+    monkeypatch.setattr(QtWidgets, "QMenu", PickTheSecond)
+    at = QtCore.QPoint(1, 1)
+    event = QtGui.QContextMenuEvent(QtGui.QContextMenuEvent.Mouse, at, w.mapToGlobal(at))
+    with qtbot.waitSignal(w.valueChanged) as sig:
+        w.contextMenuEvent(event)
+    assert listed == ["Canny (Re)", "Marr (Im)"] and sig.args[0] == "marr"
+
+
+def test_cycle_without_labels_shows_the_stored_value(qtbot):
+    p = Param("wavelet", ParamKind.CHOICE, default="mexican", choices=("mexican", "morlet"))
+    w = make_control(control_spec(p), "morlet")
+    qtbot.addWidget(w)
+    assert w.text() == "morlet"

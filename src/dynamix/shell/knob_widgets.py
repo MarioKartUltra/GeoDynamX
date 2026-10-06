@@ -249,7 +249,14 @@ class CycleButton(QtWidgets.QPushButton):
         self._refresh()
 
     def _refresh(self) -> None:
-        self.setText(str(self._value))
+        self.setText(self._label(self._value))
+
+    def _label(self, value) -> str:
+        """``value``'s display label (the param's ``choice_labels``), else the value itself."""
+        param = self._spec.param
+        if param.choice_labels and value in param.choices:
+            return param.choice_labels[param.choices.index(value)]
+        return str(value)
 
     def _advance(self) -> None:
         choices = self._spec.param.choices
@@ -263,7 +270,8 @@ class CycleButton(QtWidgets.QPushButton):
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
         menu = QtWidgets.QMenu(self)
-        actions = {menu.addAction(choice): choice for choice in self._spec.param.choices}
+        actions = {menu.addAction(self._label(choice)): choice
+                   for choice in self._spec.param.choices}
         chosen = menu.exec(event.globalPos())
         if chosen in actions:
             self._select(actions[chosen])
