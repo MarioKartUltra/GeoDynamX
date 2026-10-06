@@ -174,7 +174,7 @@ class BandReconMeasure:
     families = ("Reconstruction",)
     consumes = ((FIELD,),)
     produces = (HMAP,)
-    params = HolderMeasure.params + _BAND_KNOBS
+    params = HolderMeasure.engine_params + _BAND_KNOBS
 
     def roi_margin(self, params: dict) -> int:
         from dynamix.devices.holder_methods import holder_roi_margin
@@ -205,7 +205,7 @@ class BandReconMultiaffine:
     families = ("Reconstruction",)
     consumes = ((FIELD,),)
     produces = (HMAP,)
-    params = HolderMultiaffine.params + _BAND_KNOBS
+    params = HolderMultiaffine.engine_params + _BAND_KNOBS
 
     def roi_margin(self, params: dict) -> int:
         from dynamix.devices.holder_methods import holder_roi_margin

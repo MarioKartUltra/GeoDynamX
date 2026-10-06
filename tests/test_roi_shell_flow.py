@@ -1000,6 +1000,7 @@ def test_reconstruct_commits_a_band_recon_child_on_an_roi_result(plain_window, q
     assert child.parent_id == parent.layer_id
     assert child.tags.get("roi.window") == parent.tags.get("roi.window")
     assert np.asarray(win._active_result["raster_out"]).shape == h.shape
+    assert [s.device for s in child.chain.steps] == [f"band_recon_{tool[len('holder_'):]}"]
 
 
 def _append(win, qtbot, device):

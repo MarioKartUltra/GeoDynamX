@@ -2585,7 +2585,9 @@ off / z from this layer's own values / z from another loaded
         producer = next((n for n in _BAND_FOR_ANALYZER if n in self._names), None)
         engine = dict(defaults_for(get_device(recon_name)))
         if producer is not None:
-            engine.update(self._params[self._names.index(producer)])
+            # The variant takes the producer's params it declares: the engine and band knobs.
+            engine.update({k: v for k, v in self._params[self._names.index(producer)].items()
+                           if k in engine})
         engine.update(band)
         chain = Chain((DeviceRef(recon_name, engine),)).materialized()
         field = self._fields.get(parent.layer_id, self.field)

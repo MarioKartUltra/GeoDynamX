@@ -37,6 +37,7 @@ import functools
 
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.model.contracts import FIELD, HMAP
+from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 
 
@@ -343,12 +344,43 @@ def q_warning(method: str, name: str, value, params: "dict | None") -> "str | No
     return ""
 
 
+_RECON = "reconstruction"
+
+#: The band reconstruction's knobs: band_recon's band and island sieve (same names, bounds and
+#: defaults), view-only and drawn in the Reconstruction section. The band outputs read them and
+#: the analysis key leaves them out, so a band scrub keeps the h-map cached.
+_BAND_VIEW_KNOBS = (
+    Param("h_lo", ParamKind.FLOAT, default=-2.0, min=-6.0, max=6.0,
+          soft_min=-1.5, soft_max=1.0, units="", label="h ≥", view=True, section=_RECON),
+    Param("h_hi", ParamKind.FLOAT, default=0.0, min=-6.0, max=6.0,
+          soft_min=-0.5, soft_max=2.0, units="", label="h <", view=True, section=_RECON),
+    # Island sieve: mask components below min_island px (and, when max_island > 0, above it)
+    # are dropped before the inversion; 8-connectivity keeps diagonal ribbons whole.
+    Param("min_island", ParamKind.INT, default=0, min=0, max=100000,
+          soft_min=0, soft_max=500, units="px", label="Min island", view=True,
+          section=_RECON),
+    Param("max_island", ParamKind.INT, default=0, min=0, max=10000000,
+          soft_min=0, soft_max=100000, units="px", label="Max island", view=True,
+          section=_RECON),
+    Param("connectivity", ParamKind.CHOICE, default="8", choices=("8", "4"),
+          label="Connectivity", view=True, section=_RECON),
+)
+_BAND_PARAMS = tuple(p.name for p in _BAND_VIEW_KNOBS)
+
+#: Show picks what the canvas draws in place of the field: the h-map (the analysis itself) or
+#: one of the band outputs.
+_MFA_VIEW_PARAMS = (
+    Param("show", ParamKind.CHOICE, default="h_map", choices=("h_map", "band", "band_mask"),
+          label="Show", view=True),
+) + _BAND_VIEW_KNOBS
+
+
 def _compute(device, method: str, field, params: dict, progress=None) -> dict:
     vals = field_values_2d(field, device.name)
     h_map, r2_map, scales = method_arrays(vals, method, params, progress)
     return {
         "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
-        "scales": scales, "params": dict(params),
+        "scales": scales, "params": keyed_params(device, params),
         "_frame": getattr(field, "frame", None), "_shape": vals.shape,
     }
 
@@ -368,6 +400,9 @@ class HolderMeasure:
               choices=("gaussian", "q_gaussian", "lorentzian", "frac_gaussian"),
               label="Wavelet"),
     ) + _FAMILY_KNOBS + _width_knobs("q_gaussian") + (_CONSTRUCTION,)
+    #: The h-map engine's knobs; band_recon_measure carries them verbatim.
+    engine_params = params
+    params = engine_params + _MFA_VIEW_PARAMS
 
     def check(self, params: dict) -> None:
         q_width_check("measure", params)
@@ -375,6 +410,12 @@ class HolderMeasure:
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "measure", field, params, progress)
+
+    def view(self, result: dict, params: dict) -> dict:
+        """The cached h-map result itself: Show and the band knobs choose a lazy output, which
+        the window draws from that output's own cache entry, so every resolve hands over the
+        same result object (the 3-D scene rebuilds a layer whenever that object changes)."""
+        return result
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         return knob_warning("measure", name, value, params)
@@ -387,7 +428,7 @@ class HolderMeasure:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
 
 class HolderMultiaffine:
@@ -406,6 +447,9 @@ class HolderMultiaffine:
               choices=("g1", "g2", "g3", "q_mexican", "lorentzian_marr", "frac_gaussian"),
               label="Wavelet"),
     ) + _MULTIAFFINE_KNOBS + _width_knobs("q_mexican") + (_CONSTRUCTION,)
+    #: The h-map engine's knobs; band_recon_multiaffine carries them verbatim.
+    engine_params = params
+    params = engine_params + _MFA_VIEW_PARAMS
 
     def check(self, params: dict) -> None:
         q_width_check("multiaffine", params)
@@ -413,6 +457,12 @@ class HolderMultiaffine:
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "multiaffine", field, params, progress)
+
+    def view(self, result: dict, params: dict) -> dict:
+        """The cached h-map result itself: Show and the band knobs choose a lazy output, which
+        the window draws from that output's own cache entry, so every resolve hands over the
+        same result object (the 3-D scene rebuilds a layer whenever that object changes)."""
+        return result
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         return knob_warning("multiaffine", name, value, params)
@@ -425,4 +475,4 @@ class HolderMultiaffine:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))

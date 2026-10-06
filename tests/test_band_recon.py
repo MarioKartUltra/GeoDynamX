@@ -92,8 +92,8 @@ def test_variant_engine_params_are_their_holder_siblings_verbatim():
     from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
 
     band_knobs = BandRecon.params[len(HolderMap.params):]
-    assert BandReconMeasure.params == HolderMeasure.params + band_knobs
-    assert BandReconMultiaffine.params == HolderMultiaffine.params + band_knobs
+    assert BandReconMeasure.params == HolderMeasure.engine_params + band_knobs
+    assert BandReconMultiaffine.params == HolderMultiaffine.engine_params + band_knobs
 
 
 def test_variant_compute_is_exactly_the_split_band_pipeline():
