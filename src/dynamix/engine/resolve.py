@@ -208,9 +208,35 @@ def _refuse_the_picture(layer, field, steps) -> None:
                 "picture, not data. Save an ROI and run the tool on it (native pixels).")
 
 
+def _at_level(result, level: int):
+    """``result`` reduced to level ``level`` (0-based, a ``scale_select`` index) by
+    ``scale_select``'s own apply, so it carries the stamps that step makes (``_scale_idx``,
+    ``_ext_base``, ``_ext_base_runs``, ``_ext_base_closed``, ``_scale_px``) and keeps its
+    chains. A result of one level or none, and a field stage's field, pass whole."""
+    if not isinstance(result, dict) or len(result.get("extrema") or ()) <= 1:
+        return result
+    # The engine imports no device module at import time; this one is read on demand.
+    from dynamix.devices.filters import ScaleSelect
+
+    return ScaleSelect().apply(result, {"scale_idx": int(level)})
+
+
+def shown_level(layer) -> int | None:
+    """The level (0-based, a ``scale_select`` index) the main view shows on ``layer``: its
+    ``ui.scale_idx`` tag, or ``None`` when the tag is absent or not an integer."""
+    text = layer.tags.get("ui.scale_idx")
+    if text is None:
+        return None
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        return None
+
+
 def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             progress: Callable[[str, float], None] | None = None,
-            cancel: Callable[[], bool] | None = None) -> Renderable:
+            cancel: Callable[[], bool] | None = None,
+            level: int | None = None) -> Renderable:
     """Run ``layer``'s chain over ``field`` and return the renderable.
 
     ``source_id`` defaults to the layer's, and is what ties a cached transform to its input; pass
@@ -229,10 +255,17 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     and a skipped transform neither advances ``upstream`` nor becomes the analysis. Running such a
     step is not equivalent (``min_vchains`` after a chainless analysis deletes every labelled
     H-line), so a skipped step passes everything by construction.
+
+    ``level``: the scale level on show (0-based, a ``scale_select`` index), or ``None``. When
+    given, the result of the last applying transform is reduced to that level by
+    ``scale_select``'s own apply before the first filter runs (at the end when there is none), so
+    the filters see one level carrying the stamps a ``scale_select`` step makes; the chains stay
+    whole. With ``level`` given the steps are judged with ``level_view=True``, so a
+    ``scale_select`` step the chain still holds does not apply and the stack is reduced once.
     """
     sid = source_identity(layer, source_id)
     layer_input = input_contract(field)
-    states = step_states(layer.chain.steps, layer_input)
+    states = step_states(layer.chain.steps, layer_input, level_view=level is not None)
     steps = [ref for ref, state in zip(layer.chain.steps, states) if state.applies]
     _refuse_the_picture(layer, field, steps)
     hits0, misses0 = cache.hits, cache.misses
@@ -268,6 +301,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         analysis = (analyzer.name, analyzer_params, upstream, None)
         ran_t.extend(d.name for d, _p in roi_steps)
         start = len(roi_steps)
+    leveled = level is None          # the shown level is taken once, before the first filter
     for ref in steps[start:]:
         device = get_device(ref.device)
         params = validate_params(device, ref.params)
@@ -289,6 +323,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             upstream = key
             ran_t.append(device.name)
         else:
+            if not leveled:
+                result, leveled = _at_level(result, level), True
             # Selection model: aware filters narrow index selections
             # over the transform's chain product instead of copying dicts. A device outside
             # that model must see honest filtered dicts, exactly as the sequential dict path
@@ -299,6 +335,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             result = device.apply(result, params)
             ran_f.append(device.name)
 
+    if not leveled:
+        result = _at_level(result, level)
     # The one honest gather per resolve: whatever selection is still live becomes the terminal
     # result's filtered extrema/chains, while the product + selection stay stamped for the
     # views' own index path.

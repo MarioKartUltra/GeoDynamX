@@ -14,7 +14,8 @@ from dynamix.core.frames import LocalFrame
 from dynamix.core.rasterfield import RasterField
 from dynamix.engine.cache import Cache, cache_key
 from dynamix.engine.resolve import (level_keeps, output_key, preview_resolve, resolve,
-                                    resolve_output, selection_recipe, selection_steps)
+                                    resolve_output, selection_recipe, selection_steps,
+                                    shown_level)
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.device import (apply_view, declared_outputs, get_device, keyed_params,
@@ -239,3 +240,56 @@ def test_level_keeps_leaves_out_a_filter_that_does_not_apply(builtins):
     for level in range(1, len(raw["extrema"]) + 1):
         assert level_keeps(layer, raw, dev, r.analysis_params, level, FIELD).all()
         assert not level_keeps(layer, raw, dev, r.analysis_params, level).any()
+
+
+def test_a_level_reduces_the_stack_before_the_filters_with_scale_selects_stamps(builtins):
+    field, cache = _field(), Cache()
+    threshold = ("modulus_threshold", {"frac": 0.3})
+    by_level = resolve(_layer(("wtmm2d", WTMM), threshold), field, cache, level=2)
+    by_step = resolve(_layer(("wtmm2d", WTMM), ("scale_select", {"scale_idx": 2}), threshold),
+                      field, cache)
+    assert by_level.analysis_key == by_step.analysis_key
+    assert by_level.filters_run == ("modulus_threshold",)
+    assert len(by_level.result["extrema"]) == 1 and by_level.result["_scale_idx"] == 2
+    assert by_level.result["_scale_px"] == by_step.result["_scale_px"]
+    assert by_level.result["_ext_base"] is by_step.result["_ext_base"]
+    assert by_level.result["_ext_base_runs"] is by_step.result["_ext_base_runs"]
+    for key, value in by_step.result["extrema"][0].items():
+        np.testing.assert_array_equal(by_level.result["extrema"][0][key], value)
+    assert len(by_level.result["chains"]) == len(cache.get(by_level.analysis_key)["chains"])
+
+
+def test_a_level_reduces_a_chain_without_filters_and_spares_a_field(builtins):
+    field, cache = _field(), Cache()
+    assert len(resolve(_layer(("wtmm2d", WTMM)), field, cache).result["extrema"]) > 1
+    r = resolve(_layer(("wtmm2d", WTMM)), field, cache, level=1)
+    assert len(r.result["extrema"]) == 1 and r.result["_scale_idx"] == 1
+    assert isinstance(resolve(_layer(("noise", {})), field, cache, level=1).result, RasterField)
+
+
+def test_a_level_overrides_an_old_scale_select_step_and_none_keeps_it(builtins):
+    field, cache = _field(), Cache()
+    threshold = ("modulus_threshold", {"frac": 0.3})
+    old = _layer(("wtmm2d", WTMM), ("scale_select", {"scale_idx": 3}), threshold)
+    shown = resolve(old, field, cache, level=1)
+    assert [s.applies for s in shown.step_states] == [True, False, True]
+    assert shown.step_states[1].reason == "the scale is set by the Transport"
+    assert shown.filters_run == ("modulus_threshold",)
+    assert len(shown.result["extrema"]) == 1 and shown.result["_scale_idx"] == 1
+    at_one = resolve(_layer(("wtmm2d", WTMM), ("scale_select", {"scale_idx": 1}), threshold),
+                     field, cache)
+    for key, value in at_one.result["extrema"][0].items():
+        np.testing.assert_array_equal(shown.result["extrema"][0][key], value)
+    today = resolve(old, field, cache)
+    assert all(s.applies for s in today.step_states)
+    assert today.filters_run == ("scale_select", "modulus_threshold")
+    assert len(today.result["extrema"]) == 1 and today.result["_scale_idx"] == 3
+
+
+def test_shown_level_reads_the_layer_tag():
+    layer = Layer(layer_id=1, name="L", source_id="s")
+    assert shown_level(layer) is None
+    layer.tags["ui.scale_idx"] = "3"
+    assert shown_level(layer) == 3
+    layer.tags["ui.scale_idx"] = "three"
+    assert shown_level(layer) is None
