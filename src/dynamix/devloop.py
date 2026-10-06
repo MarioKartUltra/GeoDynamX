@@ -95,7 +95,8 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
     "theme", "knobs", "knob_widgets", "worker", "opening", "point_import", "units", "settings",
-    "browser", "chain_strip", "workflow_zone", "transport", "canvas", "inspector", "roi_panel",
+    "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas", "inspector",
+    "roi_panel",
     "right_panel", "layer_panel", "arrangement_facade", "view_dialog", "topology_panel",
     "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window",
     "spectrum_window", "surface_dialog", "levels_dialog", "main_window",
@@ -118,6 +119,8 @@ _DEPENDS_ON = {
     "browser": (),
     "chain_strip": ("knobs", "knob_widgets", "units"),
     "workflow_zone": ("knobs", "knob_widgets", "browser"),
+    # The rack editor dialog: the family tree (browser) and the zone's DeviceBox knobs.
+    "rack_editor": ("browser", "workflow_zone"),
     "transport": (),
     "canvas": ("theme", "units"),
     # The per-source floating inspector HOSTS the existing Canvas and the
@@ -193,7 +196,7 @@ _DEPENDS_ON = {
                     "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement",
                     "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel",
                     "profile_dialog", "multifractal_window", "spectrum_window", "surface_dialog",
-                    "levels_dialog", "inspector"),
+                    "levels_dialog", "inspector", "rack_editor"),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"

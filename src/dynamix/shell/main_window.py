@@ -108,6 +108,7 @@ from dynamix.shell.anisotropy_window import AnisotropyWindow
 from dynamix.shell.spectrum_window import SpectrumWindow
 from dynamix.shell.point_import import load_points
 from dynamix.shell.profile_dialog import ProfileDialog
+from dynamix.shell.rack_editor import RackEditor
 from dynamix.shell.right_panel import CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
 from dynamix.shell.settings import (Settings, load_settings, racks_dir, save_settings,
@@ -1161,6 +1162,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # rows set_presets made).
         self._user_racks = load_racks(racks_dir())
         self.browser.set_racks(self._rack_entries())
+        # A double-click opens the rack in the editor.
+        self._rack_editor: RackEditor | None = None
+        self.browser.rackEditRequested.connect(self._open_rack_editor)
         self.layer_list = LayerPanel(self.project)
         self.layer_list.layerSelected.connect(self._on_layer_selected)
         self.layer_list.hideToggled.connect(self._on_hide_toggled)
@@ -1686,6 +1690,10 @@ class MainWindow(QtWidgets.QMainWindow):
         export_derived_action = QtGui.QAction("Export Derived Raster (.npz)…", self)
         export_derived_action.triggered.connect(self._on_export_derived_clicked)
         file_menu.addAction(export_derived_action)
+        racks_menu = self.menuBar().addMenu("Racks")
+        rack_editor_action = QtGui.QAction("Rack Editor…", self)
+        rack_editor_action.triggered.connect(lambda: self._open_rack_editor(None))
+        racks_menu.addAction(rack_editor_action)
 
         # Minimal Settings menu: one checkable action, read fresh at every open rather than
         # cached on the window, so a setting changed in one window's menu is honoured the next
@@ -6684,6 +6692,15 @@ both ``Canvas`` signals report the
             return
         self._reload_racks()
         self._notify(f"saved rack {name} ({len(rack.steps)} steps)", "status")
+
+    def _open_rack_editor(self, name: "str | None" = None) -> None:
+        """The rack editor, on ``name`` or on a new rack. Saving or deleting there reloads the
+        rack rows."""
+        editor = RackEditor(racks_dir(), self._rack_entries(), name=name, parent=self)
+        editor.racksChanged.connect(self._reload_racks)
+        editor.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+        self._rack_editor = editor
+        editor.show()
 
     # -- the two paths ---------------------------------------------------------------------
     def _on_param_changed(self, step_index: int, name: str, value) -> None:
