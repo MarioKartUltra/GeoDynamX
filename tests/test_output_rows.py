@@ -280,7 +280,8 @@ def test_the_vector_view_entry_carries_the_edges_gate(win, qtbot):
 
 def test_an_edges_hidden_tag_hides_nothing_once_no_edges_row_exists(win, qtbot):
     """``ui.edges_hidden`` is the edges row's H: a cdf child whose analyzer is swapped for
-    wtmm2d (which declares no outputs) keeps the tag, and its maxima draw all the same."""
+    wtmm2d (whose rows are its per-scale rasters, no edges row) keeps the tag, and its maxima
+    draw all the same."""
     child = _tool_layer(win, qtbot, "cdf_edges", n_levels=2)
     lid = child.layer_id
     win.layer_list._output_rows[lid]["edges"].hide_button.click()
@@ -294,7 +295,8 @@ def test_an_edges_hidden_tag_hides_nothing_once_no_edges_row_exists(win, qtbot):
         win._on_chain_edited(desc)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     assert win.layer is child and [s.device for s in child.chain.steps] == ["wtmm2d"]
-    assert child.tags.get("ui.edges_hidden") == "1" and lid not in win.layer_list._output_groups
+    assert child.tags.get("ui.edges_hidden") == "1"
+    assert list(win.layer_list._output_rows[lid]) == ["modulus", "argument"]
     assert win.canvas.extrema_raster_item.isVisible() is True
     seen = []
 

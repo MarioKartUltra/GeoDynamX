@@ -129,3 +129,110 @@ def test_no_level_is_level_zero(fake):
     assert fake.calls == [("each", {"level": 0})]
     resolve_output(layer, field, cache, "each", level=0)
     assert len(fake.calls) == 1
+
+
+# --------------------------------------------------------------------- wtmm2d
+
+
+def test_wtmm2d_declares_modulus_and_argument_rows_off_by_default(builtins):
+    dev = get_device("wtmm2d")
+    outs = declared_outputs(dev)
+    assert [o.name for o in outs] == ["modulus", "argument"]
+    assert all(o.lazy and o.per_level and o.kind == "raster" and o.row for o in outs)
+    show = next(p for p in dev.params if p.name == "show")
+    assert show.view and show.default == "edges"
+    assert show.choices == ("edges", "modulus", "argument")
+    assert "show" not in keyed_params(dev, defaults_for(dev))      # the analysis key is unchanged
+
+
+def test_wtmm2d_analysis_key_does_not_move_with_show(builtins):
+    field, cache = _field(_smooth()), Cache()
+    a = resolve(_layer(("wtmm2d", FAST_WTMM)), field, cache)
+    b = resolve(_layer(("wtmm2d", {**FAST_WTMM, "show": "modulus"})), field, cache)
+    assert a.analysis_key == b.analysis_key and b.cache_misses == 0
+
+
+@pytest.mark.parametrize("detector", ["nms", "follow"])
+def test_run_wtmm2d_level_is_that_level_of_the_full_runs_cwt_stage(builtins, monkeypatch,
+                                                                   detector):
+    """The lifted stack the full run's extrema stage reads, captured where ``run_wtmm2d``
+    lifts it, against one level at a time. ``wtmm_levels`` binds the lift at import, so the
+    capture sees the full run's one call only."""
+    from dynamix.core import wtmm_backend
+    from dynamix.core.wtmm_levels import run_wtmm2d_level
+
+    lifted = []
+    real = wtmm_backend._apply_fracint2d
+
+    def capture(cwt, scales, alpha):
+        out = real(cwt, scales, alpha)
+        lifted.append(out)
+        return out
+
+    monkeypatch.setattr(wtmm_backend, "_apply_fracint2d", capture)
+    values = _smooth()
+    params = {"n_oct": 2, "n_voice": 2, "a_min": 1.0, "wavelet": "mexican",
+              "fracint_alpha": 0.7, "detector": detector}
+    scales = wtmm_backend.run_wtmm2d(_field(values), params)["scales"]
+    (stage,) = lifted
+    for k in range(len(scales)):
+        one = run_wtmm2d_level(values, params, k)
+        assert one["scale"] == float(scales[k])
+        np.testing.assert_array_equal(one["mod"], stage["mod"][k])
+        np.testing.assert_array_equal(one["arg"], stage["arg"][k])
+    assert len(lifted) == 1
+    with pytest.raises(ValueError, match="outside"):
+        run_wtmm2d_level(values, params, len(scales))
+
+
+@pytest.mark.parametrize("extra", [{}, {"dither": True}, {"fracint_alpha": 0.0},
+                                   {"wavelet": "gaussian"}])
+def test_the_nms_maxima_of_the_level_k_modulus_are_the_stored_level_k_extrema(builtins,
+                                                                              extra):
+    from dynamix.core.wtmm_backend import _nms_extrema_scale
+
+    values = np.round(_smooth() * 4.0) / 4.0           # a measurable value lattice (dither)
+    field, cache = _field(values), Cache()
+    layer = _layer(("wtmm2d", {**FAST_WTMM, **extra}))
+    r = resolve(layer, field, cache)
+    raw = cache.get(r.analysis_key)
+    params = r.analysis_params
+    for k, stored in enumerate(raw["extrema"]):
+        mod = resolve_output(layer, field, cache, "modulus", level=k)
+        arg = resolve_output(layer, field, cache, "argument", level=k)
+        assert mod["raster"].dtype == np.float32 and mod["raster"].shape == values.shape
+        assert mod["diag"] == {"level": k, "scale_px": float(raw["scales"][k])}
+        got = _nms_extrema_scale(mod["raster"].astype(np.float64),
+                                 arg["raster"].astype(np.float64), thresh=params["thresh"],
+                                 radius=int(np.ceil(raw["scales"][k])))
+        np.testing.assert_array_equal(got["x"], stored["x"])
+        np.testing.assert_array_equal(got["y"], stored["y"])
+        np.testing.assert_array_equal(got["mod"], stored["mod"])
+
+
+def test_a_level_past_the_stack_reads_the_coarsest(builtins):
+    field, cache = _field(_smooth()), Cache()
+    layer = _layer(("wtmm2d", FAST_WTMM))
+    out = resolve_output(layer, field, cache, "modulus", level=99)
+    assert out["diag"]["level"] == 3
+
+
+def test_a_band_row_of_a_stack_gets_its_bands_levels(builtins):
+    """A multiband stack's band row (band_select ahead of wtmm2d) is a Field like any other: the
+    level raster is that band's, and a band removed from the dataset re-keys it."""
+    from dynamix.core.wtmm_levels import run_wtmm2d_level
+
+    stack = np.stack([_smooth(seed=s) for s in (1, 2, 3)], axis=-1)
+    field, cache = _field(stack), Cache()
+    steps = (("band_select", {"band": 2}), ("wtmm2d", FAST_WTMM))
+    layer = _layer(*steps)
+    out = resolve_output(layer, field, cache, "modulus", level=1)
+    want = run_wtmm2d_level(stack[..., 1], {"n_oct": 2, "n_voice": 2, "a_min": 1.0,
+                                            "wavelet": "mexican", "fracint_alpha": 1.0}, 1)
+    np.testing.assert_array_equal(out["raster"], want["mod"])
+    reduced = _layer(*steps, tags={"data.bands": "b1,b2"})
+    r1 = resolve(layer, field, cache)
+    r2 = resolve(reduced, field, cache)
+    o = _out("wtmm2d", "modulus")
+    assert (output_key("wtmm2d", o, r1.analysis_params, r1.analysis_key, level=1)
+            != output_key("wtmm2d", o, r2.analysis_params, r2.analysis_key, level=1))

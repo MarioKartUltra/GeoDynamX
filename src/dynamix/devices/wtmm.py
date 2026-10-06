@@ -10,7 +10,12 @@ from __future__ import annotations
 import numpy as np
 
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
+from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
+
+#: The params a per-scale output reads: the scale grid, the wavelet, the lift and the detector
+#: (which picks the cwt call the analysis made).
+_LEVEL_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "detector")
 
 
 class WTMM2D:
@@ -101,7 +106,18 @@ class WTMM2D:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        # The raster drawn in place of the field: "edges" is the field itself under the
+        # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
+        # Transport shows. View-only, so the analysis key never sees it.
+        Param("show", ParamKind.CHOICE, default="edges",
+              choices=("edges", "modulus", "argument"), label="Show", view=True),
     )
+
+    #: The layer panel's output rows, a radio over ``show``, off by default: the lifted
+    #: wavelet-gradient modulus the extrema are detected on, and its argument, one cache entry
+    #: per level, computed on request.
+    outputs = (Output("modulus", "raster", lazy=True, label="modulus", per_level=True),
+               Output("argument", "raster", lazy=True, label="argument", per_level=True))
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         from dynamix.core.wtmm_backend import run_wtmm2d
@@ -159,6 +175,43 @@ class WTMM2D:
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
         return res
+
+    def view(self, result: dict, params: dict) -> dict:
+        """``show`` picks a per-scale output, which the window computes and caches under its
+        own key; the analysis arrays are shown as they are."""
+        return result
+
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
+                       progress=None, cancel=None, level=None) -> dict:
+        """The per-scale output ``name`` (``modulus`` or ``argument``) of scale ``level``
+        (0-based, finest first, clipped into the result's scales as ``scale_select`` clips):
+        the backend's own one-scale cwt and lift
+        (:func:`~dynamix.core.wtmm_levels.run_wtmm2d_level`) over ``values`` dithered exactly
+        as :meth:`compute` dithers them. ``{"raster": float32, "diag": {"level", "scale_px"}}``."""
+        if name not in ("modulus", "argument"):
+            raise ValueError(f"{self.name}: no lazy output named {name!r}")
+        from dynamix.core.wtmm_backend import ComputeCancelled
+        from dynamix.core.wtmm_levels import run_wtmm2d_level
+
+        if cancel is not None and cancel():
+            raise ComputeCancelled()
+        values = np.asarray(values)
+        if params.get("dither"):
+            from dynamix.core.mz_edges import _dithered, measure_lsb
+
+            lsb = measure_lsb(values)
+            if lsb:
+                values = _dithered(values, lsb)
+        n = len(result["scales"])
+        idx = int(np.clip(0 if level is None else int(level), 0, n - 1))
+        if progress is not None:
+            progress(f"{name} scale {idx + 1}/{n}", 0.0)
+        one = run_wtmm2d_level(values, {k: params[k] for k in _LEVEL_KEYS}, idx)
+        if progress is not None:
+            progress(f"{name} scale {idx + 1}/{n}", 1.0)
+        raster = one["mod"] if name == "modulus" else one["arg"]
+        return {"raster": np.asarray(raster, dtype=np.float32),
+                "diag": {"level": idx, "scale_px": one["scale"]}}
 
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
