@@ -106,6 +106,24 @@ def row_level(layer) -> int:
     return 0 if level is None else level
 
 
+#: The layer-tag prefix of the levels marked for figures, per per-level output:
+#: ``ui.marked_levels.<output>`` holds a comma list of level indices (0-based, finest first,
+#: the ``ui.scale_idx`` numbering).
+MARKED_LEVELS = "ui.marked_levels."
+
+
+def marked_levels(layer, output: str) -> tuple[int, ...]:
+    """The levels of per-level ``output`` marked for figures on ``layer``, ascending. A garbled
+    entry in the tag is skipped (view metadata never raises)."""
+    levels = set()
+    for part in layer.tags.get(MARKED_LEVELS + output, "").split(","):
+        try:
+            levels.add(int(part))
+        except ValueError:
+            continue
+    return tuple(sorted(levels))
+
+
 #: The chip-hover feedback:
 #: "chip hover emits chipHovered(parent_layer_id) -> LayerPanel.flash_row(layer_id) (temporary
 #: selection-color property, 1 s timer)". The hover gesture elsewhere calls :meth:`LayerPanel.flash_row`; this module only has to make the flash
@@ -189,6 +207,7 @@ class _OutputRow(QtWidgets.QWidget):
                "(one raster output at a time)")
         self.hide_button = _LayerRow._make_button("H", tip, hidden)
         self.tooltip = tip
+        self.output = output
         row.addWidget(self.hide_button)
         self.hide_button.toggled.connect(self.hideToggled.emit)
 
@@ -316,6 +335,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
     outputHideToggled = QtCore.Signal(int, str, bool)
     #: "Save chain as rack…": the layer whose chain becomes a user rack.
     saveRackRequested = QtCore.Signal(int)
+    #: ``(layer_id, output name)`` -- "Mark level" on a per-level output row: the level it shows
+    #: joins (or leaves) the levels marked for figures.
+    outputMarkToggled = QtCore.Signal(int, str)
 
     def __init__(self, project=None, parent=None):
         super().__init__(parent)
@@ -1091,6 +1113,22 @@ class LayerPanel(QtWidgets.QTreeWidget):
         rack_action.triggered.connect(lambda: self.saveRackRequested.emit(layer_id))
         return menu
 
+    def _build_output_context_menu(self, layer_id: int, name: str) -> "QtWidgets.QMenu | None":
+        """A per-level output row's menu: mark the level the row shows for figures, or unmark it
+        when it is marked. ``None`` for any other output row. Split out so a test can trigger
+        the action without the blocking popup."""
+        row = self._output_rows.get(layer_id, {}).get(name)
+        layer = next((l for l in (self._project.layers if self._project is not None else [])
+                      if l.layer_id == layer_id), None)
+        if row is None or layer is None or not row.output.per_level:
+            return None
+        level = row_level(layer)
+        verb = "Unmark" if level in marked_levels(layer, name) else "Mark"
+        menu = QtWidgets.QMenu(self)
+        action = menu.addAction(f"{verb} level {level + 1} for figures")
+        action.triggered.connect(lambda: self.outputMarkToggled.emit(layer_id, name))
+        return menu
+
     def _build_source_context_menu(self, source_id: str) -> QtWidgets.QMenu:
         """A dataset row's menu: "Remove dataset" (the shell owns the confirmation and cascade),
         preceded by "Save derivative as…" on a TEMPORARY derivative."""
@@ -1164,6 +1202,13 @@ class LayerPanel(QtWidgets.QTreeWidget):
             return
         if item.data(0, _BAND_SOURCE_ROLE) is not None:
             return                                        # the Bands row: nothing to do
+        output = item.data(0, _OUTPUT_KEY_ROLE)
+        if output is not None:
+            menu = self._build_output_context_menu(int(item.data(0, _OUTPUT_LAYER_ROLE)),
+                                                   str(output))
+            if menu is not None:
+                menu.exec(self.viewport().mapToGlobal(pos))
+            return
         layer_id = item.data(0, _LAYER_ID_ROLE)
         if layer_id is None or item.data(0, _SOURCE_ID_ROLE) is not None:
             # A source header names a raster, not a layer -- so it gets the DATASET action:

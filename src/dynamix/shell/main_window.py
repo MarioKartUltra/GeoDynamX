@@ -100,8 +100,8 @@ from dynamix.shell.import_dialog import ImportGridsDialog
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
 # existing Transport, both of which this module already imports eagerly anyway.
 from dynamix.shell.inspector import NO_RESULT_TEXT, InspectorWindow
-from dynamix.shell.layer_panel import (LayerPanel, ReferencePanel, layer_outputs, row_level,
-                                      shown_output)
+from dynamix.shell.layer_panel import (MARKED_LEVELS, LayerPanel, ReferencePanel, layer_outputs,
+                                      marked_levels, row_level, shown_output)
 from dynamix.shell.levels_dialog import BandDialog, LevelsDialog
 from dynamix.shell.multifractal_window import MultifractalWindow
 from dynamix.shell.opening import open_field
@@ -1091,6 +1091,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._out_held: "tuple | None" = None
         self._out_notes: dict[str, str] = {}
         self._out_keys: dict[int, set] = {}
+        # ``(layer_id, output name, level)`` -> the output key pinned for that marked level
+        # (``ui.marked_levels.<output>``), re-derived at every row sync so a chain edit moves the
+        # pin to the new key and a row turned off releases it.
+        self._marked_keys: dict[tuple, str] = {}
         self._out_t0 = 0.0
         # ``(layer_id, key)`` of the reconstruction Run asked for: until it lands (or is stopped,
         # superseded or fails) its row requests and draws it in place of the preview
@@ -1203,6 +1207,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # hides the maxima drawing.
         self.layer_list.outputHideToggled.connect(self._on_output_hide_toggled)
         self.layer_list.saveRackRequested.connect(self._on_save_rack_requested)
+        self.layer_list.outputMarkToggled.connect(self._on_output_mark_toggled)
         self.resolved.connect(self._fan_out_to_inspectors)
         # What the browser rows were last greyed for (_sync_browser_states).
         self._browser_key = None
@@ -4194,6 +4199,9 @@ both ``Canvas`` signals report the
         # The reopened project's layers may reuse the old ids: output bookkeeping keyed by them
         # goes. An output job still in flight lands on a layer that is no longer registered and
         # is ignored (_land_output's identity check).
+        for key in self._marked_keys.values():
+            self.cache.unpin(key)
+        self._marked_keys = {}
         self._out_keys = {}
         self._out_request = None
         self._out_held = None
@@ -4636,6 +4644,52 @@ both ``Canvas`` signals report the
                         "show", off if hidden else name)
         self._sync_output_rows(layer)
 
+    def _on_output_mark_toggled(self, layer_id: int, name: str) -> None:
+        """A per-level output row's "Mark level" (``LayerPanel.outputMarkToggled``): the level
+        the row shows joins ``ui.marked_levels.<output>``, or leaves it when it is already
+        there. A drawing choice, so a locked layer takes it too. The row sync moves the pins
+        (:meth:`_sync_marked_pins`)."""
+        layer = self._layer_by_id.get(layer_id)
+        if layer is None:
+            return
+        levels = set(marked_levels(layer, name)) ^ {row_level(layer)}
+        if levels:
+            layer.tags[MARKED_LEVELS + name] = ",".join(str(l) for l in sorted(levels))
+        else:
+            layer.tags.pop(MARKED_LEVELS + name, None)
+        self._sync_output_rows(layer)
+
+    def _sync_marked_pins(self, layer) -> None:
+        """Pin the cache key of every marked level of ``layer``'s per-level output on show, at
+        the chain's current keys, and unpin the keys a chain edit re-keyed, an unmark dropped or
+        a row turned off no longer shows. A key Freeze holds stays pinned. The step is the one
+        the rows show (:func:`layer_outputs` on the layer's input)."""
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
+        shown = shown_output(step, outputs)
+        want = {}
+        for output in outputs:
+            if output.per_level and output.name == shown:
+                for level in marked_levels(layer, output.name):
+                    key = self._output_keys(layer, level=level).get(output.name)
+                    if key is not None:
+                        want[(layer.layer_id, output.name, level)] = key
+        frozen = self._out_keys.get(layer.layer_id, set()) if _is_frozen(layer) else set()
+        for ident, key in list(self._marked_keys.items()):
+            if ident[0] == layer.layer_id and want.get(ident) != key:
+                del self._marked_keys[ident]
+                if key not in frozen and key not in self._marked_keys.values():
+                    self.cache.unpin(key)
+        for ident, key in want.items():
+            self._marked_keys[ident] = key
+            self.cache.pin(key)
+
+    def _release_marks(self, layer_id: int) -> None:
+        """Unpin the marked-level keys of a layer that is gone."""
+        for ident in [i for i in self._marked_keys if i[0] == layer_id]:
+            key = self._marked_keys.pop(ident)
+            if key not in self._marked_keys.values():
+                self.cache.unpin(key)
+
     def _output_step_index(self) -> int | None:
         """The index (into ``_names``) of the active chain's step whose outputs the rows show:
         the last enabled transform that applies on the layer's input (:meth:`_layer_input`,
@@ -4678,6 +4732,7 @@ both ``Canvas`` signals report the
             self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
                                              layer.tags.get("ui.edges_hidden") == "1",
                                              notes=notes, disabled=disabled)
+        self._sync_marked_pins(layer)
         if layer is self.layer:
             self._sync_recon_section()
 
@@ -4957,6 +5012,12 @@ both ``Canvas`` signals report the
                 notes[name] = self._out_notes[key]
             elif self._out_held == (key, "failed"):
                 notes[name] = "failed"
+        level = row_level(layer)
+        for output in outputs:
+            if (output.per_level and output.name not in disabled
+                    and level in marked_levels(layer, output.name)):
+                notes[output.name] = " · ".join(
+                    n for n in (notes.get(output.name), "marked") if n)
         return notes, disabled
 
     def _draws_preview(self, layer, step, name, key) -> bool:
@@ -5244,8 +5305,10 @@ both ``Canvas`` signals report the
                 self.cache.pin(key)
         else:
             layer.tags.pop("ui.freeze", None)
+            marked = set(self._marked_keys.values())          # a marked level keeps its pin
             for key in keys:
-                self.cache.unpin(key)
+                if key not in marked:
+                    self.cache.unpin(key)
         self._sync_lock_ui(layer)
 
     def _sync_lock_ui(self, layer) -> None:
@@ -5359,6 +5422,7 @@ both ``Canvas`` signals report the
             self._recipes.pop(rid, None)
             self._arr_errors.pop(rid, None)   # No dead entry for a layer_id gone for good
             self._out_keys.pop(rid, None)
+            self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         # The 3-D view learns about removals too (the vector view kept
         # framing a REMOVED dataset's extent): resync drops the stale actors. The camera
@@ -5482,6 +5546,7 @@ both ``Canvas`` signals report the
             self._recipes.pop(rid, None)
             self._arr_errors.pop(rid, None)
             self._out_keys.pop(rid, None)
+            self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
         # Removing a whole DATASET changes the subject: resync the 3-D view and refit its
@@ -6353,7 +6418,7 @@ both ``Canvas`` signals report the
         export reloads as an ordinary dataset."""
         if self.layer is None:
             return
-        dfield = self._derived_fields.get(self.layer.layer_id)
+        dfield = self._derived_export_field(self.layer)
         if dfield is None:
             self._notify("no derived raster on the active layer — run holder_measure/"
                          "holder_multiaffine or a band reconstruction first", "status")
@@ -6362,7 +6427,25 @@ both ``Canvas`` signals report the
             self, "Export derived raster", f"{dfield.name}.npz", "NumPy archive (*.npz)")
         if path:
             dfield.save_npz(path)
-            self._notify(f"derived raster exported — {path}", "status")
+            levels = dfield.provenance.get("marked_levels")
+            tail = (f" · marked levels {', '.join(str(l + 1) for l in levels)}"
+                    if levels else "")
+            self._notify(f"derived raster exported — {path}{tail}", "status")
+
+    def _derived_export_field(self, layer):
+        """The derived dataset ``layer`` exports, or ``None``. While a per-level output is on
+        show its provenance also names the step's output (``<device>/<output>``), the level
+        shown and the levels marked for figures (0-based, the ``ui.scale_idx`` numbering)."""
+        dfield = self._derived_fields.get(layer.layer_id)
+        if dfield is None:
+            return None
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
+        name = shown_output(step, outputs)
+        if not any(o.name == name and o.per_level for o in outputs):
+            return dfield
+        return dataclasses.replace(dfield, provenance={
+            **(dfield.provenance or {}), "output": f"{step.device}/{name}",
+            "level": row_level(layer), "marked_levels": list(marked_levels(layer, name))})
 
     def _chain_export_blocker(self) -> str | None:
         """Why the export cannot run right now, or None -- split from the click handler so the

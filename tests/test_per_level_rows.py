@@ -150,3 +150,71 @@ def test_the_window_cache_takes_its_byte_budget_from_settings(qtbot, builtins):
     w2 = MainWindow(steps=())
     qtbot.addWidget(w2)
     assert w2.cache.max_bytes == 123_456_789
+
+
+def _mark(win, layer, name):
+    """Trigger the row's "Mark level" action; returns the action's text."""
+    menu = win.layer_list._build_output_context_menu(layer.layer_id, name)
+    action = menu.actions()[0]
+    text = action.text()
+    action.trigger()
+    return text
+
+
+def test_mark_pins_the_level_and_unmark_releases_it(win, qtbot):
+    layer = _wtmm_layer(win, qtbot)
+    _show(win, qtbot, layer, "modulus")
+    _level(win, qtbot, 1)
+    k1 = _key(win, layer, "modulus", 1)
+    qtbot.waitUntil(lambda: k1 in win.cache, timeout=60000)
+    assert _mark(win, layer, "modulus") == "Mark level 2 for figures"
+    assert layer.tags["ui.marked_levels.modulus"] == "1"
+    assert win.cache.is_pinned(k1)
+    assert "marked" in _row_text(win, layer, "modulus")
+    assert _mark(win, layer, "modulus") == "Unmark level 2 for figures"
+    assert "ui.marked_levels.modulus" not in layer.tags
+    assert not win.cache.is_pinned(k1)
+
+
+def test_turning_the_row_off_releases_the_pins_and_keeps_the_marks(win, qtbot):
+    layer = _wtmm_layer(win, qtbot)
+    _show(win, qtbot, layer, "modulus")
+    k0 = _key(win, layer, "modulus", 0)
+    qtbot.waitUntil(lambda: k0 in win.cache, timeout=60000)
+    _mark(win, layer, "modulus")
+    assert win.cache.is_pinned(k0)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "modulus", True)
+    _idle(win, qtbot)
+    assert not win.cache.is_pinned(k0) and layer.tags["ui.marked_levels.modulus"] == "0"
+    _show(win, qtbot, layer, "modulus")
+    assert win.cache.is_pinned(k0)
+
+
+def test_a_marked_level_survives_the_byte_budget(win, qtbot):
+    layer = _wtmm_layer(win, qtbot)
+    _show(win, qtbot, layer, "modulus")
+    k0 = _key(win, layer, "modulus", 0)
+    qtbot.waitUntil(lambda: k0 in win.cache, timeout=60000)
+    _mark(win, layer, "modulus")
+    win.cache.max_bytes = 1                                # every unpinned output is over
+    _level(win, qtbot, 1)
+    k1 = _key(win, layer, "modulus", 1)
+    qtbot.waitUntil(lambda: k1 in win.cache and not win.is_computing, timeout=60000)
+    _level(win, qtbot, 2)
+    k2 = _key(win, layer, "modulus", 2)
+    qtbot.waitUntil(lambda: k2 in win.cache and not win.is_computing, timeout=60000)
+    assert k0 in win.cache                                 # marked: pinned above the budget
+    assert k1 not in win.cache                             # evicted by the newer level
+
+
+def test_the_export_names_the_level_and_the_marked_levels(win, qtbot):
+    layer = _wtmm_layer(win, qtbot)
+    _show(win, qtbot, layer, "modulus")
+    _mark(win, layer, "modulus")
+    _level(win, qtbot, 2)
+    k2 = _key(win, layer, "modulus", 2)
+    qtbot.waitUntil(lambda: k2 in win.cache and not win.is_computing, timeout=60000)
+    _mark(win, layer, "modulus")
+    prov = win._derived_export_field(layer).provenance
+    assert prov["output"] == "wtmm2d/modulus"
+    assert prov["level"] == 2 and prov["marked_levels"] == [0, 2]
