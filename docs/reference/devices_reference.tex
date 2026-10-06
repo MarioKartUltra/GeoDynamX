@@ -135,7 +135,8 @@ default (the data, or an MFA tool's $h$ map). They follow the tool's
 hides the maxima dots and gradient arrows (and the H-lines in the Vector and Geo views); the
 result keeps its maxima, so filters, the spectrum and the anisotropy window still read them.
 The layer's own H hides everything the result draws. An output that needs its own computation
-(the \dev{mz\_edges} reconstruction, an MFA tool's band) runs the first time it is shown, with progress and Stop,
+(the \dev{mz\_edges} reconstruction, an MFA tool's band, one level of a per-scale output,
+\S\ref{sec:perscale}) runs the first time it is shown, with progress and Stop,
 and stays cached; Freeze (the row's F) keeps it.
 
 \input{tables/outputs}
@@ -299,6 +300,45 @@ one layer at two levels resolve the same cached analysis, each at its level.
 the built-in racks only \emph{WTMM standard}, the default chain, holds it. Opening a project
 whose chain holds it sets the layer's level from its \texttt{scale\_idx} once; the step stays
 in the chain, drawn inactive with the reason ``the scale is set by the Transport''.
+
+\subsection*{Per-scale outputs and levels marked for figures}\label{sec:perscale}
+The multi-scale analyzers carry one raster row per scale-space output, off by default
+(\emph{per level} in the \hyperref[tab:outputs]{output-rows table}):
+\begin{itemize}\itemsep2pt
+  \item \tool{WTMM 2D}{wtmm2d} and \tool{WTMM 2D, ROI}{wtmm2d\_roi}: \texttt{modulus} and
+        \texttt{argument}, the wavelet transform's modulus and argument at one scale;
+  \item \tool{Mallat--Zhong edges}{mz\_edges}: \texttt{modulus} and \texttt{argument} at one
+        dyadic level;
+  \item \tool{CDF edges}{cdf\_edges}: \texttt{re\_scale} and \texttt{im\_scale}, the Re and Im
+        snapshots at $\sigma_k$;
+  \item \tool{Perona--Malik edges}{pm\_edges}: \texttt{filtered\_scale}, the diffused raster at
+        $\sigma_k$.
+\end{itemize}
+A row that is on shows the level the Transport is on and reads that level's scale in pixels; a
+row that is off computes nothing, and the levels it computed while on stay cached until the
+bounds below evict them. Turning a row on is a choice for that layer alone.
+Each level is its own cache entry. WTMM~2D and the Mallat--Zhong edges compute the one level
+asked for (one FFT pair, one filter cascade); the CDF and Perona--Malik evolutions are
+sequential, so the first request runs the evolution once and keeps every snapshot as one
+entry. Each output runs the tool's own per-scale routine with the analysis's knobs (WTMM~2D:
+its dither and $a^{\eta}$ lift as the analysis applied them); with the \texttt{nms} detector the
+maxima of WTMM~2D's level-$k$ modulus are the stored level-$k$ extrema. A
+\tool{WTMM 2D, ROI}{wtmm2d\_roi} layer made by \emph{Save + run WTMM} draws its rows on the
+ROI's own grid; a result run on an ROI row (\texttt{tool @A}) computes no lazy outputs.
+
+\textbf{Marking a level for figures.} Right-click a per-level row $\to$ \emph{Mark level $n$ for
+figures} ($n$ counts from 1 at the finest level; \emph{Unmark} on a marked level). The row
+reads \emph{marked}, and the marks are saved with the layer. A marked level is pinned in the
+cache while its row is on, so eviction passes it by; unmarking it, or turning the row off,
+releases it. \emph{File $\to$ Export Derived Raster (.npz)\ldots} writes the level on show; its
+provenance names the output (\texttt{<device id>/<output>}), the level and the marked levels
+(counted from 0), and the status line lists the marked levels.
+
+\textbf{Memory.} The cache holds at most 64 unpinned entries. The raster outputs also share a
+byte budget, 2\,GB by default, set by \texttt{output\_cache\_bytes} in the settings file
+(\S\ref{sec:racks} gives its folder); a $4096^2$ float32 level is about 67\,MB. Past the budget
+the least recently used unpinned output levels go first. Fields, stacks and analysis results
+stay under the entry bound alone.
 
 %======================================================================
 \section{Tool families and data contracts}\label{sec:contracts}
@@ -494,6 +534,7 @@ modulus maxima of $\psi$ are the edges of $\theta$-smoothed data.}
 \texttt{dist2\_max} & 50 & $[0,10^6]$ px$^2$ & max squared jump when chaining maxima across scales \\
 \texttt{box\_ratio} & 1.0 & $[0.001,64]$ & chaining search-box anisotropy \\
 \texttt{similitude} & 0.8 & $[0,1]$ & cross-scale similarity acceptance for chaining \\
+\texttt{show} (\emph{view}) & edges & 3 outputs & \texttt{edges} (the edge stack), or the \texttt{modulus} or \texttt{argument} at the shown level (the Outputs rows, \S\ref{sec:perscale}) \\
 \bottomrule
 \end{longtable}
 
@@ -612,7 +653,7 @@ on the filters and the table, so each selection caches on its own.
 \texttt{colocate\_l1} (Co-locate level 1) & off & bool & detect the finest level on co-located gradient components \\
 \texttt{dither} (printed) & off & bool & $\pm\tfrac12$\,LSB dither before analysis \\
 \texttt{interpolate} (printed) & off & bool & subpixel refinement of each maximum along its gradient \\
-\texttt{show} (\emph{view}) & edges & 6 outputs & the raster shown in place of the data (the Outputs rows) \\
+\texttt{show} (\emph{view}) & edges & 8 outputs & the raster shown in place of the data (the Outputs rows) \\
 \texttt{recon\_live} (Live, \emph{view}) & off & bool & off: reconstruction rows wait for Run; on: they compute on their own \\
 \texttt{kappa} (Decay $\kappa$, \emph{view}) & 1.0 & $[0.1,10]$ & decay of the correction between maxima, $e^{-\kappa/2^l}$ per sample; 1 = the paper, 3.516 = LastWave \\
 \texttt{clip} (\emph{view}) & off & bool & clip the modulus to decrease away from each maximum (LastWave's clipping) \\
@@ -679,7 +720,7 @@ $\sigma$ in px.
 \texttt{dt} & 0.2 & $[0.001,0.24]$ & explicit-Euler step (stability-capped) \\
 \texttt{edge\_mode} (Edges) & mz & mz / marr & Canny/M--Z maxima of Re, or Marr zero crossings of Im \\
 \texttt{detector} & nms & nms / follow & maxima detector \\
-\texttt{show} (\emph{view}) & edges & edges / filtered / edge\_channel & the edge stack, the final Re, or the final Im (the Outputs rows; the \emph{edges} row hides the maxima over either raster) \\
+\texttt{show} (\emph{view}) & edges & edges / filtered / edge\_channel / re\_scale / im\_scale & the edge stack, the final Re or Im, or the Re or Im at the shown level (the Outputs rows; the \emph{edges} row hides the maxima over any raster) \\
 \texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
 \texttt{floor} & 0.05 & $[0,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
 \bottomrule
@@ -701,7 +742,7 @@ rides the result.
 \texttt{k\_edge} ($K$) & 1.0 & $[0.001,1000]$ & edge threshold in image units: contrasts above $K$ sharpen, below it blur \\
 \texttt{g} & exp & exp / frac & conduction function (the paper's two) \\
 \texttt{lam} ($\lambda$) & 0.2 & $[0.001,0.25]$ & explicit step (stability needs $\lambda\le\tfrac14$) \\
-\texttt{show} (\emph{view}) & edges & edges / filtered & canvas shows the edge stack, or the diffused raster (the Outputs rows; the \emph{edges} row hides the maxima over it) \\
+\texttt{show} (\emph{view}) & edges & 3 outputs & canvas shows the edge stack, the diffused raster (\texttt{filtered}), or the diffused raster at the shown level (\texttt{filtered\_scale}); the Outputs rows, and the \emph{edges} row hides the maxima over either \\
 \texttt{detector} & nms & nms / follow & maxima detector \\
 \texttt{interpolate} & off & bool & sub-pixel refinement of the maxima \\
 \texttt{floor} & 0.05 & $[0,0.5]$ & detection floor (fraction of the per-snapshot maximum) \\
