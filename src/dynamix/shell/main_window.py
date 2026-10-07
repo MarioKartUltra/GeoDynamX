@@ -587,6 +587,12 @@ def _composite_without_band(raw: str, k: int) -> dict:
     return out
 
 
+#: The live band preview's decimation budget: the longer side of the preview is at most this
+#: many samples, in both modes (the mask's strided test and the BandReconstructor's own
+#: ``max_dim``). Module-level so a test can force a stride on a small field.
+_PREVIEW_MAX_DIM = 512
+
+
 def _roi_display_field(result, raster, field, name):
     """A derived raster of an ROI RESULT as its own display field: the
     ROI's own axes and frame, pinned at the ROI's FILE position (``provenance["window"]``) --
@@ -2549,7 +2555,7 @@ off / z from this layer's own values / z from another loaded
             return
         if mode == "mask":
             h_arr = np.asarray(h_map)
-            s = max(1, -(-max(h_arr.shape) // 512))
+            s = max(1, -(-max(h_arr.shape) // _PREVIEW_MAX_DIM))
             hs = h_arr[::s, ::s]
             m = np.isfinite(hs) & (hs >= h_lo) & (hs < h_hi)
             if min_island > 0:
@@ -2563,7 +2569,8 @@ off / z from this layer's own values / z from another loaded
             key = (id(vals), id(h_map))
             if self._band_preview is None or self._band_preview[0] != key:
                 from dynamix.core.microcanonical import BandReconstructor
-                self._band_preview = (key, BandReconstructor(vals, h_map))
+                self._band_preview = (key, BandReconstructor(vals, h_map,
+                                                              max_dim=_PREVIEW_MAX_DIM))
             br = self._band_preview[1]
             recon = br.reconstruct(h_lo, h_hi).astype(np.float64)
             s = br.stride
@@ -2571,15 +2578,26 @@ off / z from this layer's own values / z from another loaded
         roi_field = (_roi_display_field(result, recon, self.field,
                                         f"{self.layer.name}·{label}[{h_lo:.2f},{h_hi:.2f})")
                      if roi_vals is not None else None)
+        # A strided preview holds sample k at pixel k*s of the raster it previews. The canvas
+        # pins an image to ``samples x display_stride`` file pixels and centres each block on
+        # its sample under ``display_anchor`` "sample" (the same stamps the per-level strided
+        # outputs carry); without them a stride-s preview draws s times too small at the
+        # ROI's origin. ``full_dims`` is the previewed raster's own shape, so ``native_shape``
+        # reads the ROI (or field) the preview covers.
+        stamp = ({"display_stride": s, "display_anchor": "sample",
+                  "full_dims": tuple(int(n) for n in np.asarray(h_map).shape)}
+                 if s > 1 else {})
         if roi_field is not None:
             derived = dataclasses.replace(roi_field, x_axis=roi_field.x_axis[::s],
-                                          y_axis=roi_field.y_axis[::s])
+                                          y_axis=roi_field.y_axis[::s],
+                                          provenance={**roi_field.provenance, **stamp})
         else:
             derived = dataclasses.replace(
                 self.field, values=np.asarray(recon, dtype=np.float64),
                 x_axis=np.asarray(self.field.x_axis)[::s],
                 y_axis=np.asarray(self.field.y_axis)[::s],
-                name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})")
+                name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})",
+                provenance={**(getattr(self.field, "provenance", None) or {}), **stamp})
         self.canvas.set_field(derived)
         self._apply_raster_visibility(showing_product=True)
         self._holder_raster_ref = None

@@ -1179,3 +1179,37 @@ def test_reconstruct_on_a_band_row_of_a_stack_shows_that_rows_band(qtbot, regist
     np.testing.assert_array_equal(win._active_result["raster_out"], want)
     assert win.layer is row and len(win.project.layers) == layers
     assert [s.device for s in row.chain.steps] == ["band_select", "holder_measure"]
+
+
+@pytest.mark.parametrize("where", ["whole", "roi"])
+@pytest.mark.parametrize("mode", ["mask", "reconstruction"])
+def test_a_strided_live_band_preview_is_registered_over_its_whole_extent(plain_window, qtbot,
+                                                                         monkeypatch, where, mode):
+    """A live preview decimated by a stride s (a field or ROI over the preview budget) covers the
+    SAME file pixels as the full-resolution raster: the derived field is stamped as a strided
+    picture (display_stride, full_dims, display_anchor "sample"), so the canvas pins its rect to
+    the native extent. Without the stamps the canvas treats the preview as a full-resolution
+    raster s times smaller and draws it in the top-left corner of the ROI."""
+    import dynamix.shell.main_window as mw
+    from dynamix.roi.picture import display_stride
+
+    win = plain_window
+    if where == "roi":
+        _save(win)                                        # 16 x 20 at (row 4, col 5)
+        _roi_child(win, qtbot, "holder_measure")
+        row_off, col_off, h, w = 4, 5, 16, 20
+    else:
+        _whole_field_child(win, qtbot, "holder_measure")
+        row_off, col_off, h, w = 0, 0, 40, 50
+    monkeypatch.setattr(mw, "_PREVIEW_MAX_DIM", 8)
+    s = -(-max(h, w) // 8)
+    assert s > 1
+    hm = np.asarray(win._active_result["h_map"])
+    win._on_band_preview_requested(float(np.nanmin(hm)), float(np.nanmax(hm)) + 1.0, mode)
+    shown = win.canvas._field
+    assert shown.values.shape == (-(-h // s), -(-w // s))
+    assert display_stride(shown) == s
+    item = win.canvas.image_item
+    r = item.mapRectToView(item.boundingRect())
+    assert (r.x(), r.y()) == (col_off - s / 2, row_off - s / 2)
+    assert abs(r.width() - w) < s and abs(r.height() - h) < s
