@@ -970,8 +970,8 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.mask_outline_item = pg.PlotDataItem(
             pen=pg.mkPen(RESTRAINED_DARK.amber, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
         self.view.addItem(self.mask_outline_item)
-        # The boundary of a fill (inpaint / fill): the pixel edges where the result's fill
-        # mask changes, above the product, in the result's own placement.
+        # The boundary of a fill: the pixel edges where an inpaint result's fill mask changes
+        # (the fill stage carries no mask), above the product, in the result's own placement.
         self.fill_outline_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.selection_accent),
                                                  connect="finite")
         self.view.addItem(self.fill_outline_item)
@@ -1657,11 +1657,15 @@ a bounded gather of at most :attr:`draw_cap` chains per
             return
         from dynamix.core.inpaint._kernels import kernels
 
-        m = np.ascontiguousarray(np.asarray(mask) != 0)
+        full = np.asarray(mask) != 0
+        rows, cols = np.nonzero(full)
+        r0, r1 = max(int(rows.min()) - 1, 0), min(int(rows.max()) + 2, full.shape[0])
+        c0, c1 = max(int(cols.min()) - 1, 0), min(int(cols.max()) + 2, full.shape[1])
+        m = np.ascontiguousarray(full[r0:r1, c0:c1])
         xs, ys = np.empty(12 * m.size + 12), np.empty(12 * m.size + 12)
         n = kernels()["mask_edges"](m, xs, ys)
         dr, dc = (float(v) for v in offset)
-        self.fill_outline_item.setData(xs[:n] + dc, ys[:n] + dr)
+        self.fill_outline_item.setData(xs[:n] + (c0 + dc), ys[:n] + (r0 + dr))
 
     def clear_overlays(self) -> None:
         """Take every WTMM-result overlay off the canvas -- everything :meth:`set_result` draws --

@@ -651,7 +651,16 @@ def _output_note(value) -> str:
         return f"{float(diag['psnr_db']):.1f} dB · {share}" if "psnr_db" in diag else share
     if "scale_px" in diag:                               # a per-level output: its level's scale
         return f"{float(diag['scale_px']):g} px"
+    if "rms_rel" in diag:                                # an inpainting residual / held-out row
+        return f"rms {float(diag['rms_rel']):.3g} of range"
     return ""
+
+
+def _reconstruction_note(stamp) -> str:
+    """The share of a result that is reconstruction, from its fill stamp; a fill under 1 % reads
+    "<1 %" so a real fill never shows as 0 %."""
+    pct = 100.0 * float(stamp.get("filled_fraction", 0.0))
+    return f"{'<1' if 0.0 < pct < 1.0 else f'{pct:.0f}'} % reconstruction"
 
 
 def roi_chain(parent_chain: Chain, roi_params: dict) -> Chain:
@@ -2545,8 +2554,7 @@ off / z from this layer's own values / z from another loaded
                             parent=self)
         stamp = fill_of(result)
         if stamp:
-            dialog.setWindowTitle(f"{dialog.windowTitle()} · "
-                                  f"{100.0 * float(stamp.get('filled_fraction', 0.0)):.0f} % reconstruction")
+            dialog.setWindowTitle(f"{dialog.windowTitle()} · {_reconstruction_note(stamp)}")
         dialog.reconstructRequested.connect(self._on_band_reconstruct_requested)
         dialog.bandPreviewRequested.connect(self._on_band_preview_requested)
         dialog.show()
@@ -5205,7 +5213,7 @@ both ``Canvas`` signals report the
                     n for n in (notes.get(output.name), "marked") if n)
         stamp = fill_of(self._active_result) if layer is self.layer else None
         if stamp:
-            pct = f"{100.0 * float(stamp.get('filled_fraction', 0.0)):.0f} % reconstruction"
+            pct = _reconstruction_note(stamp)
             for output in outputs:
                 if output.kind == "raster" and output.name not in disabled:
                     notes[output.name] = " · ".join(n for n in (notes.get(output.name), pct) if n)
@@ -7592,13 +7600,7 @@ both ``Canvas`` signals report the
             else:
                 self._canvas_overlay_dirty = True
         # After the overlay branch above, whose clear_overlays would take the outline off.
-        mask = result.get("fill_mask") if self.layer is not None and self.layer.visible else None
-        if mask is None:
-            self.canvas.set_fill_outline(None)
-        else:
-            r, c = display_offset(result, self.field) if self.field is not None else (0, 0)
-            self.canvas.set_fill_outline(
-                mask, (r + self.canvas._base_off[0], c + self.canvas._base_off[1]))
+        self._sync_fill_outline(result)
         self._sync_controls()
         self._update_readings(renderable)
         self._update_scale_bar()
@@ -8624,6 +8626,18 @@ both ``Canvas`` signals report the
             button.setChecked(view == self._center_view)
             button.blockSignals(False)
 
+    def _sync_fill_outline(self, result) -> None:
+        """The fill boundary of ``result`` on the canvas, in its placement; cleared for a hidden
+        layer, a result with no fill mask or no active layer."""
+        mask = (result.get("fill_mask") if isinstance(result, dict) and self.layer is not None
+                and self.layer.visible else None)
+        if mask is None:
+            self.canvas.set_fill_outline(None)
+            return
+        r, c = display_offset(result, self.field) if self.field is not None else (0, 0)
+        self.canvas.set_fill_outline(
+            mask, (r + self.canvas._base_off[0], c + self.canvas._base_off[1]))
+
     def _redraw_canvas_overlay_if_dirty(self) -> None:
         """Draw the ACTIVE result's overlay onto the (now-visible) raster canvas if a landing
         deferred it while the canvas was hidden (double-update guard). A no-op when nothing was
@@ -8641,6 +8655,7 @@ both ``Canvas`` signals report the
                 self._notify(self.canvas.cap_note, "status")
         else:
             self.canvas.clear_overlays()
+            self._sync_fill_outline(result)
             self.canvas.set_pick_chains(None)
 
     def _set_center_view(self, view: str) -> None:

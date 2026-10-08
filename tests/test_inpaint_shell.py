@@ -431,17 +431,46 @@ def test_the_rows_radio_show_and_the_fill_outline_is_drawn(win, qtbot):
     names = [win.layer_list._output_groups[lid].child(i).data(0, _OUTPUT_KEY_ROLE)
              for i in range(win.layer_list._output_groups[lid].childCount())]
     assert names == ["residual", "heldout"] and _hidden(win, child, "residual")
-    assert len(win.canvas.fill_outline_item.xData) > 0           # the gap's boundary
+    item = win.canvas.fill_outline_item
+    assert len(item.xData) > 0                                   # the gap's boundary
+    # the 12 x 16 hole: rows 16..27, cols 20..35, outline on the cell edges
+    assert abs(np.nanmin(item.xData) - 19.5) < 1e-6 and abs(np.nanmax(item.xData) - 35.5) < 1e-6
+    assert abs(np.nanmin(item.yData) - 15.5) < 1e-6 and abs(np.nanmax(item.yData) - 27.5) < 1e-6
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win.layer_list.outputHideToggled.emit(lid, "residual", False)
     key = _landed(win, qtbot, child, "residual")
     assert child.chain.steps[0].params["show"] == "residual"
     np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
-    assert "rms" in _row(win, child, "residual").text(0) or "residual" in _row(win, child, "residual").text(0)
+    note = _row(win, child, "residual").text(0)
+    assert "rms " in note and np.isfinite(float(note.split("rms ")[1].split()[0])), note
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win.layer_list.outputHideToggled.emit(lid, "residual", True)
     assert child.chain.steps[0].params["show"] == "filled" and _hidden(win, child, "residual")
     np.testing.assert_array_equal(_shown(win.canvas).values, win._active_result["raster_out"])
+    win.layer_list.select_layer(host.layer_id)                   # a layer without a fill
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    xs = win.canvas.fill_outline_item.xData
+    assert xs is None or len(xs) == 0
+
+
+def test_the_fill_outline_is_redrawn_when_a_deferred_overlay_lands_on_the_raster_tab(win, qtbot):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    _drop(win, qtbot, "inpaint", **FAST)
+    assert not win._active_result.get("extrema")
+    win.canvas.clear_overlays()
+    win._canvas_overlay_dirty = True
+    win._redraw_canvas_overlay_if_dirty()
+    xs = win.canvas.fill_outline_item.xData
+    assert xs is not None and len(xs) > 0
+
+
+def test_a_fill_under_one_percent_reads_as_less_than_one():
+    from dynamix.shell.main_window import _reconstruction_note
+
+    assert _reconstruction_note({"filled_fraction": 0.004}) == "<1 % reconstruction"
+    assert _reconstruction_note({"filled_fraction": 0.0}) == "0 % reconstruction"
+    assert _reconstruction_note({"filled_fraction": 192 / 2688}) == "7 % reconstruction"
 
 
 def test_the_inpaint_strip_reads_the_run_and_the_histograms_window_opens(win, qtbot):
