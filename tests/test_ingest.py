@@ -281,7 +281,7 @@ def test_an_l1a_band_is_stamped_with_its_lattice_and_the_scene_sun(aster_like_hd
     assert lat["sds"] == {"lat": "VNIR_Band1/Latitude", "lon": "VNIR_Band1/Longitude",
                           "points": "VNIR_Band1/LatticePoint"}
     assert f.provenance["sun"] == {"azimuth": pytest.approx(56.185421),
-                                   "elevation": pytest.approx(60.848457)}
+                                   "elevation": pytest.approx(60.848457), "north": "true"}
     assert f.provenance["georef"].startswith("none")
     g = load_grid(aster_like_hdf4, subdataset="VNIR_Band2/ImageData")
     assert "lattice" not in g.provenance and g.provenance["sun"]["azimuth"] == pytest.approx(56.185421)

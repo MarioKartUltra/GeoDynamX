@@ -316,13 +316,15 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
     )
 
 
-_SUN_RE = re.compile(r"OBJECT\s*=\s*SOLARDIRECTION.*?VALUE\s*=\s*\(\s*([-\d.eE+]+)\s*,\s*([-\d.eE+]+)\s*\)",
+_SUN_RE = re.compile(r"OBJECT\s*=\s*SOLARDIRECTION(?:(?!END_OBJECT).)*?VALUE\s*=\s*\(\s*([-\d.eE+]+)\s*,\s*([-\d.eE+]+)\s*\)",
                      re.S)
 
 
 def hdf4_sun(sd) -> "dict | None":
-    """``{"azimuth", "elevation"}`` from the ODL ``SOLARDIRECTION`` object of the file
-    attribute ``productmetadata.0`` (ASTER L1A/L1T), else ``None``."""
+    """``{"azimuth", "elevation", "north"}`` from the ODL ``SOLARDIRECTION`` object of the
+    file attribute ``productmetadata.0`` (ASTER L1A/L1T), else ``None``: the azimuth is
+    clockwise from TRUE north at the scene centre, so an orientation carries its frame; a
+    consumer on a projected grid converts it by the meridian convergence."""
     try:
         text = sd.attributes().get("productmetadata.0")
     except Exception:
@@ -332,7 +334,7 @@ def hdf4_sun(sd) -> "dict | None":
     m = _SUN_RE.search(str(text))
     if m is None:
         return None
-    return {"azimuth": float(m.group(1)), "elevation": float(m.group(2))}
+    return {"azimuth": float(m.group(1)), "elevation": float(m.group(2)), "north": "true"}
 
 
 def hdf4_lattice(path, subdataset) -> "dict | None":
