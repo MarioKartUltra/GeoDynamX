@@ -55,6 +55,9 @@ def battle_lemarie_filters(order: int = 3, tol: float = 1e-8, n: int = 4096,
     ``order``: ``H(w) = sqrt(2) cos(w/2)**(order+1) sqrt(S(w) / S(2w))`` with
     ``S(w) = sum_k |B(w + 2 pi k)|**2``, sampled on ``n`` points, inverted, truncated at
     ``tol``, padded to an even length and renormalised to a DC gain of ``sqrt(2)``."""
+    if int(order) % 2 == 0:
+        raise ValueError(f"battle_lemarie_filters: order {order} is even; the construction "
+                         "holds for odd orders (3 is the paper's)")
     pywt = require_pywt()
     m = int(order) + 1
     omega = 2.0 * np.pi * np.arange(n) / n
@@ -163,21 +166,24 @@ def child_shift(name: str) -> int:
     """The integer number of child cells by which a parent sits off the midpoint of its
     children ``(2k, 2k+1)`` along the low-pass axis of the horizontal and vertical bands
     (the scaling filter's delay under periodization), measured once per bank on the
-    horizontal band at level 2 by the energy centroid of one coefficient's atom and rounded
-    half up: ``sym7 -1``, ``db4 -2``, ``bl3 0``. The kernels pair children ``(2k + s, 2k + s + 1)``
-    by rolling the child band by ``-s``."""
+    horizontal band at level 2 by the amplitude-weighted centroid of one coefficient's atom
+    (on a 1024 px grid with the parent at the centre, so no atom wraps) and rounded half up;
+    an exact half rounds up, so the paper's ``(2k, 2k+1)`` pairing wins a tie (``bl3 0``).
+    The kernels pair children ``(2k + s, 2k + s + 1)`` by rolling the child band by ``-s``."""
     if name not in _CHILD_SHIFT:
-        n = 256
+        n = 1024
         zero = pyramid(np.zeros((n, n)), name, 3)
+        cols = np.arange(n)[None, :]
 
         def centre_col(level, k):
             c = [np.zeros_like(zero[0])] + [tuple(np.zeros_like(d) for d in lev) for lev in zero[1:]]
             c[-level][0][k, k] = 1.0
             atom = np.abs(inverse(c, name))
-            return float((atom * np.arange(n)[None, :]).sum() / atom.sum())
+            rel = cols - n // 2
+            return float((atom * rel).sum() / atom.sum())
 
-        off = (centre_col(3, 5) - 0.5 * (centre_col(2, 10) + centre_col(2, 11))) / 4.0
-        _CHILD_SHIFT[name] = int(math.floor(off + 0.5 + 1e-6))
+        off = (centre_col(3, n // 16) - 0.5 * (centre_col(2, n // 8) + centre_col(2, n // 8 + 1))) / 4.0
+        _CHILD_SHIFT[name] = int(math.floor(off + 0.5 + 1e-3))
     return _CHILD_SHIFT[name]
 
 

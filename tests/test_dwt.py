@@ -111,7 +111,12 @@ def test_a_constant_image_gives_two_to_the_level_in_the_approximation():
         assert np.allclose(c[0], 2.0 ** 3, atol=1e-9)
 
 
-@pytest.mark.parametrize("name,shift", [("sym7", -1), ("db4", -2), ("bl3", 0)])
+@pytest.mark.parametrize("name,shift", [
+    ("sym4", 1), ("sym5", 0), ("sym6", 1), ("sym7", -1), ("sym8", 1), ("db4", -2), ("db5", -3),
+    ("db6", -3), 
+    pytest.param("db7", -4, marks=pytest.mark.xfail(reason="band-pass-axis offset -0.271 (j=2, cH) exceeds 0.25: filter asymmetry")),
+    pytest.param("db8", -5, marks=pytest.mark.xfail(reason="band-pass-axis offset -0.263 (j=3, cH) exceeds 0.25: filter asymmetry")),
+     ("coif4", -3), ("coif5", -4), ("coif6", -5), ("bl3", 0)])
 def test_a_parent_atom_sits_over_its_children_after_the_banks_child_shift(name, shift):
     """Under periodization the diagonal band's parent k is centred over its children
     (2k, 2k+1) on both axes, and the horizontal and vertical bands are centred along their
@@ -123,7 +128,7 @@ def test_a_parent_atom_sits_over_its_children_after_the_banks_child_shift(name, 
 
     def centre(level, band, k):
         c = [np.zeros_like(zero[0])] + [tuple(np.zeros_like(d) for d in lev) for lev in zero[1:]]
-        c[-level][band][k, k] = 1.0
+        c[-level][band][k, k] = 1.0   # k near the grid centre: no atom reaches the periodic edge
         atom = np.abs(dwt.inverse(c, name))
         w = atom / atom.sum()
         ii, jj = np.indices(atom.shape)
@@ -131,7 +136,7 @@ def test_a_parent_atom_sits_over_its_children_after_the_banks_child_shift(name, 
 
     for j in (1, 2, 3):
         for band, lowpass_axis in ((0, 1), (1, 0), (2, None)):   # cH: columns; cV: rows; cD: none
-            off = (centre(j + 1, band, 10) - 0.5 * (centre(j, band, 20) + centre(j, band, 21))) / 2.0 ** j
+            off = (centre(j + 1, band, n >> (j + 2)) - 0.5 * (centre(j, band, n >> (j + 1)) + centre(j, band, (n >> (j + 1)) + 1))) / 2.0 ** j
             for axis in (0, 1):
                 if axis == lowpass_axis:
                     assert abs(off[axis] - shift) <= 0.55, (name, j, band, axis, off)
