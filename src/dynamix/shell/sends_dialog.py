@@ -39,6 +39,8 @@ class SendsDialog(BusDialog):
         self._relation_of = relation_of
         self._rows: list = []
         self._roles = {_key(s): s for s in sends}
+
+        self._filling = True        # rows built now take their binding from the send
         super().__init__(candidates, sends, title=title, parent=parent)
         self.findChild(QtWidgets.QLabel).setText(
             "Tick rasters to send. Any grid can send: the relation to the host is shown; a "
@@ -58,6 +60,7 @@ class SendsDialog(BusDialog):
         # initial fill, when a weights send could be listed before the send it weights.
         for row in self._rows:
             row.want_for = None
+        self._filling = False
 
     def _append(self, send: dict) -> None:
         super()._append(send)
@@ -79,7 +82,7 @@ class SendsDialog(BusDialog):
         lay.addWidget(target)
         lay.addWidget(shade)
         row = _Row(send.get("label") or send["path"], key, role, target, shade,
-                   want_for=current.get("for") or None)
+                   want_for=(current.get("for") or None) if getattr(self, "_filling", False) else None)
         self._rows.append(row)
         role.currentIndexChanged.connect(lambda _i, r=row: self._refresh_targets())
         target.currentIndexChanged.connect(lambda _i, r=row: setattr(r, "want_for", None))
