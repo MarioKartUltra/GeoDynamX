@@ -939,8 +939,8 @@ low-pass at scale $2^j$\,px) and the \texttt{horizontal}, \texttt{vertical} and
 \texttt{diagonal} details; the details of every level plus the coarsest approximation sum back
 to the field exactly. Cycle spinning averages each row over random shifts (translation
 invariance at the price of that many transforms). Non-finite pixels are filled with the finite
-mean for the transform and restored on every row. The Transport walks the levels; the
-foundation of the wavelet-leader tools.
+mean for the transform and restored on every row. The Transport walks the levels; the pyramid
+is the foundation of the wavelet-leader tools.
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
@@ -954,7 +954,7 @@ foundation of the wavelet-leader tools.
 
 %======================================================================
 \section{Inpainting and fusion}\label{sec:inpaint}
-One engine, three routes (Pottier, Turiel \& Gar\c{c}on 2008 for the cascade, the author's
+One engine, three routes (Pottier, Turiel \& Gar\c{c}on 2008 for the cascade, the
 compressed-sensing notebooks for the cycle-spun sparsity). The unknown lives on
 the mirror-extended working image; the data terms are the target under its weights and every
 guide on its own grid (a shift on the same grid, a block average on a nested one, a warp on a
