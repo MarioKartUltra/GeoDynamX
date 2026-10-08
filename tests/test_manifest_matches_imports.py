@@ -28,7 +28,7 @@ UNDECLARABLE: dict = {}
 
 #: Import name -> distribution name, where they differ. mpl_toolkits (mplot3d, axes_grid1,
 #: the scale-bar anchors) ships inside the matplotlib distribution.
-IMPORT_TO_DIST = {"PIL": "pillow", "mpl_toolkits": "matplotlib"}
+IMPORT_TO_DIST = {"PIL": "pillow", "mpl_toolkits": "matplotlib", "pywt": "pywavelets"}
 
 
 def _third_party_imports() -> dict[str, set[str]]:
