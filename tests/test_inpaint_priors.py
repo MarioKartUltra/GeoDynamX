@@ -251,3 +251,41 @@ def test_the_synthesis_pass_gives_an_empty_region_fine_structure_with_the_abacus
     outside = np.abs(coeffs[-1][0][clear[0] == 1])
     outside = np.log(outside[outside >= 1e-8 * outside.max()])
     assert _ks(inside, outside) < 0.35                      # the drawn amplitudes are in range
+
+
+def test_the_cascade_inference_recovers_wiped_parents_from_their_true_children():
+    """The paper's oracle: with the true level-1 children in place and the gap's parents at
+    levels 2 and up wiped, one inference pass puts the level-2 parents back without bias in
+    ``ln|p|`` and correlated with the truth; a plain amplification of the children's scale
+    would show as a median offset."""
+    dens, _ = _cascade2d()
+    J = 6
+    gap = _region((128, 128), (48, 80, 48, 80))
+    clear = _haar_clear(gap, J)
+    coeffs = _haar_pyramid(dens, J)
+    ab = pr.Abacus.from_pyramid(coeffs, clear, "haar")
+    rho = [np.clip(a / 2.0 ** (j + 1), 0.0, 1.0)
+           for j, a in enumerate(_haar_approximations(gap.astype(np.float64), J))]
+    prior = pr.Cascade("haar", J, ab, rho, pyramid=lambda v: _haar_pyramid(v, J), inverse=_haar_inverse)
+    wiped = [coeffs[0].copy()] + [tuple(d.copy() for d in lev) for lev in coeffs[1:]]
+    for j in range(2, J + 1):                                   # levels 2..J: the gap's parents go
+        inside = rho[j - 1] > 0.9
+        for o in range(3):
+            wiped[J + 1 - j][o][inside] = 0.0
+    inferred = prior.infer_coeffs(wiped)
+    inside = rho[1] > 0.9                                       # level 2
+    for o in range(3):
+        truth, got = coeffs[J - 1][o][inside], inferred[J - 1][o][inside]
+        ok = (np.abs(truth) > 1e-8 * np.abs(coeffs[J - 1][o]).max()) & (np.abs(got) > 0)
+        err = np.log(np.abs(got[ok])) - np.log(np.abs(truth[ok]))
+        assert abs(np.median(err)) < 0.15, (o, np.median(err))
+        assert np.corrcoef(np.log(np.abs(got[ok])), np.log(np.abs(truth[ok])))[0, 1] > 0.25, o
+    # control: tripling the children's scale is a parent offset of ln 3, which the bound rejects
+    scaled = [wiped[0]] + [tuple(d.copy() for d in lev) for lev in wiped[1:]]
+    for o in range(3):
+        scaled[J][o][rho[0] > 0.9] *= 3.0
+    off = prior.infer_coeffs(scaled)
+    o = 0
+    truth, got = coeffs[J - 1][o][inside], off[J - 1][o][inside]
+    ok = (np.abs(truth) > 1e-8 * np.abs(coeffs[J - 1][o]).max()) & (np.abs(got) > 0)
+    assert np.median(np.log(np.abs(got[ok])) - np.log(np.abs(truth[ok]))) > 0.5
