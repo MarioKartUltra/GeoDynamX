@@ -7,9 +7,9 @@ orthogonal bank in periodization mode, and every band is reconstructed alone ont
 grid as a per-level row: the approximation at level ``j`` (the low-pass at scale ``2**j``
 px) and the horizontal, vertical and diagonal details at that level. The bands of every
 level plus the coarsest approximation sum back to the field exactly. With cycle spinning on,
-each row is the mean over ``n_spins`` random shifts (the author's notebooks): translation
-invariance at the price of ``n_spins`` transforms. Non-finite pixels are filled with the
-finite mean for the transform and restored on every row.
+each row is the mean over ``n_spins`` random shifts: translation invariance at the price
+of ``n_spins`` transforms. Non-finite pixels are filled with the finite mean for the
+transform and restored on every row.
 
 The foundation the wavelet-leader tools stand on; nothing here resamples (scales are
 pixels, ``2**j``).

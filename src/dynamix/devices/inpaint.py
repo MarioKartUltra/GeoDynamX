@@ -87,7 +87,7 @@ PARAMS = (
     Param("heldout_blocks", ParamKind.INT, default=8, min=0, max=256, soft_min=0, soft_max=32,
           label="Held-out blocks"),
     Param("heldout_side", ParamKind.INT, default=16, min=4, max=256, soft_min=4, soft_max=64,
-          label="Held-out side (px)"),
+          label="Held-out side (px)", active_when=("heldout_blocks", range(1, 257))),
     Param("show", ParamKind.CHOICE, default="filled", choices=("filled", "residual", "heldout"),
           label="Show", view=True),
     # Written by the shell: the sends (role, source, weights) and the drawn regions.
@@ -164,11 +164,19 @@ def _relations_text(res: dict) -> str:
     return ", ".join(parts)
 
 
+def _filled_text(fraction) -> str:
+    """The filled share in percent; under 1 % reads "<1" so a real fill never shows as 0."""
+    pct = 100.0 * float(fraction)
+    return "<1" if 0.0 < pct < 1.0 else f"{pct:.0f}"
+
+
 def inactive_for(params: dict, sends) -> set:
     """The parameters that do not apply given the sends: the gprv writer's second condition
     (``Param.active_when`` carries the first)."""
     roles = {str(s.get("role", "value")) for s in sends}
     off = set()
+    if params.get("heldout_blocks") == 0:
+        off.add("heldout_side")
     if "value" not in roles:
         off.add("prior_weight")
     if "structure" not in roles:
@@ -245,10 +253,14 @@ class Inpaint:
             y = y[..., int(result.get("_band_index") or 0)]
         est = np.asarray(result["_estimate"], dtype=np.float64)
         if name == "residual":
-            known = np.isfinite(y) & (np.asarray(result["fill_mask"]) == 0)
+            from dynamix.core.inpaint.readouts import errors
+
+            # the pixels the solver fitted: the held-out blocks are predictions, not residuals,
+            # and the range is the one the held-out error is relative to
+            known = (np.isfinite(y) & (np.asarray(result["fill_mask"]) == 0)
+                     & ~np.asarray(result["_heldout_mask"], dtype=bool))
             raster = np.where(known, est - y, np.nan)
-            diag = {"rms_rel": float(np.sqrt(np.nanmean(raster ** 2)) /
-                                     max(np.nanmax(y) - np.nanmin(y), 1e-30))}
+            diag = {"rms_rel": float(errors(est, y, known, span_on=known)["rms_rel"])}
         else:
             held = np.asarray(result["_heldout_mask"], dtype=bool)
             raster = np.where(held, np.abs(est - y), np.nan)
@@ -352,8 +364,11 @@ class Fill:
         stamp = fill_of(result)
         if stamp is None:
             return ""
-        return (f"filled {100.0 * float(stamp.get('filled_fraction', 0.0)):.0f} % · "
-                f"{stamp.get('fill_route', '')} · analysis inside the region reads a reconstruction")
+        fraction = float(stamp.get("filled_fraction", 0.0))
+        text = f"filled {_filled_text(fraction)} % · {stamp.get('fill_route', '')}"
+        if fraction <= 0.0:
+            return text + " · no region declared"
+        return text + " · analysis inside the region reads a reconstruction"
 
     def inactive_params(self, params: dict, sends) -> set:
         return inactive_for(params, sends)

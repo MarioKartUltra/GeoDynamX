@@ -305,3 +305,53 @@ def test_the_fill_product_gives_up_its_file_source_and_reflects_from_memory(devi
     inside = np.asarray(window.values)[4 + 4:4 + 20, 4 + 4:4 + 20]      # the filled region
     assert np.isfinite(inside).all()
     np.testing.assert_allclose(inside, np.asarray(clone.values)[20:36, 24:40])
+
+
+def test_the_residual_row_leaves_the_held_out_blocks_out_and_shares_their_range(devices):
+    _truth, y = _gapped()
+    field, cache = _field(y), Cache()
+    params = {**FAST, "heldout_blocks": 4, "heldout_side": 6}
+    res = resolve(_layer(("inpaint", params)), field, cache).result
+    held = np.asarray(res["_heldout_mask"], dtype=bool)
+    assert held.sum() >= 2 * 36
+    residual = resolve_output(_layer(("inpaint", params)), field, cache, "residual")
+    raster = residual["raster"]
+    known = np.isfinite(y) & (np.asarray(res["fill_mask"]) == 0) & ~held
+    assert np.isnan(raster[held]).all() and np.isfinite(raster[known]).all()
+    assert np.isnan(raster[~known]).all()
+    est = np.asarray(res["_estimate"], dtype=np.float64)
+    span = np.quantile(y[known], 0.995) - np.quantile(y[known], 0.005)
+    rms = np.sqrt(np.mean((est[known] - y[known]) ** 2))
+    assert residual["diag"]["rms_rel"] == pytest.approx(rms / span, rel=1e-9)
+    held_rms = np.sqrt(np.mean((est[held] - y[held]) ** 2))
+    assert res["_heldout"]["rms_rel"] == pytest.approx(held_rms / span, rel=1e-4)   # one range
+
+
+def test_the_fill_reading_says_under_one_percent_and_a_zero_fill_claims_no_reconstruction(devices):
+    import dataclasses
+
+    truth, _y = _gapped()
+    dev = Fill()
+    f = _field(truth)
+
+    def stamped(fraction):
+        stamp = {"filled_fraction": fraction, "fill_route": "sparsity"}
+        return dataclasses.replace(f, provenance={**f.provenance, "fill": stamp})
+
+    assert dev.reading(stamped(0.004), {}) == \
+        "filled <1 % · sparsity · analysis inside the region reads a reconstruction"
+    assert dev.reading(stamped(0.07), {}).startswith("filled 7 % · sparsity")
+    empty = dev.compute(f, validate_params(dev, {**defaults_for(dev), "n_iter": 3}))
+    assert empty.provenance["fill"]["filled_fraction"] == 0.0
+    text = dev.reading(empty, {})
+    assert text.startswith("filled 0 %") and "reconstruction" not in text
+
+
+def test_the_held_out_side_is_inactive_without_held_out_blocks(devices):
+    dev = Inpaint()
+    base = validate_params(dev, defaults_for(dev))
+    assert "heldout_side" not in dev.inactive_params(base, [])
+    assert "heldout_side" in dev.inactive_params({**base, "heldout_blocks": 0}, [])
+    side = next(p for p in PARAMS if p.name == "heldout_side")
+    assert base["heldout_blocks"] in side.active_when[1] and 0 not in side.active_when[1]
+    assert side.active_when[0] == "heldout_blocks"
