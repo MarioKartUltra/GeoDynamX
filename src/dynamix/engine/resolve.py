@@ -343,9 +343,12 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             src = field if upstream is None else result
 
             def _compute(d=device, p=params, s=src):
+                kw = {}
                 if getattr(d, "wants_cancel", False):
-                    return d.compute(s, p, progress=progress, cancel=cancel)
-                return d.compute(s, p, progress=progress)
+                    kw["cancel"] = cancel
+                if getattr(d, "uses_stage_cache", False):
+                    kw["stage_cache"] = cache.stages
+                return d.compute(s, p, progress=progress, **kw)
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
             analysis_raw = result

@@ -48,6 +48,75 @@ def _jsonable(o: Any):
     return str(o)
 
 
+def stage_nbytes(value) -> int:
+    """Bytes of every ndarray inside ``value``: a dict's values, a list's or tuple's items, a
+    field's ``values`` and axes, an array itself. Anything else weighs nothing."""
+    if isinstance(value, np.ndarray):
+        return int(value.nbytes)
+    if isinstance(value, dict):
+        return sum(stage_nbytes(v) for v in value.values())
+    if isinstance(value, (list, tuple)):
+        return sum(stage_nbytes(v) for v in value)
+    values = getattr(value, "values", None)
+    if isinstance(values, np.ndarray):
+        return int(values.nbytes) + stage_nbytes(getattr(value, "x_axis", None)) \
+            + stage_nbytes(getattr(value, "y_axis", None))
+    return 0
+
+
+class StageStore:
+    """A bounded, byte-counted mapping for a transform's intermediate stages, so a change of a
+    downstream knob recomputes the cheap half only. Insertion order is recency; a get refreshes
+    it. Nothing here is pinned, and ``Cache.clear`` empties it with the results."""
+
+    def __init__(self, maxsize: int = 8, max_bytes: int | None = None):
+        self.maxsize = int(maxsize)
+        self.max_bytes = None if max_bytes is None else int(max_bytes)
+        self._store: dict[str, Any] = {}
+        self.hits = 0
+        self.misses = 0
+
+    def __contains__(self, key) -> bool:
+        return key in self._store
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+    def __getitem__(self, key):
+        if key not in self._store:
+            self.misses += 1
+            raise KeyError(key)
+        self.hits += 1
+        self._store[key] = self._store.pop(key)
+        return self._store[key]
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __setitem__(self, key, value) -> None:
+        self._store.pop(key, None)
+        self._store[key] = value
+        while len(self._store) > self.maxsize:
+            del self._store[next(iter(self._store))]
+        if self.max_bytes is not None:
+            sizes = [(k, stage_nbytes(v)) for k, v in self._store.items()]
+            total = sum(n for _k, n in sizes)
+            for k, n in sizes:
+                if total <= self.max_bytes or k == key:
+                    continue
+                del self._store[k]
+                total -= n
+
+    def put(self, key, value) -> None:
+        self[key] = value
+
+    def clear(self) -> None:
+        self._store.clear()
+
+
 class Cache:
     """In-memory store, bounded LRU. A scrub such as the ``noise`` transform's seed/amplitude
     mints a full-raster field clone plus a complete WTMM result per step; an unbounded store
@@ -73,6 +142,8 @@ class Cache:
         self._pinned: set[str] = set()
         self.hits = 0
         self.misses = 0
+        #: Intermediate stages of transforms that declare ``uses_stage_cache``.
+        self.stages = StageStore(8, self.max_bytes)
 
     def _touch(self, key: str) -> None:
         self._store[key] = self._store.pop(key)   # move to the recent end
@@ -134,6 +205,7 @@ class Cache:
 
     def clear(self) -> None:
         self._store.clear()
+        self.stages.clear()
 
     def __contains__(self, key: str) -> bool:
         return key in self._store
