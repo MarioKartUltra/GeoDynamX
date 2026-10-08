@@ -306,3 +306,107 @@ def test_drawing_a_mask_without_an_inpaint_step_only_notifies(win, qtbot):
     win.set_selection_mode("mask")
     win.canvas.maskDrawn.emit([[1.0, 1.0], [5.0, 1.0], [5.0, 5.0]])
     assert "inpaint" in win.statusBar().currentMessage() or "fill" in win.statusBar().currentMessage()
+
+
+# ------------------------------------------- 7.2 fix: descriptor, dispatch count, file pixels
+
+_SQUARE = [[4.0, 4.0], [14.0, 4.0], [14.0, 12.0], [4.0, 12.0]]
+
+
+def _with_noise_step(win, qtbot, **params):
+    """The host layer with a ``noise`` step before the inpaint step, so a bypass toggle on a
+    step other than the mask step is available; returns the inpaint slot."""
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    desc = [{"device": "noise", "params": defaults_for(get_device("noise"))},
+            {"device": "inpaint", "params": {**defaults_for(get_device("inpaint")),
+                                             "veil_model": "offset", **FAST, **params}}]
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.strips.set_steps(desc, field=win.field)
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    return win._mask_step_index()
+
+
+def _toggle_bypass(win, qtbot, slot, value):
+    win.strips.strip(slot).bypassToggled.emit(value)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+
+
+def test_a_drawn_region_survives_a_bypass_toggle_on_another_step(win, qtbot):
+    idx = _with_noise_step(win, qtbot)
+    win.set_selection_mode("mask")
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.canvas.maskDrawn.emit(_SQUARE)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    _toggle_bypass(win, qtbot, 0, True)
+    idx = win._mask_step_index()
+    polys = json.loads(win._params[idx]["_mask_polygons"])
+    assert polys == [{"kind": "gap", "points": _SQUARE}]
+    assert win.strips._descriptors[idx]["params"]["_mask_polygons"] == win._params[idx]["_mask_polygons"]
+    assert win._params[idx]["mask_source"] == "region"
+    assert len(win.canvas.mask_outline_item.xData) == 6
+
+
+def test_a_clear_survives_a_bypass_toggle_on_another_step(win, qtbot):
+    _with_noise_step(win, qtbot, mask_source="region",
+                     _mask_polygons=json.dumps([{"kind": "gap", "points": _SQUARE}]))
+    win._mask_clear_button.click()
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    _toggle_bypass(win, qtbot, 0, True)
+    idx = win._mask_step_index()
+    assert win._params[idx]["_mask_polygons"] == "[]"
+    assert win.strips._descriptors[idx]["params"]["_mask_polygons"] == "[]"
+
+
+def test_edited_sends_survive_a_bypass_toggle_on_another_step(win, qtbot):
+    idx = _with_noise_step(win, qtbot)
+    text = json.dumps([{"label": "x", "role": "guide"}])
+    win._rewrite_sends(win.layer, 1, text)           # chain index 1: the inpaint step
+    assert win.strips._descriptors[idx]["params"]["_sends"] == text
+    _toggle_bypass(win, qtbot, 0, True)
+    assert win._params[win._mask_step_index()]["_sends"] == text
+
+
+def test_the_first_drawn_region_starts_exactly_one_worker(win, qtbot, monkeypatch):
+    _with_noise_step(win, qtbot)
+    calls = []
+    real = win._start_worker
+    monkeypatch.setattr(win, "_start_worker", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.canvas.maskDrawn.emit(_SQUARE)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert len(calls) == 1
+
+
+def test_clear_with_nothing_drawn_dispatches_nothing(win, qtbot, monkeypatch):
+    _with_noise_step(win, qtbot)
+    calls = []
+    monkeypatch.setattr(win, "_start_worker", lambda *a, **k: calls.append(1))
+    win._mask_clear_button.click()
+    assert calls == []
+
+
+def test_a_region_drawn_on_a_windowed_field_is_in_file_pixels(qtbot, canvas):
+    from dynamix.core.inpaint.engine import regions_from
+
+    canvas.set_selection_mode("mask")
+    none = QtCore.Qt.KeyboardModifier.NoModifier
+    screen = [(100.0, 100.0), (300.0, 100.0), (300.0, 170.0), (100.0, 170.0)]
+    with qtbot.waitSignal(canvas.maskDrawn, timeout=1000) as sig:
+        canvas.mousePressEvent(_press(screen[0], none))
+        for pt in screen[1:]:
+            canvas.mouseMoveEvent(_move(pt, none))
+        canvas.mouseReleaseEvent(_release(screen[-1], none))
+    (points,) = sig.args
+    for p, s in zip(points, screen):
+        x, y = _data_from_geometry(canvas, *s)
+        assert abs(p[0] - x) < 0.6 and abs(p[1] - y) < 0.6        # file pixels, no extra offset
+    off = (int(min(p[1] for p in points)) - 3, int(min(p[0] for p in points)) - 3)
+    text = json.dumps([{"kind": "gap", "points": points}])
+    ids, _ = regions_from(np.zeros((2000, 2000)), {"mask_source": "region", "_mask_polygons": text},
+                          window_offset=off)
+    cy = np.mean([p[1] for p in points]) - off[0]
+    cx = np.mean([p[0] for p in points]) - off[1]
+    assert ids[int(cy), int(cx)] > 0
+    assert ids[int(cx), int(cy)] == 0                 # the transposed point is outside

@@ -3784,7 +3784,7 @@ both ``Canvas`` signals report the
         if recipe and slot < len(recipe):
             recipe[slot] = {**recipe[slot], "params": {**recipe[slot].get("params", {}), "_sends": text}}
         if layer is self.layer and slot < len(self._params):
-            self._params[slot] = dict(self._params[slot], _sends=text)
+            self._set_step_param_silently(slot, "_sends", text)
 
     def _layer_stamp(self, ref) -> str:
         """The fingerprint of what layer ``ref`` shows: its resolve identity, its predicted
@@ -7229,6 +7229,7 @@ both ``Canvas`` signals report the
             self._reresolve()
         # The browser follows the committed chain now; a worker started above lands later.
         self._sync_browser_states()
+        self._sync_mask_outline()
 
     def _on_scale_changed(self, idx: int) -> None:
         """The transport sets the active layer's shown level -- its ``ui.scale_idx`` tag -- and
@@ -8779,6 +8780,21 @@ both ``Canvas`` signals report the
         i = _SELECTION_MODE_CYCLE.index(self._selection_mode)
         self.set_selection_mode(_SELECTION_MODE_CYCLE[(i + 1) % len(_SELECTION_MODE_CYCLE)])
 
+    def _set_step_param_silently(self, slot: int, name: str, value) -> None:
+        """Write a hidden param (no control) into the window's params, the strip's own params
+        and the zone's descriptor, so a later chain edit rebuilds the step with it; a param that
+        has a control shows the value there. Nothing is dispatched."""
+        self._params[slot][name] = value
+        if self.strips is None:
+            return
+        box = self.strips.strip(slot)
+        box._params[name] = value
+        control = box.controls.get(name)
+        if control is not None:
+            control.set_value(value)
+            box._apply_active_when()
+        self.strips._descriptors[slot]["params"][name] = value
+
     def _mask_step_index(self) -> "int | None":
         """The first inpaint or fill step of the active chain, as its slot among every step
         (bypassed ones included, the index ``_params`` and the strips use), or None."""
@@ -8809,17 +8825,25 @@ both ``Canvas`` signals report the
         source = self._params[index].get("mask_source")
         switch = {"nodata": "region", "threshold": "all"}.get(source)
         if switch is not None:
-            self._params[index]["mask_source"] = switch
-            self.strips.strip(index)._on_control_changed("mask_source", switch)
+            self._set_step_param_silently(index, "mask_source", switch)
         elif source == "send":
             self._notify("the drawn region counts once Mask is region or all", "status")
-        self._on_param_changed(index, "_mask_polygons", json.dumps(polys))
+        text = json.dumps(polys)
+        self._set_step_param_silently(index, "_mask_polygons", text)
+        self._on_param_changed(index, "_mask_polygons", text)
         self.canvas.set_mask_polygons(polys)
 
     def _on_mask_clear(self) -> None:
         index = self._mask_step_index()
         if index is None or self.layer is None:
             return
+        notice = _lock_notice(self.layer)
+        if notice is not None:
+            self.strips._show_warning(notice)
+            return
+        if (self._params[index].get("_mask_polygons") or "[]") == "[]":
+            return
+        self._set_step_param_silently(index, "_mask_polygons", "[]")
         self._on_param_changed(index, "_mask_polygons", "[]")
         self.canvas.set_mask_polygons([])
 
