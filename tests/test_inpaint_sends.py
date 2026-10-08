@@ -4,6 +4,7 @@
 over the window that covers the target."""
 from __future__ import annotations
 
+import os
 import json
 
 import numpy as np
@@ -248,4 +249,6 @@ def test_a_rewritten_file_changes_the_guides_stamp(tmp_path):
     a = sn.materialize_guide(_send(str(tmp_path / "n.npz")), t).stamp
     f2 = _target(np.full((8, 8), 2.0), name="n")
     f2.save_npz(tmp_path / "n.npz")
+    st = os.stat(tmp_path / "n.npz")                       # a rewrite inside one timestamp tick
+    os.utime(tmp_path / "n.npz", ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
     assert sn.materialize_guide(_send(str(tmp_path / "n.npz")), t).stamp != a
