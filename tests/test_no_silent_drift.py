@@ -151,7 +151,7 @@ NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "ch
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
-              "bus", "orientation", "anisotropy", "wtmm_levels"]
+              "bus", "orientation", "anisotropy", "wtmm_levels", "dwt"]
 
 
 def _normalised(path: pathlib.Path) -> str:
