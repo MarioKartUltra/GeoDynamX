@@ -54,6 +54,10 @@ class SendsDialog(BusDialog):
                     rel = f"unreadable: {exc}"
                 item.setText(0, f"{item.text(0)} — {rel}")
             it += 1
+        # The combo is the only source of a binding from here on; ``want_for`` served the
+        # initial fill, when a weights send could be listed before the send it weights.
+        for row in self._rows:
+            row.want_for = None
 
     def _append(self, send: dict) -> None:
         super()._append(send)

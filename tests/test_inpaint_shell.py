@@ -211,3 +211,32 @@ def test_the_row_menu_offers_edit_sends_on_an_inpaint_layer(win, qtbot):
     menu_host = win.layer_list._build_context_menu(win.layer_list._layer_items[host.layer_id],
                                                    host.layer_id)
     assert "Edit sends…" not in [a.text() for a in menu_host.actions()]
+
+
+def test_the_sends_dialog_saves_the_binding_it_shows(qtbot):
+    from dynamix.shell.sends_dialog import SendsDialog
+
+    a = {"path": "/a.tif", "subdataset": None, "band": None, "label": "A · b1"}
+    b = {"path": "/b.tif", "subdataset": None, "band": None, "label": "B · b1"}
+    cands = [{"label": "A", "sends": [a], "reason": None},
+             {"label": "B", "sends": [b], "reason": None}]
+    dlg = SendsDialog(cands, [dict(b, role="weights", **{"for": "A · b1"}), dict(a, role="value")])
+    qtbot.addWidget(dlg)
+    assert dlg.sends()[0]["for"] == "A · b1"
+    dlg.tree.topLevelItem(0).child(0).setCheckState(0, QtCore.Qt.Unchecked)
+    out = dlg.sends()
+    assert [s["label"] for s in out] == ["B · b1"] and out[0]["for"] == "target"
+    dlg.tree.topLevelItem(0).child(0).setCheckState(0, QtCore.Qt.Checked)
+    row_b = next(r for r in dlg.rows() if r.label == "B · b1")
+    assert [row_b.target.itemText(i) for i in range(row_b.target.count())] == ["target", "A · b1"]
+    assert dlg.sends()[0]["for"] == "target"
+    row_b.target.setCurrentText("A · b1")
+    assert next(s for s in dlg.sends() if s["label"] == "B · b1")["for"] == "A · b1"
+
+
+def test_a_layer_candidate_shows_its_relation_not_an_error(win):
+    host = _layer_named(win, "host")
+    cands = win._sends_candidates(win._fields[host.layer_id], exclude_layer_id=host.layer_id)
+    send = next(s for c in cands if c["label"] == "prior (layer)" for s in c["sends"])
+    text = win._relation_text(win._fields[host.layer_id], send)
+    assert text.split()[0] in ("same", "nested", "foreign") and "unreadable" not in text

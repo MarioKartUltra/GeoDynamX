@@ -3827,13 +3827,14 @@ both ``Canvas`` signals report the
             raise ValueError(f"routing loop: {layer.name} feeds itself through a stack")
         plan, seen = [], set()
         for _index, step in send_steps:
+            entry = "Edit bus sends…" if step.device == "bus" else "Edit sends…"
             for send in parse_sends(step.params.get("_sends")):
                 if "layer" not in send:
                     continue
                 ref = self._layer_by_id.get(int(send["layer"]))
                 if ref is None:
                     raise ValueError(f"{send.get('label') or 'a send'}: its layer was deleted — "
-                                     f"right-click the layer, Edit sends…")
+                                     f"right-click the layer, {entry}")
                 for item in self._bus_plan(ref, _visiting + (layer.layer_id,)):
                     if item[2] not in seen:
                         seen.add(item[2])
@@ -3934,7 +3935,13 @@ both ``Canvas`` signals report the
         from dynamix.core.inpaint.grid import georef, relate
         from dynamix.core.inpaint.sends import send_georef
 
-        rel = relate(georef(host_field), send_georef(send))
+        if "layer" in send:
+            ref = self._fields.get(int(send["layer"]))
+            if ref is None:
+                raise ValueError("its layer's result is not computed yet")
+            rel = relate(georef(host_field), georef(ref))
+        else:
+            rel = relate(georef(host_field), send_georef(send))
         if rel.kind == "nested":
             return f"nested x{rel.ratio}" + (" (finer)" if rel.direction == "finer" else "")
         return rel.kind
@@ -3997,7 +4004,7 @@ both ``Canvas`` signals report the
                          "status")
 
     def _repoint_bus_sends(self, old_path: str, new_path: str) -> None:
-        """A temporary derivative saved elsewhere: every bus sending from its old file follows
+        """A temporary derivative saved elsewhere: every send step sending from its old file follows
         it (the temporary file goes with the session)."""
         import json
 
@@ -4554,7 +4561,7 @@ both ``Canvas`` signals report the
             self._stamp_backproject(self._names, self._params)
             self.layer.chain = self._chain()
             self._snapshot_recipe()
-        # A bus with LIVE layer sends: re-fingerprint what it sends, so a referenced layer
+        # A send step with LIVE layer sends: re-fingerprint what it sends, so a referenced layer
         # edited since shows up here (its stamp moves the bus's cache key). Same moment as
         # backproject's re-stamp above, for the same reason.
         if self._send_steps(layer) and _lock_notice(layer) is None:
