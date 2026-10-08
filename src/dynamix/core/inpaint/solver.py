@@ -148,8 +148,8 @@ def cascade_loop(problem: Problem, prior, x0, controls: Controls, *, extra_terms
     """With held-out blocks the start is scored like an iterate (the held-out pixels are
     never pinned by a correction, so the scores compare) and is returned, as iterate 0, when
     no inference beats it. Without them the score is the known-pixel variance error of the
-    uncorrected inference, which a start holding the data on the known pixels meets exactly,
-    so the start does not compete."""
+    UNCORRECTED inference, a quantity the start has no counterpart for (the start is already
+    corrected or is the data itself), so the start does not compete."""
     x = np.array(x0, dtype=np.float64)
     best_score = problem.score(x) if problem.has_heldout else math.inf
     best_x, best_k, worse = x.copy(), 0, 0

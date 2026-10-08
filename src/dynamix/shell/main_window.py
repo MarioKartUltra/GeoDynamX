@@ -3960,7 +3960,9 @@ both ``Canvas`` signals report the
             return
         if self.layer is None or self.layer.layer_id != layer_id:
             self.layer_list.select_layer(layer_id)
-        self._on_param_changed(self._names.index("bus"), "_sends", json.dumps(sends))
+        slot = self._names.index("bus")
+        self._set_step_param_silently(slot, "_sends", json.dumps(sends))   # the zone's descriptor keeps it across chain edits
+        self._on_param_changed(slot, "_sends", json.dumps(sends))
 
     def _sends_candidates(self, host_field, exclude_layer_id=None) -> list:
         """Every raster dataset's bands (file sends, any grid) and every whole-grid raster
