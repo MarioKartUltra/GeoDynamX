@@ -4,6 +4,8 @@
 the measured Lipschitz constant bound the cost."""
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -39,7 +41,7 @@ def test_block_average_six_is_the_mean_and_its_norm_is_one_sixth():
     np.testing.assert_allclose(a, x.reshape(6, 6, 8, 6).mean(axis=(1, 3)))
     L = fw.lipschitz([fw.Term(fw.BlockAverage(6), np.zeros((6, 8)), np.ones((6, 8)))],
                      (36, 48), np.random.default_rng(1))
-    assert L == pytest.approx(1.0 / 36, rel=0.1)          # ||A||^2 = (1/f)^2
+    assert L == pytest.approx(1.0 / 36, rel=0.15)          # ||A||^2 = (1/f)^2
 
 
 def test_shift_integer_sub_pixel_and_warp_are_adjoint_and_sample_where_they_say():
@@ -98,10 +100,11 @@ def test_the_measured_lipschitz_constant_bounds_the_hessian_on_random_terms():
              fw.Term(fw.BlockAverage(4), np.zeros((8, 8)), rng.uniform(0, 3, (8, 8))),
              fw.Term(fw.Detail("sym7", 2), np.zeros((6, 32, 32)), rng.uniform(0, 1, (6, 32, 32)))]
     L = fw.lipschitz(terms, (32, 32), np.random.default_rng(2))
-    for _ in range(5):
-        v = rng.standard_normal((32, 32))
-        hv = fw.gradient(terms, v) - fw.gradient(terms, np.zeros((32, 32)))
-        assert np.vdot(v, hv) <= L * np.vdot(v, v) * (1 + 1e-6)
+    zeros = [dataclasses.replace(t, data=np.zeros_like(t.data)) for t in terms]
+    basis = np.eye(32 * 32)
+    hessian = np.stack([fw.gradient(zeros, e.reshape(32, 32)).ravel() for e in basis], axis=1)
+    lam_max = np.linalg.eigvalsh(0.5 * (hessian + hessian.T))[-1]
+    assert lam_max <= L <= 1.25 * lam_max
 
 
 def test_estimate_offset_recovers_integer_and_sub_pixel_shifts():

@@ -178,19 +178,26 @@ def data_cost(terms, x) -> float:
                             * t.residual(x) ** 2).sum() for t in terms))
 
 
-def lipschitz(terms, shape, rng, n_iter: int = 20) -> float:
-    """The largest eigenvalue of ``sum_k A_k^T W_k A_k`` by power iteration, times 1.05."""
+def lipschitz(terms, shape, rng, n_iter: int = 20, max_iter: int = 100) -> float:
+    """An upper bound on the largest eigenvalue of ``sum_k A_k^T W_k A_k``: power
+    iteration run until its norm ratio, which rises monotonically toward the eigenvalue,
+    grows by less than 1e-4 per step (at least ``n_iter`` and at most ``max_iter`` steps),
+    then times 1.1 to cover what a clustered top of the spectrum leaves unconverged."""
     zeros = [dataclasses.replace(t, data=np.zeros_like(t.data)) for t in terms]
     v = rng.standard_normal(tuple(int(n) for n in shape))
     v /= np.linalg.norm(v)
-    L = 1.0
-    for _ in range(int(n_iter)):
+    L = 0.0
+    for k in range(int(max_iter)):
         hv = gradient(zeros, v)
-        L = float(np.linalg.norm(hv))
-        if L == 0.0:
+        new = float(np.linalg.norm(hv))
+        if new == 0.0:
             return 1.0
-        v = hv / L
-    return 1.05 * L
+        v = hv / new
+        done = k + 1 >= int(n_iter) and new - L <= 1e-4 * new
+        L = new
+        if done:
+            break
+    return 1.1 * L
 
 
 def estimate_offset(a, b, max_shift: int = 8) -> tuple:
