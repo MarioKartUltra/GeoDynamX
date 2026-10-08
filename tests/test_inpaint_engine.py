@@ -149,7 +149,11 @@ def test_each_route_fills_the_gap_keeps_the_data_and_reports(route):
     assert (res["fill_mask"] > 0).sum() == 32 * 32 and res["_filled_fraction"] == pytest.approx(1024 / 16384)
     assert res["_route"] == route and res["_seed"] == 3
     assert res["_stop"] in ("converged", "cap") or res["_stop"].startswith("diverged")
-    assert res["_iterations"] >= res["_returned"] >= 1
+    # the cascade loop scores its start too: 0 is the start (the pre-fill, or the sparsity
+    # estimate on "both"), returned when no inference beats it on the held-out blocks
+    assert res["_iterations"] >= res["_returned"] >= (1 if route == "sparsity" else 0)
+    if res["_returned"]:
+        assert res["_history"]["score"][res["_returned"] - 1] == min(res["_history"]["score"])
     assert res["_heldout"]["n_blocks"] == 4 and np.isfinite(res["_heldout"]["rms_rel"])
     assert res["_heldout_mask"].sum() == 4 * 64 and not (res["_heldout_mask"] & ~known).any()
     assert np.isfinite(res["_variance_error"])
@@ -433,3 +437,55 @@ def test_the_bearing_of_up_follows_the_georeference():
                                                                           dy=1.0, units="px"),
                        x_axis=np.arange(8.0), y_axis=-np.arange(8.0), provenance={})
     assert en._bearing_of_up(bare) == (0.0, "pixel")
+
+
+def test_a_veil_seeds_gain_stays_on_the_veil():
+    """An exact seed: the veil is a gain of 0.6 and the flat DEM shades to 0.6 under a sun at
+    asin(0.6). The seed's gain applies inside the veil only; outside it the forward model is
+    the identity, as for the surround seed (measured veil-interior RMS 0.254 and mean ratio
+    0.976 against 0.823 and 0.013 with the gain applied everywhere; truth std 0.766 on the
+    veil)."""
+    dens, _ = _cascade2d()
+    veil = _box(dens.shape, 40, 88, 40, 88)
+    y = np.where(veil, 0.6 * dens, dens)
+    t = _field(y)
+    seed = _guide(t, np.zeros(dens.shape), "veil_seed", name="flat")
+    poly = json.dumps([{"kind": "veil", "points": [[40, 40], [88, 40], [88, 88], [40, 88]]}])
+    res = en.run_inpaint(t, y, _params(route="sparsity", mask_source="region", _mask_polygons=poly,
+                                       veil_model="gain", heldout_blocks=0,
+                                       sun_elevation=float(np.degrees(np.arcsin(0.6)))), [seed])
+    assert res["_veil"] == {"model": "gain", "seed": "flat", "levels": 3}
+    est = res["_estimate"].astype(np.float64)
+    inner = _box(dens.shape, 44, 84, 44, 84)
+    rms = float(np.sqrt(np.mean((est[inner] - dens[inner]) ** 2)))
+    assert rms < 0.5, rms
+    assert abs(est[inner].mean() - dens[inner].mean()) < 0.25 * dens[inner].mean()
+
+
+def test_the_held_out_error_is_relative_to_the_clear_range_not_the_declared_regions():
+    """A bright veil over 6 % of the raster at ten times the clear range: the held-out RMS is
+    divided by the 0.5-99.5 % range of the known pixels (clear, not held out)."""
+    rng = np.random.default_rng(5)
+    clear_field = rng.standard_normal((128, 128)).cumsum(0).cumsum(1)
+    clear_field = (clear_field - clear_field.min()) / np.ptp(clear_field)
+    veil = _box(clear_field.shape, 10, 41, 10, 41)          # 961 px, 5.9 %
+    y = np.where(veil, clear_field + 10.0, clear_field)
+    poly = json.dumps([{"kind": "veil", "points": [[10, 10], [41, 10], [41, 41], [10, 41]]}])
+    res = en.run_inpaint(_field(y), y, _params(route="sparsity", mask_source="region",
+                                               _mask_polygons=poly, veil_model="offset", n_iter=5,
+                                               heldout_blocks=4, heldout_side=8), [])
+    held = res["_heldout_mask"]
+    known = np.isfinite(y) & (res["fill_mask"] == 0) & ~held
+    span = np.quantile(y[known], 0.995) - np.quantile(y[known], 0.005)
+    est = res["_estimate"].astype(np.float64)
+    rms = np.sqrt(np.mean((est[held] - y[held]) ** 2))
+    assert held.sum() == 4 * 64
+    assert res["_heldout"]["rms_rel"] == pytest.approx(rms / span, rel=1e-6)
+
+
+def test_an_all_zero_target_weights_send_is_refused_with_its_reason():
+    dens, y = _gapped_cascade()
+    t = _field(y)
+    wg = _guide(t, np.zeros(y.shape), "weights", name="zero")
+    with pytest.raises(ValueError, match="no known pixel carries weight"):
+        en.run_inpaint(t, y, _params(route="sparsity", n_iter=5, heldout_blocks=0), [wg])

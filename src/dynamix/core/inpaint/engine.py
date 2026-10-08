@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """One inpainting run: the regions of a target band, its guides each on their own grid, the
-route, the readouts and the stamps (the design's sections 4, 6, 11 and 13).
+route, the readouts and the stamps.
 
 The unknown lives on the working image ``W`` (the target mirror-extended once in each axis
 and rounded up to a multiple of ``2**J``); the target term is the mirrored data under the
@@ -359,6 +359,9 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
             wt = _onto_target(g, tg)
             w_t = w_t * np.where(np.isfinite(wt), wt, 0.0)
     w_t[~finite | gap | veil] = 0.0
+    if not (w_t > 0).any():
+        raise ValueError("inpaint: no known pixel carries weight -- the target's weights send "
+                         "is zero on every clear pixel")
     rng = np.random.default_rng(seed)
     n_blocks, side = int(params.get("heldout_blocks", 8)), int(params.get("heldout_side", 16))
     held = ro.heldout(w_t > 0, n_blocks, side, side, rng) if n_blocks > 0 else np.zeros(y.shape, bool)
@@ -496,7 +499,7 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
         if model == "gain":
             if seeds:
                 sh = _onto_target(seeds[0], tg, values=_shaded(seeds[0], params, sun_used))
-                s_g = np.where(np.isfinite(sh), np.maximum(sh, GAIN_FLOOR), 1.0)
+                s_g = np.where(veil & np.isfinite(sh), np.maximum(sh, GAIN_FLOOR), 1.0)
                 seed_src = seeds[0].label
             else:
                 ratio = float(y[veil & finite].mean() / max(y[near].mean(), 1e-30)) if near.any() else 1.0
@@ -599,12 +602,13 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
 
     # readouts on the estimate, then the final step
     x_g = np.asarray(dwt.quarter(x_w, ny, nx), dtype=np.float64)
-    var_err = ro.errors(x_g, y, w_t > 0)["var_err"]
-    held_err = (ro.errors(x_g, y, held) if held.any()
+    data_pixels = finite & ~gap & ~veil
+    span_on = data_pixels & ~held                   # the clear range: known pixels, held-out left out
+    var_err = ro.errors(x_g, y, w_t > 0, span_on=span_on)["var_err"]
+    held_err = (ro.errors(x_g, y, held, span_on=span_on) if held.any()
                 else {"rms_rel": float("nan"), "var_err": float("nan"), "n": 0})
     hists = ro.band_hists(dwt.pyramid(x_w, name, J), rho, clear, abacus,
                           shift=dwt.child_shift(name))
-    data_pixels = finite & ~gap & ~veil
     n_regions = {"gap": sum(1 for v in kinds.values() if v == "gap"),
                  "veil": sum(1 for v in kinds.values() if v == "veil")}
     return {

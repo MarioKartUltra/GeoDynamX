@@ -7,7 +7,8 @@ every ten iterations, the cycle-spun soft threshold as the prox, the paper's cor
 the known pixels after each step; it stops on the relative change inside the regions and
 returns the iterate with the lowest held-out error (else the lowest known-pixel variance
 error). Cascade: the paper's plain loop (a gradient step on the guide terms when there are
-any, the inference, the correction), no momentum, stopping on the variance error.
+any, the inference, the correction), no momentum, stopping on the variance error; with
+held-out blocks the start competes with the iterates (``returned`` 0 is the start).
 """
 from __future__ import annotations
 
@@ -62,10 +63,10 @@ class Problem:
         return self.heldout is not None and bool(self.heldout.any())
 
     def score(self, x) -> float:
-        """The held-out RMS of the corrected iterate when blocks are held out, else the
-        known-pixel variance error of the uncorrected one."""
+        """The held-out RMS of the corrected iterate relative to the known pixels' range when
+        blocks are held out, else the known-pixel variance error of the uncorrected one."""
         if self.has_heldout:
-            return errors(x, self.y, self.heldout)["rms_rel"]
+            return errors(x, self.y, self.heldout, span_on=self.known)["rms_rel"]
         return errors(x, self.y, self.known)["var_err"]
 
     def batched(self, rng, fraction: float) -> list:
@@ -144,8 +145,14 @@ def fista(problem: Problem, prior, x0, controls: Controls, *, cancel=None, progr
 
 def cascade_loop(problem: Problem, prior, x0, controls: Controls, *, extra_terms=(),
                  cancel=None, progress=None):
+    """With held-out blocks the start is scored like an iterate (the held-out pixels are
+    never pinned by a correction, so the scores compare) and is returned, as iterate 0, when
+    no inference beats it. Without them the score is the known-pixel variance error of the
+    uncorrected inference, which a start holding the data on the known pixels meets exactly,
+    so the start does not compete."""
     x = np.array(x0, dtype=np.float64)
-    best_score, best_x, best_k, worse = math.inf, x.copy(), 0, 0
+    best_score = problem.score(x) if problem.has_heldout else math.inf
+    best_x, best_k, worse = x.copy(), 0, 0
     score_hist, cost_hist = [], []
     stop, k = "cap", 0
     n = int(controls.n_iter)

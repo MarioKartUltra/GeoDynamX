@@ -73,7 +73,8 @@ def test_fista_scores_by_the_held_out_blocks_when_there_are_any():
     prior = pr.Sparsity("sym7", 3, 1.0, np.random.default_rng(0))
     x, hist = so.fista(problem, prior, x0, so.Controls(n_iter=20, tol=1e-9))
     assert len(hist.score) == 20 and all(np.isfinite(hist.score))
-    assert problem.score(x) == pytest.approx(ro.errors(x, problem.y, problem.heldout)["rms_rel"])
+    assert problem.score(x) == pytest.approx(
+        ro.errors(x, problem.y, problem.heldout, span_on=problem.known)["rms_rel"])
     assert problem.score(x) == min(hist.score)              # the best iterate by held-out error
     assert hist.returned == int(np.argmin(hist.score)) + 1
     assert hist.returned < hist.iterations                 # the held-out blocks pick an earlier iterate
@@ -106,7 +107,7 @@ def test_fista_cancels_through_the_callback():
 
 
 def test_the_prox_commutes_with_a_shift_by_a_multiple_of_the_dyadic_cell():
-    """The spec's shift test, stated where it holds exactly: cycle spinning draws the same
+    """The shift covariance, stated where it holds exactly: cycle spinning draws the same
     shifts for the same seed and the periodized pyramid is invariant under a shift by 2**J,
     so the prox of a rolled working image is the rolled prox. (The full loop's covariance is
     not pinned: at the cap the two runs return different iterates; measured ratios 0.26-0.6.)"""
@@ -117,9 +118,9 @@ def test_the_prox_commutes_with_a_shift_by_a_multiple_of_the_dyadic_cell():
 
 
 def test_the_plain_cascade_loop_does_not_inflate_the_region():
-    """Finding 19: with a parent whose eq. 15 interval is empty left alone, three passes of
-    inference and correction keep the region's variance error near the pre-fill's (measured
-    0.92, 0.90, 0.91 against 1.006); the spec's hull scan gave 2.5, 226, 482."""
+    """With a parent whose eq. 15 interval is empty left alone, three passes of inference and
+    correction keep the region's variance error near the pre-fill's (measured 0.92, 0.90,
+    0.91 against 1.006); scanning the hull instead gave 2.5, 226, 482."""
     gap = _gap()
     dens, prior = _haar_cascade(gap, 6)
     problem, x0 = _problem(dens, gap, 6)
@@ -173,3 +174,25 @@ def test_the_cascade_loop_takes_a_gradient_step_on_extra_terms_first():
                                 extra_terms=extra)
     assert ro.errors(guided, target, problem.region)["var_err"] < \
         ro.errors(plain, target, problem.region)["var_err"]
+
+
+class _Worse:
+    """An inference that moves every pixel away from the data: each iterate scores worse."""
+
+    def __init__(self, amount):
+        self.amount, self.rng = amount, np.random.default_rng(9)
+
+    def infer(self, x):
+        return x + self.amount * self.rng.standard_normal(x.shape)
+
+
+def test_the_cascade_loop_returns_its_start_when_every_inference_scores_worse():
+    y = np.random.default_rng(2).standard_normal((96, 96)).cumsum(0).cumsum(1)
+    gap = _gap((96, 96), (30, 60, 30, 60))
+    held = ro.heldout(~gap, 4, 8, 8, np.random.default_rng(3))
+    problem, x0 = _problem(y, gap | held, 3, heldout=held)
+    start = problem.score(x0)
+    x, hist = so.cascade_loop(problem, _Worse(50.0), x0, so.Controls(n_iter=3, stop_var_err=0.0))
+    assert hist.iterations == 3 and min(hist.score) > start
+    assert hist.returned == 0
+    np.testing.assert_array_equal(x, x0)

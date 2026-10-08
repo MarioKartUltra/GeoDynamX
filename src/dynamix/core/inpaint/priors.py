@@ -2,8 +2,8 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The two priors of the inpainting engine and the masks they read on the pyramid.
 
-* ``Sparsity``: the cycle-spun soft threshold of every detail band (the author's notebooks),
-  with the threshold ``lambda = lam_rel sigma sqrt(2 ln N)``.
+* ``Sparsity``: the cycle-spun soft threshold of every detail band (a fresh random shift of
+  the working image per step), with the threshold ``lambda = lam_rel sigma sqrt(2 ln N)``.
 * ``Cascade``: Pottier, Turiel and Garcon 2008, every parent inferred from its children by
   maximum likelihood over the abacus of ``ln|eta|`` and blended by ``rho`` (eqs. 13-16).
 * ``Abacus``: the histogram of ``ln|eta| = ln|c| - ln|p|`` over the clear parent-child pairs,

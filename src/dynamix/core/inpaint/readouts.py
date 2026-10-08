@@ -25,16 +25,19 @@ def heldout(valid, n_blocks: int, side: int, margin: int, rng) -> np.ndarray:
     return out.astype(bool)
 
 
-def errors(x, y, where) -> dict:
-    """``rms_rel``: the RMS of ``x - y`` over ``where`` relative to ``y``'s 0.5-99.5 % range;
-    ``var_err``: the paper's variance error, the mean square over the variance of ``y`` there."""
+def errors(x, y, where, span_on=None) -> dict:
+    """``rms_rel``: the RMS of ``x - y`` over ``where`` relative to the 0.5-99.5 % range of
+    ``y`` on ``span_on`` (the clear pixels; a bright declared region would inflate the range
+    of every finite pixel), else on every finite pixel; ``var_err``: the paper's variance
+    error, the mean square over the variance of ``y`` there."""
     x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
     sel = np.asarray(where, dtype=bool) & np.isfinite(y) & np.isfinite(x)
     n = int(sel.sum())
     if n == 0:
         return {"rms_rel": float("nan"), "var_err": float("nan"), "n": 0}
     d = x[sel] - y[sel]
-    fin = y[np.isfinite(y)]
+    ref = np.isfinite(y) if span_on is None else np.asarray(span_on, dtype=bool) & np.isfinite(y)
+    fin = y[ref]
     span = float(np.quantile(fin, 0.995) - np.quantile(fin, 0.005)) if fin.size else 1.0
     var = float(y[sel].var())
     mse = float((d ** 2).mean())

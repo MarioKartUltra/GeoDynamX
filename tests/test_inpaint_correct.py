@@ -197,3 +197,34 @@ def test_the_correction_ignores_a_non_finite_known_pixel():
     assert np.isfinite(s).all()
     ok = known & np.isfinite(y_nan)
     assert abs((x - s)[ok].mean() - y[ok].mean()) < 1e-6 * abs(y).max()
+
+
+def test_rms_rel_is_relative_to_the_span_of_the_reference_pixels():
+    """A bright region over 6 % of the raster at ten times the field's range inflates the span
+    of every finite pixel; ``span_on`` names the pixels the span is read on."""
+    y = np.random.default_rng(7).standard_normal((100, 100)).cumsum(0).cumsum(1)
+    y = (y - y.min()) / np.ptp(y)                           # range 1
+    bright = np.zeros(y.shape, dtype=bool)
+    bright[:6] = True                                       # 6 %
+    y = np.where(bright, 10.0 + y, y)
+    known = ~bright
+    where = np.zeros(y.shape, dtype=bool)
+    where[40:56, 40:56] = True
+    x = y + np.random.default_rng(8).normal(0.0, 0.02, y.shape)
+    rms = np.sqrt(np.mean((x[where] - y[where]) ** 2))
+    clear_span = np.quantile(y[known], 0.995) - np.quantile(y[known], 0.005)
+    e = ro.errors(x, y, where, span_on=known)
+    assert e["rms_rel"] == pytest.approx(rms / clear_span, rel=0.01)
+    assert ro.errors(x, y, where)["rms_rel"] < 0.2 * e["rms_rel"]   # the span of every finite pixel
+    assert e["var_err"] == ro.errors(x, y, where)["var_err"] and e["n"] == 256
+
+
+def test_prefill_discards_the_kernels_psnr_readout():
+    import warnings
+
+    y = np.full((40, 40), 3.0)                              # a flat field: the readout's span is 0
+    holes = _box(y.shape, 10, 20, 10, 20)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        x = co.prefill(np.where(holes, np.nan, y), holes)
+    np.testing.assert_allclose(x, 3.0)

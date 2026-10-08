@@ -59,7 +59,9 @@ def prefill(y, holes, prior=None, *, pad=None) -> np.ndarray:
     ring = boundary_ring(holes)
     if not ring.any():
         return x
-    smooth = _rebuild(x, ~ring, pad)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)   # the kernel's PSNR readout, discarded here
+        smooth = _rebuild(x, ~ring, pad)
     smooth += x[clear].mean() - smooth[clear].mean()
     return np.where(holes | ring, smooth, x)
 
