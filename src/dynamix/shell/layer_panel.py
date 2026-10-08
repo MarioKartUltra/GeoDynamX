@@ -62,6 +62,12 @@ _OUTPUT_KEY_ROLE = QtCore.Qt.UserRole + 5
 _OUTPUT_LAYER_ROLE = QtCore.Qt.UserRole + 6
 
 
+def _declares_sends(device_name: str) -> bool:
+    from dynamix.model.device import DEVICES
+
+    return bool(getattr(DEVICES.get(device_name), "declares_sends", False))
+
+
 def layer_outputs(layer, layer_input: str | None = None) -> tuple:
     """``(step, outputs)`` for ``layer``: its chain's LAST transform step and the outputs that
     step's device declares, or ``(None, ())`` when the last transform declares none (a filter
@@ -327,6 +333,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
     busRequested = QtCore.Signal(int)
     #: "Edit bus sends…" on a layer whose rack starts with a bus.
     busEditRequested = QtCore.Signal(int)
+    #: "Edit sends…" on a layer whose rack holds a step that declares sends (inpaint, fill).
+    sendsEditRequested = QtCore.Signal(int)
     #: "Remove band from project" / Delete on a band row: the band LAYER's id.
     removeBandRequested = QtCore.Signal(int)
     #: "Build band stack from N selected layers": the selected layer ids, in tree order.
@@ -1107,6 +1115,10 @@ class LayerPanel(QtWidgets.QTreeWidget):
         if steps and steps[0].device == "bus":
             edit_bus = menu.addAction("Edit bus sends…")
             edit_bus.triggered.connect(lambda: self.busEditRequested.emit(layer_id))
+        if any(_declares_sends(s.device) for s in steps[1:] if steps and steps[0].device == "bus") \
+                or any(_declares_sends(s.device) for s in steps if s.device != "bus"):
+            edit_sends = menu.addAction("Edit sends…")
+            edit_sends.triggered.connect(lambda: self.sendsEditRequested.emit(layer_id))
         bus_action = menu.addAction("Route bands to a new bus…")
         bus_action.triggered.connect(lambda: self.busRequested.emit(layer_id))
         rack_action = menu.addAction("Save chain as rack…")

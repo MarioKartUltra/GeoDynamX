@@ -95,6 +95,7 @@ from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, POINTS_CO
 from dynamix.shell.components_window import ComponentsWindow
 from dynamix.shell.fork_dialog import ForkDialog
 from dynamix.shell.bus_dialog import BusDialog
+from dynamix.shell.sends_dialog import SendsDialog
 from dynamix.shell.import_dialog import ImportGridsDialog
 # Module-level, like every other pure-Qt shell widget above (the lazy-import discipline in this
 # file guards ``pyvista``, not Qt): the floating inspector imports the existing Canvas and the
@@ -1208,6 +1209,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.layer_list.busRequested.connect(self._on_bus_requested)
         self.layer_list.stackRequested.connect(self._on_stack_requested)
         self.layer_list.busEditRequested.connect(self._on_bus_edit_requested)
+        self.layer_list.sendsEditRequested.connect(self._on_sends_edit_requested)
         self.layer_list.saveDerivativeRequested.connect(self._on_save_derivative)
         # A result's output rows: a raster row is a radio over its step's Show, the edges row
         # hides the maxima drawing.
@@ -3719,6 +3721,58 @@ both ``Canvas`` signals report the
                      "status")
 
     # -- live layer sends -------------------------------------------------------------------
+    @staticmethod
+    def _send_steps(layer) -> list:
+        """``[(index, step)]`` of ``layer``'s steps that carry sends: the bus, and any device
+        declaring ``declares_sends`` (inpaint, fill)."""
+        out = []
+        for i, step in enumerate(layer.chain.steps):
+            if step.device == "bus":
+                out.append((i, step))
+                continue
+            try:
+                device = get_device(step.device)
+            except KeyError:
+                continue
+            if getattr(device, "declares_sends", False):
+                out.append((i, step))
+        return out
+
+    def _step_slot(self, layer, chain_index: int, device: str) -> "int | None":
+        """The slot of chain step ``chain_index`` among ALL of ``layer``'s steps, bypassed
+        ones included: ``layer.chain`` holds only the enabled steps, while the window's
+        ``_params`` and the recipes count every step. ``None`` when the slot's device is not
+        ``device`` (a stale recipe)."""
+        if layer is self.layer:
+            flags, names = list(self._bypassed), list(self._names)
+        else:
+            recipe = self._recipes.get(layer.layer_id)
+            if not recipe:
+                return chain_index
+            flags = [bool(d.get("bypassed", False)) for d in recipe]
+            names = [d["device"] for d in recipe]
+        live = [i for i, b in enumerate(flags) if not b]
+        if chain_index >= len(live) or names[live[chain_index]] != device:
+            return None
+        return live[chain_index]
+
+    def _rewrite_sends(self, layer, index: int, text: str) -> None:
+        """Chain step ``index`` of ``layer`` with ``_sends = text``: the chain, the recipe and,
+        when the layer is active, the strip's params (both at the step's slot among every
+        step, bypassed ones included)."""
+        steps = list(layer.chain.steps)
+        device = steps[index].device
+        steps[index] = DeviceRef(device, {**steps[index].params, "_sends": text})
+        layer.chain = Chain(tuple(steps)).materialized()
+        slot = self._step_slot(layer, index, device)
+        if slot is None:
+            return
+        recipe = self._recipes.get(layer.layer_id)
+        if recipe and slot < len(recipe):
+            recipe[slot] = {**recipe[slot], "params": {**recipe[slot].get("params", {}), "_sends": text}}
+        if layer is self.layer and slot < len(self._params):
+            self._params[slot] = dict(self._params[slot], _sends=text)
+
     def _layer_stamp(self, ref) -> str:
         """The fingerprint of what layer ``ref`` shows: its resolve identity, its predicted
         cache keys and its whole chain (view choices included). Any upstream change changes
@@ -3739,32 +3793,26 @@ both ``Canvas`` signals report the
 
         from dynamix.core.bus import parse_sends
 
-        steps = list(layer.chain.steps)
-        if not steps or steps[0].device != "bus" or _lock_notice(layer) is not None:
+        if _lock_notice(layer) is not None:
             return False
         if layer.layer_id in _visiting:
             raise ValueError(f"routing loop: {layer.name} feeds itself through a stack")
-        sends = parse_sends(steps[0].params.get("_sends"))
-        changed = False
-        for send in sends:
-            ref = self._layer_by_id.get(int(send["layer"])) if "layer" in send else None
-            if ref is None:
-                continue
-            self._refresh_bus_stamps(ref, _visiting + (layer.layer_id,))
-            stamp = self._layer_stamp(ref)
-            if send.get("stamp") != stamp:
-                send["stamp"], changed = stamp, True
-        if not changed:
-            return False
-        text = json.dumps(sends)
-        steps[0] = DeviceRef("bus", {**steps[0].params, "_sends": text})
-        layer.chain = Chain(tuple(steps)).materialized()
-        recipe = self._recipes.get(layer.layer_id)
-        if recipe and recipe[0].get("device") == "bus":
-            recipe[0] = {**recipe[0], "params": {**recipe[0].get("params", {}), "_sends": text}}
-        if layer is self.layer and self._names[:1] == ["bus"]:
-            self._params[0] = dict(self._params[0], _sends=text)
-        return True
+        changed_any = False
+        for index, step in self._send_steps(layer):
+            sends = parse_sends(step.params.get("_sends"))
+            changed = False
+            for send in sends:
+                ref = self._layer_by_id.get(int(send["layer"])) if "layer" in send else None
+                if ref is None:
+                    continue
+                self._refresh_bus_stamps(ref, _visiting + (layer.layer_id,))
+                stamp = self._layer_stamp(ref)
+                if send.get("stamp") != stamp:
+                    send["stamp"], changed = stamp, True
+            if changed:
+                self._rewrite_sends(layer, index, json.dumps(sends))
+                changed_any = True
+        return changed_any
 
     def _bus_plan(self, layer, _visiting: tuple = ()) -> list:
         """``[(ref_layer, ref_field, stamp)]`` the worker must resolve BEFORE ``layer`` -- its
@@ -3772,27 +3820,28 @@ both ``Canvas`` signals report the
         send named) for a deleted referenced layer or a routing loop."""
         from dynamix.core.bus import _PLANES, parse_sends
 
-        steps = layer.chain.steps
-        if not steps or steps[0].device != "bus":
+        send_steps = self._send_steps(layer)
+        if not send_steps:
             return []
         if layer.layer_id in _visiting:
             raise ValueError(f"routing loop: {layer.name} feeds itself through a stack")
         plan, seen = [], set()
-        for send in parse_sends(steps[0].params.get("_sends")):
-            if "layer" not in send:
-                continue
-            ref = self._layer_by_id.get(int(send["layer"]))
-            if ref is None:
-                raise ValueError(f"{send.get('label') or 'a send'}: its layer was deleted — "
-                                 f"right-click the stack, Edit bus sends…")
-            for item in self._bus_plan(ref, _visiting + (layer.layer_id,)):
-                if item[2] not in seen:
-                    seen.add(item[2])
-                    plan.append(item)
-            stamp = str(send.get("stamp"))
-            if stamp not in _PLANES and stamp not in seen:
-                seen.add(stamp)
-                plan.append((ref, self._fields.get(ref.layer_id), stamp))
+        for _index, step in send_steps:
+            for send in parse_sends(step.params.get("_sends")):
+                if "layer" not in send:
+                    continue
+                ref = self._layer_by_id.get(int(send["layer"]))
+                if ref is None:
+                    raise ValueError(f"{send.get('label') or 'a send'}: its layer was deleted — "
+                                     f"right-click the layer, Edit sends…")
+                for item in self._bus_plan(ref, _visiting + (layer.layer_id,)):
+                    if item[2] not in seen:
+                        seen.add(item[2])
+                        plan.append(item)
+                stamp = str(send.get("stamp"))
+                if stamp not in _PLANES and stamp not in seen:
+                    seen.add(stamp)
+                    plan.append((ref, self._fields.get(ref.layer_id), stamp))
         return plan
 
     def _on_stack_requested(self, layer_ids) -> None:
@@ -3856,6 +3905,68 @@ both ``Canvas`` signals report the
             self.layer_list.select_layer(layer_id)
         self._on_param_changed(self._names.index("bus"), "_sends", json.dumps(sends))
 
+    def _sends_candidates(self, host_field, exclude_layer_id=None) -> list:
+        """Every raster dataset's bands (file sends, any grid) and every whole-grid raster
+        layer (a live layer send), for a step that reads sends on their own grids."""
+        from dynamix.core.bus import sends_for_field
+
+        out = []
+        for layer in self.project.layers:
+            if self._is_point_layer(layer) or layer.layer_id == exclude_layer_id:
+                continue
+            field = self._fields.get(layer.layer_id)
+            if field is None or np.asarray(getattr(field, "values", None)).ndim not in (2, 3):
+                continue
+            if layer.parent_id is None:
+                src = self.project.sources.get(layer.source_id)
+                path = src.path if src is not None else None
+                if path and Path(path).is_file():
+                    out.append({"label": layer.name, "sends": sends_for_field(field, path, layer.name),
+                                "reason": None})
+            if layer.tags.get("roi.window") or np.asarray(field.values).ndim != 2:
+                continue
+            out.append({"label": f"{layer.name} (layer)", "reason": None,
+                        "sends": [{"layer": layer.layer_id, "label": f"{layer.name} (layer)",
+                                   "stamp": self._layer_stamp(layer)}]})
+        return out
+
+    def _relation_text(self, host_field, send: dict) -> str:
+        from dynamix.core.inpaint.grid import georef, relate
+        from dynamix.core.inpaint.sends import send_georef
+
+        rel = relate(georef(host_field), send_georef(send))
+        if rel.kind == "nested":
+            return f"nested x{rel.ratio}" + (" (finer)" if rel.direction == "finer" else "")
+        return rel.kind
+
+    def _on_sends_edit_requested(self, layer_id: int) -> None:
+        """"Edit sends…": the sends of the layer's first step that declares them, with roles."""
+        from dynamix.core.bus import parse_sends
+
+        layer = self._layer_by_id.get(layer_id)
+        if layer is None:
+            return
+        steps = [(i, s) for i, s in self._send_steps(layer) if s.device != "bus"]
+        if not steps:
+            return
+        index, step = steps[0]
+        host = self._fields.get(layer.layer_id)
+        if host is None:
+            return
+        current = parse_sends(step.params.get("_sends"))
+        dialog = SendsDialog(self._sends_candidates(host, exclude_layer_id=layer_id), current,
+                             relation_of=lambda s: self._relation_text(host, s),
+                             title="Edit sends", parent=self)
+        if not dialog.exec():
+            return
+        if self.layer is None or self.layer.layer_id != layer_id:
+            self.layer_list.select_layer(layer_id)
+        slot = self._step_slot(self.layer, index, step.device)   # the strip's slot, bypassed steps counted
+        if slot is None:
+            self._notify("the sends' step is not on the strip any more — unchanged", "status")
+            return
+        self._on_param_changed(slot, "_sends", json.dumps(dialog.sends()))
+
     def _land_field_result(self, result) -> None:
         """A chain that ENDS on a field stage produced a field, not a result -- and you see
         what the chain makes, the way an inserted effect is heard at once: the produced field
@@ -3893,22 +4004,13 @@ both ``Canvas`` signals report the
         from dynamix.core.bus import parse_sends
 
         for layer in self.project.layers:
-            steps = list(layer.chain.steps)
-            if not steps or steps[0].device != "bus":
-                continue
-            sends = parse_sends(steps[0].params.get("_sends"))
-            if not any(s.get("path") == old_path for s in sends):
-                continue
-            moved = [{**s, "path": new_path} if s.get("path") == old_path else s
-                     for s in sends]
-            steps[0] = DeviceRef("bus", {**steps[0].params, "_sends": json.dumps(moved)})
-            layer.chain = Chain(tuple(steps)).materialized()
-            recipe = self._recipes.get(layer.layer_id)
-            if recipe and recipe[0].get("device") == "bus":
-                recipe[0] = {**recipe[0], "params": {**recipe[0].get("params", {}),
-                                                     "_sends": json.dumps(moved)}}
-        if self.layer is not None and self._names[:1] == ["bus"]:
-            self._params[0] = dict(self.layer.chain.steps[0].params)
+            for index, step in self._send_steps(layer):
+                sends = parse_sends(step.params.get("_sends"))
+                if not any(s.get("path") == old_path for s in sends):
+                    continue
+                moved = [{**s, "path": new_path} if s.get("path") == old_path else s
+                         for s in sends]
+                self._rewrite_sends(layer, index, json.dumps(moved))
 
     # -- holder_map raster display -------------------------------------------------------------
     def _sync_holder_raster(self, result: dict) -> None:
@@ -4455,7 +4557,7 @@ both ``Canvas`` signals report the
         # A bus with LIVE layer sends: re-fingerprint what it sends, so a referenced layer
         # edited since shows up here (its stamp moves the bus's cache key). Same moment as
         # backproject's re-stamp above, for the same reason.
-        if self._names[:1] == ["bus"] and _lock_notice(layer) is None:
+        if self._send_steps(layer) and _lock_notice(layer) is None:
             try:
                 if self._refresh_bus_stamps(layer):
                     self.layer.chain = self._chain()
@@ -7496,6 +7598,11 @@ both ``Canvas`` signals report the
                 continue
             if is_transform(get_device(name)):
                 strip.set_state(state)
+                reading = getattr(get_device(name), "reading", None)
+                if callable(reading):
+                    text = reading(renderable.result, self._params[i])
+                    if text:
+                        strip.set_reading(text)
                 margins = renderable.result.get("_roi_margins") if name == "wtmm2d_roi" else None
                 if margins:
                     strip.set_reading(_roi_margin_reading(margins))
