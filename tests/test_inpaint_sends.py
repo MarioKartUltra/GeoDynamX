@@ -22,10 +22,10 @@ UTM = "EPSG:32615"
 
 
 def _tif(path, values, x0, y0, px, crs=UTM):
-    from rasterio.transform import from_origin
+    from rasterio.transform import Affine
 
     with rasterio.open(path, "w", driver="GTiff", height=values.shape[0], width=values.shape[1],
-                       count=1, dtype="float32", crs=crs, transform=from_origin(x0, y0, px, px),
+                       count=1, dtype="float32", crs=crs, transform=Affine(px, 0, x0, 0, -px, y0),
                        nodata=-9999.0) as dst:
         dst.write(values.astype(np.float32), 1)
     return str(path)
@@ -162,9 +162,10 @@ def test_an_roi_window_target_reads_the_matching_sub_window(tmp_path):
 
 def test_a_layer_send_not_computed_yet_is_named():
     t = _target(np.zeros((8, 8)))
-    with pytest.raises(ValueError, match="pending layer.*not computed"):
+    with pytest.raises(ValueError, match="pending layer.*not computed") as ei:
         sn.materialize_guide({"layer": 9, "stamp": "nope", "label": "pending layer",
                               "role": "value"}, t)
+    assert str(ei.value).count("pending layer") == 1
 
 
 def test_resolve_guides_binds_weights_to_their_send_and_refuses_another_grid(tmp_path):
@@ -207,3 +208,44 @@ def test_resolved_guides_drive_the_engine(tmp_path):
     err = np.abs(res["raster_out"][inside] - truth[inside]).mean()
     plain = run_inpaint(t, y, {**params, "_sends": "[]"}, [])
     assert err < np.abs(plain["raster_out"][inside] - truth[inside]).mean()
+
+
+def test_an_unreferenced_same_band_send_over_an_roi_window_is_same(tmp_path):
+    vals = np.arange(100 * 120, dtype=np.float64).reshape(100, 120)
+    band = RasterField(name="band", values=vals, frame=LocalFrame(),
+                       x_axis=np.arange(120.0) + 0.5, y_axis=np.arange(100.0) + 0.5)
+    band.save_npz(tmp_path / "band.npz")
+    src = str(tmp_path / "band.npz")
+    t = RasterField(name="win", values=np.zeros((40, 50)), frame=LocalFrame(),
+                    x_axis=0.5 + 10 + np.arange(50.0), y_axis=0.5 + 20 + np.arange(40.0),
+                    provenance={"source": src, "full_dims": (100, 120),
+                                "window": {"row_off": 20, "col_off": 10}})
+    guide = sn.materialize_guide(_send(src, label="band"), t)
+    assert guide.relation.kind == "same" and guide.relation.mapping_source == "file"
+    assert guide.relation.offset == (0, 0)
+    assert guide.field.values.shape == (40, 50)
+    np.testing.assert_array_equal(guide.field.values, vals[20:60, 10:60])
+
+
+def test_a_bound_weights_send_of_another_extent_is_refused(tmp_path):
+    p = _tif(tmp_path / "v.tif", np.ones((40, 50)), 500000.0, 4000000.0, 30.0)
+    w = _tif(tmp_path / "w.tif", np.ones((30, 50)), 500000.0, 4000000.0, 30.0)
+    t = _target(np.zeros((40, 50)))
+    text = json.dumps([_send(p, "value", "v"), _send(w, "weights", "w", **{"for": "v"})])
+    with pytest.raises(ValueError, match="same extent"):
+        sn.resolve_guides(text, t)
+
+
+def test_duplicate_send_labels_are_refused():
+    with pytest.raises(ValueError, match="share this label"):
+        sn.parse_roles(json.dumps([_send("/a.tif", label="x"), _send("/b.tif", label="x")]))
+
+
+def test_a_rewritten_file_changes_the_guides_stamp(tmp_path):
+    t = _target(np.zeros((8, 8)))
+    f = _target(np.ones((8, 8)), name="n")
+    f.save_npz(tmp_path / "n.npz")
+    a = sn.materialize_guide(_send(str(tmp_path / "n.npz")), t).stamp
+    f2 = _target(np.full((8, 8), 2.0), name="n")
+    f2.save_npz(tmp_path / "n.npz")
+    assert sn.materialize_guide(_send(str(tmp_path / "n.npz")), t).stamp != a

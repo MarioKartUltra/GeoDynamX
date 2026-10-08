@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 import numpy as np
 
@@ -44,6 +45,10 @@ def parse_roles(text) -> list:
                              "send it weights, or 'target')")
         s["role"] = role
         out.append(s)
+    labels = [send_label(s) for s in out]
+    for label in labels:
+        if labels.count(label) > 1:
+            raise ValueError(f"{label!r}: two sends share this label; give each send its own label")
     return out
 
 
@@ -131,6 +136,8 @@ def materialize_guide(send: dict, target) -> Guide:
     try:
         sg = send_georef(send)
     except ValueError as exc:
+        if str(exc).startswith(label):
+            raise
         raise ValueError(f"{label}: {exc}") from exc
     tg = georef(target)
     rel = relate(tg, sg)
@@ -150,9 +157,16 @@ def materialize_guide(send: dict, target) -> Guide:
         x_axis=x0 + dx * (c0 + np.arange(c1 - c0)), y_axis=y0 + dy * (r0 + np.arange(r1 - r0)),
         provenance={"crs": sg["crs"], "source": sg["source"], "lattice": sg["lattice"],
                     "subdataset": send.get("subdataset"), "window": {"row_off": r0, "col_off": c0},
+                    "full_dims": sg["full_shape"],
                     **({} if sg["georeferenced"] else {"georef": "none (pixel-index axes)"})})
-    stamp = str(send.get("stamp") or hashlib.sha1(
-        json.dumps(send, sort_keys=True, default=str).encode()).hexdigest()[:16])
+    stamp = send.get("stamp")
+    if not stamp:
+        payload = dict(send)
+        if "path" in send and os.path.exists(str(send["path"])):
+            st = os.stat(str(send["path"]))
+            payload.update(mtime_ns=st.st_mtime_ns, size=st.st_size)
+        stamp = hashlib.sha1(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    stamp = str(stamp)
     # the relation of the WINDOW read, whose origin is the window's own
     return Guide(label, str(send.get("role", "value")), field, relate(tg, georef(field)),
                  shade=bool(send.get("shade", False)), stamp=stamp,
@@ -185,9 +199,10 @@ def resolve_guides(text, target) -> list:
                 raise ValueError(f"{g.label}: weights for {g.weights_for!r}, which is not a send "
                                  "of this step")
             rel = relate(georef(host.field), georef(g.field))
-            if rel.kind != "same" or rel.offset != (0, 0) or any(rel.subpixel):
+            if (rel.kind != "same" or rel.offset != (0, 0) or any(rel.subpixel)
+                    or host.field.values.shape != g.field.values.shape):
                 raise ValueError(f"{g.label}: a weights send must sit on its measurement's grid "
-                                 f"({host.label}'s), with no offset")
+                                 f"({host.label}'s), with no offset and the same extent")
             host.weights = g.field
             continue
         out.append(g)
