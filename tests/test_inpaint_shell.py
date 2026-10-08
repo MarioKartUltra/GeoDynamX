@@ -240,3 +240,69 @@ def test_a_layer_candidate_shows_its_relation_not_an_error(win):
     send = next(s for c in cands if c["label"] == "prior (layer)" for s in c["sends"])
     text = win._relation_text(win._fields[host.layer_id], send)
     assert text.split()[0] in ("same", "nested", "foreign") and "unreadable" not in text
+
+
+# ---------------------------------------------------------------- 7.2 mask mode
+
+from tests.test_shell_roi_flow import _data_from_geometry, _move, _press, _release, canvas  # noqa: E402,F401
+
+
+def test_mask_mode_drag_emits_the_polygon_in_file_pixels(qtbot, canvas):
+    canvas.set_selection_mode("mask")
+    screen = [(120.0, 100.0), (300.0, 100.0), (300.0, 260.0), (120.0, 260.0)]
+    none = QtCore.Qt.KeyboardModifier.NoModifier
+    with qtbot.waitSignal(canvas.maskDrawn, timeout=1000) as sig:
+        canvas.mousePressEvent(_press(screen[0], none))
+        for pt in screen[1:]:
+            canvas.mouseMoveEvent(_move(pt, none))
+        canvas.mouseReleaseEvent(_release(screen[-1], none))
+    (points,) = sig.args
+    assert len(points) == 4 and all(len(p) == 2 for p in points)
+    x0, y0 = _data_from_geometry(canvas, *screen[0])
+    assert abs(points[0][0] - x0) < 0.6 and abs(points[0][1] - y0) < 0.6
+    assert canvas.mask_item.xData is None or len(canvas.mask_item.xData) == 0   # the live line is gone
+    canvas.set_mask_polygons([{"kind": "gap", "points": points}])
+    assert len(canvas.mask_outline_item.xData) == 6                            # a closed ring + NaN
+
+
+def test_a_two_point_drag_in_mask_mode_emits_nothing(qtbot, canvas):
+    canvas.set_selection_mode("mask")
+    none = QtCore.Qt.KeyboardModifier.NoModifier
+    fired = []
+    canvas.maskDrawn.connect(lambda pts: fired.append(pts))
+    canvas.mousePressEvent(_press((100.0, 100.0), none))
+    canvas.mouseReleaseEvent(_release((140.0, 100.0), none))
+    assert fired == []
+
+
+def test_the_mask_mode_row_writes_the_regions_into_the_inpaint_step_and_the_run_fills_them(win, qtbot):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    child = _drop(win, qtbot, "inpaint", veil_model="offset", **FAST)   # the host is signed: no gain veil
+    assert "mask" in win._selection_mode_buttons and not win._mask_kind_combo.isVisibleTo(win)
+    win.set_selection_mode("mask")
+    assert win.canvas._selection_mode == "mask" and win._mask_kind_combo.isVisibleTo(win)
+    win._mask_kind_combo.setCurrentText("veil")
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.canvas.maskDrawn.emit([[4.0, 4.0], [14.0, 4.0], [14.0, 12.0], [4.0, 12.0]])
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    step = win.layer.chain.steps[0]
+    polys = json.loads(step.params["_mask_polygons"])
+    assert polys == [{"kind": "veil", "points": [[4.0, 4.0], [14.0, 4.0], [14.0, 12.0], [4.0, 12.0]]}]
+    assert step.params["mask_source"] == "region"           # nodata stays a gap under every source
+    mask = win._active_result["fill_mask"]
+    assert mask[8, 8] > 0 and mask[20, 28] > 0                 # the drawn veil and the nodata gap
+    assert len(win.canvas.mask_outline_item.xData) == 6
+    win._mask_clear_button.click()
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer.chain.steps[0].params["_mask_polygons"] == "[]"
+    win.set_selection_mode("click")
+    assert not win._mask_kind_combo.isVisibleTo(win)
+
+
+def test_drawing_a_mask_without_an_inpaint_step_only_notifies(win, qtbot):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    win.set_selection_mode("mask")
+    win.canvas.maskDrawn.emit([[1.0, 1.0], [5.0, 1.0], [5.0, 5.0]])
+    assert "inpaint" in win.statusBar().currentMessage() or "fill" in win.statusBar().currentMessage()

@@ -158,7 +158,7 @@ _CENTER_VIEWS = ("raster", "vector", "geo")
 #: The legal selection-mode values -- EQSelect's own
 #: names ("lasso", not "freehand"). ``"transect"`` is legal from day one (it gets its own gesture) -- :meth:`MainWindow.set_selection_mode` raises on anything
 #: outside this tuple.
-_SELECTION_MODES = ("click", "box", "lasso", "transect")
+_SELECTION_MODES = ("click", "box", "lasso", "transect", "mask")
 
 #: `v`'s own cycle order ("`v` -> `_cycle_selection_mode`... cycles only the non-click
 #: modes"), deliberately excluding ``"click"`` -- `c` owns click directly, and EQSelect's own `v`
@@ -1381,6 +1381,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # never arrive while another view is showing in the first place.
         self.canvas.chainPicked.connect(self._on_canvas_chain_picked)
         self.canvas.chainsLassoed.connect(self._on_canvas_chains_lassoed)
+        self.canvas.maskDrawn.connect(self._on_mask_drawn)
         self.canvas.chainsBoxed.connect(self._on_canvas_chains_boxed)
         # "after every apply_picks, push sorted(selection
         # indices for the active layer) into canvas.set_selection_chains" -- `membershipChanged`
@@ -1563,7 +1564,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._selection_mode_group.setExclusive(True)
         self._selection_mode_buttons: dict[str, QtWidgets.QToolButton] = {}
         for mode, label in (("click", "Click"), ("box", "Box"), ("lasso", "Lasso"),
-                             ("transect", "Transect")):
+                             ("transect", "Transect"), ("mask", "Mask")):
             button = QtWidgets.QToolButton()
             button.setText(label)
             button.setCheckable(True)
@@ -1571,6 +1572,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self._selection_mode_group.addButton(button)
             self._selection_mode_buttons[mode] = button
             switcher_row.addWidget(button)
+        self._mask_kind_combo = QtWidgets.QComboBox()
+        self._mask_kind_combo.addItems(["gap", "veil"])
+        self._mask_kind_combo.setToolTip("The kind of the next region drawn: a gap is inferred "
+                                         "at every scale; a veil keeps its fine-scale data")
+        self._mask_clear_button = QtWidgets.QToolButton()
+        self._mask_clear_button.setText("Clear")
+        self._mask_clear_button.setToolTip("Forget every region drawn on the active step")
+        self._mask_clear_button.clicked.connect(self._on_mask_clear)
+        switcher_row.addWidget(self._mask_kind_combo)
+        switcher_row.addWidget(self._mask_clear_button)
+        self._mask_kind_combo.setVisible(False)
+        self._mask_clear_button.setVisible(False)
         self._selection_mode_buttons[self._selection_mode].setChecked(True)
         self.canvas.set_selection_mode(self._selection_mode)     # sync the canvas's own mirror
 
@@ -6725,6 +6738,7 @@ both ``Canvas`` signals report the
         self._apply_pending_ui()
         self._sync_recon_section()
         self._sync_browser_states()
+        self._sync_mask_outline()
 
     def _update_source_box(self) -> None:
         """Make the zone's ``SourceBox`` real. Called at the end of :meth:`_build_strips`
@@ -8750,6 +8764,9 @@ both ``Canvas`` signals report the
             button.blockSignals(True)
             button.setChecked(mode == self._selection_mode)
             button.blockSignals(False)
+        in_mask = self._selection_mode == "mask"
+        self._mask_kind_combo.setVisible(in_mask)
+        self._mask_clear_button.setVisible(in_mask)
 
     def _cycle_selection_mode(self) -> None:
         """`v`'s own action: walks :data:`_SELECTION_MODE_CYCLE` (box -> lasso -> transect
@@ -8761,6 +8778,61 @@ both ``Canvas`` signals report the
             return
         i = _SELECTION_MODE_CYCLE.index(self._selection_mode)
         self.set_selection_mode(_SELECTION_MODE_CYCLE[(i + 1) % len(_SELECTION_MODE_CYCLE)])
+
+    def _mask_step_index(self) -> "int | None":
+        """The first inpaint or fill step of the active chain, as its slot among every step
+        (bypassed ones included, the index ``_params`` and the strips use), or None."""
+        for i, name in enumerate(self._names):
+            if name in ("inpaint", "fill"):
+                return i
+        return None
+
+    def _on_mask_drawn(self, points: list) -> None:
+        """A region drawn in Mask mode joins the active step's ``_mask_polygons`` (file pixels)
+        with the kind the row shows. A step on the nodata source switches to ``region`` (nodata
+        stays a gap under every source) and one on the threshold source to ``all``, so the
+        drawn region counts; ``send`` is left alone and the status bar says why."""
+        index = self._mask_step_index()
+        if index is None or self.layer is None:
+            self._notify("drop inpaint or fill on this layer first, then draw regions", "status")
+            return
+        notice = _lock_notice(self.layer)
+        if notice is not None:
+            self.strips._show_warning(notice)
+            return
+        try:
+            polys = json.loads(self._params[index].get("_mask_polygons") or "[]")
+        except ValueError:
+            polys = []
+        polys.append({"kind": self._mask_kind_combo.currentText(),
+                      "points": [[round(float(x), 2), round(float(y), 2)] for x, y in points]})
+        source = self._params[index].get("mask_source")
+        switch = {"nodata": "region", "threshold": "all"}.get(source)
+        if switch is not None:
+            self._params[index]["mask_source"] = switch
+            self.strips.strip(index)._on_control_changed("mask_source", switch)
+        elif source == "send":
+            self._notify("the drawn region counts once Mask is region or all", "status")
+        self._on_param_changed(index, "_mask_polygons", json.dumps(polys))
+        self.canvas.set_mask_polygons(polys)
+
+    def _on_mask_clear(self) -> None:
+        index = self._mask_step_index()
+        if index is None or self.layer is None:
+            return
+        self._on_param_changed(index, "_mask_polygons", "[]")
+        self.canvas.set_mask_polygons([])
+
+    def _sync_mask_outline(self) -> None:
+        """The committed regions of the active step, as dashed rings."""
+        index = self._mask_step_index()
+        polys = []
+        if index is not None and self.layer is not None:
+            try:
+                polys = json.loads(self._params[index].get("_mask_polygons") or "[]")
+            except ValueError:
+                polys = []
+        self.canvas.set_mask_polygons(polys)
 
     def _toggle_center_view(self) -> None:
         """Flip the center zone between the session canvas (index 0) and the arrangement view in

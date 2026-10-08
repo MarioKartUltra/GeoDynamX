@@ -47,6 +47,8 @@ def test_selection_mode_defaults_to_click(qtbot, loaded):
 
 
 def test_set_selection_mode_raises_on_unknown(qtbot, loaded):
+    loaded.set_selection_mode("mask")
+    assert loaded._selection_mode == "mask"
     with pytest.raises(ValueError):
         loaded.set_selection_mode("freehand")
 

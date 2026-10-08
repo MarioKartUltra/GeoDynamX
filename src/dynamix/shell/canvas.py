@@ -719,6 +719,10 @@ class Canvas(pg.GraphicsLayoutWidget):
     #: subtract -- see :meth:`mouseReleaseEvent`'s own comment.
     chainsLassoed = QtCore.Signal(list, bool)
 
+    #: Mask mode: a closed polygon drawn as a region for ``inpaint`` / ``fill``, as
+    #: ``[[col, row], ...]`` in FILE pixels (the canvas's own data space).
+    maskDrawn = QtCore.Signal(list)
+
     #: A box-mode drag finished (only fires while :attr:`_selection_mode` is ``"box"``): every
     #: chain index :func:`dynamix.core.chain_pick.chains_in_box` found enclosed, possibly empty,
     #: plus whether the op is a subtract (⌥ held during the drag) -- same shape and same EQ§1
@@ -787,6 +791,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._press_pos = None
         self._press_shift = False
         self._lasso_points = None
+        self._mask_points = None
         # Which gesture a plain (no-⌘) left-button drag performs --
         # MainWindow.set_selection_mode is the validating, hotkey/button-synced setter (raises
         # on an unknown mode); this widget's own `set_selection_mode` just mirrors whatever
@@ -958,6 +963,13 @@ class Canvas(pg.GraphicsLayoutWidget):
         # comment already argues for the ROI/lasso split).
         self.box_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.selection_accent))
         self.view.addItem(self.box_item)
+        # Mask mode: the live polygon (amber: a region, like the ROI band) and the committed
+        # regions of the active step as dashed rings.
+        self.mask_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.amber))
+        self.view.addItem(self.mask_item)
+        self.mask_outline_item = pg.PlotDataItem(
+            pen=pg.mkPen(RESTRAINED_DARK.amber, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
+        self.view.addItem(self.mask_outline_item)
 
         # Persisted transects. `transect_item` draws every
         # VISIBLE transect's line, NaN-separated (mirrors `vchain_trails`'s own multi-polyline
@@ -1130,6 +1142,24 @@ class Canvas(pg.GraphicsLayoutWidget):
         xs = [p[0] for p in self._lasso_points]
         ys = [p[1] for p in self._lasso_points]
         self.lasso_item.setData(xs, ys)
+
+    def _draw_mask(self) -> None:
+        if not self._mask_points:
+            self.mask_item.setData([], [])
+            return
+        self.mask_item.setData([p[0] for p in self._mask_points], [p[1] for p in self._mask_points])
+
+    def set_mask_polygons(self, polys) -> None:
+        """Dashed rings of the committed regions ``[{"kind", "points"}, ...]`` (file pixels)."""
+        xs, ys = [], []
+        for poly in polys or ():
+            pts = list(poly.get("points") or ())
+            if len(pts) < 3:
+                continue
+            ring = pts + [pts[0]]
+            xs += [float(p[0]) for p in ring] + [np.nan]
+            ys += [float(p[1]) for p in ring] + [np.nan]
+        self.mask_outline_item.setData(np.asarray(xs, dtype=float), np.asarray(ys, dtype=float))
 
     _GEOMETRY_CACHE_MAX = 64
 
@@ -1688,7 +1718,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def set_selection_mode(self, mode: str) -> None:
         """Which gesture a plain (no-⌘) left-button drag performs from
-        now on -- ``"click"``, ``"box"``, ``"lasso"`` or ``"transect"``.
+        now on -- ``"click"``, ``"box"``, ``"lasso"``, ``"transect"`` or ``"mask"``.
 
         This is the canvas's own PASSIVE mirror, not the validating setter: ``MainWindow.
         set_selection_mode`` is the one that raises on an unknown mode, syncs the mode-row
@@ -1811,6 +1841,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self._draw_lasso()
             event.accept()
             return
+        if event.button() == QtCore.Qt.MouseButton.LeftButton and self._selection_mode == "mask":
+            self._mask_points = [self._data_xy(event)]
+            self._draw_mask()
+            event.accept()
+            return
         if event.button() == QtCore.Qt.MouseButton.LeftButton and self._selection_mode == "box":
             # Box MODE -- a plain drag starts the rubber-band with no
             # modifier required ("box... resolves via points_in_box"). ⌥ is read at
@@ -1866,6 +1901,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if self._lasso_points is not None:
             self._lasso_points.append(self._data_xy(event))
             self._draw_lasso()
+            event.accept()
+            return
+        if self._mask_points is not None:
+            self._mask_points.append(self._data_xy(event))
+            self._draw_mask()
             event.accept()
             return
         if self._roi_place is not None and self._field is not None:
@@ -1951,6 +1991,13 @@ a bounded gather of at most :attr:`draw_cap` chains per
                         and bool(event.modifiers() & LASSO_MODIFIER))
             event.accept()
             self.chainsLassoed.emit(picked, subtract)
+            return
+        if self._mask_points is not None:
+            points, self._mask_points = self._mask_points, None
+            self._draw_mask()
+            event.accept()
+            if len(points) >= 3:
+                self.maskDrawn.emit([[float(x), float(y)] for x, y in points])
             return
         if self._press_pos is not None:
             press, self._press_pos = self._press_pos, None
