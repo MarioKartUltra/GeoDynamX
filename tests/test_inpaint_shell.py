@@ -410,3 +410,86 @@ def test_a_region_drawn_on_a_windowed_field_is_in_file_pixels(qtbot, canvas):
     cx = np.mean([p[0] for p in points]) - off[1]
     assert ids[int(cy), int(cx)] > 0
     assert ids[int(cx), int(cy)] == 0                 # the transposed point is outside
+
+
+# ---------------------------------------------------------------- 7.3 rows, outline, histograms
+
+from tests.test_mfa_band_rows import _hidden, _landed, _row  # noqa: E402
+
+
+def _shown(canvas):
+    return canvas._product if canvas._product is not None else canvas._field
+
+
+def test_the_rows_radio_show_and_the_fill_outline_is_drawn(win, qtbot):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    child = _drop(win, qtbot, "inpaint", **FAST)
+    lid = child.layer_id
+    from dynamix.shell.layer_panel import _OUTPUT_KEY_ROLE
+
+    names = [win.layer_list._output_groups[lid].child(i).data(0, _OUTPUT_KEY_ROLE)
+             for i in range(win.layer_list._output_groups[lid].childCount())]
+    assert names == ["residual", "heldout"] and _hidden(win, child, "residual")
+    assert len(win.canvas.fill_outline_item.xData) > 0           # the gap's boundary
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.layer_list.outputHideToggled.emit(lid, "residual", False)
+    key = _landed(win, qtbot, child, "residual")
+    assert child.chain.steps[0].params["show"] == "residual"
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
+    assert "rms" in _row(win, child, "residual").text(0) or "residual" in _row(win, child, "residual").text(0)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.layer_list.outputHideToggled.emit(lid, "residual", True)
+    assert child.chain.steps[0].params["show"] == "filled" and _hidden(win, child, "residual")
+    np.testing.assert_array_equal(_shown(win.canvas).values, win._active_result["raster_out"])
+
+
+def test_the_inpaint_strip_reads_the_run_and_the_histograms_window_opens(win, qtbot):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    _drop(win, qtbot, "inpaint", **FAST)
+    text = win.strips.strip(0).reading_label.text()
+    assert text.startswith("sparsity · 1 gap ·") and "var err" in text
+    assert win._inpaint_button.isEnabled()
+    win._inpaint_button.click()
+    window = win._inpaint_window
+    assert window is not None and window.isVisible()
+    assert window.level_combo.count() == len(win._active_result["_hists"])
+    assert "distance" in window.note.text()
+    window.level_combo.setCurrentIndex(1)
+    assert window.eta_plot.listDataItems() and window.amp_plot.listDataItems()
+    _drop(win, qtbot, "ssa2d", rows_window=4, cols_window=4, n_components=4)
+    assert not win._inpaint_button.isEnabled()
+
+
+def test_the_fill_stage_reads_on_its_strip_and_marks_the_rows_and_the_band_dialog(win, qtbot, monkeypatch):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    desc = [{"device": "fill", "params": {**defaults_for(get_device("fill")), "n_iter": 3}},
+            {"device": "holder_measure", "params": {**defaults_for(get_device("holder_measure")),
+                                                    "n_scales": 3}}]
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.strips.set_steps(desc, field=win.field)
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.strips.strip(0).reading_label.text().startswith("filled 7 % · sparsity")
+    assert win._active_result["_fill"]["filled_fraction"] == pytest.approx(192 / 2688)
+    layer = win.layer
+    notes = {name: _row(win, layer, name).text(0) for name in ("band", "band_mask")}
+    assert all("7 % reconstruction" in t for t in notes.values())
+    seen = []
+
+    class _Dialog(QtWidgets.QDialog):
+        reconstructRequested = QtCore.Signal(float, float, int)
+        bandPreviewRequested = QtCore.Signal(float, float, str, int)
+
+        def __init__(self, h, *, h_lo=None, h_hi=None, parent=None):
+            super().__init__(parent)
+            seen.append(self)
+            self.setWindowTitle("Reconstruct from h band")
+
+    import dynamix.shell.main_window as mw
+
+    monkeypatch.setattr(mw, "BandDialog", _Dialog)
+    win._on_band_dialog_requested()
+    assert seen and "7 % reconstruction" in seen[0].windowTitle()

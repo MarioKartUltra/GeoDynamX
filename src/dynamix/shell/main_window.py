@@ -71,7 +71,7 @@ from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overvi
 from dynamix.geo.mapping import axis_at, has_georeference
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
-from dynamix.model.contracts import FIELD, StepState, input_contract, step_states
+from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
 from dynamix.model.forking import drop_states, is_primary, routing_head, ships_to
@@ -93,6 +93,7 @@ from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, POINTS_COLOR, VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
+from dynamix.shell.inpaint_window import InpaintHistogramsWindow
 from dynamix.shell.fork_dialog import ForkDialog
 from dynamix.shell.bus_dialog import BusDialog
 from dynamix.shell.sends_dialog import SendsDialog
@@ -1454,6 +1455,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel.add_section("Decomposition", self._components_button)
         self._refresh_components_button()
 
+        # The inpainting readout: the histograms inside the regions against the clear ones.
+        self._inpaint_button = QtWidgets.QPushButton("Histograms…")
+        self._inpaint_button.clicked.connect(self._on_inpaint_button_clicked)
+        self._inpaint_window: InpaintHistogramsWindow | None = None
+        self.right_panel.add_section("Inpainting", self._inpaint_button)
+        self._refresh_inpaint_button()
+
         # The transect list -- NOT view-scoped (a drawn
         # transect is project-level state, meaningful to review/delete/plot regardless of which
         # center-stack page happens to be showing; only the DRAWING gesture itself is Raster-
@@ -2535,6 +2543,10 @@ off / z from this layer's own values / z from another loaded
                 h_lo, h_hi = pp.get("h_lo"), pp.get("h_hi")
         dialog = BandDialog(np.asarray(h_map, dtype=np.float64), h_lo=h_lo, h_hi=h_hi,
                             parent=self)
+        stamp = fill_of(result)
+        if stamp:
+            dialog.setWindowTitle(f"{dialog.windowTitle()} · "
+                                  f"{100.0 * float(stamp.get('filled_fraction', 0.0)):.0f} % reconstruction")
         dialog.reconstructRequested.connect(self._on_band_reconstruct_requested)
         dialog.bandPreviewRequested.connect(self._on_band_preview_requested)
         dialog.show()
@@ -3222,6 +3234,7 @@ both ``Canvas`` signals report the
             "Skeleton": has_chains,
             "Spectrum": tables or res.get("h_map") is not None or has_ext,
             "Decomposition": self._decomposition_of(res) is not None,
+            "Inpainting": bool(res.get("_hists")),
             "Transect": raster,
             _RECON_TITLE: self._recon_step() is not None,
         })
@@ -3399,6 +3412,28 @@ both ``Canvas`` signals report the
         window.forkRequested.connect(
             lambda: self._on_fork_derivative(self.layer.layer_id) if self.layer else None)
         self._components_window = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _refresh_inpaint_button(self) -> None:
+        res = self._active_result if isinstance(self._active_result, dict) else {}
+        enabled = bool(res.get("_hists"))
+        self._inpaint_button.setEnabled(enabled)
+        self._inpaint_button.setToolTip(
+            "The ln|η| and amplitude histograms inside the regions against the clear ones"
+            if enabled else "No inpainting on the active result")
+        if self._inpaint_window is not None and self._inpaint_window.isVisible():
+            self._inpaint_window.set_result(res)
+
+    def _on_inpaint_button_clicked(self) -> None:
+        res = self._active_result if isinstance(self._active_result, dict) else {}
+        if not res.get("_hists"):
+            return
+        if self._inpaint_window is not None:
+            self._inpaint_window.close()
+        window = InpaintHistogramsWindow(res, parent=self)
+        self._inpaint_window = window
         window.show()
         window.raise_()
         window.activateWindow()
@@ -5168,6 +5203,12 @@ both ``Canvas`` signals report the
                     and level in marked_levels(layer, output.name)):
                 notes[output.name] = " · ".join(
                     n for n in (notes.get(output.name), "marked") if n)
+        stamp = fill_of(self._active_result) if layer is self.layer else None
+        if stamp:
+            pct = f"{100.0 * float(stamp.get('filled_fraction', 0.0)):.0f} % reconstruction"
+            for output in outputs:
+                if output.kind == "raster" and output.name not in disabled:
+                    notes[output.name] = " · ".join(n for n in (notes.get(output.name), pct) if n)
         return notes, disabled
 
     def _draws_preview(self, layer, step, name, key) -> bool:
@@ -7439,6 +7480,7 @@ both ``Canvas`` signals report the
             # nothing to overlay -- land quietly with the hint instead of crashing on result.get.
             self._active_result = {}
             self.canvas.clear_overlays()
+            self.canvas.set_fill_outline(None)
             self._land_field_result(result)
             self.resolved.emit(renderable)
             return
@@ -7459,6 +7501,7 @@ both ``Canvas`` signals report the
         self._refresh_anisotropy()
         self._refresh_panel_relevance()
         self._refresh_components_button()
+        self._refresh_inpaint_button()
         self._sync_holder_raster(result)
         self._sync_output_rows(self.layer)
         # A landing while the Vector/Globe tab is up must reach the scene (a forked wtmm computed
@@ -7548,6 +7591,14 @@ both ``Canvas`` signals report the
                 self.canvas.set_pick_chains(None)
             else:
                 self._canvas_overlay_dirty = True
+        # After the overlay branch above, whose clear_overlays would take the outline off.
+        mask = result.get("fill_mask") if self.layer is not None and self.layer.visible else None
+        if mask is None:
+            self.canvas.set_fill_outline(None)
+        else:
+            r, c = display_offset(result, self.field) if self.field is not None else (0, 0)
+            self.canvas.set_fill_outline(
+                mask, (r + self.canvas._base_off[0], c + self.canvas._base_off[1]))
         self._sync_controls()
         self._update_readings(renderable)
         self._update_scale_bar()
@@ -7859,6 +7910,7 @@ both ``Canvas`` signals report the
             # what to add.
             self._scales = ()
             self.canvas.clear_overlays()
+            self.canvas.set_fill_outline(None)
             self._land_field_result(renderable.result)
             self.resolved.emit(renderable)
             self._land_after_worker()

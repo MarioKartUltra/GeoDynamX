@@ -970,6 +970,11 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.mask_outline_item = pg.PlotDataItem(
             pen=pg.mkPen(RESTRAINED_DARK.amber, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
         self.view.addItem(self.mask_outline_item)
+        # The boundary of a fill (inpaint / fill): the pixel edges where the result's fill
+        # mask changes, above the product, in the result's own placement.
+        self.fill_outline_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.selection_accent),
+                                                 connect="finite")
+        self.view.addItem(self.fill_outline_item)
 
         # Persisted transects. `transect_item` draws every
         # VISIBLE transect's line, NaN-separated (mirrors `vchain_trails`'s own multi-polyline
@@ -1644,6 +1649,20 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._roi_press = None
         self.roi_band_item.setData([], [])
 
+    def set_fill_outline(self, mask, offset=(0.0, 0.0)) -> None:
+        """The pixel-edge outline of ``mask`` (a 2-D array, nonzero inside), drawn at the
+        result's placement ``offset = (row, col)``; ``None`` clears it."""
+        if mask is None or not np.any(mask):
+            self.fill_outline_item.setData([], [])
+            return
+        from dynamix.core.inpaint._kernels import kernels
+
+        m = np.ascontiguousarray(np.asarray(mask) != 0)
+        xs, ys = np.empty(12 * m.size + 12), np.empty(12 * m.size + 12)
+        n = kernels()["mask_edges"](m, xs, ys)
+        dr, dc = (float(v) for v in offset)
+        self.fill_outline_item.setData(xs[:n] + dc, ys[:n] + dr)
+
     def clear_overlays(self) -> None:
         """Take every WTMM-result overlay off the canvas -- everything :meth:`set_result` draws --
         leaving the raster itself and the corner readings untouched.
@@ -1657,6 +1676,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.cap_note = None
         # The raster-pixel overlay is a set_result product like every item below -- it leaves
         # with them, so hiding a layer never leaves its extrema standing.
+        self.fill_outline_item.setData([], [])
         self.extrema_raster_item.clear()
         self.extrema_item.setData([], [])
         self.arrow_item.setData([], [])
