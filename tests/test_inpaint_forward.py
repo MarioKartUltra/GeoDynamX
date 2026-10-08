@@ -41,7 +41,7 @@ def test_block_average_six_is_the_mean_and_its_norm_is_one_sixth():
     np.testing.assert_allclose(a, x.reshape(6, 6, 8, 6).mean(axis=(1, 3)))
     L = fw.lipschitz([fw.Term(fw.BlockAverage(6), np.zeros((6, 8)), np.ones((6, 8)))],
                      (36, 48), np.random.default_rng(1))
-    assert L == pytest.approx(1.0 / 36, rel=0.15)          # ||A||^2 = (1/f)^2
+    assert 1.0 / 36 <= L <= 1.25 / 36                      # ||A||^2 = (1/f)^2, bounded from above
 
 
 def test_shift_integer_sub_pixel_and_warp_are_adjoint_and_sample_where_they_say():
@@ -96,9 +96,10 @@ def test_a_terms_residual_zeroes_what_is_missing_and_the_gradient_is_the_adjoint
 
 
 def test_the_measured_lipschitz_constant_bounds_the_hessian_on_random_terms():
-    terms = [fw.Term(fw.Identity(), np.zeros((32, 32)), rng.uniform(0, 2, (32, 32))),
-             fw.Term(fw.BlockAverage(4), np.zeros((8, 8)), rng.uniform(0, 3, (8, 8))),
-             fw.Term(fw.Detail("sym7", 2), np.zeros((6, 32, 32)), rng.uniform(0, 1, (6, 32, 32)))]
+    own = np.random.default_rng(7)
+    terms = [fw.Term(fw.Identity(), np.zeros((32, 32)), own.uniform(0, 2, (32, 32))),
+             fw.Term(fw.BlockAverage(4), np.zeros((8, 8)), own.uniform(0, 3, (8, 8))),
+             fw.Term(fw.Detail("sym7", 2), np.zeros((6, 32, 32)), own.uniform(0, 1, (6, 32, 32)))]
     L = fw.lipschitz(terms, (32, 32), np.random.default_rng(2))
     zeros = [dataclasses.replace(t, data=np.zeros_like(t.data)) for t in terms]
     basis = np.eye(32 * 32)
