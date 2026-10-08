@@ -71,10 +71,24 @@ def test_fista_scores_by_the_held_out_blocks_when_there_are_any():
     held = ro.heldout(~gap, 4, 8, 8, np.random.default_rng(3))
     problem, x0 = _problem(y, gap | held, 3, heldout=held)
     prior = pr.Sparsity("sym7", 3, 1.0, np.random.default_rng(0))
-    x, hist = so.fista(problem, prior, x0, so.Controls(n_iter=20, tol=1e-9, correct=False))
+    x, hist = so.fista(problem, prior, x0, so.Controls(n_iter=20, tol=1e-9))
     assert len(hist.score) == 20 and all(np.isfinite(hist.score))
     assert problem.score(x) == pytest.approx(ro.errors(x, problem.y, problem.heldout)["rms_rel"])
     assert problem.score(x) == min(hist.score)              # the best iterate by held-out error
+    assert hist.returned == int(np.argmin(hist.score)) + 1
+    assert hist.returned < hist.iterations                 # the held-out blocks pick an earlier iterate
+
+
+def test_fista_with_a_mini_batch_takes_the_fraction_of_the_step_and_does_not_diverge():
+    y = np.random.default_rng(2).standard_normal((96, 96)).cumsum(0).cumsum(1)
+    gap = _gap((96, 96), (30, 60, 30, 60))
+    held = ro.heldout(~gap, 4, 8, 8, np.random.default_rng(3))
+    problem, x0 = _problem(y, gap | held, 3, heldout=held)
+    prior = pr.Sparsity("sym7", 3, 1.0, np.random.default_rng(0))
+    x, hist = so.fista(problem, prior, x0, so.Controls(n_iter=60, tol=1e-9, batch=0.3))
+    assert not hist.stop.startswith("diverged")
+    assert all(np.isfinite(hist.score)) and max(hist.score) < 10 * hist.score[0]
+    assert min(hist.score) < hist.score[0]
 
 
 def test_fista_cancels_through_the_callback():
