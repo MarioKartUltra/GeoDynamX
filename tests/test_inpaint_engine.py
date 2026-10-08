@@ -179,7 +179,7 @@ def test_the_cascade_route_keeps_the_inside_statistics_closer_than_the_fill():
     assert coarse and np.mean(coarse) < 0.5                 # a physics claim: report the number if it fails
 
 
-@pytest.mark.xfail(strict=True, reason="plain cascade on Haar: coarse mean amplitude distance 0.609 (synthesis: 0.373) (measured); the plain inference infers parents only as ratios off the fill's children, so the inside level stays anchored to the fill -- the author decides whether the synthesis pass becomes the default")
+@pytest.mark.xfail(strict=True, reason="plain cascade on Haar: coarse mean amplitude distance 0.609 (synthesis: 0.373) (measured); the plain inference infers parents only as ratios off the fill's children, so the inside level stays anchored to the fill; the synthesis pass draws the fine levels from the abacus instead")
 def test_the_plain_cascade_inference_anchors_the_inside_amplitudes_to_the_fill():
     coarse = _cascade_amp()
     assert coarse and np.mean(coarse) < 0.5
@@ -395,11 +395,12 @@ def test_a_weights_send_on_the_target_zeroes_what_it_says():
 
 
 def test_a_weights_send_holds_the_estimate_to_the_data_where_the_weight_is_one():
-    """The sparsity estimate keeps the data's smooth part only, so the known pixels under
-    weight 1 are approached, never matched exactly; where the weight is 0 the fit lets them
-    go, and only the correction (which pins every known pixel's smooth part) and the start
-    at the data keep the estimate near them, so its deviation there is larger (measured
-    ratio 0.55 with five iterations)."""
+    """The send weights the data term and the correction's known pixels. The estimate
+    returned here is the first iterate, one prox step from a start at the data where the
+    weighted data term's gradient is zero, so the send acts through the correction alone:
+    it pins the smooth part of the weight-1 pixels and leaves the weight-0 rows out
+    (measured RMS deviation 0.175 under weight 1 against 0.320 under weight 0; without the
+    send both are about 0.175)."""
     dens, y = _gapped_cascade()
     t = _field(y)
     w = np.ones(y.shape)
