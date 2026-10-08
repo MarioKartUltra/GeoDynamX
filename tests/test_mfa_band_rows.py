@@ -18,6 +18,11 @@ RECON_OF = {"holder_measure": "band_recon_measure",
             "holder_multiaffine": "band_recon_multiaffine"}
 
 
+def _shown(canvas):
+    """The raster the canvas shows on top: the product when one is up, else the dataset."""
+    return canvas._product if canvas._product is not None else canvas._field
+
+
 @pytest.fixture
 def builtins(clean_registry):
     from dynamix.devices import register_builtin_devices
@@ -101,7 +106,7 @@ def test_an_mfa_layer_shows_its_h_map_with_both_band_rows_hidden(win, qtbot, dev
     assert [group.child(i).text(0) for i in range(group.childCount())] == [
         "band reconstruction", "band mask"]
     assert _hidden(win, layer, "band") and _hidden(win, layer, "band_mask")
-    np.testing.assert_array_equal(win.canvas._field.values, win._active_result["h_map"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win._active_result["h_map"])
 
 
 @pytest.mark.parametrize("device", MFA)
@@ -117,13 +122,13 @@ def test_the_band_row_shows_the_reconstruction_and_hiding_it_brings_the_h_map_ba
     recon = get_device(RECON_OF[device])
     ref = recon.compute(win._fields[lid], validate_params(recon, {"h_lo": -6.0, "h_hi": 6.0}))
     np.testing.assert_array_equal(win.cache.get(key)["raster"], ref["raster_out"])
-    np.testing.assert_array_equal(win.canvas._field.values, ref["raster_out"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, ref["raster_out"])
     assert win.layer_list.layer_text(lid).endswith("· band reconstruction")
     with qtbot.waitSignal(win.resolved, timeout=5000):
         win.layer_list.outputHideToggled.emit(lid, "band", True)
     assert _step(layer).params["show"] == "h_map"
     assert _hidden(win, layer, "band") and _hidden(win, layer, "band_mask")
-    np.testing.assert_array_equal(win.canvas._field.values, win._active_result["h_map"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win._active_result["h_map"])
 
 
 def test_the_reconstruction_section_holds_the_band_knobs_and_a_scrub_keeps_the_h_map(
@@ -144,7 +149,7 @@ def test_the_reconstruction_section_holds_the_band_knobs_and_a_scrub_keeps_the_h
     second = _landed(win, qtbot, layer, "band")
     assert second != first and _step(layer).params["h_lo"] == 0.0
     assert len(h_maps) == computed                                 # only the band recomputed
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(second)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(second)["raster"])
 
 
 def test_the_band_mask_row_shows_the_band_and_its_share(win, qtbot):

@@ -33,6 +33,11 @@ NOTE = re.compile(r"(\d+) it · (converged|still improving|rising|diverging) · 
 LAZY = ("coarse", "thumbnail", "recon", "recon_edges_only", "residual")
 
 
+def _shown(canvas):
+    """The raster the canvas shows on top: the product when one is up, else the dataset."""
+    return canvas._product if canvas._product is not None else canvas._field
+
+
 @pytest.fixture
 def builtins(clean_registry):
     from dynamix.devices import register_builtin_devices
@@ -129,7 +134,7 @@ def _close32(got, want) -> None:
 
 
 def _rect(canvas):
-    item = canvas.image_item
+    item = canvas.product_item if canvas._product is not None else canvas.image_item
     r = item.mapRectToView(item.boundingRect())
     return r.x(), r.y(), r.width(), r.height()
 
@@ -172,7 +177,7 @@ def test_showing_recon_computes_it_once_and_displays_it_with_its_reading(win, qt
     key = _show(win, qtbot, layer, "recon")
     assert dispatches == ["recon"]
     values = win.field.values
-    _close32(win.canvas._field.values, mz.reconstruct(values, mz.analyze(values, 4),
+    _close32(_shown(win.canvas).values, mz.reconstruct(values, mz.analyze(values, 4),
                                                       n_iter=10)[0])
     assert win._active_result["raster_out"] is win.cache.get(key)["raster"]
     assert "raster_out" not in win.cache.get(analysis_key)        # the cached result is intact
@@ -190,13 +195,13 @@ def test_hiding_and_reshowing_recon_is_a_cache_hit(win, qtbot, dispatches):
     key = _show(win, qtbot, layer, "recon")
     with qtbot.waitSignal(win.resolved, timeout=5000):
         win.layer_list.outputHideToggled.emit(lid, "recon", True)
-    np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.field.values)
     assert NOTE.search(_row(win, layer, "recon").text(0))          # the reading stays
     with qtbot.waitSignal(win.resolved, timeout=5000):
         win.layer_list.outputHideToggled.emit(lid, "recon", False)
     qtbot.wait(50)
     assert dispatches == ["recon"] and not win.is_computing
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
 
 
 def test_changing_iterations_while_shown_recomputes_the_output_only(win, qtbot, dispatches):
@@ -211,7 +216,7 @@ def test_changing_iterations_while_shown_recomputes_the_output_only(win, qtbot, 
     assert dispatches == ["recon", "recon"]
     assert NOTE.search(_row(win, layer, "recon").text(0)).group(1) == "5"
     assert win.cache.get(second)["diag"]["n_iter"] == 5
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(second)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(second)["raster"])
 
 
 def test_a_knob_turn_mid_job_supersedes_it(win, qtbot, dispatches):
@@ -227,7 +232,7 @@ def test_a_knob_turn_mid_job_supersedes_it(win, qtbot, dispatches):
     assert first not in win.cache and second in win.cache
     assert dispatches == ["recon", "recon"]
     assert NOTE.search(_row(win, layer, "recon").text(0)).group(1) == "5"
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(second)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(second)["raster"])
 
 
 def test_stop_during_a_reconstruction_caches_nothing_and_leaves_the_analysis(win, qtbot,
@@ -247,7 +252,7 @@ def test_stop_during_a_reconstruction_caches_nothing_and_leaves_the_analysis(win
     assert _row(win, layer, "recon").text(0) == "recon (edges + coarse)"
     assert (win._dispatched, win._stopped_sig, win._active_pending) == analysis_state
     assert not win._user_stopped
-    np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.field.values)
     # a later show computes it
     with qtbot.waitSignal(win.resolved, timeout=5000):
         win.layer_list.outputHideToggled.emit(lid, "recon", True)
@@ -317,7 +322,7 @@ def test_a_filter_edit_during_an_output_job_redraws_before_it_lands(win, qtbot, 
     assert dispatches == ["recon"]
     assert win._active_result["_scale_idx"] == 2
     key = _key(win, layer, "recon")
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
 
 
 def test_a_filter_edit_during_an_output_job_redraws_the_last_run_while_a_transform_awaits_run(
@@ -341,7 +346,7 @@ def test_a_filter_edit_during_an_output_job_redraws_the_last_run_while_a_transfo
     assert dispatches == ["recon"] and layer.layer_id in win._pending_layers
     assert win._active_result["_scale_idx"] == 2
     key = _key(win, layer, "recon")
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
 
 
 def test_an_analysis_knob_change_mid_reconstruction_never_shows_the_old_recon(win, qtbot,
@@ -352,12 +357,18 @@ def test_an_analysis_knob_change_mid_reconstruction_never_shows_the_old_recon(wi
     old = mz.reconstruct(values, mz.analyze(values, 4), n_iter=10)[0]
     shown = []
     real = win.canvas.set_field
+    real_product = win.canvas.set_product
 
     def spy(field, *a, **k):
         shown.append(np.array(getattr(field, "values", field), dtype=np.float64))
         return real(field, *a, **k)
 
+    def spy_product(field, *a, **k):
+        shown.append(np.array(getattr(field, "values", field), dtype=np.float64))
+        return real_product(field, *a, **k)
+
     win.canvas.set_field = spy
+    win.canvas.set_product = spy_product
     win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
     qtbot.waitUntil(lambda: win._out_job is not None, timeout=10000)
     win._on_param_changed(win._names.index("mz_edges"), "n_levels", 3)
@@ -371,7 +382,7 @@ def test_an_analysis_knob_change_mid_reconstruction_never_shows_the_old_recon(wi
     assert dispatches == ["recon", "recon"]
     scale = float(np.abs(old).max())
     assert all(np.abs(v - old).max() > 1e-3 * scale for v in shown)
-    _close32(win.canvas._field.values, mz.reconstruct(values, mz.analyze(values, 3),
+    _close32(_shown(win.canvas).values, mz.reconstruct(values, mz.analyze(values, 3),
                                                       n_iter=10)[0])
 
 
@@ -385,7 +396,7 @@ def test_removing_the_layer_mid_job_ignores_the_landing(win, qtbot):
     qtbot.wait(50)
     assert win.layer is master and win._out_job is None
     assert layer.layer_id not in win.layer_list._output_rows
-    np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.field.values)
 
 
 def test_reopening_a_project_mid_job_ignores_the_landing(win, qtbot, tmp_path):
@@ -398,14 +409,14 @@ def test_reopening_a_project_mid_job_ignores_the_landing(win, qtbot, tmp_path):
     qtbot.wait(50)
     assert win._out_job is None and win._out_keys == {}
     assert win.layer is win.project.layers[0] and win.layer is not layer
-    np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.field.values)
 
 
 def test_a_finished_job_for_a_layer_that_is_gone_is_ignored(win, qtbot):
     from dynamix.model.layer import Layer
 
     layer = _mz_layer(win, qtbot)
-    shown = np.array(win.canvas._field.values)
+    shown = np.array(_shown(win.canvas).values)
 
     class _Thread:
         def quit(self):
@@ -420,7 +431,7 @@ def test_a_finished_job_for_a_layer_that_is_gone_is_ignored(win, qtbot):
     win._thread = _Thread()
     win._on_output_finished({"raster": np.zeros_like(shown, dtype=np.float32), "diag": {}})
     assert win._out_job is None and win._thread is None
-    np.testing.assert_array_equal(win.canvas._field.values, shown)
+    np.testing.assert_array_equal(_shown(win.canvas).values, shown)
 
 
 def test_a_finished_job_for_a_key_the_live_layer_no_longer_shows_is_not_displayed(win, qtbot):
@@ -443,7 +454,7 @@ def test_a_finished_job_for_a_key_the_live_layer_no_longer_shows_is_not_displaye
     assert win._out_job is None and not win.is_computing
     assert win.layer is layer
     assert win._active_result["raster_out"] is shown        # re-derived from the current key
-    np.testing.assert_array_equal(win.canvas._field.values, shown)
+    np.testing.assert_array_equal(_shown(win.canvas).values, shown)
     assert NOTE.search(_row(win, layer, "recon").text(0)).group(1) == "10"
 
 
@@ -469,7 +480,7 @@ def test_the_thumbnail_draws_on_its_own_grid_centred_on_its_samples(win, qtbot):
     ny, nx = win.field.values.shape
     value = win.cache.get(key)
     assert value["display_stride"] == S
-    shown = win.canvas._field
+    shown = _shown(win.canvas)
     np.testing.assert_array_equal(shown.values, value["raster"])
     assert shown.values.shape == (math.ceil(ny / S), math.ceil(nx / S))
     # Sample k describes the centre of pixels [k*S, (k+1)*S): the canvas's own picture
@@ -518,7 +529,7 @@ def test_the_thumbnail_block_drawn_over_an_impulse_holds_its_maximum(qtbot, buil
     win = _window(qtbot, field, "/nonexistent/impulse.npz")
     layer = _mz_layer(win, qtbot)
     _show(win, qtbot, layer, "thumbnail")
-    shown = np.asarray(win.canvas._field.values)
+    shown = np.asarray(_shown(win.canvas).values)
     x0, y0, w, h = _rect(win.canvas)
     under = (int((p - y0) // (h / shown.shape[0])), int((p - x0) // (w / shown.shape[1])))
     assert under == (p // S, p // S)
@@ -582,9 +593,9 @@ def test_a_thumbnail_coarse_on_a_non_divisible_grid_greys_recon_but_draws_the_th
         win._on_param_changed(win._names.index("mz_edges"), "show", "recon")
     qtbot.wait(50)
     assert dispatches == [] and not win.is_computing
-    np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.field.values)
     _show(win, qtbot, layer, "thumbnail")                 # the partial last block draws
-    assert win.canvas._field.values.shape == (4, 4)
+    assert _shown(win.canvas).values.shape == (4, 4)
     assert _rect(win.canvas) == (-0.5, -0.5, 64.0, 64.0)
     # Coarse back to full: recon computes
     with qtbot.waitSignal(win.resolved, timeout=5000):
@@ -717,5 +728,5 @@ def test_reopening_restores_the_rows_and_recomputes_the_shown_recon(win, qtbot, 
                     timeout=60000)
     key = _key(win2, back, "recon")
     assert dispatches == ["recon", "recon"] and key in win2.cache
-    np.testing.assert_array_equal(win2.canvas._field.values, win2.cache.get(key)["raster"])
+    np.testing.assert_array_equal(_shown(win2.canvas).values, win2.cache.get(key)["raster"])
     assert win2.canvas.extrema_raster_item.isVisible() is False

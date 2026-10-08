@@ -751,6 +751,12 @@ class BandReconstructor:
         self.stride = max(1, -(-max(s.shape) // int(max_dim)))
         s = s[::self.stride, ::self.stride]
         h = h[::self.stride, ::self.stride]
+        # A non-finite pixel in the gradient reaches every Fourier coefficient: the holes are
+        # filled with the finite mean for the transform and restored on each reconstruction.
+        finite = np.isfinite(s)
+        self._holes = ~finite
+        if not finite.all():
+            s = np.where(finite, s, s[finite].mean() if finite.any() else 0.0)
         ny, nx = s.shape
         if pad is None:
             pad = max(ny, nx) // 2
@@ -779,7 +785,9 @@ class BandReconstructor:
         r = _fft().irfft2(s_hat, s=self._full_shape)
         if self._pad:
             r = r[self._pad:self._pad + self._ny, self._pad:self._pad + self._nx]
-        return (r - r.mean() + self._mean).astype(np.float32)
+        out = r - r.mean() + self._mean
+        out[self._holes] = np.nan
+        return out.astype(np.float32)
 
 
 def extract_msc(h_map: np.ndarray, h_theta: float = 0.0):
@@ -814,6 +822,12 @@ def reconstruct_from_msc(signal: np.ndarray, msc_mask: np.ndarray, *,
     """
     signal = np.asarray(signal, dtype=np.float64)
     mask = np.asarray(msc_mask, dtype=bool)
+    # A non-finite pixel in the gradient reaches every Fourier coefficient: the holes are
+    # filled with the finite mean for the transform, restored after, and left out of the
+    # metrics.
+    finite = np.isfinite(signal)
+    if not finite.all():
+        signal = np.where(finite, signal, signal[finite].mean() if finite.any() else 0.0)
     ny, nx = signal.shape
     if pad is None:
         pad = max(ny, nx) // 2
@@ -835,9 +849,10 @@ def reconstruct_from_msc(signal: np.ndarray, msc_mask: np.ndarray, *,
     if pad:
         recon = recon[pad:pad + ny, pad:pad + nx]
     recon = recon - recon.mean() + signal.mean()
+    recon[~finite] = np.nan
 
-    span = float(signal.max() - signal.min())
-    mse = float(np.mean((signal - recon) ** 2))
+    span = float(signal[finite].max() - signal[finite].min()) if finite.any() else 0.0
+    mse = float(np.mean((signal[finite] - recon[finite]) ** 2)) if finite.any() else 0.0
     psnr = 10.0 * np.log10(span ** 2 / max(mse, 1e-30))
     rel_err = float(np.sqrt(mse) / max(span, 1e-30))
     return recon.astype(np.float32), psnr, rel_err

@@ -25,6 +25,11 @@ J = 3
 LASTWAVE = (-0.5, -0.5)
 
 
+def _shown(canvas):
+    """The raster the canvas shows on top: the product when one is up, else the dataset."""
+    return canvas._product if canvas._product is not None else canvas._field
+
+
 @pytest.fixture
 def builtins(clean_registry):
     from dynamix.devices import register_builtin_devices
@@ -151,7 +156,7 @@ def _hide(win, qtbot, layer, name):
 
 
 def _rect(canvas):
-    item = canvas.image_item
+    item = canvas.product_item if canvas._product is not None else canvas.image_item
     r = item.mapRectToView(item.boundingRect())
     return r.x(), r.y(), r.width(), r.height()
 
@@ -210,7 +215,7 @@ def test_the_lastwave_thumbnail_centres_each_block_on_its_registered_sample(win,
     S = 2 ** J
     m = math.ceil(N / S)
     np.testing.assert_array_equal(thumb, coarse[::S, ::S])   # sample k is coarse pixel k * S
-    shown = win.canvas._field
+    shown = _shown(win.canvas)
     assert shown.provenance["display_anchor"] == "sample"
     assert "display_anchor" not in (win.field.provenance or {})     # the field is untouched
     x0, y0, w, h = _rect(win.canvas)

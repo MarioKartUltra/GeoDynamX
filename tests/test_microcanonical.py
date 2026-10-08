@@ -684,3 +684,22 @@ def test_multiaffine_route_is_l1_normalized_at_a_cusp(q, h):
     T = mc.ricker_projections(np.hypot(x, y) ** h, scales, wavelet="q_mexican", q_tsallis=q)
     slope = np.polyfit(np.log(scales), np.log(T[:, c, c]), 1)[0]
     assert slope == pytest.approx(h, abs=0.03)
+
+
+def test_reconstruction_fills_holes_for_the_transform_and_restores_them():
+    """A field with non-finite pixels: a NaN in the gradient reaches every Fourier coefficient
+    and the whole reconstruction comes back NaN. Both routes fill the holes with the finite
+    mean for the transform and restore them after, so the reconstruction is finite everywhere
+    else, the holes stay holes, and the metrics are over the finite pixels."""
+    f = fbm2d(64, 0.5, seed=6)
+    f[10:14, 20:25] = np.nan
+    holes = ~np.isfinite(f)
+    h = np.zeros_like(f)
+    recon, psnr, rel_err = mc.reconstruct_from_msc(f, np.ones(f.shape, dtype=bool))
+    assert np.isnan(recon[holes]).all() and np.isfinite(recon[~holes]).all()
+    assert np.isfinite(psnr) and np.isfinite(rel_err)
+    r = mc.BandReconstructor(f, h, max_dim=4096).reconstruct(-1.0, 1.0)
+    assert np.isnan(r[holes]).all() and np.isfinite(r[~holes]).all()
+    r2 = mc.BandReconstructor(f, h, max_dim=32).reconstruct(-1.0, 1.0)      # decimated by 2
+    assert r2.shape == (32, 32)
+    assert np.isnan(r2[holes[::2, ::2]]).all() and np.isfinite(r2[~holes[::2, ::2]]).all()

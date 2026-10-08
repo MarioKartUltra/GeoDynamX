@@ -34,6 +34,11 @@ J = 4
 PRESS_RUN = "manual · press Run"
 
 
+def _shown(canvas):
+    """The raster the canvas shows on top: the product when one is up, else the dataset."""
+    return canvas._product if canvas._product is not None else canvas._field
+
+
 @pytest.fixture
 def builtins(clean_registry):
     from dynamix.devices import register_builtin_devices
@@ -214,7 +219,7 @@ def test_showing_recon_previews_one_iteration_and_a_kappa_change_previews_again(
     assert _key(win, layer, "recon") not in win.cache              # the full recon waits for Run
     want = _preview_of(values)[0].astype(np.float32)
     np.testing.assert_array_equal(win.cache.get(first)["raster"], want)
-    np.testing.assert_array_equal(win.canvas._field.values, want)
+    np.testing.assert_array_equal(_shown(win.canvas).values, want)
     note = READING.search(_row(win, layer, "recon").text(0))
     assert note is not None and note.group(1) == "1" and note.group(2) == "fixed"
     assert READING.fullmatch(win._recon_panel.readout.text())
@@ -226,7 +231,7 @@ def test_showing_recon_previews_one_iteration_and_a_kappa_change_previews_again(
     assert second != first and dispatches == ["recon_preview", "recon_preview"]
     assert _step(layer).params["kappa"] == 2.0
     want = _preview_of(values, kappa=2.0)[0].astype(np.float32)
-    np.testing.assert_array_equal(win.canvas._field.values, want)
+    np.testing.assert_array_equal(_shown(win.canvas).values, want)
 
 
 def test_run_continues_from_the_preview_state(win, qtbot, dispatches, values):
@@ -240,7 +245,7 @@ def test_run_continues_from_the_preview_state(win, qtbot, dispatches, values):
     want, diag, _ = lw.e2recons(values, ex, t.S_full[J], J, k=20, mode="converge", tol=1e-3,
                                 state=state)
     np.testing.assert_array_equal(value["raster"], want.astype(np.float32))
-    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, value["raster"])
     reading = READING.fullmatch(win._recon_panel.readout.text())
     assert reading is not None and int(reading.group(1)) == diag["iterations"]
     assert win.layer_list.layer_text(layer.layer_id).endswith("· recon (edges + coarse)")
@@ -273,7 +278,7 @@ def test_stop_mid_run_caches_nothing_and_keeps_the_preview(win, qtbot, dispatche
     qtbot.wait(100)
     assert not win.is_computing and dispatches == ["recon_preview", "recon"]
     assert key not in win.cache
-    np.testing.assert_array_equal(win.canvas._field.values, preview)
+    np.testing.assert_array_equal(_shown(win.canvas).values, preview)
     assert _row(win, layer, "recon").text(0) == note
     assert win._recon_panel.readout.text() == reading
 
@@ -289,12 +294,18 @@ def test_changing_levels_mid_run_cancels_it_and_never_shows_the_old_recon(
                           state=state)[0]
     shown = []
     real = win.canvas.set_field
+    real_product = win.canvas.set_product
 
     def spy(field, *a, **k):
         shown.append(np.array(getattr(field, "values", field), dtype=np.float64))
         return real(field, *a, **k)
 
+    def spy_product(field, *a, **k):
+        shown.append(np.array(getattr(field, "values", field), dtype=np.float64))
+        return real_product(field, *a, **k)
+
     win.canvas.set_field = spy
+    win.canvas.set_product = spy_product
     win._recon_panel.run_button.click()
     qtbot.waitUntil(lambda: win._out_job is not None and win._out_job[1] == "recon",
                     timeout=10000)
@@ -309,7 +320,7 @@ def test_changing_levels_mid_run_cancels_it_and_never_shows_the_old_recon(
     assert dispatches == ["recon_preview", "recon", "recon_preview"]
     scale = float(np.abs(old).max())
     assert shown and all(np.abs(v - old).max() > 1e-3 * scale for v in shown)
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(new)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(new)["raster"])
     assert READING.fullmatch(win._recon_panel.readout.text()).group(1) == "1"
 
 
@@ -320,7 +331,7 @@ def test_run_on_a_converged_result_lands_at_once_with_the_same_image_and_reading
     _show_preview(win, qtbot, layer)
     key = _run(win, qtbot, layer)
     assert win.cache.get(key)["diag"]["stop"] == "converged"
-    image = np.array(win.canvas._field.values)
+    image = np.array(_shown(win.canvas).values)
     reading = win._recon_panel.readout.text()
     assert "converged" in reading
     with qtbot.waitSignal(win.resolved, timeout=5000):
@@ -328,7 +339,7 @@ def test_run_on_a_converged_result_lands_at_once_with_the_same_image_and_reading
     assert not win.is_computing and win._out_request is None
     qtbot.wait(50)
     assert dispatches == ["recon_preview", "recon"]
-    np.testing.assert_array_equal(win.canvas._field.values, image)
+    np.testing.assert_array_equal(_shown(win.canvas).values, image)
     assert win._recon_panel.readout.text() == reading
     # nothing dispatched, so no Run stays pending: an evicted recon shown again previews first
     assert win._recon_run is None
@@ -347,7 +358,7 @@ def test_manual_dispatches_nothing_on_show_or_on_a_knob_change(win, qtbot, dispa
     qtbot.wait(100)
     assert _idle(win) and dispatches == []
     assert _step(layer).params["show"] == "recon"
-    np.testing.assert_array_equal(win.canvas._field.values, values)       # the raw field
+    np.testing.assert_array_equal(_shown(win.canvas).values, values)       # the raw field
     assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · press Run"
     assert win._recon_panel.readout.text() == PRESS_RUN
     assert win._recon_panel.run_button.isEnabled()
@@ -368,7 +379,7 @@ def test_manual_holds_the_other_reconstruction_rows_until_run(win, qtbot, dispat
     qtbot.wait(100)
     assert _idle(win) and dispatches == []
     assert _step(layer).params["show"] == row
-    np.testing.assert_array_equal(win.canvas._field.values, values)       # the raw field
+    np.testing.assert_array_equal(_shown(win.canvas).values, values)       # the raw field
     assert _row(win, layer, row).text(0).endswith("· press Run")
     win._recon_panel.controls["kappa"].valueChanged.emit(2.0)
     qtbot.wait(100)
@@ -376,7 +387,7 @@ def test_manual_holds_the_other_reconstruction_rows_until_run(win, qtbot, dispat
     win._recon_panel.run_button.click()
     qtbot.waitUntil(lambda: _idle(win) and _key(win, layer, row) in win.cache, timeout=60000)
     assert dispatches == [row] and _step(layer).params["show"] == row
-    np.testing.assert_array_equal(win.canvas._field.values,
+    np.testing.assert_array_equal(_shown(win.canvas).values,
                                   win.cache.get(_key(win, layer, row))["raster"])
 
 
@@ -390,7 +401,7 @@ def test_manual_run_lands_the_full_reconstruction(win, qtbot, dispatches, values
     want, diag, _ = lw.e2recons(values, ex, t.S_full[J], J, k=20, mode="converge", tol=1e-3,
                                 state=_preview_of(values)[2])
     np.testing.assert_array_equal(value["raster"], want.astype(np.float32))
-    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, value["raster"])
     reading = READING.fullmatch(win._recon_panel.readout.text())
     assert reading is not None and int(reading.group(1)) == diag["iterations"]
     assert reading.group(2) == diag["stop"]
@@ -400,12 +411,12 @@ def test_manual_run_lands_the_full_reconstruction(win, qtbot, dispatches, values
     win._recon_panel.controls["kappa"].valueChanged.emit(2.0)
     qtbot.wait(100)
     assert _idle(win) and dispatches == ["recon"]
-    np.testing.assert_array_equal(win.canvas._field.values, values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, values)
     assert win._recon_panel.readout.text() == PRESS_RUN
     win._recon_panel.controls["kappa"].valueChanged.emit(1.0)
     qtbot.wait(100)
     assert _idle(win) and dispatches == ["recon"]
-    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, value["raster"])
     assert win._recon_panel.readout.text() == reading.group(0)
 
 
@@ -422,10 +433,10 @@ def test_manual_to_live_previews_once_and_back_keeps_the_cached_preview(
     assert dispatches == ["recon_preview"]
     assert _step(layer).params["recon_live"] is True
     preview = win.cache.get(key)["raster"]
-    np.testing.assert_array_equal(win.canvas._field.values, preview)
+    np.testing.assert_array_equal(_shown(win.canvas).values, preview)
     _set_live(win, qtbot, False)
     assert _idle(win) and dispatches == ["recon_preview"]
-    np.testing.assert_array_equal(win.canvas._field.values, preview)
+    np.testing.assert_array_equal(_shown(win.canvas).values, preview)
     note = READING.search(_row(win, layer, "recon").text(0))
     assert note is not None and note.group(1) == "1"
     assert READING.fullmatch(win._recon_panel.readout.text()).group(1) == "1"
@@ -444,7 +455,7 @@ def test_live_to_manual_cancels_an_in_flight_preview(win, qtbot, dispatches, hel
     qtbot.wait(100)
     assert _idle(win) and dispatches == ["recon_preview"]
     assert key not in win.cache
-    np.testing.assert_array_equal(win.canvas._field.values, values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, values)
     assert _row(win, layer, "recon").text(0) == "recon (edges + coarse) · press Run"
     assert win._recon_panel.readout.text() == PRESS_RUN
 
@@ -462,7 +473,7 @@ def test_live_to_manual_leaves_a_run_alone(win, qtbot, dispatches, held_run):
     qtbot.wait(100)
     assert dispatches == ["recon_preview", "recon"]
     assert _step(layer).params["recon_live"] is False
-    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
     assert READING.fullmatch(win._recon_panel.readout.text())
 
 
@@ -471,11 +482,11 @@ def test_flipping_live_recomputes_nothing_cached(win, qtbot, dispatches):
     _show_preview(win, qtbot, layer)
     key = _run(win, qtbot, layer)
     analysis = win._cache_keys_for(layer)[-1]
-    image = np.array(win.canvas._field.values)
+    image = np.array(_shown(win.canvas).values)
     reading = win._recon_panel.readout.text()
     for live in (False, True):
         _set_live(win, qtbot, live)
         assert _idle(win) and dispatches == ["recon_preview", "recon"]
         assert win._cache_keys_for(layer)[-1] == analysis and _key(win, layer, "recon") == key
-        np.testing.assert_array_equal(win.canvas._field.values, image)
+        np.testing.assert_array_equal(_shown(win.canvas).values, image)
         assert win._recon_panel.readout.text() == reading

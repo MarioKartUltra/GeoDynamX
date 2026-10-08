@@ -2598,7 +2598,7 @@ off / z from this layer's own values / z from another loaded
                 y_axis=np.asarray(self.field.y_axis)[::s],
                 name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})",
                 provenance={**(getattr(self.field, "provenance", None) or {}), **stamp})
-        self.canvas.set_field(derived)
+        self.canvas.set_product(derived)            # above the dataset, as the h-map it previews
         self._apply_raster_visibility(showing_product=True)
         self._holder_raster_ref = None
         # Vector view live too (center_view="vector" is a persisted
@@ -3914,9 +3914,10 @@ both ``Canvas`` signals report the
     def _sync_holder_raster(self, result: dict) -> None:
         """When the ACTIVE layer's result carries ``"h_map"`` (the holder_map transform's own
         contract -- no other device stamps that key, the ``backproject``/``points_px``
-        precedent), show the exponent raster on the canvas IN PLACE of the raw field, through
-        the ordinary :meth:`Canvas.set_field` path so stretch/hillshade/decimation apply to it
-        like any raster; restore the raw field the moment a result WITHOUT one lands (device
+        precedent), show the exponent raster on the canvas's product layer over the raw field
+        (:meth:`Canvas.set_product`: the :meth:`Canvas.set_field` pipeline and registration, so
+        stretch/hillshade/decimation apply to it like any raster, and its non-finite pixels show
+        the raw field beneath); take it off the moment a result WITHOUT one lands (device
         removed or bypassed). Both directions are identity-edge-triggered on
         ``self._holder_raster_ref`` so an ordinary landing never re-pays ``set_field``'s
         decimation/stretch work; a param scrub mints a NEW h_map array (results are immutable),
@@ -3962,7 +3963,11 @@ both ``Canvas`` signals report the
                     # the offset; the dataset above has none in its provenance.
                     derived = dataclasses.replace(derived, provenance={
                         **(derived.provenance or {}), "display_offset": tuple(offset)})
-                self.canvas.set_field(derived)
+                # The product draws on the canvas's product layer, above the dataset: where it
+                # has no support (non-finite) the dataset shows through.
+                if self.canvas._field is not self.field:
+                    self.canvas.set_field(self.field)
+                self.canvas.set_product(derived)
                 self._apply_raster_visibility(showing_product=True)
                 self.canvas.clear_overlays()
                 self.canvas.set_pick_chains(None)
@@ -5830,12 +5835,17 @@ both ``Canvas`` signals report the
         band reconstruction -- ``showing_product``): the dataset's H hides the DATASET, never a
         result computed from it; that raster follows the result's own H (hiding a result
         restores the raw raster, :meth:`_sync_holder_raster`). ``None`` = whatever the canvas
-        is showing now (``_holder_raster_ref``); callers that just swapped the image say which."""
+        is showing now (``_holder_raster_ref``); callers that just swapped the image say which.
+
+        A product on the canvas's product layer (``Canvas.set_product``) leaves the dataset on
+        ``image_item`` beneath it, and the dataset follows its own H; only a produced field drawn
+        on ``image_item`` itself (:meth:`_land_field_result`) keeps it up under the dataset's H."""
         if showing_product is None:
             showing_product = self._holder_raster_ref is not None
         source = self.project.sources.get(self.layer.source_id) if self.layer is not None else None
         exempt = self.layer is not None and bool(self.layer.tags.get("roi.window"))
-        self.canvas.image_item.setVisible(showing_product or exempt or
+        on_image_item = showing_product and self.canvas._product is None
+        self.canvas.image_item.setVisible(on_image_item or exempt or
                                           not (source is not None and source.hidden))
 
     def _on_inspector_toggled(self, source_id: str, checked: bool) -> None:

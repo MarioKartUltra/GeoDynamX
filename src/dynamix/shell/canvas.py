@@ -740,6 +740,8 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._wavelet_curve = None
         self._field = None                 # set by set_field(); None until a layer is loaded
         self._image_stride = 1             # set_field's decimation, reused by _refresh_image
+        self._product = None               # set by set_product(); a result's own raster, or None
+        self._product_stride = 1           # set_product's decimation
         self._composite = None             # multiband display law (set_composite); None = band 1
         self._hillshade = (False, 315.0, 45.0, 1.0)   # (on, sun azimuth, sun altitude, z_factor)
         self._stretch = ("linear", 2.0)             # (core.stretch mode, percent clip)
@@ -818,9 +820,15 @@ class Canvas(pg.GraphicsLayoutWidget):
 
         self._colormap = None
         self.image_item = pg.ImageItem()
+        # A result's own raster (an h-map, a reconstruction, a filtered field, the live band
+        # preview) draws on its own item ABOVE the dataset (set_product): its non-finite pixels
+        # are transparent, so where it has no support the dataset beneath shows through.
+        self.product_item = pg.ImageItem()
+        self.product_item.setVisible(False)
         self.set_colormap("viridis")     # the Signal Rule default: never rainbow -- the canvas makes
                                           # this a per-layer setter; see its own docstring
         self.view.addItem(self.image_item)
+        self.view.addItem(self.product_item)
 
         # Raster-view extrema as PIXELS: each
         # surviving extremum lights its own cell of the ORIGINAL grid, xsmurf ext-image
@@ -1268,6 +1276,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if cmap is None:
             return
         self.image_item.setColorMap(cmap)
+        self.product_item.setColorMap(cmap)
         self._colormap = str(name)
         if self._hillshade[0]:
             self._refresh_image()          # the shaded RGBA bakes the colormap in
@@ -1308,12 +1317,17 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if new == (self._levels, self._levels_colors, self._levels_sieve):
             return
         self._levels, self._levels_colors, self._levels_sieve = new
-        self._refresh_image()
+        if self._product is not None:
+            # The dataset beneath draws without the slice while a product is up.
+            self._paint(self.product_item, self._product, self._product_stride)
+        else:
+            self._refresh_image()
 
-    def _class_rgba(self, small):
+    def _class_rgba(self, small, sliced: bool = True):
         """(ny, nx, 4) float RGBA in [0, 1] from explicit per-class slice colors, or ``None``
-        when levels/colors are absent, mismatched, or malformed (LUT path then applies)."""
-        if not (self._levels and self._levels_colors) or small.ndim != 2:
+        when levels/colors are absent, mismatched, or malformed (LUT path then applies), or
+        when ``sliced`` is False."""
+        if not (sliced and self._levels and self._levels_colors) or small.ndim != 2:
             return None
         from dynamix.core.stretch import (parse_class_colors, parse_levels, resolve_breaks,
                                           slice_indices)
@@ -1340,11 +1354,12 @@ a bounded gather of at most :attr:`draw_cap` chains per
         rgba[..., 3] = np.where(ok, rgba[..., 3], 0.0)
         return rgba
 
-    def _display_scalars(self, small):
+    def _display_scalars(self, small, sliced: bool = True):
         """The [0, 1] display field per the current levels/stretch, or ``None`` for the
-        raw-linear path (levels win over stretch when both are set)."""
+        raw-linear path (levels win over stretch when both are set; ``sliced`` False leaves
+        the levels out)."""
         mode, pct = self._stretch
-        if self._levels and small.ndim == 2:
+        if sliced and self._levels and small.ndim == 2:
             from dynamix.core.stretch import classify, parse_levels, resolve_breaks
             try:
                 spec = parse_levels(self._levels)
@@ -1372,56 +1387,65 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def _refresh_image(self) -> None:
         """Put the current field on ``image_item`` -- plain values through the LUT, or the
-        hillshaded RGBA -- at ``set_field``'s decimation."""
-        if self._field is None:
+        hillshaded RGBA -- at ``set_field``'s decimation; and, while one is up, the product on
+        ``product_item`` at ``set_product``'s, through the same pipeline. The density slice is
+        the product's while one is up (the Slice editor reads the displayed product), so the
+        dataset beneath then draws through the continuous LUT."""
+        self._paint(self.image_item, self._field, self._image_stride,
+                    sliced=self._product is None)
+        if self._product is not None:
+            self._paint(self.product_item, self._product, self._product_stride)
+
+    def _paint(self, item, field, s: int, sliced: bool = True) -> None:
+        """``field`` on ``item`` at decimation ``s``: plain values through the LUT, or the
+        hillshaded RGBA; ``sliced`` False leaves the density slice out."""
+        if field is None:
             return
-        values = np.asarray(getattr(self._field, "values", self._field), dtype=np.float64)
+        values = np.asarray(getattr(field, "values", field), dtype=np.float64)
         if values.ndim == 3:
             # A multi-component stack (sensor ingestion): with a composite spec
             # (set_composite -- channel assignment, solo, mute) the stack draws as RGBA;
             # without one the canvas displays band 0. The FIELD keeps every band for
             # analysis either way (pca/tucker/tensor consume the stack).
             if self._composite:
-                s = self._image_stride
-                self.image_item.setImage(
+                item.setImage(
                     _composite_rgba(values[::s, ::s, :], self._composite), levels=None)
                 return
             values = values[..., 0]
-        s = self._image_stride
         small = values[::s, ::s]
         on, azimuth, altitude, z_factor = self._hillshade
         mode, pct = self._stretch
         from dynamix.core.stretch import stretch
         if not on or small.ndim != 2:
-            rgba = self._class_rgba(small)
+            rgba = self._class_rgba(small, sliced)
             if rgba is not None:
-                self.image_item.setImage((rgba * 255.0).astype(np.uint8).transpose(1, 0, 2),
-                                         levels=None)
+                item.setImage((rgba * 255.0).astype(np.uint8).transpose(1, 0, 2),
+                              levels=None)
                 return
-            disp = self._display_scalars(small)
+            disp = self._display_scalars(small, sliced)
             if disp is None:
-                self.image_item.setImage(small.T)
+                item.setImage(small.T)
             else:
-                self.image_item.setImage(disp.T, levels=(0.0, 1.0))
+                item.setImage(disp.T, levels=(0.0, 1.0))
             if self._colormap:
                 cmap = _resolve_cmap(self._colormap)
                 if cmap is not None:
-                    self.image_item.setColorMap(cmap)
+                    item.setColorMap(cmap)
             return
         from dynamix.core.hillshade import hillshade
-        dx, dy = sample_spacing(self._field, s)          # a picture's frame is NATIVE-sized
+        dx, dy = sample_spacing(field, s)          # a picture's frame is NATIVE-sized
         shade = hillshade(small, dx, dy, azimuth=azimuth, altitude=altitude, z_factor=z_factor)
         finite = np.isfinite(small)
-        class_rgba = self._class_rgba(small)
+        class_rgba = self._class_rgba(small, sliced)
         if class_rgba is not None:
             # Custom slice colors x shaded relief: same composition as the LUT path below.
             sh = np.nan_to_num(shade, nan=0.0)
             class_rgba[..., :3] *= sh[..., None]
             class_rgba[..., 3] *= np.where(np.isfinite(shade), 1.0, 0.0)
-            self.image_item.setImage((class_rgba * 255.0).astype(np.uint8).transpose(1, 0, 2),
-                                     levels=None)
+            item.setImage((class_rgba * 255.0).astype(np.uint8).transpose(1, 0, 2),
+                          levels=None)
             return
-        base = self._display_scalars(small)
+        base = self._display_scalars(small, sliced)
         if base is None:
             base = stretch(small, mode, percent=pct)
         norm = np.nan_to_num(base, nan=0.0)
@@ -1433,7 +1457,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         sh = np.nan_to_num(shade, nan=0.0)
         rgba[..., :3] *= sh[..., None]
         rgba[..., 3] = np.where(finite & np.isfinite(shade), 255.0, 0.0)
-        self.image_item.setImage(rgba.astype(np.uint8).transpose(1, 0, 2), levels=None)
+        item.setImage(rgba.astype(np.uint8).transpose(1, 0, 2), levels=None)
 
     def set_overlay_colors(self, hchain: str, vtrail: str, extrema: str) -> None:
         """Per-layer overlay palette (``ui.color_hchain``/``ui.color_vtrail``/``ui.color_extrema``), each a hex color string -- rebuilds ``hchain_item``'s and ``vtrail_item``'s
@@ -1633,6 +1657,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """
         self._field = None
         self.image_item.clear()
+        self.clear_product()
         self.clear_overlays()
         self.clear_points()
         self.clear_roi_band()
@@ -1994,7 +2019,19 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.view.invertY(not south_first_geographic)
         values = np.asarray(getattr(field, "values", field), dtype=np.float64)
         self._image_stride = lod_stride(values.shape[:2], max_dim)
+        # A new dataset: the product computed from the previous one is no longer on it.
+        self._product = None
+        self.product_item.clear()
+        self.product_item.setVisible(False)
         self._refresh_image()
+        self.image_item.setRect(self._pinned_rect(field, values.shape, self._image_stride))
+
+    def _pinned_rect(self, field, shape, lod: int) -> QtCore.QRectF:
+        """The data-space rect an image of ``field`` (stored ``shape``, drawn at decimation
+        ``lod``) is pinned to: its window offset, its display stride and anchor, its sample
+        offset. :meth:`set_field` registers the dataset with it, :meth:`set_product` a
+        product."""
+        base_off = window_offset(field)
         # Center registration (edges drawn "between two pixels" at max zoom):
         # every overlay draws at integer pixel INDICES (and subpixel channels are index-based,
         # x_sub = j + t, |t| <= 1/2), so integer data coordinate j must be the CENTER of
@@ -2008,9 +2045,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # system -- the box, the ROI result and the image all speak file pixels), and for the
         # canvas's own LOD it removes the far-edge squeeze (n/m < s per sample). An ordinary
         # field at full resolution has S = 1 and m = n: exactly the old shape rect.
-        S = display_stride(field) * self._image_stride
-        m_y = -(-values.shape[0] // self._image_stride)
-        m_x = -(-values.shape[1] // self._image_stride)
+        S = display_stride(field) * lod
+        m_y = -(-shape[0] // lod)
+        m_x = -(-shape[1] // lod)
         # A strided field whose samples sit AT file pixels k*S (``display_anchor`` "sample")
         # centres block k on its sample, spanning [k*S - S/2, k*S + S/2), like the LastWave
         # M-Z thumbnail's; a picture's sample, like the printed M-Z thumbnail's, already
@@ -2020,9 +2057,37 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # A raster whose samples register off their pixel index (``display_offset`` = (dx, dy)
         # pixels, x then y, like the LastWave M-Z coarse channel) draws that far off the grid.
         reg_dx, reg_dy = prov.get("display_offset") or (0, 0)
-        self.image_item.setRect(QtCore.QRectF(self._base_off[1] - half + reg_dx,
-                                              self._base_off[0] - half + reg_dy,
-                                              m_x * S, m_y * S))
+        return QtCore.QRectF(base_off[1] - half + reg_dx, base_off[0] - half + reg_dy,
+                             m_x * S, m_y * S)
+
+    def set_product(self, field, max_dim: int = _DEFAULT_MAX_DIM) -> None:
+        """A result's own raster (an h-map, a reconstruction, a filtered field, a live band
+        preview) on ``product_item``, above the dataset :meth:`set_field` put on
+        ``image_item``, registered as a field is (:meth:`_pinned_rect`): an ROI product sits on
+        its ROI, a strided one over its whole extent. It draws through the same colormap,
+        stretch, slice and hillshade as the dataset, with its own levels; its non-finite pixels
+        are transparent, so where it has no support the dataset shows. The dataset, its window
+        base and every gesture stay the dataset's. ``field`` may be a ``RasterField`` or a bare
+        array on the dataset's grid."""
+        first = self._product is None
+        self._product = field
+        values = np.asarray(getattr(field, "values", field), dtype=np.float64)
+        self._product_stride = lod_stride(values.shape[:2], max_dim)
+        if first and self._levels:
+            # The slice moves to the product: the dataset beneath draws without it.
+            self._paint(self.image_item, self._field, self._image_stride, sliced=False)
+        self._paint(self.product_item, field, self._product_stride)
+        self.product_item.setRect(self._pinned_rect(field, values.shape, self._product_stride))
+        self.product_item.setVisible(True)
+
+    def clear_product(self) -> None:
+        """Take the product off: ``product_item`` empty and hidden, the dataset alone."""
+        had = self._product is not None
+        self._product = None
+        self.product_item.clear()
+        self.product_item.setVisible(False)
+        if had and self._levels:
+            self._paint(self.image_item, self._field, self._image_stride)
 
     def set_result(self, result: dict, scale_idx: int) -> None:
         """Redraw the per-scale overlay: isolated extrema (``line_id == -1``) as points, every

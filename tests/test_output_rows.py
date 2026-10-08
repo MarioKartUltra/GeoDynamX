@@ -14,6 +14,11 @@ from dynamix.model.device import defaults_for, get_device
 from dynamix.model.project import Project
 
 
+def _shown(canvas):
+    """The raster the canvas shows on top: the product when one is up, else the dataset."""
+    return canvas._product if canvas._product is not None else canvas._field
+
+
 @pytest.fixture
 def builtins(clean_registry):
     from dynamix.devices import register_builtin_devices
@@ -100,7 +105,7 @@ def test_rows_radio_the_show_param_and_edges_hide_only_the_drawing(win, qtbot):
     assert _show(child) == "filtered"
     assert win.cache.misses == misses
     assert _display_raster_of(result) is result["filtered"]
-    np.testing.assert_array_equal(win.canvas._field.values, result["filtered"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, result["filtered"])
     assert not _hidden(panel, lid, "filtered") and _hidden(panel, lid, "edge_channel")
     assert win.canvas.extrema_raster_item.isVisible() is True
 
@@ -110,7 +115,7 @@ def test_rows_radio_the_show_param_and_edges_hide_only_the_drawing(win, qtbot):
     assert win.canvas.extrema_raster_item.isVisible() is False
     assert win.canvas.arrow_item.isVisible() is False
     assert _hidden(panel, lid, "edges")
-    np.testing.assert_array_equal(win.canvas._field.values, result["filtered"])
+    np.testing.assert_array_equal(_shown(win.canvas).values, result["filtered"])
     assert any(len(e["x"]) for e in win._active_result["extrema"])   # filters still see them
     # ... and a redraw keeps them hidden ("filtered only, no chains")
     with qtbot.waitSignal(win.resolved, timeout=5000):
@@ -123,7 +128,7 @@ def test_rows_radio_the_show_param_and_edges_hide_only_the_drawing(win, qtbot):
         panel.outputHideToggled.emit(lid, "filtered", True)
     assert _show(child) == "edges"
     assert _display_raster_of(win._active_result) is None
-    np.testing.assert_array_equal(win.canvas._field.values, win.field.values)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.field.values)
     assert _hidden(panel, lid, "filtered") and _hidden(panel, lid, "edge_channel")
 
     # un-hide edges: the maxima draw again

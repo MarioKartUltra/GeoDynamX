@@ -198,9 +198,10 @@ def test_an_roi_hmap_is_shown_pinned_at_the_roi(real_pic_window, qtbot):
     with qtbot.waitSignal(win.resolved, timeout=60000):
         _drop(win, qtbot, "holder_measure")
     qtbot.wait(50)
-    r = win.canvas.image_item.mapRectToView(win.canvas.image_item.boundingRect())
+    r = win.canvas.product_item.mapRectToView(win.canvas.product_item.boundingRect())
     assert (r.x(), r.y(), r.width(), r.height()) == (23.5, 19.5, 20.0, 16.0)
-    assert win.canvas._field.values.shape == (16, 20)
+    assert win.canvas._product.values.shape == (16, 20)
+    assert win.canvas._field is win.field                 # the dataset stays beneath
 
 
 def test_roi_edge_extrema_are_drawn_over_the_roi_on_the_picture(real_pic_window, qtbot):
@@ -477,7 +478,7 @@ def test_flipping_show_redraws_from_the_cache_without_a_worker_or_a_pending_run(
     assert win._thread is None and not win.is_computing
     assert win.layer.layer_id not in win._pending_layers
     assert win.cache.misses == misses
-    np.testing.assert_array_equal(win.canvas._field.values, win._active_result["filtered"])
+    np.testing.assert_array_equal(win.canvas._product.values, win._active_result["filtered"])
 
 
 # ------------------------------------------- The dataset never takes an analyzer directly
@@ -701,7 +702,8 @@ def test_hiding_the_dataset_keeps_a_results_own_raster(plain_window, qtbot):
     child = _whole_field_child(win, qtbot, "tucker_havok")
     assert win.layer is child and win._holder_raster_ref is not None   # its recon is up
     win._on_source_hide_toggled(master.source_id, True)
-    assert win.canvas.image_item.isVisible()
+    assert win.canvas.product_item.isVisible()              # the recon stays
+    assert not win.canvas.image_item.isVisible()            # the dataset beneath it goes
     stub = _ArrangementStub()
     win._arrangement = stub
     win._sync_arrangement(frame_mode=True)                  # the Vector view's own placement
@@ -730,7 +732,7 @@ def test_stepping_tucker_components_relabels_the_row_and_never_recomputes(plain_
     assert win.cache.misses == misses
     text = win.layer_list.layer_text(child.layer_id)
     assert "· C2 (" in text and text.endswith("%)")
-    np.testing.assert_array_equal(win.canvas._field.values,
+    np.testing.assert_array_equal(win.canvas._product.values,
                                   win._active_result["tucker_components"][1])
 
 
@@ -978,7 +980,7 @@ def test_the_live_band_preview_draws_on_whole_and_roi_results(plain_window, qtbo
     result = win._active_result
     h = np.asarray(result["h_map"])
     win._on_band_preview_requested(float(np.nanmin(h)), float(np.nanmax(h)) + 1.0, mode)
-    shown = win.canvas._field
+    shown = win.canvas._product
     assert ("·mask[" if mode == "mask" else "·band[") in shown.name
     assert shown.values.shape == h.shape                     # small fields: stride 1
     x_axis = result["_roi_axes"][0] if where == "roi" else win.field.x_axis
@@ -1206,10 +1208,10 @@ def test_a_strided_live_band_preview_is_registered_over_its_whole_extent(plain_w
     assert s > 1
     hm = np.asarray(win._active_result["h_map"])
     win._on_band_preview_requested(float(np.nanmin(hm)), float(np.nanmax(hm)) + 1.0, mode)
-    shown = win.canvas._field
+    shown = win.canvas._product
     assert shown.values.shape == (-(-h // s), -(-w // s))
     assert display_stride(shown) == s
-    item = win.canvas.image_item
+    item = win.canvas.product_item
     r = item.mapRectToView(item.boundingRect())
     assert (r.x(), r.y()) == (col_off - s / 2, row_off - s / 2)
     assert abs(r.width() - w) < s and abs(r.height() - h) < s
