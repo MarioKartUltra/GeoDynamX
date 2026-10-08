@@ -62,8 +62,9 @@ def hist_distance(a, b) -> float:
 def _pairs(parent, child):
     fp, fc = 1e-8 * np.abs(parent).max(), 1e-8 * np.abs(child).max()
     P = np.repeat(np.repeat(parent, 2, 0), 2, 1)
-    ok = (np.abs(P) >= fp) & (np.abs(child) >= fc)
-    return ok, np.log(np.abs(child[ok])) - np.log(np.abs(P[ok])), np.log(np.abs(child[ok]))
+    ok_c = np.abs(child) >= fc
+    ok = ok_c & (np.abs(P) >= fp)
+    return ok, ok_c, np.log(np.abs(child[ok])) - np.log(np.abs(P[ok])), np.log(np.abs(child[ok_c]))
 
 
 def band_hists(coeffs, rho, clear, abacus=None, nbins: int = 60, *, shift: int) -> dict:
@@ -71,7 +72,7 @@ def band_hists(coeffs, rho, clear, abacus=None, nbins: int = 60, *, shift: int) 
     ``ln|eta|`` and ``ln|c|`` samples of the children inside the regions (``rho > 0.9``) and
     of the clear children, histogrammed on common edges with their Kolmogorov distance; the
     child bands and their masks are rolled by the bank's child ``shift`` (the pairing the
-    abacus and the inference use); a clear child counts only when its parent is clear too.
+    abacus and the inference use); a clear ETA pair needs the parent clear too; the amplitude sample needs only the child.
     A level with no inside or no clear pair has distance
     ``nan``."""
     from dynamix.core.inpaint.priors import aligned
@@ -81,15 +82,15 @@ def band_hists(coeffs, rho, clear, abacus=None, nbins: int = 60, *, shift: int) 
     for j in range(1, J):
         for o in range(3):
             inside = aligned(np.asarray(rho[j - 1]) > 0.9, o, shift)
-            clr = aligned(np.asarray(clear[j - 1]) == 1, o, shift) \
-                & np.repeat(np.repeat(np.asarray(clear[j]) == 1, 2, 0), 2, 1)
+            clr_c = aligned(np.asarray(clear[j - 1]) == 1, o, shift)
+            clr = clr_c & np.repeat(np.repeat(np.asarray(clear[j]) == 1, 2, 0), 2, 1)
             parent = np.asarray(coeffs[J + 1 - (j + 1)][o], dtype=np.float64)
             child = aligned(np.asarray(coeffs[J + 1 - j][o], dtype=np.float64), o, shift)
-            ok, eta, amp = _pairs(parent, child)
-            sel_in, sel_clr = inside[ok], clr[ok]
+            ok, ok_c, eta, amp = _pairs(parent, child)
             entry = {}
-            for key, values, edges in (("eta", eta, None if abacus is None else abacus.edges),
-                                       ("amp", amp, None)):
+            for key, values, edges, sel_in, sel_clr in (
+                    ("eta", eta, None if abacus is None else abacus.edges, inside[ok], clr[ok]),
+                    ("amp", amp, None, inside[ok_c], clr_c[ok_c])):
                 a, b = values[sel_in], values[sel_clr]
                 if edges is None:
                     lo, hi = (np.quantile(np.concatenate([a, b]), [0.005, 0.995])

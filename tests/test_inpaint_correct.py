@@ -149,6 +149,22 @@ def test_band_hists_clear_sample_needs_the_parent_clear_too():
         assert h[(1, o)]["eta"]["n_clear"] == 0
 
 
+def test_band_hists_amplitude_sample_needs_only_the_child_clear():
+    from dynamix.core.inpaint import priors as pr
+
+    y = rng.standard_normal((128, 128)).cumsum(0).cumsum(1)
+    region = _box(y.shape, 40, 88, 40, 88)
+    coeffs = dwt.pyramid(y, "sym7", 4)
+    rho = pr.rho_pyramid(region, "sym7", 4)
+    clear = pr.clear_masks(region, "sym7", 4)
+    clear2 = [c.copy() for c in clear]
+    clear2[1][:] = 0
+    h = ro.band_hists(coeffs, rho, clear2, shift=-1)
+    for o in range(3):
+        assert h[(1, o)]["eta"]["n_clear"] == 0 and np.isnan(h[(1, o)]["eta"]["distance"])
+        assert h[(1, o)]["amp"]["n_clear"] > 0 and np.isfinite(h[(1, o)]["amp"]["distance"])
+
+
 def test_the_correction_removes_a_constant_offset_without_building_a_step_at_the_ring():
     y = dwt.mirror(_smooth())
     region = dwt.mirror(_box((96, 96), 30, 60, 40, 70)) > 0

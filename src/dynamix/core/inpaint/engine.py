@@ -120,7 +120,8 @@ def regions_from(values, params: dict, *, window_offset=(0, 0), bands=None, stac
         value = float(params.get("mask_value", 0.0))
         hit = (band > value) if params.get("mask_op", ">") == ">" else (band < value)
         hit &= np.isfinite(band)
-        add(_label(hit, int(params.get("mask_min_px", 16))) > 0, str(params.get("threshold_kind", "gap")))
+        add((_label(hit, int(params.get("mask_min_px", 16))) > 0) & np.isfinite(y),
+            str(params.get("threshold_kind", "gap")))
     if source in ("region", "all"):
         from dynamix.core.inpaint._kernels import kernels
 
@@ -135,7 +136,7 @@ def regions_from(values, params: dict, *, window_offset=(0, 0), bands=None, stac
                 continue
             mask = np.zeros(y.shape, dtype=np.int32)
             kernels()["fill_polygon"](np.ascontiguousarray(pts - np.array([off_c, off_r])), mask, 1)
-            add(mask > 0, str(poly.get("kind", "gap")))
+            add((mask > 0) & np.isfinite(y), str(poly.get("kind", "gap")))
     if source in ("send", "all"):
         if target_georef is None and any(g.role == "mask" for g in guides):
             raise ValueError("inpaint: a sent mask needs the target's georeference")
@@ -143,7 +144,7 @@ def regions_from(values, params: dict, *, window_offset=(0, 0), bands=None, stac
             if g.role != "mask":
                 continue
             m = _nearest_onto(g.field.values, georef(g.field), target_georef)
-            add(np.isfinite(m) & (m != 0), str(params.get("region_kind", "gap")))
+            add(np.isfinite(m) & (m != 0) & np.isfinite(y), str(params.get("region_kind", "gap")))
     # relabel 1..n (ids are dense again after overwrites), one lookup over the raster
     present = np.unique(ids[ids > 0])
     lut = np.zeros(nxt, dtype=np.int32)
@@ -179,7 +180,7 @@ def _affine(ry, g) -> tuple:
     ok = np.isfinite(ry) & np.isfinite(g)
     if ok.sum() < 16:
         return 1.0, 0.0, int(ok.sum())
-    a = np.cov(g[ok], ry[ok])[0, 1] / max(g[ok].var(), 1e-30)
+    a = np.cov(g[ok], ry[ok], ddof=0)[0, 1] / max(g[ok].var(), 1e-30)
     return float(a), float(ry[ok].mean() - a * g[ok].mean()), int(ok.sum())
 
 
@@ -289,9 +290,7 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
     y = np.asarray(values, dtype=np.float64)
     ny, nx = y.shape
     tg = georef(target)
-    guides = list(guides)
-    for g in guides:
-        g.target_georef = tg
+    guides = [dataclasses.replace(g, target_georef=tg) for g in guides]
     name = str(params.get("wavelet", "sym7"))
     seed = int(params.get("seed", 0))
     warnings: list = []
@@ -325,7 +324,7 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
     for g in guides:
         if g.role == "weights" and g.weights_for == "target":
             wt = _onto_target(g, tg)
-            w_t = np.where(np.isfinite(wt), wt, 0.0)
+            w_t = w_t * np.where(np.isfinite(wt), wt, 0.0)
     w_t[~finite | gap | veil] = 0.0
     rng = np.random.default_rng(seed)
     n_blocks, side = int(params.get("heldout_blocks", 8)), int(params.get("heldout_side", 16))
@@ -515,18 +514,23 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
                         return None
 
                 abacus = pairs_of(clear)
-                count = 0 if abacus is None else int(abacus.n_pairs.min())
-                need = int(params.get("abacus_min_pairs", 1000))
-                if count < need:
-                    cause = ""
-                    if held.any():
-                        without = pairs_of(pr.clear_masks(mirror(gap | veil) > 0.5, name, J))
-                        if without is not None and int(without.n_pairs.min()) >= need:
-                            cause = " -- the held-out blocks caused it (set heldout_blocks to 0)"
-                    raise ValueError(f"inpaint: the self abacus has {count} clear pairs in an "
-                                     f"orientation, under abacus_min_pairs = {need}{cause}; a "
-                                     "corpus abacus file is the way out")
                 stages["abacus"] = abacus
+            count = 0 if abacus is None else int(abacus.n_pairs.min())
+            need = int(params.get("abacus_min_pairs", 1000))
+            if count < need:
+                cause = ""
+                if held.any():
+                    coeffs = dwt.pyramid(y_w, name, J)
+                    try:
+                        without = pr.Abacus.from_pyramid(
+                            coeffs, pr.clear_masks(mirror(gap | veil) > 0.5, name, J), name)
+                    except ValueError:
+                        without = None
+                    if without is not None and int(without.n_pairs.min()) >= need:
+                        cause = " -- the held-out blocks caused it (set heldout_blocks to 0)"
+                raise ValueError(f"inpaint: the self abacus has {count} clear pairs in an "
+                                 f"orientation, under abacus_min_pairs = {need}{cause}; a "
+                                 "corpus abacus file is the way out")
 
     def run_route(x_start, problem):
         x, hist = x_start, None
