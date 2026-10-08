@@ -20,8 +20,11 @@ Headless: numpy at module level; rasterio and scipy lazily.
 from __future__ import annotations
 
 import dataclasses
+import inspect
 
 import numpy as np
+
+from dynamix.model.contracts import stamp_fill
 
 __all__ = ["crop_result_to_roi", "read_processing_window", "roi_margin_of",
            "run_on_region", "split_lines"]
@@ -342,12 +345,14 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
     # The ROI's own NATIVE values (raw, before any field stage): what a view drapes when it
     # shows this result on the region's own grid (the Vector scene).
     roi_values = np.asarray(window.values)[m:m + h, m:m + w].copy()
-    for device, params in steps[:-1]:                        # the field stage (noise, ...)
-        window = device.compute(window, params, progress=progress)
+    for device, params in steps[:-1]:                        # the field stage (noise, fill, ...)
+        kw = {"cancel": cancel} if getattr(device, "wants_cancel", False) else {}
+        window = device.compute(window, params, progress=progress, **kw)
     analyzer, aparams = steps[-1]
     compute_roi = getattr(analyzer, "compute_roi", None)
     if compute_roi is not None:
-        res = dict(compute_roi(window, (m, m, h, w), aparams, info=info, progress=progress))
+        rkw = {"cancel": cancel} if "cancel" in inspect.signature(compute_roi).parameters else {}
+        res = dict(compute_roi(window, (m, m, h, w), aparams, info=info, progress=progress, **rkw))
     else:
         if getattr(analyzer, "wants_cancel", False):
             full = analyzer.compute(window, aparams, progress=progress, cancel=cancel)
@@ -363,6 +368,7 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
             from dynamix.core.chain_product import attach_chain_product
 
             attach_chain_product(res)
+    res = stamp_fill(res, window)
     res["_shape"] = (h, w)
     x_axis = np.asarray(window.x_axis)[m:m + w].copy()
     y_axis = np.asarray(window.y_axis)[m:m + h].copy()

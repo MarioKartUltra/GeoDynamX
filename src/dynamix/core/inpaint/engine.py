@@ -25,7 +25,8 @@ from dynamix.core.inpaint import forward as fw
 from dynamix.core.inpaint import priors as pr
 from dynamix.core.inpaint import readouts as ro
 from dynamix.core.inpaint import solver as so
-from dynamix.core.inpaint.grid import GridRelation, georef, georef_from, warp_rows_cols
+from dynamix.core.inpaint.grid import (GridRelation, georef, georef_from, lonlat_of,
+                                       warp_rows_cols)
 
 __all__ = ["Guide", "ROLES", "ROUTES", "empty_result", "regions_from", "run_inpaint"]
 
@@ -212,15 +213,47 @@ def _onto_target(g: Guide, tg: dict, *, nearest=False, values=None) -> np.ndarra
     return _nearest_onto(vals, src, tg) if nearest else _bilinear_onto(vals, src, tg)
 
 
-def _shaded(g: Guide, params: dict) -> np.ndarray:
+def _bearing_of_up(field) -> tuple:
+    """``(bearing, frame)``: the true bearing, in degrees clockwise from true north, of the
+    raster's up (-row) direction at its centre, and the frame it was found in (``"image"`` for
+    a lattice, ``"grid"`` for a CRS). ``(0.0, "pixel")`` when the raster cannot be placed."""
+    g = georef(field)
+    if g.get("lattice") is None and not g.get("georeferenced"):
+        return 0.0, "pixel"
+    cy, cx = (g["shape"][0] - 1) / 2.0, (g["shape"][1] - 1) / 2.0
+    try:
+        lon, lat = lonlat_of(g, [cy, cy - 1.0], [cx, cx])
+        p1, p2 = np.radians(float(lat[0])), np.radians(float(lat[1]))
+        dl = np.radians(float(lon[1]) - float(lon[0]))
+        b = np.degrees(np.arctan2(np.sin(dl) * np.cos(p2),
+                                  np.cos(p1) * np.sin(p2) - np.sin(p1) * np.cos(p2) * np.cos(dl)))
+    except Exception:
+        return 0.0, "pixel"
+    if not np.isfinite(b):
+        return 0.0, "pixel"
+    return float(b % 360.0), ("image" if g.get("lattice") is not None else "grid")
+
+
+def _shaded(g: Guide, params: dict, used: dict | None = None) -> np.ndarray:
+    """The guide hillshaded. ``sun_north == "true"`` marks the azimuth as measured from true
+    north, and it is turned into the raster's own frame by the bearing of its up direction;
+    otherwise the knob is already in the raster's frame. ``used`` receives the azimuth,
+    elevation and frame applied, under the guide's label."""
     from dynamix.core.hillshade import hillshade
 
     f = g.field
     z_factor = 1.0 / 111320.0 if getattr(f.frame, "units", "") == "deg" else 1.0
     dx = abs(float(f.x_axis[1] - f.x_axis[0])) if f.x_axis.size > 1 else 1.0
     dy = abs(float(f.y_axis[1] - f.y_axis[0])) if f.y_axis.size > 1 else 1.0
-    return hillshade(f.values, dx, dy, azimuth=float(params.get("sun_azimuth", 0.0)),
-                     altitude=float(params.get("sun_elevation", 45.0)), z_factor=z_factor)
+    azimuth = float(params.get("sun_azimuth", 0.0))
+    frame = "grid"
+    if params.get("sun_north") == "true":
+        bearing, frame = _bearing_of_up(f)
+        azimuth = (azimuth - bearing) % 360.0
+    altitude = float(params.get("sun_elevation", 45.0))
+    if used is not None:
+        used[g.label] = {"azimuth": azimuth, "elevation": altitude, "frame": frame}
+    return hillshade(f.values, dx, dy, azimuth=azimuth, altitude=altitude, z_factor=z_factor)
 
 
 def _value_operator(g: Guide, ny: int, nx: int):
@@ -276,7 +309,7 @@ def empty_result(values, params: dict, reason: str) -> dict:
             "_fill_kind": "estimate", "_abacus": None, "_hists": {}, "_warnings": [],
             "_filled_fraction": 0.0, "_missing_fraction": float((~np.isfinite(y)).mean()),
             "_levels": 0, "_estimate": y.astype(np.float32),
-            "_heldout_mask": np.zeros(y.shape, dtype=bool), "_affine": {}, "_shaded": [],
+            "_heldout_mask": np.zeros(y.shape, dtype=bool), "_affine": {}, "_shaded": [], "_sun": {},
             "_history": {"cost": [], "score": []}}
 
 
@@ -410,7 +443,7 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
 
     # terms
     terms = [fw.Term(fw.Identity(), y_w, mirror(w_t))]
-    relations, dropped, shaded = {}, [], []
+    relations, dropped, shaded, sun_used = {}, [], [], {}
     n_structure = sum(1 for g in guides if g.role == "structure")
     bands_held = 2 * (3 * Js * n_structure + (3 * Jv if veil.any() else 0))   # data + weights per band
     if bands_held * 8 * int(np.prod(shape_w)) > TERM_BUDGET:
@@ -426,7 +459,7 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
             terms.append(fw.Term(fw.Compose(op, quarter), a * data + b,
                                  float(params.get("prior_weight", 0.3)) * np.where(np.isfinite(w), w, 0.0)))
         elif g.role == "structure":
-            vals = _shaded(g, params) if g.shade else None
+            vals = _shaded(g, params, sun_used) if g.shade else None
             if g.shade:
                 shaded.append(g.label)
             on_g = _onto_target(g, tg, values=vals)
@@ -462,7 +495,7 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
         near = (pr.clear_pixels(veil, name, 1) == 0) & finite & ~veil & ~co.boundary_ring(veil)
         if model == "gain":
             if seeds:
-                sh = _onto_target(seeds[0], tg, values=_shaded(seeds[0], params))
+                sh = _onto_target(seeds[0], tg, values=_shaded(seeds[0], params, sun_used))
                 s_g = np.where(np.isfinite(sh), np.maximum(sh, GAIN_FLOOR), 1.0)
                 seed_src = seeds[0].label
             else:
@@ -592,6 +625,6 @@ def run_inpaint(target, values, params: dict, guides, *, stage_cache=None, cance
             "n_pairs": abacus.n_pairs, "wavelet": abacus.wavelet},
         "_hists": hists, "_warnings": warnings, "_filled_fraction": float((gap | veil).mean()),
         "_missing_fraction": missing, "_levels": int(J), "_estimate": x_g.astype(np.float32),
-        "_heldout_mask": held, "_affine": affine, "_shaded": shaded,
+        "_heldout_mask": held, "_affine": affine, "_shaded": shaded, "_sun": sun_used,
         "_history": {"cost": list(hist.cost), "score": list(hist.score)},
     }

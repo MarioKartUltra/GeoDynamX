@@ -17,7 +17,7 @@ import numpy as np
 
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
-from dynamix.model.contracts import input_contract, step_states
+from dynamix.model.contracts import input_contract, stamp_fill, step_states
 from dynamix.model.device import (Output, apply_view, declared_outputs, get_device,
                                   is_transform, keyed_params, validate_params)
 
@@ -348,7 +348,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                     kw["cancel"] = cancel
                 if getattr(d, "uses_stage_cache", False):
                     kw["stage_cache"] = cache.stages
-                return d.compute(s, p, progress=progress, **kw)
+                return stamp_fill(d.compute(s, p, progress=progress, **kw), s)
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
             analysis_raw = result

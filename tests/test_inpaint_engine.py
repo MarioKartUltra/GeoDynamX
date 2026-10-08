@@ -412,3 +412,22 @@ def test_a_weights_send_holds_the_estimate_to_the_data_where_the_weight_is_one()
     dev_free = np.sqrt(np.mean((est[0:20, :][known[0:20, :]] - y[0:20, :][known[0:20, :]]) ** 2))
     dev_held = np.sqrt(np.mean((est[30:, :][known[30:, :]] - y[30:, :][known[30:, :]]) ** 2))
     assert dev_held < 0.75 * dev_free
+
+
+def test_the_bearing_of_up_follows_the_georeference():
+    from dynamix.geo.mapping import grid_north_bearing
+
+    t = _field(np.ones((64, 64)))
+    b, frame = en._bearing_of_up(t)
+    assert frame == "grid"
+    assert abs(b - float(grid_north_bearing(t, [31.5], [31.5])[0])) < 0.05
+    geo = RasterField(name="g", values=np.ones((64, 64)),
+                      frame=LocalFrame(x0=-93.0, y0=36.0, dx=0.001, dy=0.001, units="deg"),
+                      x_axis=-93.0 + 0.001 * np.arange(64), y_axis=36.0 - 0.001 * np.arange(64),
+                      provenance={"crs": "EPSG:4326"})
+    b, frame = en._bearing_of_up(geo)
+    assert frame == "grid" and abs(((b + 180) % 360) - 180) < 0.05
+    bare = RasterField(name="b", values=np.ones((8, 8)), frame=LocalFrame(x0=0.0, y0=0.0, dx=1.0,
+                                                                          dy=1.0, units="px"),
+                       x_axis=np.arange(8.0), y_axis=-np.arange(8.0), provenance={})
+    assert en._bearing_of_up(bare) == (0.0, "pixel")

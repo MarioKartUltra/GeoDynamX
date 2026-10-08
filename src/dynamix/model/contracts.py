@@ -210,3 +210,28 @@ def next_step_state(steps, layer_input: str, device_name: str, params: dict | No
     device = get_device(device_name)
     return _state(device, validate_params(device, params or {}), available, analysis,
                   layer_input, level_view)
+
+
+# --- the fill stamp ----------------------------------------------------------------------
+
+def fill_of(source):
+    """The fill stamp a step's input carries: a result's ``_fill``, a field's
+    ``provenance["fill"]`` (written by the ``fill`` step), else ``None``."""
+    if isinstance(source, dict):
+        return source.get("_fill")
+    prov = getattr(source, "provenance", None) or {}
+    return prov.get("fill")
+
+
+def stamp_fill(result, source):
+    """An analyzer's result stamped with the fill of the field it analysed (``_fill``), so a
+    reading downstream can say that analysis inside the region reads a reconstruction.
+    Nothing is stamped on a field tail or when the input carries no fill."""
+    if not isinstance(result, dict):
+        return result
+    stamp = fill_of(source)
+    if stamp is None:
+        return result
+    out = dict(result)
+    out["_fill"] = stamp
+    return out
