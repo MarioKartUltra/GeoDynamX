@@ -122,9 +122,62 @@ def test_band_hists_compare_inside_against_clear_per_level_and_orientation():
     coeffs = dwt.pyramid(y, "sym7", 4)
     rho = pr.rho_pyramid(region, "sym7", 4)
     clear = pr.clear_masks(region, "sym7", 4)
-    h = ro.band_hists(coeffs, rho, clear)
+    h = ro.band_hists(coeffs, rho, clear, shift=-1)
     assert set(h) == {(j, o) for j in (1, 2, 3) for o in (0, 1, 2)}
     one = h[(1, 0)]
     assert set(one) == {"eta", "amp"}
     assert set(one["eta"]) == {"edges", "inside", "clear", "distance", "n_inside", "n_clear"}
     assert 0.0 <= one["eta"]["distance"] <= 1.0 and one["amp"]["n_clear"] > 0
+    h0 = ro.band_hists(coeffs, rho, clear, shift=0)
+    assert h0[(1, 0)]["eta"]["distance"] != one["eta"]["distance"]
+    assert h0[(1, 1)]["eta"]["distance"] != h[(1, 1)]["eta"]["distance"]
+    assert h0[(1, 2)]["eta"]["distance"] == h[(1, 2)]["eta"]["distance"]
+
+
+def test_band_hists_clear_sample_needs_the_parent_clear_too():
+    from dynamix.core.inpaint import priors as pr
+
+    y = rng.standard_normal((128, 128)).cumsum(0).cumsum(1)
+    region = _box(y.shape, 40, 88, 40, 88)
+    coeffs = dwt.pyramid(y, "sym7", 4)
+    rho = pr.rho_pyramid(region, "sym7", 4)
+    clear = pr.clear_masks(region, "sym7", 4)
+    clear2 = [c.copy() for c in clear]
+    clear2[1][:] = 0                       # level-2 parents all unclear
+    h = ro.band_hists(coeffs, rho, clear2, shift=-1)
+    for o in range(3):
+        assert h[(1, o)]["eta"]["n_clear"] == 0
+
+
+def test_the_correction_removes_a_constant_offset_without_building_a_step_at_the_ring():
+    y = dwt.mirror(_smooth())
+    region = dwt.mirror(_box((96, 96), 30, 60, 40, 70)) > 0
+    known = ~region
+    ring = co.boundary_ring(region)
+    c = 20.0 * _grad_mag(y)[ring].max()
+    x = y + c
+    s = co.correct(x, y, known, ring, pad=0)
+    x2 = x - s
+    assert np.isfinite(s).all()
+    assert ro.errors(x2, y, known)["var_err"] < 0.05 * ro.errors(x, y, known)["var_err"]
+    assert _grad_mag(x2)[ring].max() <= 1.2 * _grad_mag(y)[ring].max()
+    # control: a hard projection leaves the full step at the boundary
+    hard = np.where(known, y, x)
+    assert _grad_mag(hard)[ring].max() > 1.2 * _grad_mag(y)[ring].max()
+    # control: without the ring exclusion the step enters the rebuilt field
+    s0 = co.correct(x, y, known, np.zeros_like(ring), pad=0)
+    assert _grad_mag(x - s0)[ring].max() > 1.8 * _grad_mag(y)[ring].max()
+
+
+def test_the_correction_ignores_a_non_finite_known_pixel():
+    y = dwt.mirror(_smooth())
+    region = dwt.mirror(_box((96, 96), 30, 60, 40, 70)) > 0
+    known = ~region
+    ring = co.boundary_ring(region)
+    x = y + 0.5
+    y_nan = y.copy()
+    y_nan[0, 0] = np.nan
+    s = co.correct(x, y_nan, known, ring, pad=0)
+    assert np.isfinite(s).all()
+    ok = known & np.isfinite(y_nan)
+    assert abs((x - s)[ok].mean() - y[ok].mean()) < 1e-6 * abs(y).max()

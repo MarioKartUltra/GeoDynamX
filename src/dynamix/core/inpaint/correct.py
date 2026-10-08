@@ -13,6 +13,8 @@ paper's Fig. 15); it is a smoothing step, not a projection, so every route ends 
 """
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 __all__ = ["boundary_ring", "correct", "prefill"]
@@ -66,8 +68,12 @@ def correct(x, y, known, ring, *, pad=0) -> np.ndarray:
     """The smooth field consistent with ``x - y`` on the known pixels away from ``ring``,
     mean-matched on the known pixels: the loop subtracts it. ``pad=0`` on a working image
     that is already periodic (mirror-extended)."""
-    known = np.asarray(known, dtype=bool)
-    d = np.where(known, np.asarray(x, dtype=np.float64) - np.asarray(y, dtype=np.float64), 0.0)
-    smooth = _rebuild(d, known & ~np.asarray(ring, dtype=bool), pad)
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    known = np.asarray(known, dtype=bool) & np.isfinite(x) & np.isfinite(y)
+    d = np.where(known, x - y, 0.0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)   # the kernel's PSNR readout, discarded here
+        smooth = _rebuild(d, known & ~np.asarray(ring, dtype=bool), pad)
     smooth += d[known].mean() - smooth[known].mean()
     return smooth

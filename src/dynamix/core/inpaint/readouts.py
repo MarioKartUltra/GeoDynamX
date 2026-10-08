@@ -66,12 +66,13 @@ def _pairs(parent, child):
     return ok, np.log(np.abs(child[ok])) - np.log(np.abs(P[ok])), np.log(np.abs(child[ok]))
 
 
-def band_hists(coeffs, rho, clear, abacus=None, nbins: int = 60, *, shift: int = 0) -> dict:
+def band_hists(coeffs, rho, clear, abacus=None, nbins: int = 60, *, shift: int) -> dict:
     """``{(level, orientation): {"eta": {...}, "amp": {...}}}`` for levels ``1..J-1``: the
     ``ln|eta|`` and ``ln|c|`` samples of the children inside the regions (``rho > 0.9``) and
     of the clear children, histogrammed on common edges with their Kolmogorov distance; the
     child bands and their masks are rolled by the bank's child ``shift`` (the pairing the
-    abacus and the inference use). A level with no inside or no clear pair has distance
+    abacus and the inference use); a clear child counts only when its parent is clear too.
+    A level with no inside or no clear pair has distance
     ``nan``."""
     from dynamix.core.inpaint.priors import aligned
 
@@ -80,7 +81,8 @@ def band_hists(coeffs, rho, clear, abacus=None, nbins: int = 60, *, shift: int =
     for j in range(1, J):
         for o in range(3):
             inside = aligned(np.asarray(rho[j - 1]) > 0.9, o, shift)
-            clr = aligned(np.asarray(clear[j - 1]) == 1, o, shift)
+            clr = aligned(np.asarray(clear[j - 1]) == 1, o, shift) \
+                & np.repeat(np.repeat(np.asarray(clear[j]) == 1, 2, 0), 2, 1)
             parent = np.asarray(coeffs[J + 1 - (j + 1)][o], dtype=np.float64)
             child = aligned(np.asarray(coeffs[J + 1 - j][o], dtype=np.float64), o, shift)
             ok, eta, amp = _pairs(parent, child)
