@@ -23,11 +23,11 @@ from dynamix.model.device import defaults_for, register_device, validate_params 
 from dynamix.model.layer import Layer  # noqa: E402
 
 
-def _field(values, name="f", **prov):
+def _field(values, name="f", x0=500015.0, **prov):
     ny, nx = values.shape[:2]
-    return RasterField(name=name, values=values, frame=LocalFrame(x0=500015.0, y0=3999985.0,
+    return RasterField(name=name, values=values, frame=LocalFrame(x0=x0, y0=3999985.0,
                                                                    dx=30.0, dy=30.0, units="m"),
-                       x_axis=500015.0 + 30.0 * np.arange(nx), y_axis=3999985.0 - 30.0 * np.arange(ny),
+                       x_axis=x0 + 30.0 * np.arange(nx), y_axis=3999985.0 - 30.0 * np.arange(ny),
                        provenance={"crs": "EPSG:32615", "source": f"/{name}.tif", **prov})
 
 
@@ -142,17 +142,17 @@ def test_an_roi_inpaint_run_can_be_cancelled(devices):
 
 def test_inpaint_through_resolve_reads_a_nested_and_a_foreign_send(devices, tmp_path):
     rasterio = pytest.importorskip("rasterio")
-    from rasterio.transform import from_origin
+    from affine import Affine
 
     truth, y = _gapped()
     coarse = truth.reshape(32, 2, 32, 2).mean(axis=(1, 3))
     p = tmp_path / "prior.tif"
     with rasterio.open(p, "w", driver="GTiff", height=32, width=32, count=1, dtype="float32",
-                       crs="EPSG:32615", transform=from_origin(500000.0, 4000000.0, 60.0, 60.0)) as dst:
+                       crs="EPSG:32615", transform=Affine(60.0, 0.0, 500000.0, 0.0, -60.0, 4000000.0)) as dst:
         dst.write(coarse.astype(np.float32), 1)
     f = tmp_path / "foreign.tif"
     with rasterio.open(f, "w", driver="GTiff", height=64, width=64, count=1, dtype="float32",
-                       crs="EPSG:32615", transform=from_origin(500012.0, 4000000.0, 30.0, 30.0)) as dst:
+                       crs="EPSG:32615", transform=Affine(30.0, 0.0, 500012.0, 0.0, -30.0, 4000000.0)) as dst:
         dst.write(truth.astype(np.float32), 1)                # 0.4 px off the grid: foreign
     sends = [{"path": str(p), "subdataset": None, "band": None, "label": "prior", "role": "value"},
              {"path": str(f), "subdataset": None, "band": None, "label": "other day", "role": "value"}]
@@ -242,33 +242,66 @@ def test_cancel_reaches_the_loop(devices):
                     cancel=lambda: True)
 
 
-def _dem_send(tmp_path, truth):
+def _dem_send(tmp_path, truth, x0=300000.0):
     rasterio = pytest.importorskip("rasterio")
-    from rasterio.transform import from_origin
+    from affine import Affine
 
     p = tmp_path / "dem.tif"
     with rasterio.open(p, "w", driver="GTiff", height=64, width=64, count=1, dtype="float32",
-                       crs="EPSG:32615", transform=from_origin(500000.0, 4000000.0, 30.0, 30.0)) as dst:
+                       crs="EPSG:32615", transform=Affine(30.0, 0.0, x0, 0.0, -30.0, 4000000.0)) as dst:
         dst.write((truth * 5.0).astype(np.float32), 1)
     return json.dumps([{"path": str(p), "subdataset": None, "band": None, "label": "dem",
                         "role": "structure", "shade": True}])
 
 
 def test_the_scene_sun_stamp_feeds_the_shading_unless_the_knobs_were_set(devices, tmp_path):
-    from dynamix.geo.mapping import grid_north_bearing
+    from dynamix.core.inpaint.engine import _bearing_of_up
 
     truth, y = _gapped()
     sun = {"azimuth": 100.0, "elevation": 30.0, "north": "true"}
-    field = _field(y, sun=sun)
+    field = _field(y, x0=300015.0, sun=sun)
     sends = _dem_send(tmp_path, truth)
     dev = Inpaint()
-    bearing = float(grid_north_bearing(field, [31.5], [31.5])[0])
+    b, _frame = _bearing_of_up(field)
+    assert abs(((b + 180) % 360) - 180) > 1.0                # the fixture has a convergence
     base = {**defaults_for(dev), **FAST, "heldout_blocks": 0, "_sends": sends}
     res = dev.compute(field, validate_params(dev, base))
     used = res["_sun"]["dem"]
     assert used["frame"] == "grid" and used["elevation"] == pytest.approx(30.0)
-    # the raster's up direction is grid north rotated by nothing: its true bearing is the convergence
-    assert abs(((used["azimuth"] - (100.0 - bearing) + 180) % 360) - 180) < 0.05
+    assert abs(((used["azimuth"] - (100.0 - b) + 180) % 360) - 180) < 0.05
+    assert abs(((used["azimuth"] - (100.0 + b) + 180) % 360) - 180) > 1.0
     given = dev.compute(field, validate_params(dev, {**base, "sun_azimuth": 200.0}))
     assert given["_sun"]["dem"]["azimuth"] == 200.0 and given["_sun"]["dem"]["frame"] == "grid"
     assert base["sun_azimuth"] == 0.0                       # the caller's params are untouched
+
+
+def test_the_sun_knobs_stay_active_while_a_shaded_send_uses_them(devices):
+    dev = Inpaint()
+    base = validate_params(dev, defaults_for(dev))
+    veil = {"veil_model", "veil_levels", "veil_passes"}
+    sun = {"sun_azimuth", "sun_elevation"}
+    shaded = dev.inactive_params(base, [{"role": "structure", "shade": True}])
+    assert not (sun & shaded) and veil <= shaded
+    assert (veil | sun) <= dev.inactive_params(base, [{"role": "structure"}])
+
+
+def test_the_fill_product_gives_up_its_file_source_and_reflects_from_memory(devices, tmp_path):
+    rasterio = pytest.importorskip("rasterio")
+    from affine import Affine
+
+    from dynamix.roi.runner import read_processing_window
+
+    _truth, y = _gapped()
+    p = tmp_path / "raw.tif"
+    with rasterio.open(p, "w", driver="GTiff", height=64, width=64, count=1, dtype="float32",
+                       crs="EPSG:32615", transform=Affine(30.0, 0.0, 500000.0, 0.0, -30.0, 4000000.0)) as dst:
+        dst.write(y.astype(np.float32), 1)
+    field = _field(y)
+    field.provenance["source"] = str(p)
+    dev = Fill()
+    clone = dev.compute(field, validate_params(dev, {**defaults_for(dev), "n_iter": 3}))
+    assert "source" not in clone.provenance and clone.provenance["fill_source"] == str(p)
+    window, _info = read_processing_window(clone, (16, 20, 24, 24), 4)
+    inside = np.asarray(window.values)[4 + 4:4 + 20, 4 + 4:4 + 20]      # the filled region
+    assert np.isfinite(inside).all()
+    np.testing.assert_allclose(inside, np.asarray(clone.values)[20:36, 24:40])

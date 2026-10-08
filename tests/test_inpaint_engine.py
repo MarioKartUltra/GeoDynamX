@@ -417,10 +417,12 @@ def test_a_weights_send_holds_the_estimate_to_the_data_where_the_weight_is_one()
 def test_the_bearing_of_up_follows_the_georeference():
     from dynamix.geo.mapping import grid_north_bearing
 
-    t = _field(np.ones((64, 64)))
+    t = _field(np.ones((64, 64)), x0=300015.0)
     b, frame = en._bearing_of_up(t)
     assert frame == "grid"
-    assert abs(b - float(grid_north_bearing(t, [31.5], [31.5])[0])) < 0.05
+    g = float(grid_north_bearing(t, [31.5], [31.5])[0])
+    assert abs(((b - g + 180) % 360) - 180) < 0.05
+    assert abs(((b + 180) % 360) - 180) > 1.0                # the fixture has a convergence
     geo = RasterField(name="g", values=np.ones((64, 64)),
                       frame=LocalFrame(x0=-93.0, y0=36.0, dx=0.001, dy=0.001, units="deg"),
                       x_axis=-93.0 + 0.001 * np.arange(64), y_axis=36.0 - 0.001 * np.arange(64),

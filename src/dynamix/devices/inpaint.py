@@ -148,7 +148,7 @@ def _with_scene_sun(field, params: dict) -> dict:
             or float(params.get("sun_elevation", 45.0)) != 45.0):
         return params
     return {**params, "sun_azimuth": float(sun["azimuth"]), "sun_elevation": float(sun["elevation"]),
-            "sun_north": "true"}
+            "sun_north": str(sun.get("north", "true"))}
 
 
 def _relations_text(res: dict) -> str:
@@ -181,7 +181,9 @@ def inactive_for(params: dict, sends) -> set:
         or (params.get("region_kind") == "veil" and params.get("mask_source") in ("send", "all")) \
         or any(p.get("kind") == "veil" for p in polys) or "veil_seed" in roles
     if not veils:
-        off |= {"veil_model", "veil_levels", "veil_passes", "sun_azimuth", "sun_elevation"}
+        off |= {"veil_model", "veil_levels", "veil_passes"}
+    if not veils and not any(bool(s.get("shade")) for s in sends):
+        off |= {"sun_azimuth", "sun_elevation"}
     return off
 
 
@@ -338,6 +340,9 @@ class Fill:
                  "terms_dropped": res["_terms_dropped"], "veil": res["_veil"],
                  "warnings": list(res["_warnings"])}
         prov = {**(getattr(field, "provenance", None) or {}), "fill": stamp}
+        for key in ("source", "subdataset"):                 # the filled array is the data from here on
+            if prov.get(key):
+                prov[f"fill_{key}"] = prov.pop(key)
         return dataclasses.replace(field, values=new, name=f"{field.name}+fill{tag}",
                                    provenance=prov)
 
