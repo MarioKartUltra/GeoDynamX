@@ -20,6 +20,7 @@ land as ``(ny, nx, nc)`` fields -- the shape the tensor path and the new
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -315,6 +316,50 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
     )
 
 
+_SUN_RE = re.compile(r"OBJECT\s*=\s*SOLARDIRECTION.*?VALUE\s*=\s*\(\s*([-\d.eE+]+)\s*,\s*([-\d.eE+]+)\s*\)",
+                     re.S)
+
+
+def hdf4_sun(sd) -> "dict | None":
+    """``{"azimuth", "elevation"}`` from the ODL ``SOLARDIRECTION`` object of the file
+    attribute ``productmetadata.0`` (ASTER L1A/L1T), else ``None``."""
+    try:
+        text = sd.attributes().get("productmetadata.0")
+    except Exception:
+        return None
+    if not text:
+        return None
+    m = _SUN_RE.search(str(text))
+    if m is None:
+        return None
+    return {"azimuth": float(m.group(1)), "elevation": float(m.group(2))}
+
+
+def hdf4_lattice(path, subdataset) -> "dict | None":
+    """The lattice reference of an ASTER L1A band: the SDS ids of the ``Latitude``,
+    ``Longitude`` and ``LatticePoint`` arrays in the band's swath group, when all three
+    exist; a JSON-safe reference, the arrays are read lazily by ``core.inpaint.grid``."""
+    from pyhdf.SD import SD, SDC
+
+    p = Path(path)
+    sd = SD(str(p), SDC.READ)
+    try:
+        ds = hdf4_select(p, sd, str(subdataset))
+        group = _hdf4_group_names(p).get(ds.ref())
+        if not group:
+            return None
+        names = {}
+        for key, n in (("lat", "Latitude"), ("lon", "Longitude"), ("points", "LatticePoint")):
+            try:
+                hdf4_select(p, sd, f"{group}/{n}").endaccess()
+            except Exception:
+                return None
+            names[key] = f"{group}/{n}"
+    finally:
+        sd.end()
+    return {"file": str(p), "group": group, "sds": names}
+
+
 def _load_hdf4(p: Path, dsname: str, name: "str | None"):
     """ASTER-class HDF-EOS2 via pyhdf: values + fill-value masking; pixel-index axes (the
     swath/geolocation solve is a recorded follow-up -- provenance says so honestly)."""
@@ -328,8 +373,10 @@ def _load_hdf4(p: Path, dsname: str, name: "str | None"):
         ds = hdf4_select(p, sd, dsname)
         arr = np.asarray(ds.get(), dtype=np.float64)
         attrs = ds.attributes()
+        sun = hdf4_sun(sd)
     finally:
         sd.end()
+    lattice = hdf4_lattice(p, dsname)
     fill = attrs.get("_FillValue")
     if fill is not None:
         arr = np.where(arr == fill, np.nan, arr)
@@ -346,5 +393,7 @@ def _load_hdf4(p: Path, dsname: str, name: "str | None"):
         x_axis=np.arange(nx, dtype=np.float64) + 0.5,
         y_axis=np.arange(ny, dtype=np.float64) + 0.5,
         provenance={"source": str(p), "subdataset": dsname,
-                    "georef": "none (HDF4 v1: pixel-index axes; geolocation follow-up)"},
+                    "georef": "none (HDF4 v1: pixel-index axes; geolocation follow-up)",
+                    **({"lattice": lattice} if lattice else {}),
+                    **({"sun": sun} if sun else {})},
     )

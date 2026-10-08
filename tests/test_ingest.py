@@ -136,6 +136,23 @@ def _aster_like(tmp_path):
     lone = sd.create("Cloud_Table", SDC.FLOAT64, (4, 4))
     lone[:] = np.zeros((4, 4))
     lone.endaccess()
+    lat = sd.create("Latitude", SDC.FLOAT64, (3, 3))
+    geodetic = 30.0 - np.array([[0, 0, 0], [1, 1, 1], [2, 2, 2]]) * 1e-3
+    lat[:] = np.degrees(np.arctan(np.tan(np.radians(geodetic)) * (1.0 - 0.00669437999014)))   # the SDS is geocentric
+    lat_ref = lat.ref()
+    lat.endaccess()
+    lon = sd.create("Longitude", SDC.FLOAT64, (3, 3))
+    lon[:] = -91.0 + np.array([[0, 1, 2]] * 3) * 1e-3
+    lon_ref = lon.ref()
+    lon.endaccess()
+    lp = sd.create("LatticePoint", SDC.FLOAT64, (3, 3, 2))
+    lp[:] = np.stack(np.meshgrid([0.0, 5.0, 9.0], [0.0, 6.0, 11.0], indexing="xy"), axis=-1)
+    lp_ref = lp.ref()
+    lp.endaccess()
+    sd.attr("productmetadata.0").set(SDC.CHAR, (
+        "GROUP = PRODUCTSPECIFICMETADATA\n  OBJECT = SOLARDIRECTION\n    NUM_VAL = 2\n"
+        "    VALUE = (56.185421, 60.848457)\n  END_OBJECT = SOLARDIRECTION\nEND_GROUP\nEND\n"))
+    lattice_refs = (lat_ref, lon_ref, lp_ref)
     sd.end()
     h = HDF(str(p), HC.WRITE)
     v = h.vgstart()
@@ -145,6 +162,9 @@ def _aster_like(tmp_path):
         inner = v.attach(-1, 1)
         inner._name, inner._class = "Data Fields", "SWATH Vgroup"
         inner.add(getattr(HC, "DFTAG_NDG", 720), ref)
+        if swath == "VNIR_Band1":
+            for r in lattice_refs:
+                inner.add(getattr(HC, "DFTAG_NDG", 720), r)
         outer.insert(inner)
         inner.detach()
         outer.detach()
@@ -250,3 +270,50 @@ def test_band_index_tokens_reopen_a_subset_of_a_multiband_file(tmp_path):
     assert one.values.shape == (4, 5) and one.values[0, 0] == 1.0
     with pytest.raises(ValueError, match="do not exist"):
         ingest.load_grid_stack(p, ["#7"])
+
+
+def test_an_l1a_band_is_stamped_with_its_lattice_and_the_scene_sun(aster_like_hdf4):
+    from dynamix.core.ingest import hdf4_lattice, load_grid
+
+    f = load_grid(aster_like_hdf4, subdataset="VNIR_Band1/ImageData")
+    lat = f.provenance["lattice"]
+    assert lat["file"] == str(aster_like_hdf4) and lat["group"] == "VNIR_Band1"
+    assert lat["sds"] == {"lat": "VNIR_Band1/Latitude", "lon": "VNIR_Band1/Longitude",
+                          "points": "VNIR_Band1/LatticePoint"}
+    assert f.provenance["sun"] == {"azimuth": pytest.approx(56.185421),
+                                   "elevation": pytest.approx(60.848457)}
+    assert f.provenance["georef"].startswith("none")
+    g = load_grid(aster_like_hdf4, subdataset="VNIR_Band2/ImageData")
+    assert "lattice" not in g.provenance and g.provenance["sun"]["azimuth"] == pytest.approx(56.185421)
+    assert hdf4_lattice(aster_like_hdf4, "VNIR_Band1/ImageData") == lat
+    assert hdf4_lattice(aster_like_hdf4, "SWIR_Band4/ImageData") is None
+    import json
+
+    json.dumps(f.provenance)
+
+
+def test_the_lattice_maps_the_band_to_lonlat(aster_like_hdf4):
+    pytest.importorskip("scipy")
+    from dynamix.core.ingest import load_grid
+    from dynamix.core.inpaint.grid import georef, lonlat_of
+
+    f = load_grid(aster_like_hdf4, subdataset="VNIR_Band1/ImageData")
+    lon, lat = lonlat_of(georef(f), np.array([0.0, 6.0]), np.array([0.0, 5.0]))
+    assert lat[0] == pytest.approx(30.0, abs=1e-9) and lat[1] == pytest.approx(30.0 - 1e-3, abs=1e-9)   # geodetic again
+    assert lon[0] == pytest.approx(-91.0) and lon[1] == pytest.approx(-91.0 + 1e-3)
+
+
+def test_a_file_without_the_sun_object_stamps_no_sun(tmp_path):
+    pytest.importorskip("pyhdf")
+    from pyhdf.SD import SD, SDC
+
+    from dynamix.core.ingest import load_grid
+
+    p = tmp_path / "plain.hdf"
+    sd = SD(str(p), SDC.WRITE | SDC.CREATE)
+    s = sd.create("band", SDC.FLOAT64, (4, 5))
+    s[:] = np.zeros((4, 5))
+    s.endaccess()
+    sd.end()
+    f = load_grid(p, subdataset="band")
+    assert "sun" not in f.provenance and "lattice" not in f.provenance

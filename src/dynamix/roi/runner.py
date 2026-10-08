@@ -93,6 +93,14 @@ def _read_file(source, r0, c0, r1, c1):
     return values, transform
 
 
+def _bands_fit(bands, window) -> bool:
+    """``bands`` names the window's bands: a list as long as the window's band count (a
+    display picture of a multiband file stores an int count, and its window holds band 1)."""
+    if not isinstance(bands, (list, tuple)):
+        return False
+    return len(bands) == (window.shape[-1] if window.ndim == 3 else 1)
+
+
 def read_processing_window(field, rect, margin: int):
     """Read ROI ``rect`` = ``(row, col, h, w)`` (FILE pixels) plus ``margin`` on every side.
 
@@ -175,7 +183,9 @@ def read_processing_window(field, rect, margin: int):
         name=f"{field.name}@roi{r},{c}", values=window, frame=frame,
         x_axis=x_axis, y_axis=y_axis, units=getattr(field, "units", ""),
         provenance={"source": source, "full_dims": (H, W), "crs": prov.get("crs"),
-                    "window": {"row_off": want_r0, "col_off": want_c0}})
+                    "window": {"row_off": want_r0, "col_off": want_c0},
+                    **{k: prov[k] for k in ("lattice", "sun", "fill") if k in prov},
+                    **({"bands": list(prov["bands"])} if _bands_fit(prov.get("bands"), window) else {})})
     info = {"offset": m, "real": real,
             "reflected_edges": tuple(e for e in _EDGES if reflected[e]),
             "real_frac": float((real & finite).mean())}

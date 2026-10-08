@@ -73,10 +73,8 @@ def send_lattice(send: dict):
         return (getattr(_layer_plane(send), "provenance", None) or {}).get("lattice")
     path, sub = str(send["path"]), send.get("subdataset")
     if _is_hdf4_id(path, sub):
-        try:
-            from dynamix.core.ingest import hdf4_lattice
-        except ImportError:
-            return None
+        from dynamix.core.ingest import hdf4_lattice
+
         return hdf4_lattice(path, sub)
     return None
 

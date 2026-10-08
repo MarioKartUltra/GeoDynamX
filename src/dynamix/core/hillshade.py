@@ -12,8 +12,10 @@ pixel spacing share a unit), aspect as the downslope direction, and
 clipped to [0, 1]. The field's own pixel spacing (``dx``, ``dy`` in the frame's units) is what
 makes the slope physical -- the caller passes ``field.frame.dx``-style values, never 1 px.
 
-A DISPLAY product: the shell multiplies a colormap by it under the chains. It never enters the
-analysis path (scales stay in pixels; nothing here resamples).
+A display product, and the veil seed and structure guide of ``inpaint``: the shell multiplies
+a colormap by it under the chains, and the inpainting engine shades a DEM under the scene's
+sun on the DEM's own grid before sampling it onto the target (``core.inpaint.engine``). It
+never resamples anything itself and never enters the WTMM path (scales stay in pixels).
 """
 from __future__ import annotations
 

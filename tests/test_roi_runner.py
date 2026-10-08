@@ -287,3 +287,18 @@ def test_a_tools_own_roi_step_gets_the_window_and_the_core_inside_it():
     assert _OwnStep.seen["info"]["offset"] == 4
     assert np.array_equal(res["raster_out"], f.values[10:18, 12:21])
     assert res["_roi"]["roi"] == (10, 12, 8, 9)
+
+
+def test_the_processing_window_carries_the_lattice_sun_fill_and_bands_stamps():
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.roi.runner import read_processing_window
+
+    f = RasterField(name="f", values=np.arange(400.0).reshape(20, 20), frame=LocalFrame(),
+                    x_axis=np.arange(20.0) + 0.5, y_axis=np.arange(20.0) + 0.5,
+                    provenance={"source": None, "lattice": {"file": "/a.hdf"},
+                                "sun": {"azimuth": 1.0, "elevation": 2.0},
+                                "fill": {"filled_fraction": 0.1}, "bands": ["b1"]})
+    win, _info = read_processing_window(f, (2, 2, 8, 8), 2)
+    for key in ("lattice", "sun", "fill", "bands"):
+        assert win.provenance[key] == f.provenance[key]
