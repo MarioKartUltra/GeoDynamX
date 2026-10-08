@@ -156,6 +156,15 @@
     40718.33648663759
    ]
   },
+  "dwt2d": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": -60056.62890625
+  },
+  "fill": {
+   "field": -94318.44675307727
+  },
   "group_filter": {
    "chains": 70,
    "levels": [
@@ -288,6 +297,12 @@
    "h_map": 1755.3594970703125,
    "levels": [],
    "mod": []
+  },
+  "inpaint": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": -94318.4453125
   },
   "min_vchains": {
    "chains": 70,
