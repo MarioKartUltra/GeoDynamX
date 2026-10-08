@@ -233,3 +233,50 @@ def auto_lambda(y, clear1, name: str, lam_rel: float) -> float:
         d = np.concatenate([np.abs(b).ravel() for b in details])
     sigma = float(np.median(d)) / 0.6745
     return float(lam_rel) * sigma * float(np.sqrt(2.0 * np.log(np.size(y))))
+
+
+class Cascade:
+    """Pottier et al. 2008 inference on the periodized pyramid: not cycle-spun (a shifted
+    pyramid would misalign ``rho`` and the abacus). ``rho[i]`` is level ``i + 1``'s.
+    ``pyramid`` and ``inverse`` default to :func:`dwt.pyramid` and :func:`dwt.inverse`."""
+
+    def __init__(self, name: str, levels: int, abacus: Abacus, rho, *, synthesis: bool = False,
+                 rng=None, n_theta: int = 64, pyramid=None, inverse=None, shift=None):
+        self.name, self.levels, self.abacus = str(name), int(levels), abacus
+        self.rho = [np.ascontiguousarray(r, dtype=np.float64) for r in rho]
+        self.synthesis, self.rng, self.n_theta = bool(synthesis), rng, int(n_theta)
+        self.shift = dwt.child_shift(self.name) if shift is None else int(shift)
+        self._pyramid = pyramid or (lambda x: dwt.pyramid(x, self.name, self.levels))
+        self._inverse = inverse or (lambda c: dwt.inverse(c, self.name))
+
+    def infer_coeffs(self, coeffs) -> list:
+        from dynamix.core.inpaint._kernels import kernels
+
+        k = kernels()
+        J = len(coeffs) - 1
+        c = [coeffs[0]] + [tuple(np.ascontiguousarray(b, dtype=np.float64) for b in lev)
+                           for lev in coeffs[1:]]
+        ab = self.abacus
+        log_hist = np.ascontiguousarray(ab.log_hist)
+        s = self.shift
+        for j in range(1, J):                                   # children at j, parents at j + 1
+            parent = np.stack(c[J + 1 - (j + 1)])
+            child = np.stack([aligned(b, o, s) for o, b in enumerate(c[J + 1 - j])])
+            cmax = np.abs(child).reshape(3, -1).max(axis=1)
+            k["cascade_level"](parent, child, self.rho[j], log_hist, ab.edges, ab.lo, ab.hi,
+                               cmax, self.n_theta)
+            c[J + 1 - (j + 1)] = tuple(parent)
+        if self.synthesis:
+            cdf = np.ascontiguousarray(ab.cdf)
+            rng = self.rng if self.rng is not None else np.random.default_rng(0)
+            for j in range(J - 1, 0, -1):
+                parent = np.stack(c[J + 1 - (j + 1)])
+                child = np.stack([aligned(b, o, s) for o, b in enumerate(c[J + 1 - j])])
+                rho_c = np.stack([aligned(self.rho[j - 1], o, s) for o in range(3)])
+                k["synth_level"](parent, child, rho_c, cdf, ab.edges, ab.sign_freq,
+                                 rng.random(child.shape), rng.random(child.shape))
+                c[J + 1 - j] = tuple(unaligned(child[o], o, s) for o in range(3))
+        return c
+
+    def infer(self, x) -> np.ndarray:
+        return self._inverse(self.infer_coeffs(self._pyramid(np.asarray(x, dtype=np.float64))))

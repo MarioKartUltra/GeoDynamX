@@ -187,3 +187,67 @@ def test_auto_lambda_is_the_notebooks_rule():
     sigma = np.median(np.abs(np.concatenate([d.ravel() for d in details]))) / 0.6745
     assert lam == pytest.approx(0.2 * sigma * np.sqrt(2 * np.log(128 * 128)))
     assert 0.4 < sigma < 0.6                                # white noise: the details keep sigma
+
+
+def test_the_cascade_inference_pulls_the_inside_amplitudes_toward_the_clear_ones():
+    """A 32 x 32 gap in the 128 x 128 exact cascade, filled with the clear mean plus 10 %
+    noise (a constant fill in a dyadic-aligned Haar gap has every inside detail exactly 0, so
+    the kernel has no usable children and nothing moves): five inference passes (known pixels
+    reset between them) move the inside ``ln|c|`` distribution at levels 2 and 3 closer to
+    the clear one (the paper's Fig. 14 reading); level 1 stays near the fill without a value
+    prior or the synthesis pass, which the next test pins."""
+    dens, _ = _cascade2d()
+    J = 6
+    gap = _region((128, 128), (48, 80, 48, 80))
+    clear = _haar_clear(gap, J)
+    coeffs = _haar_pyramid(dens, J)
+    ab = pr.Abacus.from_pyramid(coeffs, clear, "haar")
+    filled = dens.copy()
+    filled[gap] = dens[~gap].mean() * (1.0 + 0.1 * np.random.default_rng(0).standard_normal(gap.sum()))
+    rho = [np.clip(a / 2.0 ** (j + 1), 0.0, 1.0)
+           for j, a in enumerate(_haar_approximations(gap.astype(np.float64), J))]
+    prior = pr.Cascade("haar", J, ab, rho, pyramid=lambda v: _haar_pyramid(v, J), inverse=_haar_inverse)
+    x = filled
+    for _ in range(5):
+        x = prior.infer(x)
+        x[~gap] = dens[~gap]
+    assert np.isfinite(x).all()
+    before = _haar_pyramid(filled, J)
+    after = _haar_pyramid(x, J)
+    for j in (2, 3):
+        inside = rho[j - 1] > 0.9
+        outside = clear[j - 1] == 1
+        for o in range(3):
+            fp = 1e-8 * np.abs(coeffs[J + 1 - j][o]).max()
+            def amps(c):
+                v = np.abs(c)
+                return np.log(v[v >= fp])
+            out = amps(coeffs[J + 1 - j][o][outside])
+            d_before = _ks(amps(before[J + 1 - j][o][inside]), out)
+            d_after = _ks(amps(after[J + 1 - j][o][inside]), out)
+            assert d_after < d_before, (j, o, d_before, d_after)
+
+
+def test_the_synthesis_pass_gives_an_empty_region_fine_structure_with_the_abacus_statistics():
+    dens, _ = _cascade2d()
+    J = 6
+    gap = _region((128, 128), (48, 80, 48, 80))
+    clear = _haar_clear(gap, J)
+    coeffs = _haar_pyramid(dens, J)
+    ab = pr.Abacus.from_pyramid(coeffs, clear, "haar")
+    rho = [np.clip(a / 2.0 ** (j + 1), 0.0, 1.0)
+           for j, a in enumerate(_haar_approximations(gap.astype(np.float64), J))]
+    filled = dens.copy()
+    filled[gap] = dens[~gap].mean()
+    plain = pr.Cascade("haar", J, ab, rho, pyramid=lambda v: _haar_pyramid(v, J), inverse=_haar_inverse)
+    synth = pr.Cascade("haar", J, ab, rho, synthesis=True, rng=np.random.default_rng(0),
+                       pyramid=lambda v: _haar_pyramid(v, J), inverse=_haar_inverse)
+    a, b = plain.infer(filled), synth.infer(filled)
+    fine_a = _haar_pyramid(a, J)[-1][0][rho[0] > 0.9]
+    fine_b = _haar_pyramid(b, J)[-1][0][rho[0] > 0.9]
+    assert np.abs(fine_b).mean() > 5 * np.abs(fine_a).mean()   # the plain pass leaves the fill flat
+    assert np.isfinite(b).all()
+    inside = np.log(np.abs(fine_b[np.abs(fine_b) > 0]))
+    outside = np.abs(coeffs[-1][0][clear[0] == 1])
+    outside = np.log(outside[outside >= 1e-8 * outside.max()])
+    assert _ks(inside, outside) < 0.35                      # the drawn amplitudes are in range
