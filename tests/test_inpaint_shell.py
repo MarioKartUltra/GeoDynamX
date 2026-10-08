@@ -522,3 +522,99 @@ def test_the_fill_stage_reads_on_its_strip_and_marks_the_rows_and_the_band_dialo
     monkeypatch.setattr(mw, "BandDialog", _Dialog)
     win._on_band_dialog_requested()
     assert seen and "7 % reconstruction" in seen[0].windowTitle()
+
+
+# ------------------------------------------- send-step restamp on a layer switch; dialog sends
+
+def _noise_child_of(win, master, seed):
+    from dynamix.model.chain import Chain, DeviceRef
+
+    chain = Chain((DeviceRef("noise", {"amplitude": 3.0, "seed": seed}),)).materialized()
+    lay = win.project.add_layer(f"noise s{seed}", master.source_id, chain,
+                                parent_id=master.layer_id)
+    win.add_layer_row(lay, win._fields[master.layer_id])
+    return lay
+
+
+def test_switching_from_an_empty_chain_to_a_stack_restamps_on_the_stacks_own_zone(win, qtbot):
+    from dynamix.model.chain import Chain, DeviceRef
+
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    a, b = _noise_child_of(win, host, 1), _noise_child_of(win, host, 2)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._on_stack_requested([a.layer_id, b.layer_id])
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    stack = win.layer
+    before = json.loads(stack.chain.steps[0].params["_sends"])
+    a.chain = Chain((DeviceRef("noise", {"amplitude": 3.0, "seed": 7}),)).materialized()
+    win.layer_list.select_layer(host.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer is host and win._names == [] and win.strips._descriptors == []
+    win.layer_list.select_layer(stack.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer is stack and win.strips.strip(0).device.name == "bus"
+    fresh = json.loads(win._params[0]["_sends"])
+    assert fresh[0]["stamp"] == win._layer_stamp(a) != before[0]["stamp"]
+    assert fresh[1]["stamp"] == before[1]["stamp"]
+    assert win.strips._descriptors[0]["params"]["_sends"] == win._params[0]["_sends"]
+    assert json.loads(stack.chain.steps[0].params["_sends"]) == fresh
+    assert np.asarray(win.canvas._field.values).shape[-1] == 2      # the switch reached the canvas
+
+
+def test_switching_from_an_empty_chain_to_an_inpaint_layer_send_restamps_it(win, qtbot, monkeypatch):
+    import dynamix.shell.main_window as mw
+    from dynamix.model.chain import Chain, DeviceRef
+
+    host = _layer_named(win, "host")
+    prior_layer = _layer_named(win, "prior")
+    win.layer_list.select_layer(host.layer_id)
+    child = _drop(win, qtbot, "inpaint", **FAST)
+    pick = _Pick(lambda cands: [dict(s, role="value") for c in cands
+                                if c["label"] == "prior (layer)" for s in c["sends"]])
+    monkeypatch.setattr(mw, "SendsDialog", pick)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._on_sends_edit_requested(child.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    before = json.loads(child.chain.steps[0].params["_sends"])[0]["stamp"]
+    prior_layer.chain = Chain((DeviceRef("noise", {"amplitude": 0.5, "seed": 3}),)).materialized()
+    win.layer_list.select_layer(host.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win._names == [] and win.strips._descriptors == []
+    win.layer_list.select_layer(child.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer is child and win.strips.strip(0).device.name == "inpaint"
+    stamp = json.loads(win._params[0]["_sends"])[0]["stamp"]
+    assert stamp == win._layer_stamp(prior_layer) != before
+    assert win.strips._descriptors[0]["params"]["_sends"] == win._params[0]["_sends"]
+    assert json.loads(child.chain.steps[0].params["_sends"])[0]["stamp"] == stamp
+
+
+def test_sends_saved_from_the_dialog_survive_a_bypass_toggle_on_another_step(win, qtbot, monkeypatch):
+    import dynamix.shell.main_window as mw
+
+    idx = _with_noise_step(win, qtbot)
+    pick = _Pick(lambda cands: [dict(s, role="value") for c in cands if c["label"] == "prior"
+                                for s in c["sends"]])
+    monkeypatch.setattr(mw, "SendsDialog", pick)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._on_sends_edit_requested(win.layer.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    text = win._params[idx]["_sends"]
+    assert json.loads(text)[0]["label"] == "prior · band 1"
+    assert win.strips._descriptors[idx]["params"]["_sends"] == text
+    _toggle_bypass(win, qtbot, 0, True)
+    idx = win._mask_step_index()
+    assert win._params[idx]["_sends"] == text
+    assert win.strips._descriptors[idx]["params"]["_sends"] == text
+    assert json.loads(win.layer.chain.steps[0].params["_sends"])[0]["label"] == "prior · band 1"
+
+
+def test_removing_the_last_layer_disables_the_histograms_button(win, qtbot):
+    host = _layer_named(win, "host")
+    win.layer_list.select_layer(host.layer_id)
+    _drop(win, qtbot, "inpaint", **FAST)
+    assert win._inpaint_button.isEnabled()
+    win._reset_to_empty()
+    assert not win._inpaint_button.isEnabled()

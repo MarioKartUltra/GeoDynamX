@@ -4028,7 +4028,9 @@ both ``Canvas`` signals report the
         if slot is None:
             self._notify("the sends' step is not on the strip any more — unchanged", "status")
             return
-        self._on_param_changed(slot, "_sends", json.dumps(dialog.sends()))
+        text = json.dumps(dialog.sends())
+        self._set_step_param_silently(slot, "_sends", text)
+        self._on_param_changed(slot, "_sends", text)
 
     def _land_field_result(self, result) -> None:
         """A chain that ENDS on a field stage produced a field, not a result -- and you see
@@ -4479,6 +4481,7 @@ both ``Canvas`` signals report the
         self._refresh_anisotropy()
         self._refresh_panel_relevance()
         self._refresh_components_button()
+        self._refresh_inpaint_button()
 
     def _on_auto_run_toggled(self, checked: bool) -> None:
         update_settings(auto_run_wtmm=checked)
@@ -4617,9 +4620,12 @@ both ``Canvas`` signals report the
             self._stamp_backproject(self._names, self._params)
             self.layer.chain = self._chain()
             self._snapshot_recipe()
+        self.setWindowTitle(f"{TITLE} — {layer.name}")
+        self._build_strips()
         # A send step with LIVE layer sends: re-fingerprint what it sends, so a referenced layer
-        # edited since shows up here (its stamp moves the bus's cache key). Same moment as
-        # backproject's re-stamp above, for the same reason.
+        # edited since shows up here (its stamp moves the bus's cache key). It runs once the
+        # zone holds THIS layer's boxes: the rewrite writes the fresh text into the strip and its
+        # descriptor at the step's slot, which the previous layer's zone may not even have.
         if self._send_steps(layer) and _lock_notice(layer) is None:
             try:
                 if self._refresh_bus_stamps(layer):
@@ -4627,8 +4633,6 @@ both ``Canvas`` signals report the
                     self._snapshot_recipe()
             except ValueError as exc:
                 self._notify(str(exc), "status")
-        self.setWindowTitle(f"{TITLE} — {layer.name}")
-        self._build_strips()
         # Locked/frozen: the CHAIN still displays (built normally, above) but the whole zone AND
         # the transport go read-only. The layer panel, not either of those, is the unlock surface
         # (its own H/L/F buttons stay live regardless), so disabling every control here traps
@@ -5778,6 +5782,7 @@ both ``Canvas`` signals report the
         self._refresh_anisotropy()
         self._refresh_panel_relevance()
         self._refresh_components_button()
+        self._refresh_inpaint_button()
         self._set_recipe([], [])
         self._build_strips()
         self.strips.setEnabled(False)
