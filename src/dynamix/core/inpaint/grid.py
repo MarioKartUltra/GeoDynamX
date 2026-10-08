@@ -66,14 +66,18 @@ class GridRelation:
                 "mapping_source": self.mapping_source}
 
 
-def _foreign(target, guide) -> GridRelation:
+def _foreign(target, guide, comparable: bool = False) -> GridRelation:
     if target.get("lattice") is not None or guide.get("lattice") is not None:
         source = "lattice"
     elif target["georeferenced"] and guide["georeferenced"]:
         source = "crs"
     else:
         source = "none"
-    return GridRelation("foreign", 1, "equal", (0, 0), (0.0, 0.0), source)
+    direction = "equal"
+    if comparable:
+        r = math.sqrt(abs(guide["dx"] / target["dx"]) * abs(guide["dy"] / target["dy"]))
+        direction = "coarser" if r > 1 + 1e-6 else "finer" if r < 1 - 1e-6 else "equal"
+    return GridRelation("foreign", 1, direction, (0, 0), (0.0, 0.0), source)
 
 
 def _split(v: float, tol: float):
@@ -97,41 +101,44 @@ def relate(target: dict, guide: dict, tol_px: float = 0.25) -> GridRelation:
         same_band = (same_file and target["full_shape"] == guide["full_shape"]
                      and _lattice_group(target) == _lattice_group(guide))
         if same_band:
-            oy = (guide["y0"] - target["y0"]) / target["dy"]
-            ox = (guide["x0"] - target["x0"]) / target["dx"]
-            return GridRelation("same", 1, "equal", (int(round(oy)), int(round(ox))),
-                                (0.0, 0.0), "file")
+            return _by_steps(target, guide, tol_px, "file")
         return _foreign(target, guide)
     if target["crs"] != guide["crs"]:
         return _foreign(target, guide)
+    return _by_steps(target, guide, tol_px, "crs")
+
+
+def _by_steps(target: dict, guide: dict, tol_px: float, source: str) -> GridRelation:
+    """*same* or *nested* from the two grids' steps and origins, else *foreign*; ``source``
+    is the mapping the stamp records ("crs" for one CRS, "file" for one band of one file)."""
     rx, ry = guide["dx"] / target["dx"], guide["dy"] / target["dy"]
     if abs(rx - ry) > 1e-6 * abs(rx) or rx <= 0:
-        return _foreign(target, guide)
+        return _foreign(target, guide, comparable=True)
     oy = (guide["y0"] - target["y0"]) / target["dy"]
     ox = (guide["x0"] - target["x0"]) / target["dx"]
     if abs(rx - 1.0) <= 1e-6:
         sy, sx = _split(oy, tol_px), _split(ox, tol_px)
         if sy is None or sx is None:
-            return _foreign(target, guide)
-        return GridRelation("same", 1, "equal", (sy[0], sx[0]), (sy[1], sx[1]), "crs")
+            return _foreign(target, guide, comparable=True)
+        return GridRelation("same", 1, "equal", (sy[0], sx[0]), (sy[1], sx[1]), source)
     coarser = rx > 1.0
     f = rx if coarser else 1.0 / rx
     fi = int(round(f))
     if fi not in NESTED_RATIOS or abs(f - fi) > 1e-6 * f:
-        return _foreign(target, guide)
+        return _foreign(target, guide, comparable=True)
     if coarser:
         # the guide's first centre must be a block centre: block top-left = o - (f - 1) / 2
         sy, sx = _split(oy - (fi - 1) / 2.0, tol_px), _split(ox - (fi - 1) / 2.0, tol_px)
         if sy is None or sx is None:
-            return _foreign(target, guide)
-        return GridRelation("nested", fi, "coarser", (sy[0], sx[0]), (sy[1], sx[1]), "crs")
+            return _foreign(target, guide, comparable=True)
+        return GridRelation("nested", fi, "coarser", (sy[0], sx[0]), (sy[1], sx[1]), source)
     # finer guide: the target's first centre sits over a block of the guide
     gy = (target["y0"] - guide["y0"]) / guide["dy"] - (fi - 1) / 2.0
     gx = (target["x0"] - guide["x0"]) / guide["dx"] - (fi - 1) / 2.0
     sy, sx = _split(gy, tol_px), _split(gx, tol_px)
     if sy is None or sx is None:
-        return _foreign(target, guide)
-    return GridRelation("nested", fi, "finer", (sy[0], sx[0]), (sy[1], sx[1]), "crs")
+        return _foreign(target, guide, comparable=True)
+    return GridRelation("nested", fi, "finer", (sy[0], sx[0]), (sy[1], sx[1]), source)
 
 
 # --- mappings --------------------------------------------------------------------------

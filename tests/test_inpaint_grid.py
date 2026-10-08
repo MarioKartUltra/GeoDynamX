@@ -153,3 +153,33 @@ def test_a_synthetic_lattice_maps_pixels_to_lonlat_and_back(tmp_path):
     np.testing.assert_allclose([lo_w, la_w], [lo_f, la_f], atol=1e-9)
     rows, cols = gr.warp_rows_cols(w, g)
     assert rows[0, 0] == pytest.approx(1000.0, abs=1e-6) and cols[0, 0] == pytest.approx(500.0, abs=1e-6)
+
+
+def test_a_strided_raster_of_the_same_band_is_not_the_same_grid():
+    win = _g(200.5, 1.0, 100.5, 1.0, (512, 512), crs=None, source="/scene.hdf",
+             full_shape=(4200, 4100))
+    pic = _g(0.5, 4.0, 0.5, 4.0, (1050, 1025), crs=None, source="/scene.hdf",
+             full_shape=(4200, 4100))                       # every fourth pixel, axes on the sampled pixel
+    r = gr.relate(win, pic)
+    assert r.kind == "foreign" and r.direction == "coarser" and r.mapping_source == "none"
+    assert gr.relate(pic, win).direction == "finer"
+    blocks = _g(1.0, 2.0, 1.0, 2.0, (2100, 2050), crs=None, source="/scene.hdf",
+                full_shape=(4200, 4100))                    # 2 x 2 block means, axes on block centres
+    r = gr.relate(win, blocks)
+    assert (r.kind, r.ratio, r.direction, r.mapping_source) == ("nested", 2, "coarser", "file")
+    half = _g(200.75, 1.0, 100.5, 1.0, (512, 512), crs=None, source="/scene.hdf",
+              full_shape=(4200, 4100))
+    r = gr.relate(win, half)
+    assert r.kind == "same" and r.offset == (0, 0) and r.subpixel == pytest.approx((0.0, 0.25))
+    assert gr.relate(win, _g(201.0, 1.0, 100.5, 1.0, (512, 512), crs=None, source="/scene.hdf",
+                             full_shape=(4200, 4100))).kind == "foreign"   # half a pixel off: beyond tol_px
+
+
+def test_a_foreign_relation_reports_the_guide_pixel_direction_when_the_steps_compare():
+    target = _g(500015.0, 30.0, 4000000.0 - 15.0, -30.0, (100, 100))
+    coarse = _g(500075.0, 150.0, 4000000.0 - 75.0, -150.0, (20, 20))   # ratio 5: not nested
+    r = gr.relate(target, coarse)
+    assert (r.kind, r.ratio, r.direction) == ("foreign", 1, "coarser")
+    assert gr.relate(coarse, target).direction == "finer"
+    other = _g(500075.0, 150.0, 4000000.0 - 75.0, -150.0, (20, 20), crs="EPSG:32616")
+    assert gr.relate(target, other).direction == "equal"      # different units: incomparable
