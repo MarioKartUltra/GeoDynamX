@@ -27,8 +27,8 @@ import warnings
 
 import numpy as np
 
-__all__ = ["BANKS", "battle_lemarie_filters", "child_shift", "cycle_shift", "cycle_unshift",
-           "dc_gain", "detail_l1", "filter_length", "full_depth", "inverse", "max_level",
+__all__ = ["BANKS", "approximations", "battle_lemarie_filters", "child_shift", "cycle_shift",
+           "cycle_unshift", "dc_gain", "detail_l1", "filter_length", "full_depth", "inverse", "max_level",
            "mirror", "only_band", "pyramid", "quarter", "require_pywt", "soft_threshold",
            "stationary", "stationary_inverse", "wavelet", "working_shape"]
 
@@ -151,6 +151,19 @@ def pyramid(x, name: str, level: int) -> list:
 
 def inverse(coeffs, name: str) -> np.ndarray:
     return require_pywt().waverec2(coeffs, wavelet(name), mode="periodization")
+
+
+def approximations(x, name: str, levels: int) -> list:
+    """The approximation at every level 1..``levels`` of the periodized pyramid."""
+    pywt = require_pywt()
+    w = wavelet(name)
+    out, a = [], np.asarray(x, dtype=np.float64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for _ in range(int(levels)):
+            a, _details = pywt.dwt2(a, w, mode="periodization")
+            out.append(a)
+    return out
 
 
 def stationary(x, name: str, level: int) -> list:
