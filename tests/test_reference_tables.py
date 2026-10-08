@@ -110,11 +110,12 @@ def test_the_declarations_spell_out_param_dependent_contracts(make_tables, built
 def test_the_outputs_table_lists_the_band_and_per_level_rows(make_tables, builtins):
     text = make_tables.outputs_table()
     for name in ("band", "band\\_mask", "modulus", "argument", "re\\_scale", "im\\_scale",
-                 "filtered\\_scale"):
+                 "filtered\\_scale", "approximation", "horizontal", "vertical", "diagonal",
+                 "residual", "heldout"):
         assert rf"\texttt{{{name}}}" in text, name
     assert r"\texttt{snapshots}" not in text
     per_level = [line for line in text.splitlines() if line.endswith("& yes \\\\")]
-    assert len(per_level) == 9
+    assert len(per_level) == 13
 
 
 def test_the_reference_inputs_every_table(make_tables):

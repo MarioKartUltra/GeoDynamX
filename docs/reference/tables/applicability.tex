@@ -1,26 +1,26 @@
 % Written by make_tables.py from the device registry: change a declaration, then
 % run python docs/reference/make_tables.py.
 \phantomsection\label{tab:applicability}%
-\begin{longtable}{>{\raggedright\arraybackslash}p{0.36\textwidth}*{14}{c}}
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.36\textwidth}*{16}{c}}
 \caption*{\textbf{Applicability}: $\bullet$ where a selection tool applies after an analysis (the contracts rule, \S\ref{sec:contracts}).}\\
 \toprule
-\emph{applies after} $\rightarrow$ & \rotatebox{90}{WTMM 2D} & \rotatebox{90}{WTMM 2D, ROI} & \rotatebox{90}{Mallat--Zhong edges} & \rotatebox{90}{Mallat--Zhong edges, printed} & \rotatebox{90}{Wavelet skeleton} & \rotatebox{90}{CDF edges} & \rotatebox{90}{Perona--Malik edges} & \rotatebox{90}{Microcanonical MFA, measure} & \rotatebox{90}{Microcanonical MFA, multiaffine} & \rotatebox{90}{PCA} & \rotatebox{90}{Tucker (HOOI / HOSVD)} & \rotatebox{90}{2-D SSA} & \rotatebox{90}{WTMM 2D + Chain topology} & \rotatebox{90}{WTMM 2D, ROI + Chain topology} \\ \midrule
+\emph{applies after} $\rightarrow$ & \rotatebox{90}{WTMM 2D} & \rotatebox{90}{WTMM 2D, ROI} & \rotatebox{90}{Mallat--Zhong edges} & \rotatebox{90}{Mallat--Zhong edges, printed} & \rotatebox{90}{Wavelet skeleton} & \rotatebox{90}{CDF edges} & \rotatebox{90}{Perona--Malik edges} & \rotatebox{90}{Microcanonical MFA, measure} & \rotatebox{90}{Microcanonical MFA, multiaffine} & \rotatebox{90}{PCA} & \rotatebox{90}{Tucker (HOOI / HOSVD)} & \rotatebox{90}{2-D SSA} & \rotatebox{90}{DWT} & \rotatebox{90}{Inpaint} & \rotatebox{90}{WTMM 2D + Chain topology} & \rotatebox{90}{WTMM 2D, ROI + Chain topology} \\ \midrule
 \endfirsthead
 \toprule
-\emph{applies after} $\rightarrow$ & \rotatebox{90}{WTMM 2D} & \rotatebox{90}{WTMM 2D, ROI} & \rotatebox{90}{Mallat--Zhong edges} & \rotatebox{90}{Mallat--Zhong edges, printed} & \rotatebox{90}{Wavelet skeleton} & \rotatebox{90}{CDF edges} & \rotatebox{90}{Perona--Malik edges} & \rotatebox{90}{Microcanonical MFA, measure} & \rotatebox{90}{Microcanonical MFA, multiaffine} & \rotatebox{90}{PCA} & \rotatebox{90}{Tucker (HOOI / HOSVD)} & \rotatebox{90}{2-D SSA} & \rotatebox{90}{WTMM 2D + Chain topology} & \rotatebox{90}{WTMM 2D, ROI + Chain topology} \\ \midrule
+\emph{applies after} $\rightarrow$ & \rotatebox{90}{WTMM 2D} & \rotatebox{90}{WTMM 2D, ROI} & \rotatebox{90}{Mallat--Zhong edges} & \rotatebox{90}{Mallat--Zhong edges, printed} & \rotatebox{90}{Wavelet skeleton} & \rotatebox{90}{CDF edges} & \rotatebox{90}{Perona--Malik edges} & \rotatebox{90}{Microcanonical MFA, measure} & \rotatebox{90}{Microcanonical MFA, multiaffine} & \rotatebox{90}{PCA} & \rotatebox{90}{Tucker (HOOI / HOSVD)} & \rotatebox{90}{2-D SSA} & \rotatebox{90}{DWT} & \rotatebox{90}{Inpaint} & \rotatebox{90}{WTMM 2D + Chain topology} & \rotatebox{90}{WTMM 2D, ROI + Chain topology} \\ \midrule
 \endhead
-\tool{Chain topology}{chain\_topology} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Min V-chains per H-line}{min\_vchains} &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Orientation wedge}{orientation\_wedge} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Modulus threshold}{modulus\_threshold} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{H-line length}{hline\_length} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{H-line modulus}{hline\_modulus} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{H-line modulus}{hline\_modulus}, \texttt{mode} $=$ \texttt{sup\_all\_scales} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{H-line H\"older}{hline\_holder} &  &  & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  \\
-\tool{Chain H\"older}{chain\_holder} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Chain modulus}{chain\_modulus} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Chain length}{chain\_length} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Seam classifier}{chain\_classify} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
-\tool{Group filter}{group\_filter} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Chain topology}{chain\_topology} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Min V-chains per H-line}{min\_vchains} &  &  &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Orientation wedge}{orientation\_wedge} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Modulus threshold}{modulus\_threshold} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{H-line length}{hline\_length} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{H-line modulus}{hline\_modulus} & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{H-line modulus}{hline\_modulus}, \texttt{mode} $=$ \texttt{sup\_all\_scales} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{H-line H\"older}{hline\_holder} &  &  & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  &  \\
+\tool{Chain H\"older}{chain\_holder} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Chain modulus}{chain\_modulus} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Chain length}{chain\_length} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Seam classifier}{chain\_classify} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
+\tool{Group filter}{group\_filter} & $\bullet$ & $\bullet$ &  &  &  &  &  &  &  &  &  &  &  &  & $\bullet$ & $\bullet$ \\
 \bottomrule
 \end{longtable}

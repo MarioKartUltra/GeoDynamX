@@ -177,6 +177,9 @@ RASTER_TOOLS = {
     "tucker_havok": {"n_delays": 8},
     "tucker_HOOI_HOSVD": {"n_delays": 8},
     "ssa2d": {"rows_window": 4, "cols_window": 4, "n_components": 4},
+    "dwt2d": {"level": 2},
+    "inpaint": {"n_iter": 2, "heldout_blocks": 0, "target_band": "b1"},
+    "fill": {"n_iter": 2, "target_band": "b1"},
 }
 
 

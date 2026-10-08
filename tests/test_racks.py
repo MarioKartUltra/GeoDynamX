@@ -346,3 +346,16 @@ def test_a_filters_only_rack_needs_what_its_first_filter_reads(builtins):
     state = rack_state(cuts, (DeviceRef("mz_edges", {}),), FIELD)
     assert not state.applies and CONTRACTS[VCHAINS] in state.reason
     assert rack_state(cuts, (DeviceRef("wtmm2d", {}),), FIELD).applies
+
+
+def test_a_rack_keeps_an_inpaint_step_but_not_its_sends_or_drawn_regions(builtins):
+    from dynamix.model.racks import rack_from_descriptors
+
+    rack = rack_from_descriptors("r", [
+        {"device": "fill", "params": {"_sends": '[{"path": "/a.tif"}]', "_mask_polygons": "[[1]]",
+                                      "route": "cascade"}},
+        {"device": "inpaint", "params": {"_sends": "[]", "route": "both"}},
+    ])
+    assert [s.device for s in rack.steps] == ["fill", "inpaint"]
+    assert rack.steps[0].params["route"] == "cascade"
+    assert rack.steps[0].params["_sends"] == "[]" and rack.steps[0].params["_mask_polygons"] == "[]"

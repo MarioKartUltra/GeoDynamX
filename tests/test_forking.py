@@ -30,12 +30,12 @@ def test_primary_analyzers_read_a_raster_and_make_something_else(builtins):
     for name in ("wtmm2d", "mz_edges", "wavelet_skeleton", "cdf_edges", "pm_edges",
                  "holder_measure", "holder_multiaffine", "holder_map", "band_recon",
                  "band_recon_measure", "band_recon_multiaffine", "pca", "tucker_HOOI_HOSVD",
-                 "tucker_havok", "ssa2d"):
+                 "tucker_havok", "ssa2d", "dwt2d", "inpaint"):
         assert _primary(name), name
 
 
 def test_field_stages_result_tools_filters_and_self_reading_devices_never_fork(builtins):
-    for name in ("noise", "band_select", "bus", "chain_topology", "backproject",
+    for name in ("noise", "band_select", "bus", "fill", "chain_topology", "backproject",
                  "wtmm2d_roi", "derived_vectors", "stub_wavelet", "orientation_wedge",
                  "chain_holder", "min_vchains"):
         assert not _primary(name), name

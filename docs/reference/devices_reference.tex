@@ -483,6 +483,16 @@ dataset leaves each row on its own band.
 \bottomrule
 \end{longtable}
 
+\subsection{\tool{Fill}{fill} --- the inpainting engine as a field stage}
+Fills the declared regions of the host band (or of \texttt{target\_band} on a stack) before the
+analyzer, with \dev{inpaint}'s engine and knobs (below) but no held-out blocks and no Show.
+The clone carries \texttt{filled\_fraction}, \texttt{fill\_route}, \texttt{fill\_kind} and the
+run's stamps in its provenance, and every analyzer result downstream carries them as
+\texttt{\_fill}, so the strip and the Band dialog say that analysis inside the region reads a
+reconstruction. With \texttt{mask\_source} = region and no region drawn it passes the field
+through unchanged (the one no-op decidable from the parameters alone); a data-decided empty
+mask runs and records \texttt{filled\_fraction} $=0$.
+
 %======================================================================
 \section{Routing}
 
@@ -919,6 +929,87 @@ it by about 10\%.
 \bottomrule
 \end{longtable}
 
+\subsection{\tool{DWT}{dwt2d} --- the periodized orthogonal pyramid}
+The field is mirror-extended once in each axis and rounded up to a multiple of $2^J$, then
+decomposed with an orthogonal bank (symlets, Daubechies, coiflets, or \texttt{bl3}, the
+Battle--Lemari\'e order-3 bank of Pottier, Turiel \& Gar\c{c}on 2008) in periodization mode,
+the one mode whose synthesis is the analysis's adjoint. Every band is a per-level row
+reconstructed alone onto the native grid: the \texttt{approximation} at level $j$ (the
+low-pass at scale $2^j$\,px) and the \texttt{horizontal}, \texttt{vertical} and
+\texttt{diagonal} details; the details of every level plus the coarsest approximation sum back
+to the field exactly. Cycle spinning averages each row over random shifts (translation
+invariance at the price of that many transforms). Non-finite pixels are filled with the finite
+mean for the transform and restored on every row. The Transport walks the levels; the
+foundation of the wavelet-leader tools.
+
+\begin{longtable}{L l l M}
+\toprule Parameter & Default & Range & Meaning \\ \midrule
+\texttt{wavelet} & sym7 & the orthogonal banks & the pyramid's bank \\
+\texttt{level} & 0 & $[0,10]$ & levels; $0$ = the full depth $\lfloor\log_2 \min(2n_y, 2n_x)\rfloor - 1$, at most 8 \\
+\texttt{cycle\_spin} & off & & average every row over random shifts \\
+\texttt{n\_spins} & 8 & $[1,64]$ & the shifts averaged \\
+\texttt{show} (\emph{view}) & coarsest & coarsest / the four bands & the coarsest approximation, or the row drawn at the Transport's level \\
+\bottomrule
+\end{longtable}
+
+%======================================================================
+\section{Inpainting and fusion}\label{sec:inpaint}
+One engine, three routes (Pottier, Turiel \& Gar\c{c}on 2008 for the cascade, the author's
+compressed-sensing notebooks for the cycle-spun sparsity). The unknown lives on
+the mirror-extended working image; the data terms are the target under its weights and every
+guide on its own grid (a shift on the same grid, a block average on a nested one, a warp on a
+foreign one --- a guide may be resampled inside its measurement, the target never); the prior
+is the cycle-spun soft threshold of the detail bands (\emph{sparsity}, FISTA with restarts), the
+paper's parent-from-children inference over the abacus of $\ln|\eta|$ blended by $\rho$
+(\emph{cascade}, the paper's plain loop), or the first then the second (\emph{both}). The
+known pixels are corrected after every step through the universal kernel and put back exactly
+at the end. Held-out blocks of clear pixels measure the error of each route; the $\ln|\eta|$
+and $\ln|c|$ distributions inside the regions against the clear ones say whether the fill kept
+the cascade (the Histograms window).
+
+\subsection{\tool{Inpaint}{inpaint} --- fill declared regions}
+Regions: the non-finite pixels (always), a threshold on a band of the stack (connected
+components over \texttt{mask\_min\_px}), polygons drawn in the Mask mode (stored in file
+pixels), or a sent mask raster; each region is a \emph{gap} (every scale inferred) or a
+\emph{veil} (shadow, haze: the fine-scale geometry is data under a gain or an offset, the
+amplitude and the coarse levels are inferred; experimental). Sends (the Sends dialog): a
+\emph{value} prior (the same quantity: another day, another satellite, a climatology), a
+\emph{structure} guide (another band, or a DEM shaded under the scene sun), \emph{weights} (a
+coherence or error raster, for the target or for a send), a \emph{mask}, a \emph{veil seed}
+DEM. A foreign value or structure send closes the cascade routes. Result: the filled band
+(\texttt{raster\_out}, equal to the data on known pixels), \texttt{fill\_mask}, the rows
+\texttt{residual} and \texttt{heldout}, and the stamps \texttt{\_route},
+\texttt{\_grid\_relations}, \texttt{\_seed}, \texttt{\_iterations}, \texttt{\_returned},
+\texttt{\_stop}, \texttt{\_variance\_error}, \texttt{\_heldout}, \texttt{\_eta\_distance},
+\texttt{\_amp\_distance}, \texttt{\_terms\_dropped}, \texttt{\_veil}, \texttt{\_fill\_kind}.
+
+\begin{longtable}{L l l M}
+\toprule Parameter & Default & Range & Meaning \\ \midrule
+\texttt{route} & sparsity & sparsity / cascade / both & the prior \\
+\texttt{wavelet} & sym7 & the orthogonal banks & the pyramid's bank \\
+\texttt{level} & 0 & $[0,10]$ & $0$ = the route's depth (sparsity: PyWavelets' maximum, at most 8; cascade: the paper's full depth) \\
+\texttt{lam\_rel} & 0.2 & $[0,10]$ & $\lambda$ relative to $\hat\sigma\sqrt{2\ln N}$ (sparsity, both) \\
+\texttt{n\_iter} & 0 & $[0,5000]$ & $0$ = the route's default (200, 20) \\
+\texttt{tol} & $10^{-3}$ & $[0,1]$ & sparsity stop: relative change inside the regions \\
+\texttt{stop\_var\_err} & 0.01 & $[0,1]$ & cascade stop: variance error on known pixels \\
+\texttt{seed} & 0 & $[0,2^{31}]$ & cycle-spin shifts, the held-out draw, the synthesis pass \\
+\texttt{batch} & 1 & $[0.05,1]$ & the mini-batch of known pixels per iteration \\
+\texttt{cascade\_synthesis} & off & & the coarse-to-fine synthesis pass (beyond the paper) \\
+\texttt{target\_band} & & text & the band id on a stack (empty = the field) \\
+\texttt{mask\_source} & nodata & nodata / threshold / region / send / all & where the regions come from \\
+\texttt{mask\_band}, \texttt{mask\_op}, \texttt{mask\_value}, \texttt{mask\_min\_px}, \texttt{threshold\_kind} & & & the threshold: band id (empty = the target), $>$ or $<$, the value, the smallest component, gap or veil \\
+\texttt{region\_kind} & gap & gap / veil & the kind of a sent mask's regions \\
+\texttt{veil\_model}, \texttt{veil\_levels}, \texttt{veil\_passes} & gain, 3, 2 & & the veil: gain (positive data) or offset (log-domain), its fine levels $J_v$, the outer passes \\
+\texttt{sun\_azimuth}, \texttt{sun\_elevation} & 0, 45 & degrees & the scene sun when the loader stamps none (ASTER does) \\
+\texttt{prior\_weight} & 0.3 & $[0,10]$ & $\lambda_v$ of a value prior \\
+\texttt{structure\_weight}, \texttt{structure\_levels} & 0.1, 3 & & $\lambda_s$ and $J_s$ of a structure guide \\
+\texttt{abacus}, \texttt{abacus\_file}, \texttt{abacus\_min\_pairs} & self, , 1000 & & the $\ln|\eta|$ histograms: this field's clear pairs, or a corpus file \\
+\texttt{correct} & on & & the known-pixel correction after each step \\
+\texttt{heldout\_blocks}, \texttt{heldout\_side} & 8, 16 & & the held-out blocks (0 = none) and their side in px \\
+\texttt{show} (\emph{view}) & filled & filled / residual / heldout & the raster on the product layer \\
+\bottomrule
+\end{longtable}
+
 %======================================================================
 \section{Microcanonical MFA}\label{sec:micro}
 Per-pixel singularity exponents $h(x)$ from the model
@@ -1317,6 +1408,12 @@ wavelet or the sinc function.''
         \texttt{tucker\_recon\_bands} / \texttt{tucker\_residual\_bands} $(n_y,n_x,n_c)$ (the
         display shows band 1). A view step writes \texttt{raster\_out} and, for a named view,
         \texttt{\_view\_note} (what the layer row appends).
+  \item \textbf{Inpainting extras}: \dev{inpaint} --- \texttt{fill\_mask} (region ids),
+        \texttt{\_estimate} (the estimate before the final step, float32),
+        \texttt{\_heldout\_mask}, \texttt{\_hists} (the per-level $\ln|\eta|$ and $\ln|c|$
+        histograms), \texttt{\_abacus}, \texttt{\_warnings}, \texttt{\_filled\_fraction};
+        \dev{dwt2d} --- \texttt{scales} ($2^j$ px), \texttt{\_dwt\_levels}. A \dev{fill} clone's
+        provenance carries \texttt{fill}; an analyzer result after it carries \texttt{\_fill}.
   \item \textbf{Derivative file}: the RasterField npz keys (\texttt{schema}, \texttt{name},
         \texttt{values}, \texttt{x\_axis}, \texttt{y\_axis}, \texttt{units},
         \texttt{frame\_meta}, \texttt{provenance}) plus, when it carries vectors,

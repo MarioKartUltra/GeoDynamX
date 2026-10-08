@@ -18,6 +18,8 @@ from dynamix.devices.backproject import Backproject
 from dynamix.devices.band_recon import BandRecon, BandReconMeasure, BandReconMultiaffine
 from dynamix.devices.decompose import PCADevice, TuckerHavok, TuckerHOOIHOSVD
 from dynamix.devices.ssa2d import SSA2D
+from dynamix.devices.dwt2d import DWT2D
+from dynamix.devices.inpaint import Fill, Inpaint
 from dynamix.devices.derived_vectors import DerivedVectors
 from dynamix.devices.chain_classify import ChainClassify
 from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
@@ -69,8 +71,10 @@ from dynamix.model.device import DEVICES, register_device
 #: tools -- one device per method, each with only the wavelet class its method admits.
 #: `HolderMap` (the conflated predecessor) STAYS registered: saved projects name it, and the
 #: never-delete rule holds -- the browser routes it to the Dev category instead.
+#: `DWT2D` is the orthogonal dyadic pyramid (PyWavelets, periodization, a mirror-extended working image) with per-level band rows; `Inpaint` fills declared regions by cycle-spun sparsity or by the Pottier-Turiel-Garcon cascade with guides on their own grids; `Fill` is the same engine as a field stage whose clone carries the fill's stamps.
 BUILTIN_DEVICES = (
     Noise,
+    Fill,
     BandSelect,
     Bus,
     WTMM2D,
@@ -89,6 +93,8 @@ BUILTIN_DEVICES = (
     TuckerHavok,
     TuckerHOOIHOSVD,
     SSA2D,
+    DWT2D,
+    Inpaint,
     ChainTopology,
     MinVChains,
     ScaleSelect,

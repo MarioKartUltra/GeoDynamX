@@ -70,6 +70,9 @@ LABELS = {
     "pca": "PCA",
     "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
     "ssa2d": "2-D SSA",
+    "dwt2d": "DWT",
+    "inpaint": "Inpaint",
+    "fill": "Fill",
     "band_recon_measure": "Band reconstruction, measure",
     "band_recon_multiaffine": "Band reconstruction, multiaffine",
     "chain_topology": "Chain topology",
@@ -90,13 +93,13 @@ LABELS = {
 
 #: family -> the ids listed under it.
 FAMILY_TREE = {
-    "Data preparation": {"band_select", "noise"},
+    "Data preparation": {"band_select", "noise", "fill"},
     "Edge detection": {"wtmm2d", "wtmm2d_roi", "mz_edges", "cdf_edges", "pm_edges"},
     "Regularity": {"wtmm2d", "wtmm2d_roi", "mz_edges", "holder_measure", "holder_multiaffine"},
     "Skeletons": {"wavelet_skeleton"},
-    "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d"},
+    "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d", "dwt2d"},
     "Reconstruction": {"mz_edges", "holder_measure", "holder_multiaffine", "ssa2d",
-                       "tucker_HOOI_HOSVD"},
+                       "tucker_HOOI_HOSVD", "inpaint"},
     "Topology": {"chain_topology"},
     "Selection: extrema": {"orientation_wedge", "modulus_threshold", "hline_length",
                            "hline_modulus", "hline_holder"},

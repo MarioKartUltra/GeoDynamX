@@ -10,6 +10,7 @@ Tool & & Consumes & Produces \\ \midrule
 Tool & & Consumes & Produces \\ \midrule
 \endhead
 \tool{Noise / dither}{noise} & T & Field or Stack & what it received \\
+\tool{Fill}{fill} & T & Field or Stack & what it received \\
 \tool{Band select}{band\_select} & T & Stack or Field & Field \\
 \dev{bus} & T & Field or Stack & Stack$^\dagger$ \\
 \tool{WTMM 2D}{wtmm2d} & T & Field & ExtremaStack + VChains \\
@@ -28,6 +29,8 @@ Tool & & Consumes & Produces \\ \midrule
 \dev{tucker\_havok} & T & Field or Stack & Components \\
 \tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD} & T & Field or Stack & Components \\
 \tool{2-D SSA}{ssa2d} & T & Field & Components \\
+\tool{DWT}{dwt2d} & T & Field & Components \\
+\tool{Inpaint}{inpaint} & T & Field or Stack & Components \\
 \tool{Chain topology}{chain\_topology} & T & ExtremaStack + VChains & what it received + Topology \\
 \tool{Min V-chains per H-line}{min\_vchains} & F & Topology & --- \\
 \tool{Scale}{scale\_select} & F & ExtremaStack & --- \\

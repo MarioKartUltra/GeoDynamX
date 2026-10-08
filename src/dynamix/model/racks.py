@@ -193,6 +193,19 @@ def _binds_layer(d: dict) -> bool:
     return False
 
 
+_RESET_IN_RACK = {"inpaint": ("_sends", "_mask_polygons"), "fill": ("_sends", "_mask_polygons")}
+
+
+def _portable(d: dict) -> dict:
+    """A step with the params that name THIS layer's sends and drawn regions reset, so the
+    rack keeps the tool and its knobs and the sends are declared again where it lands."""
+    reset = _RESET_IN_RACK.get(d["device"])
+    if not reset:
+        return d
+    params = {**d.get("params", {}), **{k: "[]" for k in reset}}
+    return {**d, "params": params}
+
+
 def rack_from_descriptors(name: str, descriptors) -> Rack:
     """A rack of the chain the workflow zone holds: every step with all its params filled
     (view-only included) and its bypass state, in order. ``created`` is stamped by
@@ -200,7 +213,7 @@ def rack_from_descriptors(name: str, descriptors) -> Rack:
     return Rack(name, tuple(
         RackStep(d["device"], validate_params(get_device(d["device"]), d.get("params", {})),
                  bool(d.get("bypassed", False)))
-        for d in descriptors if not _binds_layer(d)))
+        for d in map(_portable, descriptors) if not _binds_layer(d)))
 
 
 def merge_rack(descriptors: list[dict], rack: Rack) -> list[dict]:
