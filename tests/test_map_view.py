@@ -103,3 +103,63 @@ def test_no_project_crs_places_by_the_first_frame(qtbot):
                            lambda rid: RowContent("raster", field=a if rid == "src:a" else b,
                                                   style=STYLE))
     assert reasons == {"src:b": "different frame"}
+
+
+def _ext_result():
+    ext = {"x": np.array([10, 11, 30]), "y": np.array([5, 5, 20]),
+           "mod": np.array([1.0, 2.0, 4.0]), "arg": np.array([0.0, 0.0, np.pi / 2]),
+           "line_id": np.array([0, 0, -1])}
+    chains = [{"x": np.array([10, 10]), "y": np.array([5, 6]), "mod": np.array([1.0, 1.0]),
+               "tags": []}]
+    return {"extrema": [ext], "chains": chains, "_shape": (40, 50)}
+
+
+def test_extrema_are_unconnected_blocks_with_xsmurf_ticks(qtbot):
+    v = _view(qtbot)
+    field = _utm()
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=_ext_result(), scale_idx=0,
+                                        grid_field=field))
+    blocks, ticks = v._vectors["ext:1"]
+    xs, ys = blocks.getData()
+    assert len(xs) == 3                                          # one block per maximum
+    tx, ty = ticks.getData()
+    # third maximum: arg = pi/2 (down the image = south), length 3 + 30 * 4/4 = 33 px = 330 m
+    assert ty[5] == pytest.approx(ty[4] - 330.0) and tx[5] == pytest.approx(tx[4])
+
+
+def test_chains_are_trails_and_both_hide_with_their_row(qtbot):
+    v = _view(qtbot)
+    content = lambda rid: RowContent(rid.split(":")[0] == "ext" and "extrema" or "chains",
+                                     result=_ext_result(), scale_idx=0, grid_field=_utm())
+    v.show_stack([(Row("chn:1", "chains"), True, 1.0), (Row("ext:1", "extrema"), True, 1.0)],
+                 content)
+    assert v._vectors["chn:1"][0].isVisible() and v._vectors["ext:1"][0].isVisible()
+    v.show_stack([(Row("chn:1", "chains"), True, 1.0), (Row("ext:1", "extrema"), False, 1.0)],
+                 content)
+    assert v._vectors["chn:1"][0].isVisible() and not v._vectors["ext:1"][0].isVisible()
+
+
+def test_excluded_chains_draw_as_ghosts_and_the_picked_chain_highlights(qtbot):
+    v = _view(qtbot)
+    res = _ext_result()
+    res["chains_excluded"] = [{"x": np.array([20, 21]), "y": np.array([9, 9]), "tags": []}]
+    content = lambda rid: RowContent("chains", result=res, scale_idx=0, grid_field=_utm())
+    v.show_stack([(Row("chn:1", "chains"), True, 1.0)], content)
+    trail, ghosts, picked = v._vectors["chn:1"]
+    assert ghosts.isVisible() and np.isfinite(ghosts.getData()[0]).sum() == 2
+    v.set_highlight("chn:1", [0])
+    assert picked.isVisible() and np.isfinite(picked.getData()[0]).sum() == 2
+    res["_show_ghosts"] = False
+    v.show_stack([(Row("chn:1", "chains"), True, 1.0)], content)
+    assert not v._vectors["chn:1"][1].isVisible()
+
+
+def test_the_readout_names_map_coordinates_and_the_selected_value(qtbot):
+    v = _view(qtbot)
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                 lambda rid: RowContent("raster", field=_utm(), style=STYLE))
+    v.set_selected_row("src:a")
+    text = v._readout_at(500005.0, 4399995.0)
+    assert "500005" in text and "4399995" in text and "=" in text
+    assert v._row_at(500005.0, 4399995.0) == "src:a"
