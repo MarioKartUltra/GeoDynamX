@@ -381,8 +381,8 @@ def test_a_windowed_parents_roi_draws_at_image_coordinates(qtbot):
     # pin-in-place: the data space is FILE-ABSOLUTE -- the window's image sits
     # at its offset, so the box draws at file coordinates: still exactly over the same pixels.
     bx, by = canvas.roi_bounds_item.getData()
-    assert (bx.min(), bx.max()) == (22, 38)
-    assert (by.min(), by.max()) == (30, 46)
+    assert (bx.min(), bx.max()) == (21.5, 37.5)     # the cells' edges, as the saved ROI box
+    assert (by.min(), by.max()) == (29.5, 45.5)
     hx, hy = canvas.hchain_item.getData()
     assert (hx[0], hy[0]) == (22, 30)              # the H-line's ROI-local (0, 0) point
     ex, ey = canvas.extrema_item.getData()
@@ -398,8 +398,8 @@ def test_an_roi_result_outlines_the_region_it_was_measured_over(qtbot):
     canvas.set_result(_overlay_result(roi=(30, 40, 16, 24)), 0)
 
     x, y = canvas.roi_bounds_item.getData()
-    assert (x.min(), x.max()) == (40, 64)          # col .. col + w
-    assert (y.min(), y.max()) == (30, 46)          # row .. row + h
+    assert (x.min(), x.max()) == (39.5, 63.5)      # col - 0.5 .. col + w - 0.5: its cells
+    assert (y.min(), y.max()) == (29.5, 45.5)      # row - 0.5 .. row + h - 0.5
     assert x.size == 5 and x[0] == x[-1] and y[0] == y[-1]      # closed
 
 
@@ -940,8 +940,8 @@ def test_a_windowed_parent_offsets_the_roi_into_source_coordinates(qtbot, clean_
     # ... and on screen (pin-in-place): the data space is file-absolute, so the
     # box draws at FILE coordinates -- still over the same pixels, the image moved with it.
     bx, by = win.canvas.roi_bounds_item.getData()
-    assert (bx.min(), bx.max()) == (22, 38)
-    assert (by.min(), by.max()) == (30, 46)
+    assert (bx.min(), bx.max()) == (21.5, 37.5)     # the cells' edges, as the saved ROI box
+    assert (by.min(), by.max()) == (29.5, 45.5)
 
 
 def test_a_second_create_on_the_roi_layer_is_refused(qtbot, roi_window):
@@ -1056,7 +1056,7 @@ def test_create_works_end_to_end_on_a_whole_file_layer(qtbot, clean_registry, pa
     assert win.strips.strip(0).state_dot.property("state") != "error"
     # ... and it lands over the region it was measured on, not in the corner
     bx, by = win.canvas.roi_bounds_item.getData()
-    assert (bx.min(), by.min()) == (32, 32)
+    assert (bx.min(), by.min()) == (31.5, 31.5)      # around the region's cells
 
 
 # --------------------------------------------------------------------------- layer switching

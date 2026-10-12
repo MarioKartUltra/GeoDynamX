@@ -2650,7 +2650,7 @@ off / z from this layer's own values / z from another loaded
                 y_axis=np.asarray(self.field.y_axis)[::s],
                 name=f"{self.field.name}·{label}[{h_lo:.2f},{h_hi:.2f})",
                 provenance={**(getattr(self.field, "provenance", None) or {}), **stamp})
-        self.canvas.set_product(derived)            # above the dataset, as the h-map it previews
+        self.canvas.set_field(derived)              # in place of the dataset, as the h-map it previews
         self._apply_raster_visibility(showing_product=True)
         self._holder_raster_ref = None
         # Vector view live too (center_view="vector" is a persisted
@@ -4149,11 +4149,10 @@ both ``Canvas`` signals report the
                     # the offset; the dataset above has none in its provenance.
                     derived = dataclasses.replace(derived, provenance={
                         **(derived.provenance or {}), "display_offset": tuple(offset)})
-                # The product draws on the canvas's product layer, above the dataset: where it
-                # has no support (non-finite) the dataset shows through.
-                if self.canvas._field is not self.field:
-                    self.canvas.set_field(self.field)
-                self.canvas.set_product(derived)
+                # The Raster tab shows the selected layer alone: its result raster replaces the
+                # dataset image, pinned at its region, with the layer's own style. Context over
+                # the parent is the Map view's (the layer stack).
+                self.canvas.set_field(derived)
                 self._apply_raster_visibility(showing_product=True)
                 self.canvas.clear_overlays()
                 self.canvas.set_pick_chains(None)

@@ -2371,9 +2371,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self.roi_bounds_item.setData([], [])
             return
         h, w = int(roi[2]), int(roi[3])
+        # Around the region's CELLS (centre registration), exactly on the saved ROI's own box.
+        x0, y0 = col_off - 0.5, row_off - 0.5
         self.roi_bounds_item.setData(
-            [col_off, col_off + w, col_off + w, col_off, col_off],
-            [row_off, row_off, row_off + h, row_off + h, row_off])
+            [x0, x0 + w, x0 + w, x0, x0],
+            [y0, y0, y0 + h, y0 + h, y0])
 
     def set_arrow_mode(self, mode: str) -> None:
         """Gradient arrows: ``"off"``, ``"wtmmm"`` (the WTMMM only -- xsmurf ``ssm``, the points

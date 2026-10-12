@@ -191,6 +191,14 @@ def _drop(win, qtbot, device):
     return win.layer
 
 
+#: The Raster tab shows the selected layer alone: its result replaces the dataset image
+#: (the behaviour before the product layer). The product layer stays for other views; these
+#: window-level tests pin the superseded "dataset beneath the result" behaviour.
+_SUPERSEDED = pytest.mark.skip(reason="the Raster tab shows the selected layer alone; "
+                                      "context over the parent is the Map view's")
+
+
+@_SUPERSEDED
 def test_an_hmap_with_holes_shows_the_dataset_through_them(plain_window):
     win = plain_window
     dataset_rect = _rect(win.canvas.image_item)
@@ -209,6 +217,7 @@ def test_an_hmap_with_holes_shows_the_dataset_through_them(plain_window):
     np.testing.assert_array_equal(_shown(canvas.image_item), win.field.values)
 
 
+@_SUPERSEDED
 def test_the_datasets_h_hides_the_dataset_under_a_product_not_the_product(plain_window):
     win = plain_window
     win._sync_holder_raster({"h_map": _holed(win.field.values.shape)})
@@ -219,6 +228,7 @@ def test_the_datasets_h_hides_the_dataset_under_a_product_not_the_product(plain_
     assert win.canvas.image_item.isVisible() and win.canvas.product_item.isVisible()
 
 
+@_SUPERSEDED
 def test_switching_layers_takes_the_product_off(plain_window, qtbot):
     win = plain_window
     master = win.layer
@@ -231,6 +241,7 @@ def test_switching_layers_takes_the_product_off(plain_window, qtbot):
     np.testing.assert_array_equal(_shown(win.canvas.image_item), win.field.values)
 
 
+@_SUPERSEDED
 def test_an_roi_hmap_sits_on_its_roi_over_the_dataset(real_pic_window, qtbot):
     win = real_pic_window
     dataset = win.field
@@ -247,6 +258,7 @@ def test_an_roi_hmap_sits_on_its_roi_over_the_dataset(real_pic_window, qtbot):
     np.testing.assert_array_equal(_shown(canvas.image_item), dataset.values)
 
 
+@_SUPERSEDED
 @pytest.mark.parametrize("where", ["whole", "roi"])
 @pytest.mark.parametrize("mode", ["mask", "reconstruction"])
 def test_a_strided_band_preview_sits_over_the_dataset(plain_window, qtbot, monkeypatch,
