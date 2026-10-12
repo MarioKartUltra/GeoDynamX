@@ -25,12 +25,13 @@ class LayersPanel(QtWidgets.QWidget):
         self._reasons: dict[str, str] = {}
         self._building = False
         self._drop_pending = False
+        self._eye_clicked = False
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderLabels(["layer", "opacity"])
         self.tree.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
         self.tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.tree.itemChanged.connect(self._on_item_changed)
-        self.tree.currentItemChanged.connect(self._on_current)
+        self.tree.itemClicked.connect(self._on_clicked)
         self.tree.customContextMenuRequested.connect(self._menu)
         # A QTreeWidget drag takes the item out and inserts it again: rowsInserted, never
         # rowsMoved.
@@ -131,6 +132,7 @@ class LayersPanel(QtWidgets.QWidget):
         visible = item.checkState(0) == QtCore.Qt.Checked
         if node.visible != visible:
             node.visible = visible
+            self._eye_clicked = True                     # the click that follows selects nothing
             self.stackChanged.emit()
 
     def _set_opacity(self, node_id, value) -> None:
@@ -185,9 +187,13 @@ class LayersPanel(QtWidgets.QWidget):
         self.refresh()
         self.stackChanged.emit()
 
-    def _on_current(self, current, _previous) -> None:
-        if current is not None and not self._building:
-            self.rowSelected.emit(current.data(0, _ID))
+    def _on_clicked(self, item, _column) -> None:
+        """A click on a row's name selects it; a click on its eye only toggles the eye."""
+        if self._eye_clicked:
+            self._eye_clicked = False
+            return
+        if item is not None and not self._building:
+            self.rowSelected.emit(item.data(0, _ID))
 
     def _menu(self, pos) -> None:
         item = self.tree.itemAt(pos)

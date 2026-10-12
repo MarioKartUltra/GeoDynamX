@@ -248,6 +248,63 @@ def test_the_3d_entry_follows_the_outline_row(geo_window, qtbot):
     assert win._stack_entry_flags(child)["show_outline"] is False
 
 
+def test_a_click_on_the_map_keeps_the_selected_layer(geo_window, qtbot):
+    """The Raster tab shows the selected layer: a click on the Map (to pan, to look) never
+    switches it."""
+    win = geo_window
+    child = _roi_child(win, qtbot, "holder_measure")
+    win._set_center_view("map")
+    win.map_view.rowClicked.emit(f"src:{child.source_id}")
+    assert win.layer is child
+
+
+def _centre(view):
+    (x0, x1), (y0, y1) = view.viewRange()
+    return (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0
+
+
+def test_the_map_opens_on_the_raster_tabs_extent(geo_window, qtbot):
+    """Raster pixel (col, row) is map (500005 + 10 col, 4399995 - 10 row) on this grid."""
+    win = geo_window
+    win.resize(1200, 800)
+    win.show()
+    win.canvas.view.setRange(xRange=(10, 30), yRange=(5, 25), padding=0)
+    cx, cy, cw, ch = _centre(win.canvas.view)
+    win._set_center_view("map")
+    mx, my, mw, mh = _centre(win.map_view.view)
+    assert (mx, my) == pytest.approx((500005 + 10 * cx, 4399995 - 10 * cy))
+    assert mw >= 10 * cw - 1e-6 or mh >= 10 * ch - 1e-6
+
+
+def test_raster_returns_on_the_maps_extent(geo_window, qtbot):
+    win = geo_window
+    win.resize(1200, 800)
+    win.show()
+    win._set_center_view("map")
+    win.map_view.view.setRange(xRange=(500200.0, 500400.0), yRange=(4399700.0, 4399900.0),
+                               padding=0)
+    mx, my, _mw, _mh = _centre(win.map_view.view)
+    win._set_center_view("raster")
+    cx, cy, _cw, _ch = _centre(win.canvas.view)
+    assert (500005 + 10 * cx, 4399995 - 10 * cy) == pytest.approx((mx, my))
+
+
+def test_the_extent_crosses_a_map_crs(geo_window, qtbot):
+    from rasterio.warp import transform
+
+    win = geo_window
+    win.resize(1200, 800)
+    win.show()
+    win.project.map_crs = "EPSG:4326"
+    win.canvas.view.setRange(xRange=(10, 30), yRange=(5, 25), padding=0)
+    cx, cy, _cw, _ch = _centre(win.canvas.view)
+    win._set_center_view("map")
+    mx, my, _mw, _mh = _centre(win.map_view.view)
+    (lon,), (lat,) = transform("EPSG:32613", "EPSG:4326", [500005 + 10 * cx],
+                               [4399995 - 10 * cy])
+    assert (mx, my) == pytest.approx((lon, lat), abs=1e-4)
+
+
 from test_bus_shell import _Route, three_datasets  # noqa: F401,E402
 from tests.test_shell_window import stub_devices, window  # noqa: F401,E402
 

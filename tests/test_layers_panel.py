@@ -3,6 +3,7 @@
 """The Layers panel: the stack as a tree; eye, opacity, groups, reasons, selection."""
 from __future__ import annotations
 
+import pytest
 from PySide6 import QtCore
 
 from dynamix.model.layer_stack import Group, LayerStack, Row
@@ -52,8 +53,31 @@ def test_reasons_show_greyed(qtbot):
     assert "no CRS" in item.toolTip(0) and item.foreground(0).color().alpha() < 255
 
 
+@pytest.mark.skip(reason="a click on a row's name selects it; moving the current row (an eye "
+                         "click does) selects nothing (test_a_click_on_a_rows_name_selects_it)")
 def test_selecting_a_row_emits_its_id(qtbot):
     _s, p = _panel(qtbot)
     with qtbot.waitSignal(p.rowSelected) as sig:
         p.tree.setCurrentItem(p.item_for("prod:1"))
     assert sig.args == ["prod:1"]
+
+
+def test_a_click_on_a_rows_name_selects_it(qtbot):
+    _s, p = _panel(qtbot)
+    item = p.item_for("prod:1")
+    with qtbot.waitSignal(p.rowSelected) as sig:
+        p.tree.itemClicked.emit(item, 0)
+    assert sig.args == ["prod:1"]
+
+
+def test_an_eye_click_selects_nothing(qtbot):
+    """Qt makes the clicked row current and toggles its check, then reports the click: the eye
+    changes the stack and no layer is selected."""
+    _s, p = _panel(qtbot)
+    seen = []
+    p.rowSelected.connect(seen.append)
+    item = p.item_for("prod:1")
+    p.tree.setCurrentItem(item)                       # the press
+    item.setCheckState(0, QtCore.Qt.Unchecked)        # the release on the check box
+    p.tree.itemClicked.emit(item, 0)
+    assert seen == []

@@ -1306,6 +1306,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._center_stack.addWidget(self.canvas)
         self._arrangement = None
         self.map_view = None          # the Map view, built on first use (_ensure_map_view)
+        self._prod_memo: dict = {}    # layer_id -> (raster, result, field, product field)
         self.layers_panel = None      # the Layers section, built with the right panel
         self._stack_near: dict = {}   # a fork's row -> the row it was forked from (placement)
         self._footprints: list = []   # dynamix.geo.footprints records (data browser)
@@ -4454,6 +4455,7 @@ both ``Canvas`` signals report the
             self.cache.unpin(key)
         self._marked_keys = {}
         self._out_keys = {}
+        self._prod_memo = {}
         self._out_request = None
         self._out_held = None
         self._recon_run = None
@@ -5735,6 +5737,7 @@ both ``Canvas`` signals report the
             self._recipes.pop(rid, None)
             self._arr_errors.pop(rid, None)   # No dead entry for a layer_id gone for good
             self._out_keys.pop(rid, None)
+            self._prod_memo.pop(rid, None)
             self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         self._reconcile_stack()
@@ -5861,6 +5864,7 @@ both ``Canvas`` signals report the
             self._recipes.pop(rid, None)
             self._arr_errors.pop(rid, None)
             self._out_keys.pop(rid, None)
+            self._prod_memo.pop(rid, None)
             self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
@@ -8878,7 +8882,6 @@ both ``Canvas`` signals report the
             self.map_view = MapView(self)
             self._center_stack.addWidget(self.map_view)
             self.map_view.set_map_crs(self.project.map_crs)
-            self.map_view.rowClicked.connect(self._on_layers_row_selected)
 
     def _stack_entry_flags(self, layer) -> "dict | None":
         """What the layer stack says of ``layer``'s 3-D entry: its rank (the topmost of its
@@ -9085,14 +9088,19 @@ both ``Canvas`` signals report the
                 return RowContent("product", reason="nothing shown")
             busy = self._out_job is not None and self._out_job[0] is layer
             return RowContent("product", reason="computing" if busy else "not computed")
-        prod = _roi_display_field(result, raster, field, layer.name) or dataclasses.replace(
-            field, values=np.asarray(raster, dtype=np.float64), name=layer.name)
-        offset = result.get("_raster_display_offset")
-        if offset is not None:
-            dx, dy = (float(d) for d in offset)
-            prod = dataclasses.replace(
-                prod, x_axis=axis_at(prod.x_axis, np.arange(len(prod.x_axis)) + dx),
-                y_axis=axis_at(prod.y_axis, np.arange(len(prod.y_axis)) + dy))
+        memo = self._prod_memo.get(layer.layer_id)
+        if memo is not None and memo[0] is raster and memo[1] is result and memo[2] is field:
+            prod = memo[3]                  # the same field object: the Map need not repaint
+        else:
+            prod = _roi_display_field(result, raster, field, layer.name) or dataclasses.replace(
+                field, values=np.asarray(raster, dtype=np.float64), name=layer.name)
+            offset = result.get("_raster_display_offset")
+            if offset is not None:
+                dx, dy = (float(d) for d in offset)
+                prod = dataclasses.replace(
+                    prod, x_axis=axis_at(prod.x_axis, np.arange(len(prod.x_axis)) + dx),
+                    y_axis=axis_at(prod.y_axis, np.arange(len(prod.y_axis)) + dy))
+            self._prod_memo[layer.layer_id] = (raster, result, field, prod)
         return RowContent("product", field=prod, style=_display_style_of(layer))
 
     def _composite_spec_for(self, layer):
@@ -9158,10 +9166,11 @@ both ``Canvas`` signals report the
             if rid not in drawn:
                 continue
             z, visible, opacity = drawn[rid]
-            content = self._row_content(rid)
             if product is not None and rid == f"prod:{lid}":
                 content = RowContent("product", field=product,
                                      style=_display_style_of(self.layer))
+            else:
+                content = self._row_content(rid)
             self.map_view.update_row(rid, content, opacity=opacity if visible else 0.0, z=z)
         picked = sorted(idx for (layer_id, idx) in self._group_palette.selection()
                         if layer_id == lid)
@@ -9185,6 +9194,62 @@ both ``Canvas`` signals report the
             xa = axis_at(field.x_axis, np.arange(c_off + len(field.x_axis)) - c_off)
             ya = axis_at(field.y_axis, np.arange(r_off + len(field.y_axis)) - r_off)
         return types.SimpleNamespace(x_axis=xa, y_axis=ya, provenance=field.provenance)
+
+    def _map_points(self, src_crs, dst_crs, xs, ys):
+        """Points from one CRS to another (unchanged when either is unknown or both agree);
+        ``None`` when the transform fails."""
+        if not src_crs or not dst_crs or str(src_crs) == str(dst_crs):
+            return np.asarray(xs, dtype=np.float64), np.asarray(ys, dtype=np.float64)
+        try:
+            from rasterio.warp import transform
+
+            tx, ty = transform(str(src_crs), str(dst_crs), list(xs), list(ys))
+        except Exception:                                            # noqa: BLE001
+            return None
+        return np.asarray(tx), np.asarray(ty)
+
+    def _canvas_map_rect(self):
+        """The Raster tab's view as a rectangle in map coordinates, through the shown dataset's
+        file-pixel axes; ``None`` when what it shows has no coordinates."""
+        from dynamix.geo.placement import field_crs
+
+        field = getattr(self.canvas, "_field", None)
+        if getattr(field, "x_axis", None) is None or getattr(field, "y_axis", None) is None:
+            return None
+        (x0, x1), (y0, y1) = self.canvas.view.viewRange()
+        shift_r, shift_c = self.canvas._display_shift
+        axes = self._file_axes(field)
+        xs = axis_at(axes.x_axis, np.array([x0, x1, x0, x1]) - shift_c)
+        ys = axis_at(axes.y_axis, np.array([y0, y0, y1, y1]) - shift_r)
+        moved = self._map_points(field_crs(field), self.project.map_crs, xs, ys)
+        if moved is None:
+            return None
+        xs, ys = moved
+        return QtCore.QRectF(QtCore.QPointF(xs.min(), ys.min()),
+                             QtCore.QPointF(xs.max(), ys.max()))
+
+    def _canvas_show_map_rect(self, rect) -> None:
+        """Point the Raster tab at map rectangle ``rect``, through the shown dataset's
+        file-pixel axes."""
+        from dynamix.geo.placement import field_crs
+
+        field = getattr(self.canvas, "_field", None)
+        if getattr(field, "x_axis", None) is None or getattr(field, "y_axis", None) is None:
+            return
+        xs = [rect.left(), rect.right(), rect.left(), rect.right()]
+        ys = [rect.top(), rect.top(), rect.bottom(), rect.bottom()]
+        moved = self._map_points(self.project.map_crs, field_crs(field), xs, ys)
+        axes = self._file_axes(field)
+        if moved is None or len(axes.x_axis) < 2 or len(axes.y_axis) < 2:
+            return
+        xs, ys = moved
+        step_x = (axes.x_axis[-1] - axes.x_axis[0]) / (len(axes.x_axis) - 1)
+        step_y = (axes.y_axis[-1] - axes.y_axis[0]) / (len(axes.y_axis) - 1)
+        shift_r, shift_c = self.canvas._display_shift
+        cols = (xs - axes.x_axis[0]) / step_x + shift_c
+        rows = (ys - axes.y_axis[0]) / step_y + shift_r
+        self.canvas.view.setRange(xRange=(cols.min(), cols.max()),
+                                  yRange=(rows.min(), rows.max()), padding=0)
 
     def _map_overlays(self) -> dict:
         """Reference layers in the map CRS and point catalogues, for ``MapView.set_overlays``;
@@ -9314,7 +9379,7 @@ both ``Canvas`` signals report the
         """
         if view == self._center_view:
             return
-        self._center_view = view
+        previous, self._center_view = self._center_view, view
         self._refresh_panel_relevance()
         for layer in self.project.layers:           # an output on its own grid is 2-D only
             self._sync_output_rows(layer)
@@ -9322,16 +9387,23 @@ both ``Canvas`` signals report the
         if view == "raster":
             if self._arrangement is not None:
                 self._arrangement.deactivate()
+            extent = (self.map_view.view.viewRect()
+                      if previous == "map" and self.map_view is not None else None)
             self._center_stack.setCurrentIndex(0)
             self._redraw_canvas_overlay_if_dirty()   # deferred while the canvas was hidden
+            if extent is not None:
+                self._canvas_show_map_rect(extent)   # Raster opens where the Map was looking
             self._sync_view_switcher()
             return
         if view == "map":
             if self._arrangement is not None:
                 self._arrangement.deactivate()
+            extent = self._canvas_map_rect()
             self._ensure_map_view()
             self._center_stack.setCurrentWidget(self.map_view)
             self._redraw_map()
+            if extent is not None:                  # the Map opens where Raster was looking
+                self.map_view.view.setRange(extent, padding=0)
             self._sync_view_switcher()
             return
         self._ensure_arrangement()
