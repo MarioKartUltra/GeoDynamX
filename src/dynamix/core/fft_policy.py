@@ -93,29 +93,35 @@ class _MLX:
     def _r(self, a):
         return self._mx.array(np.asarray(a).astype(np.float32))
 
+    def _np(self, x):
+        # Evaluate before converting: an mlx error raised inside np.array's buffer-protocol
+        # read cannot cross that C boundary and aborts the process; mx.eval raises it.
+        self._mx.eval(x)
+        return np.array(x)
+
     def fft(self, a, axis=-1):
-        return np.array(self._mx.fft.fft(self._c(a), axis=axis))
+        return self._np(self._mx.fft.fft(self._c(a), axis=axis))
 
     def ifft(self, a, axis=-1):
-        return np.array(self._mx.fft.ifft(self._c(a), axis=axis))
+        return self._np(self._mx.fft.ifft(self._c(a), axis=axis))
 
     def fft2(self, a, axes=(-2, -1)):
-        return np.array(self._mx.fft.fft2(self._c(a), axes=list(axes)))
+        return self._np(self._mx.fft.fft2(self._c(a), axes=list(axes)))
 
     def ifft2(self, a, axes=(-2, -1)):
-        return np.array(self._mx.fft.ifft2(self._c(a), axes=list(axes)))
+        return self._np(self._mx.fft.ifft2(self._c(a), axes=list(axes)))
 
     def rfft(self, a, axis=-1):
-        return np.array(self._mx.fft.rfft(self._r(a), axis=axis))
+        return self._np(self._mx.fft.rfft(self._r(a), axis=axis))
 
     def irfft(self, a, n=None, axis=-1):
-        return np.array(self._mx.fft.irfft(self._c(a), n=n, axis=axis))
+        return self._np(self._mx.fft.irfft(self._c(a), n=n, axis=axis))
 
     def rfft2(self, a, axes=(-2, -1)):
-        return np.array(self._mx.fft.rfft2(self._r(a), axes=list(axes)))
+        return self._np(self._mx.fft.rfft2(self._r(a), axes=list(axes)))
 
     def irfft2(self, a, s=None, axes=(-2, -1)):
-        return np.array(self._mx.fft.irfft2(self._c(a), s=None if s is None else list(s),
+        return self._np(self._mx.fft.irfft2(self._c(a), s=None if s is None else list(s),
                                             axes=list(axes)))
 
 

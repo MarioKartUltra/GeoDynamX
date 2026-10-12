@@ -221,3 +221,30 @@ def test_the_settings_note_warns_when_64_bit_takes_the_ffts_off_mlx():
     assert precision_note("fftw", 64, **mac) == ""
     win = dict(platform="win32", machine="AMD64", have={"mlx": False, "pyfftw": True})
     assert precision_note("auto", 64, **win) == ""
+
+
+def test_an_mlx_error_is_a_python_exception_never_an_abort():
+    """mlx evaluates lazily. An error raised while ``np.array`` pulls an unevaluated array
+    through the buffer protocol cannot cross that C boundary, so the process aborts (SIGABRT)
+    instead of raising. The backend must evaluate first, so a worker thread can report the
+    error. Run in a subprocess: the unfixed failure kills the interpreter."""
+    pytest.importorskip("mlx.core")
+    import subprocess
+    import sys
+
+    script = """
+import mlx.core as mx, numpy as np
+from dynamix.core.fft_policy import make
+be = make("mlx")
+cap = mx.device_info()["max_buffer_length"]
+rows = cap // (8 * 8 * 12000) + 1                  # complex64 stack just over the Metal cap
+mx.fft.fft2 = lambda a, axes=None: mx.zeros((8, rows, 12000), dtype=mx.complex64)
+try:
+    be.fft2(np.zeros((2, 2)))
+except RuntimeError as exc:
+    print("raised:", exc)
+"""
+    run = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                         timeout=120)
+    assert run.returncode == 0, run.stderr[-500:]
+    assert "raised:" in run.stdout and "metal::malloc" in run.stdout
