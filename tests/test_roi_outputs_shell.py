@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Lazy outputs on an ROI result in the window: computed on Run, never on show, and drawn at
-the region."""
+"""Lazy outputs on an ROI result in the window follow the rules of the whole dataset (an output
+draws on show, a reconstruction row follows Live) and draw at the region."""
 from __future__ import annotations
 
 import numpy as np
@@ -59,6 +59,43 @@ def _idle(win):
     return not win.is_computing and win._out_request is None
 
 
+_SUPERSEDED = pytest.mark.skip(reason="an output of an ROI result follows the whole dataset's "
+                                      "rules: it draws on show, a reconstruction follows Live")
+
+
+def _region_rect(win):
+    rect = win.canvas.image_item.mapRectToView(win.canvas.image_item.boundingRect())
+    return rect.left(), rect.top(), rect.width(), rect.height()
+
+
+def test_an_roi_output_draws_on_show_at_the_region(win, qtbot, dispatches):
+    layer = _roi_tool(win, qtbot, "mz_edges", n_levels=3)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "coarse", False)
+    key = win._output_keys(layer)["coarse"]
+    qtbot.waitUntil(lambda: key in win.cache and _idle(win), timeout=60000)
+    assert dispatches == ["coarse"]
+    value = win.cache.get(key)
+    np.testing.assert_array_equal(win.canvas._field.values, value["raster"])
+    dx, dy = value.get("display_offset") or (0.0, 0.0)     # LastWave's registration, as whole
+    assert _region_rect(win) == pytest.approx((43.5 + dx, 39.5 + dy, 32, 32))
+
+
+def test_an_roi_reconstruction_follows_live_as_on_the_whole_dataset(win, qtbot, dispatches):
+    layer = _roi_tool(win, qtbot, "mz_edges", n_levels=3, recon_live=False)
+    win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
+    qtbot.wait(200)
+    assert dispatches == [] and _idle(win)                 # Live off: the row waits for Run
+    notes, _disabled = win._output_row_state(layer, *_step_outputs(win, layer))
+    assert notes.get("recon") == "press Run"
+    win._on_recon_run()                                    # the Reconstruction section's Run
+    key = win._output_keys(layer)["recon"]
+    qtbot.waitUntil(lambda: key in win.cache and _idle(win), timeout=60000)
+    assert dispatches == ["recon"]
+    np.testing.assert_array_equal(win.canvas._field.values, win.cache.get(key)["raster"])
+    assert _region_rect(win) == pytest.approx((43.5, 39.5, 32, 32))
+
+
+@_SUPERSEDED
 def test_an_roi_output_waits_for_run_then_lands_at_the_region(win, qtbot, dispatches):
     layer = _roi_tool(win, qtbot, "mz_edges", n_levels=3, recon_live=True)
     assert layer.tags.get("roi.window") == "40,44,32,32"
@@ -79,6 +116,7 @@ def test_an_roi_output_waits_for_run_then_lands_at_the_region(win, qtbot, dispat
         (43.5, 39.5, 32, 32))
 
 
+@_SUPERSEDED
 def test_another_row_waits_for_its_own_run(win, qtbot, dispatches):
     layer = _roi_tool(win, qtbot, "mz_edges", n_levels=3)
     win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)

@@ -582,6 +582,11 @@ def test_a_reopened_roi_child_greys_out_its_lazy_rows_behind_the_active_master(w
     assert not _row(win2, back, "edges").isDisabled()
 
 
+_FOLLOWS_WHOLE = pytest.mark.skip(reason="an ROI result's outputs follow the whole dataset's "
+                                         "rules (test_roi_outputs_shell.py)")
+
+
+@_FOLLOWS_WHOLE
 def test_an_roi_result_greys_only_the_thumbnail_and_computes_nothing_on_show(win, qtbot,
                                                                              dispatches):
     win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
@@ -598,6 +603,26 @@ def test_an_roi_result_greys_only_the_thumbnail_and_computes_nothing_on_show(win
         win._on_param_changed(win._names.index("mz_edges"), "show", "recon")
     qtbot.wait(50)
     assert dispatches == [] and not win.is_computing
+
+
+def test_an_roi_result_greys_only_the_thumbnail_and_draws_its_outputs_on_show(win, qtbot,
+                                                                               dispatches):
+    win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
+                      "boundary": "auto"})
+    child = _mz_layer(win, qtbot)
+    rows = win.layer_list._output_rows[child.layer_id]
+    item = _row(win, child, "thumbnail")
+    assert item.isDisabled() and item.toolTip(0) == "not on ROI results"
+    for name in ("coarse", "recon", "recon_edges_only", "residual", "edges"):
+        assert not _row(win, child, name).isDisabled()
+        assert rows[name].hide_button.isEnabled()
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        win._on_param_changed(win._names.index("mz_edges"), "show", "recon")
+    key = win._output_keys(child)["recon"]
+    qtbot.waitUntil(lambda: key in win.cache and not win.is_computing
+                    and win._out_request is None, timeout=60000)
+    assert dispatches == ["recon"]
+    np.testing.assert_array_equal(_shown(win.canvas).values, win.cache.get(key)["raster"])
 
 
 def test_a_reopened_roi_child_greys_only_the_thumbnail_behind_the_active_master(win, qtbot,
