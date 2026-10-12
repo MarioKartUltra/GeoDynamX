@@ -1152,6 +1152,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # third, ... ``load_field`` call on the SAME window must never re-apply a persisted view
         # out from under a user who has since switched away on purpose.
         self._center_view: str = "raster"
+        self._warm_up_scheduled = False
         self._center_view_restored: bool = False
         # The SECOND one-shot, at the same point in ``load_field`` and for the
         # same reason (there is no source to open an inspector OVER any earlier than the first
@@ -8688,6 +8689,44 @@ both ``Canvas`` signals report the
             self._sync_fill_outline(result)
             self.canvas.set_pick_chains(None)
 
+    def _ensure_arrangement(self) -> None:
+        """Build the Vector/Globe view once: the widget, its palette and its signal wiring."""
+        if self._arrangement is not None:
+            return
+        from dynamix.shell.arrangement_facade import ArrangementView
+        self._arrangement = ArrangementView(self)
+        self._center_stack.addWidget(self._arrangement)
+        # Hand the view its palette REFERENCE, once -- unlike the mask row's values
+        # (pushed on every flip, just below), a reference only needs handing over once, since
+        # the palette itself is never rebuilt across park/resume cycles (see
+        # ArrangementView.set_group_palette's own docstring).
+        self._arrangement.set_group_palette(self._group_palette)
+        # The commit transaction's own entry point -- see _on_groups_committed;
+        # commitFinished's deferred single resync is _on_commit_finished.
+        self._arrangement.groupsCommitted.connect(self._on_groups_committed)
+        self._arrangement.commitFinished.connect(self._on_commit_finished)
+        # The header's "View…" button -> the (lazily built) View dialog.
+        self._arrangement.viewOptionsRequested.connect(self._on_view_options_requested)
+        self._arrangement.footprintsRightClicked.connect(self._on_footprints_right_clicked)
+        self._arrangement.set_footprints(self._footprints)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._warm_up_scheduled:
+            self._warm_up_scheduled = True
+            QtCore.QTimer.singleShot(1500, self._warm_up_3d)
+
+    def _warm_up_3d(self) -> None:
+        """Build the Vector/Globe view while the Raster tab stays on screen, so the first switch
+        does not pay for importing pyvista, creating the render window and compiling shaders.
+        Skipped where no real window surface exists (the offscreen test platform)."""
+        app = QtWidgets.QApplication.instance()
+        if self._arrangement is not None or app is None \
+                or app.platformName() in ("offscreen", "minimal"):
+            return
+        self._ensure_arrangement()
+        self._arrangement.warm_up()
+
     def _set_center_view(self, view: str) -> None:
         """Switch the center zone to ``view`` -- ``"raster"`` (the session canvas, index 0),
         ``"vector"`` (the arrangement in each layer's own NATIVE frame -- ``field.frame`` straight
@@ -8734,23 +8773,7 @@ both ``Canvas`` signals report the
             self._redraw_canvas_overlay_if_dirty()   # deferred while the canvas was hidden
             self._sync_view_switcher()
             return
-        if self._arrangement is None:
-            from dynamix.shell.arrangement_facade import ArrangementView
-            self._arrangement = ArrangementView(self)
-            self._center_stack.addWidget(self._arrangement)
-            # Hand the view its palette REFERENCE, once -- unlike the mask row's values
-            # (pushed on every flip, just below), a reference only needs handing over once, since
-            # the palette itself is never rebuilt across park/resume cycles (see
-            # ArrangementView.set_group_palette's own docstring).
-            self._arrangement.set_group_palette(self._group_palette)
-            # The commit transaction's own entry point -- see _on_groups_committed;
-            # commitFinished's deferred single resync is _on_commit_finished.
-            self._arrangement.groupsCommitted.connect(self._on_groups_committed)
-            self._arrangement.commitFinished.connect(self._on_commit_finished)
-            # The header's "View…" button -> the (lazily built) View dialog.
-            self._arrangement.viewOptionsRequested.connect(self._on_view_options_requested)
-            self._arrangement.footprintsRightClicked.connect(self._on_footprints_right_clicked)
-            self._arrangement.set_footprints(self._footprints)
+        self._ensure_arrangement()
         frame_mode = view == "vector"
         # Store + forward the Vector-tab placement switch BEFORE
         # activate() -- ArrangementView buffers a pre-build call exactly like set_layers already

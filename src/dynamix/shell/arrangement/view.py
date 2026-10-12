@@ -887,6 +887,21 @@ The mask is deliberately NOT applied here anymore -- ``MaskRow``
         self._interactor.show()
         self._active = True
 
+    def warm_up(self) -> None:
+        """Build the render surface and the scene while another view is on screen, draw once so
+        VTK compiles its shaders, then park -- the same build and park a flip to this view and
+        back performs, without showing it. A hidden surface may decline the draw; the build is
+        still done."""
+        if not self.available or self._built:
+            return
+        self.activate()
+        if self._interactor is not None:
+            try:
+                self._interactor.render()
+            except Exception:                                        # noqa: BLE001
+                pass
+        self.deactivate()
+
     def deactivate(self) -> None:
         """Park this view on flip-away: hide the render surface, never destroy it, so only one
         render window is ever live at a time without throwing the scene away between flips.
