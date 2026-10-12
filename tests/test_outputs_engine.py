@@ -176,6 +176,11 @@ def test_a_cancelled_output_caches_nothing(fake):
     np.testing.assert_array_equal(out["raster"], (field.values * 2).astype(np.float32))
 
 
+_SUPERSEDED = pytest.mark.skip(reason="outputs of ROI results are computed on the region's "
+                                      "window (test_roi_outputs.py)")
+
+
+@_SUPERSEDED
 def test_an_roi_layer_is_refused(fake):
     field, cache = _field(), Cache()
     layer = _layer()
@@ -183,6 +188,24 @@ def test_an_roi_layer_is_refused(fake):
     with pytest.raises(ValueError, match="ROI"):
         resolve_output(layer, field, cache, "double")
     assert fake.calls == []
+    r = resolve(layer, field, cache)
+    assert r.analysis_device == "fake_lazy" and r.analysis_input is None
+    assert r.analysis_key == cache_key("fake_lazy", source_identity(layer), {"k": 1})
+
+
+def test_an_roi_layer_computes_its_output_on_the_region(fake):
+    """On an ROI layer the output is computed on the region runner's window (this tool declares
+    no margin, so the window is the ROI) and cut to the ROI; the analysis is unchanged."""
+    from dynamix.model.device import defaults_for
+
+    field, cache = _field(), Cache()
+    layer = _layer()
+    layer.tags["roi.window"] = "0,0,8,8"
+    out = resolve_output(layer, field, cache, "double")
+    n = defaults_for(fake)["n"]
+    np.testing.assert_array_equal(out["raster"],
+                                  (np.asarray(field.values)[:8, :8] * n * 1).astype(np.float32))
+    assert fake.calls == ["double"]
     r = resolve(layer, field, cache)
     assert r.analysis_device == "fake_lazy" and r.analysis_input is None
     assert r.analysis_key == cache_key("fake_lazy", source_identity(layer), {"k": 1})

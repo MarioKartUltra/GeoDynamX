@@ -481,6 +481,92 @@ def output_key(device_name: str, output: Output, params: dict, analysis_key: str
     return cache_key(f"{device_name}/{output.name}", "", own, upstream=analysis_key)
 
 
+def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, progress,
+                           cancel, level) -> dict:
+    """A lazy output of an ROI layer, computed where the region runner computes the analysis:
+    its own processing window (the same read, the same summed margin -- each tool's reach at its
+    largest scale -- the same reflected edges and field stages), by the tool's ``compute`` there
+    and its ``compute_output`` on that, then cut to the region and placed by the region's own
+    axes (``roi_axes``). For a tool without ``compute_roi`` that is exactly the runner's path, so
+    the output agrees with the analysis on screen; the window and its outputs are cached under
+    keys of their own, and the analysis is untouched. Outputs that read the filtered maxima see
+    the window's lines whole, as the analysis does before its cut. Refused, with the reason: a
+    tool with its own region path, and an output on its own coarser grid."""
+    from dynamix.roi.runner import read_processing_window, roi_margin_of
+
+    r = resolve(layer, field, cache, source_id=source_id, progress=progress, cancel=cancel)
+    device = get_device(r.analysis_device) if r.analysis_device else None
+    outputs = declared_outputs(device) if device is not None else ()
+    output = next((o for o in outputs if o.name == name and o.lazy), None)
+    if output is None:
+        raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
+    if getattr(device, "compute_roi", None) is not None:
+        raise ValueError(f"{name}: {device.name} has its own region path -- its outputs are "
+                         "not computed on ROI results yet")
+    if output.grid == "stride":
+        raise ValueError(f"{name}: an output on its own coarser grid is not computed on ROI "
+                         "results")
+    layer_input = input_contract(field)
+    states = step_states(layer.chain.steps, layer_input)
+    roi_steps = _roi_prefix(layer, [ref for ref, st in zip(layer.chain.steps, states)
+                                    if st.applies])
+    if not roi_steps or roi_steps[-1][0].name != device.name:
+        raise ValueError(f"{name}: the region's analysis is not {device.name}")
+    row, col, h, w = (int(v) for v in layer.tags["roi.window"].split(","))
+    m = sum(roi_margin_of(d, p)[0] for d, p in roi_steps)
+    analyzer, aparams = roi_steps[-1]
+
+    def _window() -> dict:
+        window, _info = read_processing_window(field, (row, col, h, w), m)
+        for d, p in roi_steps[:-1]:
+            kw = {"cancel": cancel} if getattr(d, "wants_cancel", False) else {}
+            window = d.compute(window, p, progress=progress, **kw)
+        kw = {"cancel": cancel} if getattr(analyzer, "wants_cancel", False) else {}
+        return {"window": window, "raw": analyzer.compute(window, aparams, progress=progress,
+                                                          **kw)}
+
+    window_key = f"{r.analysis_key}|window"
+
+    def window_output(other: str) -> dict:
+        out = next(o for o in outputs if o.name == other)
+        sel = selection_recipe(layer, layer_input) if out.selects else None
+        lvl = (0 if level is None else int(level)) if out.per_level else None
+        key = output_key(device.name, out, r.analysis_params, r.analysis_key, sel,
+                         level=lvl) + "|window"
+
+        def _compute():
+            win = cache.get_or_compute(window_key, _window)
+            raw = win["raw"]
+            extra = {}
+            if out.selects:
+                extra["keeps"] = [level_keeps(layer, raw, device, r.analysis_params, l,
+                                              layer_input)
+                                  for l in range(1, len(raw.get("extrema") or ()) + 1)]
+            if out.per_level:
+                extra["level"] = lvl
+            return device.compute_output(other, np.asarray(win["window"].values), raw,
+                                         r.analysis_params, fetch=window_output,
+                                         progress=progress, cancel=cancel, **extra)
+
+        return cache.get_or_compute(key, _compute)
+
+    selection = selection_recipe(layer, layer_input) if output.selects else None
+    lvl = (0 if level is None else int(level)) if output.per_level else None
+    key = output_key(device.name, output, r.analysis_params, r.analysis_key, selection,
+                     level=lvl)
+
+    def _cut() -> dict:
+        window = cache.get_or_compute(window_key, _window)["window"]
+        value = window_output(name)
+        cut = dict(value)
+        cut["raster"] = np.asarray(value["raster"])[m:m + h, m:m + w]
+        cut["roi_axes"] = (np.asarray(window.x_axis)[m:m + w].copy(),
+                           np.asarray(window.y_axis)[m:m + h].copy())
+        return cut
+
+    return cache.get_or_compute(key, _cut)
+
+
 def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | None = None,
                    progress: Callable[[str, float], None] | None = None,
                    cancel: Callable[[], bool] | None = None,
@@ -502,7 +588,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
     a level, so ``compute_output`` reads the whole stack's result.
     """
     if layer.tags.get("roi.window"):
-        raise ValueError(f"{name}: lazy outputs are not computed on ROI results")
+        return _resolve_region_output(layer, field, cache, name, source_id=source_id,
+                                      progress=progress, cancel=cancel, level=level)
     r = resolve(layer, field, cache, source_id=source_id, progress=progress, cancel=cancel)
     outputs = declared_outputs(get_device(r.analysis_device)) if r.analysis_device else ()
     output = next((o for o in outputs if o.name == name and o.lazy), None)
