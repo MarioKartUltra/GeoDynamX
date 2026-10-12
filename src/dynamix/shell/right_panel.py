@@ -173,9 +173,9 @@ class RightPanel(QtWidgets.QScrollArea):
         self._build_display_section(display_params)
 
     # -- sections ----------------------------------------------------------------------------
-    def add_section(self, title: str, widget: QtWidgets.QWidget, *, view_scoped: bool = False
-                    ) -> QtWidgets.QFrame:
-        """Append a titled section holding ``widget``.
+    def add_section(self, title: str, widget: QtWidgets.QWidget, *, view_scoped: bool = False,
+                    first: bool = False) -> QtWidgets.QFrame:
+        """Append a titled section holding ``widget`` (``first``: at the top of the column).
 
         ``view_scoped`` only ever adds a divider line above the section, visually setting it apart
         from a section like Display that reads as always live -- it does NOT hide, disable, or
@@ -200,7 +200,8 @@ class RightPanel(QtWidgets.QScrollArea):
         layout.addWidget(heading)
         layout.addWidget(widget)
         self._protect_from_wheel(frame)
-        self._column.insertWidget(self._column.count() - 1, frame)   # before the trailing stretch
+        index = 0 if first else self._column.count() - 1     # top, or before the trailing stretch
+        self._column.insertWidget(index, frame)
         self._sections[title] = frame
         return frame
 

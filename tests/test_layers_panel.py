@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""The Layers panel: the stack as a tree; eye, opacity, groups, reasons, selection."""
+from __future__ import annotations
+
+from PySide6 import QtCore
+
+from dynamix.model.layer_stack import Group, LayerStack, Row
+from dynamix.shell.layers_panel import LayersPanel
+
+
+def _panel(qtbot):
+    s = LayerStack()
+    s.insert(Group("ds:src0", "dem", auto=True))
+    s.insert(Row("src:src0", "raster"), "ds:src0", 0)
+    s.insert(Row("prod:1", "product"), "ds:src0", 0)
+    p = LayersPanel(s, label_of=lambda rid: {"src:src0": "dem", "prod:1": "h(x)"}.get(rid, rid))
+    qtbot.addWidget(p)
+    return s, p
+
+
+def test_the_tree_shows_groups_and_rows_top_first(qtbot):
+    _s, p = _panel(qtbot)
+    top = p.tree.topLevelItem(0)
+    assert top.text(0) == "dem" and [top.child(i).text(0) for i in range(2)] == ["h(x)", "dem"]
+
+
+def test_the_eye_and_opacity_write_the_stack(qtbot):
+    s, p = _panel(qtbot)
+    with qtbot.waitSignal(p.stackChanged):
+        p.item_for("prod:1").setCheckState(0, QtCore.Qt.Unchecked)
+    assert s.node("prod:1").visible is False
+    with qtbot.waitSignal(p.stackChanged):
+        p.opacity_spin("prod:1").setValue(0.4)
+    assert s.node("prod:1").opacity == 0.4
+
+
+def test_new_group_ungroup_and_move(qtbot):
+    s, p = _panel(qtbot)
+    g = p.new_group_above("prod:1", "mine")
+    assert s.parent_of("prod:1").id == g.id
+    p.ungroup(g.id)
+    assert s.parent_of("prod:1").id == "ds:src0"
+    p.move("prod:1", "root", 0)
+    assert s.root.children[0].id == "prod:1" and s.node("prod:1").moved
+
+
+def test_reasons_show_greyed(qtbot):
+    _s, p = _panel(qtbot)
+    p.set_reasons({"prod:1": "no CRS"})
+    item = p.item_for("prod:1")
+    assert "no CRS" in item.toolTip(0) and item.foreground(0).color().alpha() < 255
+
+
+def test_selecting_a_row_emits_its_id(qtbot):
+    _s, p = _panel(qtbot)
+    with qtbot.waitSignal(p.rowSelected) as sig:
+        p.tree.setCurrentItem(p.item_for("prod:1"))
+    assert sig.args == ["prod:1"]
