@@ -163,3 +163,19 @@ def test_the_readout_names_map_coordinates_and_the_selected_value(qtbot):
     text = v._readout_at(500005.0, 4399995.0)
     assert "500005" in text and "4399995" in text and "=" in text
     assert v._row_at(500005.0, 4399995.0) == "src:a"
+
+
+def test_a_bare_array_without_coordinates_is_greyed(qtbot):
+    v = _view(qtbot, crs=None)
+    reasons = v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                           lambda rid: RowContent("raster", field=np.zeros((4, 5)), style=STYLE))
+    assert reasons == {"src:a": "no coordinates"}
+
+
+def test_extrema_on_a_bare_array_are_greyed(qtbot):
+    v = _view(qtbot, crs=None)
+    reasons = v.show_stack(
+        [(Row("ext:1", "extrema"), True, 1.0), (Row("chn:1", "chains"), True, 1.0)],
+        lambda rid: RowContent("extrema" if rid.startswith("ext") else "chains",
+                               result=_ext_result(), grid_field=np.zeros((40, 50))))
+    assert reasons == {"ext:1": "no coordinates", "chn:1": "no coordinates"}

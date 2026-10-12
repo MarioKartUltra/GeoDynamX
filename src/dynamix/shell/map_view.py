@@ -129,6 +129,9 @@ class MapView(QtWidgets.QWidget):
             return
         if content.kind in ("raster", "product", "channel"):
             self._draw_raster(row_id, content, opacity, z)
+        elif content.result.get("_roi_axes") is None and \
+                getattr(content.grid_field, "x_axis", None) is None:
+            self._hide(row_id, "no coordinates")          # a bare array places nowhere
         elif content.kind == "extrema":
             self._draw_extrema(row_id, content, opacity, z)
         elif content.kind == "chains":
@@ -143,6 +146,8 @@ class MapView(QtWidgets.QWidget):
 
     def _placeable(self, field):
         """``(mode, reason)``: ``"affine"``, ``"warp"`` or ``None`` with the reason."""
+        if getattr(field, "x_axis", None) is None or getattr(field, "y_axis", None) is None:
+            return None, "no coordinates"                  # a bare array places nowhere
         crs = field_crs(field)
         if self._crs is None:
             frame = getattr(field, "frame", None)
