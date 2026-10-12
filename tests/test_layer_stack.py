@@ -72,3 +72,38 @@ def test_payload_round_trip_and_skip():
 def test_a_malformed_payload_entry_is_dropped():
     s = LayerStack.from_payload([{"id": "src:a", "kind": "raster"}, "junk", {"kind": "raster"}])
     assert s.row_ids() == ["src:a"]
+
+
+def test_the_project_saves_and_loads_its_stack_and_map_crs():
+    from dynamix.model.project import Project
+
+    p = Project()
+    src = p.add_source("/data/a.tif", label="a")
+    p.layer_stack.insert(Row(f"src:{src.source_id}", "raster"))
+    p.map_crs = "EPSG:32613"
+    back = Project.from_payload(p.to_payload())
+    assert back.layer_stack.row_ids() == [f"src:{src.source_id}"]
+    assert back.map_crs == "EPSG:32613"
+
+
+def test_an_old_project_opens_with_an_empty_stack():
+    from dynamix.model.project import Project
+
+    payload = Project().to_payload()
+    del payload["layer_stack"], payload["map_crs"]
+    back = Project.from_payload(payload)
+    assert back.layer_stack.row_ids() == [] and back.map_crs is None
+
+
+def test_a_temporary_source_leaves_its_rows_out_of_a_save():
+    from dynamix.model.project import Project
+
+    p = Project()
+    keep = p.add_source("/data/a.tif")
+    temp = p.add_source("/tmp/fork.npz")
+    temp.temporary = True
+    lay = p.add_layer("t", temp.source_id)
+    for rid in (f"src:{keep.source_id}", f"src:{temp.source_id}", f"prod:{lay.layer_id}"):
+        p.layer_stack.insert(Row(rid, "raster"))
+    assert LayerStack.from_payload(p.to_payload()["layer_stack"]).row_ids() == [
+        f"src:{keep.source_id}"]

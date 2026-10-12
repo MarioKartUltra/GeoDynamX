@@ -18,6 +18,7 @@ from pathlib import Path
 
 from dynamix.model.chain import Chain
 from dynamix.model.layer import Layer
+from dynamix.model.layer_stack import LayerStack
 from dynamix.topology.links import LinkStore, ObjRef
 from dynamix.topology.model import TopologyModel
 
@@ -342,6 +343,10 @@ class Project:
     annotations: list[AnnotationRecord] = dataclasses.field(default_factory=list)
     #: reference layers: additive key ``"reference_layers"``; see ReferenceLayerRecord.
     reference_layers: list = dataclasses.field(default_factory=list)
+    #: The display stack of the Map, Vector and Globe views -- additive "layer_stack" key.
+    layer_stack: LayerStack = dataclasses.field(default_factory=LayerStack)
+    #: The Map view's CRS -- additive "map_crs" key; ``None`` until a georeferenced dataset sets it.
+    map_crs: str | None = None
     created: str = ""
     modified: str = ""
     app_version: str = ""
@@ -537,7 +542,17 @@ Passing neither raises -- see :class:`AnnotationRecord`. Ids are monotonic and
             "cameras": {k: _camera_to_payload(v) for k, v in self.cameras.items()},
             "annotations": [a.to_payload() for a in self.annotations],
             "reference_layers": [r.to_payload() for r in self.reference_layers],
+            "layer_stack": self.layer_stack.to_payload(skip=self._temporary_row_ids(temporary)),
+            "map_crs": self.map_crs,
         }
+
+    def _temporary_row_ids(self, temporary: set) -> set:
+        """Stack rows of temporary derivative datasets and of their layers."""
+        ids = {f"src:{sid}" for sid in temporary}
+        for layer in self.layers:
+            if layer.source_id in temporary:
+                ids.update(f"{p}:{layer.layer_id}" for p in ("prod", "ext", "chn"))
+        return ids
 
     @classmethod
     def from_payload(cls, payload: dict) -> "Project":
@@ -558,6 +573,8 @@ Passing neither raises -- see :class:`AnnotationRecord`. Ids are monotonic and
                 sources=sources, layers=layers, topologies=topologies, user_links=user_links,
                 transects=transects, rois=rois, cameras=cameras, annotations=annotations,
                 reference_layers=reference_layers,
+                layer_stack=LayerStack.from_payload(payload.get("layer_stack", [])),
+                map_crs=payload.get("map_crs"),
                 created=payload.get("created", ""),
                 modified=payload.get("modified", ""),
                 app_version=payload.get("app_version", ""))
