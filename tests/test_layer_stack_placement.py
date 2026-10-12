@@ -20,6 +20,13 @@ def test_rows_for_follow_the_contracts_top_first():
     assert rows_for(LayerInfo(4, "src0", frozenset({"Field"}))) == []
 
 
+def test_a_layer_whose_show_puts_a_raster_up_has_a_product_row():
+    """The product row is the layer's shown raster -- a lazy output (M-Z's coarse or
+    reconstruction) as much as an h-map."""
+    assert rows_for(LayerInfo(5, "src0", frozenset({"ExtremaStack"}), shows_raster=True)) == [
+        ("ext:5", "extrema"), ("prod:5", "product")]
+
+
 def test_open_then_tool_then_roi_tool():
     s = LayerStack()
     reconcile(s, [("src0", "dem")], [])

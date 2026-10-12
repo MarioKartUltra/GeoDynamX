@@ -174,6 +174,7 @@ class LayerInfo:
     roi_id: str | None = None
     roi_label: str | None = None
     channels: tuple | None = None          # a bus: its send labels in send order
+    shows_raster: bool = False             # its tool's Show can put a raster output up
 
 
 _PRODUCT = frozenset({"HMap", "Components"})
@@ -186,7 +187,7 @@ def rows_for(info: LayerInfo) -> list:
         out.append((f"chn:{info.layer_id}", "chains"))
     if "ExtremaStack" in info.produces:
         out.append((f"ext:{info.layer_id}", "extrema"))
-    if info.produces & _PRODUCT:
+    if info.produces & _PRODUCT or info.shows_raster:
         out.append((f"prod:{info.layer_id}", "product"))
     return out
 
