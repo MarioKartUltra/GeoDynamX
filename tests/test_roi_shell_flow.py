@@ -932,6 +932,35 @@ def test_a_forked_residual_is_a_raw_dataset_that_tools_run_on(plain_window, qtbo
     np.testing.assert_array_equal(win._fields[spawned.layer_id].values, expected)
 
 
+@pytest.mark.parametrize("fixture,roi", [("plain_window", (4, 5, 16, 20)),
+                                         ("real_pic_window", (20, 24, 16, 20))])
+def test_a_fork_of_an_roi_result_is_drawn_where_its_georeference_puts_it(fixture, roi, request,
+                                                                         qtbot, monkeypatch):
+    """The Raster tab places a fork by its OWN axes on the grid of the dataset it came from, so
+    a correctly georeferenced fork lands exactly on its region."""
+    win = request.getfixturevalue(fixture)
+    r, c, h, w = roi
+    _save(win, row=r, col=c, h=h, w=w)
+    child = _roi_child(win, qtbot, "holder_measure")
+    _fork(win, monkeypatch, child.layer_id)
+    rect = win.canvas.image_item.mapRectToView(win.canvas.image_item.boundingRect())
+    assert (rect.left(), rect.top()) == pytest.approx((c - 0.5, r - 0.5))
+    assert (rect.width(), rect.height()) == pytest.approx((w, h))
+    assert win.canvas._base_off == (r, c)
+    # what is drawn in the fork's own file pixels moves with it
+    win.canvas.set_saved_rois([{"label": "B", "row": 0, "col": 0, "h": 2, "w": 2,
+                                "active": False}])
+    xs, ys = win.canvas.saved_roi_item.getData()
+    assert np.nanmin(xs) == pytest.approx(c - 0.5) and np.nanmin(ys) == pytest.approx(r - 0.5)
+
+
+def test_a_fork_of_a_whole_field_result_sits_on_its_dataset(plain_window, qtbot, monkeypatch):
+    win = plain_window
+    child = _whole_field_child(win, qtbot, "holder_measure")
+    _fork(win, monkeypatch, child.layer_id)
+    assert win.canvas._base_off == (0, 0)
+
+
 def test_forked_vectors_sit_nested_inside_their_dataset_and_keep_their_extrema(
         plain_window, qtbot, monkeypatch):
     win = plain_window

@@ -787,6 +787,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         # the CURRENT result's overlays were drawn at (display_offset + base), for the
         # result-anchored gestures (chain picks, box/lasso selection).
         self._base_off = (0, 0)
+        # A dataset with no file window placed inside another's file pixels (a fork shown where
+        # its georeference puts it): added to the base, and to everything drawn in file pixels.
+        self._display_shift = (0, 0)
         self._draw_off = (0.0, 0.0)
         self._press_pos = None
         self._press_shift = False
@@ -1162,8 +1165,9 @@ class Canvas(pg.GraphicsLayoutWidget):
             if len(pts) < 3:
                 continue
             ring = pts + [pts[0]]
-            xs += [float(p[0]) for p in ring] + [np.nan]
-            ys += [float(p[1]) for p in ring] + [np.nan]
+            sr, sc = self._display_shift
+            xs += [float(p[0]) + sc for p in ring] + [np.nan]
+            ys += [float(p[1]) + sr for p in ring] + [np.nan]
         self.mask_outline_item.setData(np.asarray(xs, dtype=float), np.asarray(ys, dtype=float))
 
     _GEOMETRY_CACHE_MAX = 64
@@ -1619,9 +1623,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         registration every overlay uses), labelled at their top-left corner."""
         def _rings(items):
             xs, ys = [], []
+            sr, sc = self._display_shift
             for d in items:
-                x0, y0 = d["col"] - 0.5, d["row"] - 0.5
-                x1, y1 = d["col"] + d["w"] - 0.5, d["row"] + d["h"] - 0.5
+                x0, y0 = d["col"] + sc - 0.5, d["row"] + sr - 0.5
+                x1, y1 = d["col"] + sc + d["w"] - 0.5, d["row"] + sr + d["h"] - 0.5
                 xs += [x0, x1, x1, x0, x0, np.nan]
                 ys += [y0, y0, y1, y1, y0, np.nan]
             return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
@@ -1634,7 +1639,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._saved_roi_labels = []
         for d in rois:
             text = pg.TextItem(str(d["label"]), color=RESTRAINED_DARK.amber, anchor=(0, 1))
-            text.setPos(d["col"] - 0.5, d["row"] - 0.5)
+            text.setPos(d["col"] + self._display_shift[1] - 0.5,
+                        d["row"] + self._display_shift[0] - 0.5)
             self.view.addItem(text)
             self._saved_roi_labels.append(text)
 
@@ -1665,6 +1671,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         xs, ys = np.empty(12 * m.size + 12), np.empty(12 * m.size + 12)
         n = kernels()["mask_edges"](m, xs, ys)
         dr, dc = (float(v) for v in offset)
+        dr, dc = dr + self._display_shift[0], dc + self._display_shift[1]
         self.fill_outline_item.setData(xs[:n] + (c0 + dc), ys[:n] + (r0 + dr))
 
     def clear_overlays(self) -> None:
@@ -2058,7 +2065,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
                                                      max_dist), shift)
         super().mouseReleaseEvent(event)
 
-    def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM) -> None:
+    def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM, display_origin=None) -> None:
         """Raster display: an ``ImageItem`` in the ``viridis`` colormap, decimated for on-screen
         size via :func:`lod_stride`. ``field`` may be a ``RasterField`` or a bare ``(ny, nx)``
         array.
@@ -2080,7 +2087,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         own ``self.field`` from the same call site.
         """
         self._field = field
-        self._base_off = window_offset(field)
+        self._display_shift = (tuple(int(v) for v in display_origin) if display_origin is not None
+                               else (0, 0))
+        wr, wc = window_offset(field)
+        self._base_off = (wr + self._display_shift[0], wc + self._display_shift[1])
         # North-up for GEOGRAPHIC fields only: this view is image-convention (row 0 at top,
         # ``invertY(True)`` at construction), so a file stored south-first (ascending latitude
         # axis -- the demo DEM) would draw upside down here while the Vector tab shows it
@@ -2110,7 +2120,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         ``lod``) is pinned to: its window offset, its display stride and anchor, its sample
         offset. :meth:`set_field` registers the dataset with it, :meth:`set_product` a
         product."""
-        base_off = window_offset(field)
+        wr, wc = window_offset(field)
+        base_off = (wr + self._display_shift[0], wc + self._display_shift[1])
         # Center registration (edges drawn "between two pixels" at max zoom):
         # every overlay draws at integer pixel INDICES (and subpixel channels are index-based,
         # x_sub = j + t, |t| <= 1/2), so integer data coordinate j must be the CENTER of
