@@ -98,6 +98,7 @@ class Transport(QtWidgets.QFrame):
 
         self.reading_label = QtWidgets.QLabel(scale_reading(0))
         self.reading_label.setProperty("reading", "true")
+        self._fit_readings(n_scales)
 
         row = QtWidgets.QHBoxLayout(self)
         row.addWidget(self.play_button)
@@ -113,8 +114,25 @@ class Transport(QtWidgets.QFrame):
         self.slider.blockSignals(True)
         self.slider.setValue(idx)
         self.slider.blockSignals(False)
-        self.reading_label.setText(self._scale_reading(idx))
+        self._show_reading(idx)
         self.scaleChanged.emit(idx)
+
+    def _widen_for(self, text: str) -> None:
+        """Widen the reading label to fit ``text``; it never narrows. The slider beside it then
+        keeps its length while a mouse holds it -- a shorter slider maps the same cursor
+        position to another value, and the scale flips back and forth."""
+        need = self.reading_label.fontMetrics().horizontalAdvance(text) + 8
+        if need > self.reading_label.minimumWidth():
+            self.reading_label.setMinimumWidth(need)
+
+    def _fit_readings(self, n: int) -> None:
+        for i in range(max(int(n), 1)):
+            self._widen_for(self._scale_reading(i))
+
+    def _show_reading(self, idx: int) -> None:
+        text = self._scale_reading(idx)
+        self._widen_for(text)
+        self.reading_label.setText(text)
 
     def _on_slider_moved(self, value: int) -> None:
         self.clock.scrub(value)
@@ -148,7 +166,7 @@ class Transport(QtWidgets.QFrame):
         self.slider.blockSignals(True)
         self.slider.setValue(idx)
         self.slider.blockSignals(False)
-        self.reading_label.setText(self._scale_reading(idx))
+        self._show_reading(idx)
 
     def set_n_scales(self, n: int) -> None:
         """Re-range after a recompute. Clamps the current position into the new range.
@@ -165,4 +183,5 @@ class Transport(QtWidgets.QFrame):
         self.slider.setMaximum(max(n - 1, 0))
         self.slider.blockSignals(False)
         self.clock.scrub(clamped)
+        self._fit_readings(n)
         self._set_index(clamped)
