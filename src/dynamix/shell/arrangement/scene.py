@@ -554,6 +554,7 @@ def _stack_keys(entry: dict) -> dict:
             "vector_opacity": entry.get("vector_opacity", 1.0),
             "show_extrema": entry.get("show_extrema", True),
             "show_chains": entry.get("show_chains", True),
+            "show_outline": entry.get("show_outline", True),
             "extrema_style": entry.get("extrema_style", "polylines")}
 
 
@@ -1604,6 +1605,8 @@ class Scene:
                 return False
             if any(old.get(k) != new.get(k) for k in self._STYLE_KEYS):
                 return False
+            if _stack_keys(old) != _stack_keys(new):
+                return False            # the layer stack moved: opacity and lift redraw it all
             # The edges output row's H is a vector-actor change: the same result, redrawn
             # with or without its H-lines/dots.
             if id(old.get("result")) == id(new.get("result")) \
@@ -1635,9 +1638,17 @@ class Scene:
             self._chain_lookup.pop(layer_id, None)
             self._vector_masks.pop(layer_id, None)
             names = list(raster_names)
-            chain_lookup_entry, vector_mask_entry = self._build_vector_actors(
-                layer_id, entry["field"], entry["result"], names, entry.get("vtrail_color"),
-                edges_hidden=bool(entry.get("edges_hidden")))
+            stack = _stack_keys(entry)
+            self._lift_rank = int(stack["rank"])
+            try:
+                chain_lookup_entry, vector_mask_entry = self._build_vector_actors(
+                    layer_id, entry["field"], entry["result"], names, entry.get("vtrail_color"),
+                    edges_hidden=bool(entry.get("edges_hidden")),
+                    show_extrema=stack["show_extrema"], show_chains=stack["show_chains"],
+                    show_outline=stack["show_outline"], extrema_style=stack["extrema_style"],
+                    vector_opacity=stack["vector_opacity"])
+            finally:
+                self._lift_rank = 0
             self._layer_actors[layer_id] = names
             if chain_lookup_entry is not None:
                 self._chain_lookup[layer_id] = chain_lookup_entry
@@ -1743,7 +1754,8 @@ class Scene:
                             surface=None, surface_field=None, drape=None,
                             levels=None, edges_hidden=False, drape_offset=None,
                             rank=0, raster_opacity=1.0, vector_opacity=1.0, show_extrema=True,
-                            show_chains=True, extrema_style="polylines") -> None:
+                            show_chains=True, show_outline=True,
+                            extrema_style="polylines") -> None:
         """Everything ONE "ok" layer contributes: the raster drape, plus (when ``result`` carries
         them) its chains/extrema/ROI-outline vector actors -- ATOMIC per layer. Any exception
         raised while building the VECTOR actors rolls back every actor this call already added
@@ -1794,7 +1806,8 @@ class Scene:
                 chain_lookup_entry, vector_mask_entry = self._build_vector_actors(
                     layer_id, field, result, names, vtrail_color, edges_hidden=edges_hidden,
                     show_extrema=show_extrema, show_chains=show_chains,
-                    extrema_style=extrema_style, vector_opacity=vector_opacity)
+                    show_outline=show_outline, extrema_style=extrema_style,
+                    vector_opacity=vector_opacity)
         except Exception:
             for name in names:
                 self._plotter.remove_actor(name, render=False)
@@ -2375,7 +2388,8 @@ class Scene:
 
     def _build_vector_actors(self, layer_id, field, result, names: list[str], vtrail_color=None,
                              *, edges_hidden=False, show_extrema=True, show_chains=True,
-                             extrema_style="polylines", vector_opacity=1.0):
+                             show_outline=True, extrema_style="polylines",
+                             vector_opacity=1.0):
         """One layer's chains/extrema/ROI-outline actors, added to the plotter. ``names`` is the
         CALLER's own list (:meth:`_add_layer_geometry`) -- appended to directly, in place, as each
         actor is genuinely added, so a failure partway through still leaves the caller holding
@@ -2470,7 +2484,7 @@ class Scene:
                     names.append(hname)
 
         roi = (result.get("_roi") or {}).get("roi")
-        if roi is not None:
+        if roi is not None and show_outline:
             roi_name = self._build_roi_actor(layer_id, field, roi)
             if roi_name is not None:
                 names.append(roi_name)

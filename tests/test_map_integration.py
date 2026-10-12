@@ -84,6 +84,8 @@ def test_an_old_project_gets_a_default_stack_and_dangling_ids_drop(geo_window, t
     assert dropped == 1 and win.project.layer_stack.node("src:gone") is None
 
 
+@pytest.mark.skip(reason="an ROI's outline is a row of its group in the stack "
+                         "(test_an_roi_outline_is_a_row_of_its_group)")
 def test_roi_outlines_draw_on_the_map(geo_window):
     win = geo_window
     _save(win, row=30, col=40, h=24, w=30)
@@ -188,6 +190,62 @@ def test_stack_flags_for_the_3d_entries(geo_window, qtbot):
     assert flags["extrema_style"] == "blocks" and flags["rank"] >= 0
     stack.node(f"chn:{child.layer_id}").visible = False
     assert win._stack_entry_flags(child) is None or not win._stack_entry_flags(child)["show_chains"]
+
+
+def test_an_roi_outline_is_a_row_of_its_group(geo_window):
+    win = geo_window
+    roi = _save(win, row=30, col=40, h=24, w=30)
+    rid = f"roi:{roi.roi_id}"
+    stack = win.project.layer_stack
+    assert stack.parent_of(rid).id == f"roig:{roi.roi_id}"
+    assert win._row_label(rid) == f"ROI {roi.label} outline"
+    win._set_center_view("map")
+    (outline,) = win.map_view._vectors[rid]
+    xs, _ys = outline.getData()
+    assert outline.isVisible()
+    assert min(xs) == pytest.approx(500400.0) and max(xs) == pytest.approx(500700.0)
+
+
+def test_the_outline_rows_eye_is_the_rois_own_h(geo_window):
+    """One switch: the Layers panel's outline row and the ROI row's H in the layer list."""
+    from PySide6 import QtCore
+
+    win = geo_window
+    roi = _save(win, row=30, col=40, h=24, w=30)
+    rid = f"roi:{roi.roi_id}"
+    win._set_center_view("map")
+    win.layers_panel.item_for(rid).setCheckState(0, QtCore.Qt.Unchecked)
+    assert roi.visible is False
+    assert win.layer_list._roi_rows[roi.roi_id].hide_button.isChecked()
+    assert not win.map_view._vectors[rid][0].isVisible()
+    win.layer_list._roi_rows[roi.roi_id].hide_button.setChecked(False)     # the H, back on
+    assert roi.visible is True
+    assert win.project.layer_stack.node(rid).visible is True
+    assert win.layers_panel.item_for(rid).checkState(0) == QtCore.Qt.Checked
+    assert win.map_view._vectors[rid][0].isVisible()
+
+
+def test_the_roi_groups_eye_hides_its_outline_and_its_results(geo_window, qtbot):
+    from PySide6 import QtCore
+
+    win = geo_window
+    roi = _save(win, row=30, col=40, h=24, w=30)
+    child = _roi_child(win, qtbot, "holder_measure")
+    win._set_center_view("map")
+    win.layers_panel.item_for(f"roig:{roi.roi_id}").setCheckState(0, QtCore.Qt.Unchecked)
+    assert not win.map_view._vectors[f"roi:{roi.roi_id}"][0].isVisible()
+    assert not win.map_view._items[f"prod:{child.layer_id}"].isVisible()
+    assert win.map_view._items[f"src:{child.source_id}"].isVisible()      # the dataset stays
+    assert win._stack_entry_flags(child) is None
+
+
+def test_the_3d_entry_follows_the_outline_row(geo_window, qtbot):
+    win = geo_window
+    roi = _save(win, row=30, col=40, h=24, w=30)
+    child = _roi_child(win, qtbot, "holder_measure")
+    assert win._stack_entry_flags(child)["show_outline"] is True
+    win.project.layer_stack.node(f"roi:{roi.roi_id}").visible = False
+    assert win._stack_entry_flags(child)["show_outline"] is False
 
 
 from test_bus_shell import _Route, three_datasets  # noqa: F401,E402

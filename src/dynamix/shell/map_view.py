@@ -129,6 +129,8 @@ class MapView(QtWidgets.QWidget):
             return
         if content.kind in ("raster", "product", "channel"):
             self._draw_raster(row_id, content, opacity, z)
+        elif content.kind == "outline":
+            self._draw_outline(row_id, content, opacity, z)
         elif content.result.get("_roi_axes") is None and \
                 getattr(content.grid_field, "x_axis", None) is None:
             self._hide(row_id, "no coordinates")          # a bare array places nowhere
@@ -265,6 +267,27 @@ class MapView(QtWidgets.QWidget):
             if z is not None:
                 it.setZValue(z)
         blocks.setVisible(True)
+
+    def _draw_outline(self, row_id, content, opacity, z) -> None:
+        """An ROI's outline row: its box (``content.result["roi"] = (row, col, h, w)`` in the
+        pixels of ``content.field``'s axes) on the pixel edges, dashed."""
+        from dynamix.geo.extrema_draw import to_axes
+
+        r, c, h, w = content.result["roi"]
+        field = content.field
+        cols = np.array([c, c + w, c + w, c, c]) - 0.5
+        rows = np.array([r, r, r + h, r + h, r]) - 0.5
+        x, y = self._to_map(field, *to_axes(cols, rows, field.x_axis, field.y_axis))
+        items = self._vectors.get(row_id)
+        if items is None:
+            items = (pg.PlotDataItem(pen=pg.mkPen("#e8a33d", style=QtCore.Qt.DashLine)),)
+            self.view.addItem(items[0])
+            self._vectors[row_id] = items
+        items[0].setData(x, y)
+        items[0].setOpacity(opacity)
+        if z is not None:
+            items[0].setZValue(z)
+        items[0].setVisible(True)
 
     def _trail_xy(self, content, chains):
         from dynamix.geo.extrema_draw import to_axes

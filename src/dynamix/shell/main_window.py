@@ -6590,7 +6590,14 @@ both ``Canvas`` signals report the
             return
         roi.visible = not hidden
         self._refresh_saved_rois()
+        node = self.project.layer_stack.node(f"roi:{roi_id}")
+        if node is not None:                   # the Layers panel's outline row follows
+            node.visible = roi.visible
+            if self.layers_panel is not None:
+                self.layers_panel.refresh()
         self._redraw_map()
+        if self._arrangement_shown():
+            self._sync_arrangement()
 
     def _on_roi_child_create(self, spec: dict) -> None:
         """Child dataset was pressed: the drawn box becomes a NATIVE-PIXEL CROP of the
@@ -8884,10 +8891,11 @@ both ``Canvas`` signals report the
         lid, sid = layer.layer_id, layer.source_id
         raster_id = f"prod:{lid}" if f"prod:{lid}" in state else (
             f"src:{sid}" if layer.parent_id is None else None)
+        show_outline = state.get(f"roi:{layer.roi_id}", (True, 1.0))[0] if layer.roi_id else True
         if not any(r in state for r in (raster_id, f"ext:{lid}", f"chn:{lid}") if r):
             return {"rank": 0, "raster_opacity": 1.0, "vector_opacity": 1.0,
                     "show_raster": True, "show_extrema": True, "show_chains": True,
-                    "extrema_style": "polylines"}
+                    "show_outline": show_outline, "extrema_style": "polylines"}
         rv, ro = state.get(raster_id, (False, 1.0)) if raster_id else (False, 1.0)
         ev, eo = state.get(f"ext:{lid}", (False, 1.0))
         cv, co = state.get(f"chn:{lid}", (False, 1.0))
@@ -8897,7 +8905,7 @@ both ``Canvas`` signals report the
         return {"rank": max(rank[r] for r in ids), "raster_opacity": ro,
                 "vector_opacity": max(eo if ev else 0.0, co if cv else 0.0),
                 "show_raster": rv, "show_extrema": ev, "show_chains": cv,
-                "extrema_style": "blocks"}
+                "show_outline": show_outline, "extrema_style": "blocks"}
 
     def _arrangement_shown(self) -> bool:
         """Whether the Vector/Globe scene is the centre view on screen."""
@@ -8945,7 +8953,13 @@ both ``Canvas`` signals report the
                    if s.kind != "points" and sid in live]
         near = {**self._stack_near, **(near or {})}
         self._stack_near = {}
-        dropped = reconcile(self.project.layer_stack, sources, self._layer_infos(), near=near)
+        rois = [(r.roi_id, r.source_id, r.label) for r in self.project.rois]
+        dropped = reconcile(self.project.layer_stack, sources, self._layer_infos(), near=near,
+                            rois=rois)
+        for roi in self.project.rois:          # an outline row's eye is the ROI's own H
+            node = self.project.layer_stack.node(f"roi:{roi.roi_id}")
+            if node is not None:
+                node.visible = bool(roi.visible)
         if dropped and not near:
             self._notify(f"layer stack: {dropped} row(s) for missing content dropped", "status")
         if self.project.map_crs is None and self.field is not None:
@@ -8973,6 +8987,9 @@ both ``Canvas`` signals report the
         if kind == "src":
             src = self.project.sources.get(rest)
             return (src.label or Path(src.path).stem) if src else row_id
+        if kind == "roi":
+            roi = next((r for r in self.project.rois if r.roi_id == rest), None)
+            return f"ROI {roi.label} outline" if roi else row_id
         if kind == "ch":
             lid, n = (int(v) for v in rest.split(":"))
             layer = self._layer_by_id.get(lid)
@@ -9018,6 +9035,15 @@ both ``Canvas`` signals report the
         from dynamix.shell.map_view import RowContent
 
         kind, _, rest = row_id.partition(":")
+        if kind == "roi":
+            roi = next((r for r in self.project.rois if r.roi_id == rest), None)
+            master = roi and next((l for l in self.project.layers
+                                   if l.source_id == roi.source_id and l.parent_id is None), None)
+            field = self._fields.get(master.layer_id) if master else None
+            if field is None:
+                return RowContent("outline", reason="not loaded")
+            return RowContent("outline", field=self._file_axes(field),
+                              result={"roi": (roi.row, roi.col, roi.h, roi.w)})
         if kind == "src":
             master = next((l for l in self.project.layers
                            if l.source_id == rest and l.parent_id is None), None)
@@ -9144,31 +9170,27 @@ both ``Canvas`` signals report the
             self.layers_panel.set_reasons(self.map_view.reasons())
             self.layers_panel.relabel()
 
-    def _map_overlays(self) -> dict:
-        """ROI outlines (on their dataset's FILE-pixel axes), reference layers in the map CRS
-        and point catalogues, for ``MapView.set_overlays``; visibility from their own controls."""
+    @staticmethod
+    def _file_axes(field):
+        """``field``'s dataset on its FILE-pixel axes (a picture's native grid, a window's
+        whole file), where saved ROIs are recorded."""
         import types
 
+        grid = file_pixel_grid(field)
+        if grid is not None:
+            x0, dx, y0, dy, nx, ny = grid
+            xa, ya = x0 + dx * np.arange(nx), y0 + dy * np.arange(ny)
+        else:
+            r_off, c_off = window_offset(field)
+            xa = axis_at(field.x_axis, np.arange(c_off + len(field.x_axis)) - c_off)
+            ya = axis_at(field.y_axis, np.arange(r_off + len(field.y_axis)) - r_off)
+        return types.SimpleNamespace(x_axis=xa, y_axis=ya, provenance=field.provenance)
+
+    def _map_overlays(self) -> dict:
+        """Reference layers in the map CRS and point catalogues, for ``MapView.set_overlays``;
+        visibility from their own controls. ROI outlines are stack rows (``roi:<id>``)."""
         from dynamix.geo.vectors import to_crs
 
-        def file_axes(field):
-            grid = file_pixel_grid(field)
-            if grid is not None:
-                x0, dx, y0, dy, nx, ny = grid
-                xa, ya = x0 + dx * np.arange(nx), y0 + dy * np.arange(ny)
-            else:
-                r_off, c_off = window_offset(field)
-                xa = axis_at(field.x_axis, np.arange(c_off + len(field.x_axis)) - c_off)
-                ya = axis_at(field.y_axis, np.arange(r_off + len(field.y_axis)) - r_off)
-            return types.SimpleNamespace(x_axis=xa, y_axis=ya, provenance=field.provenance)
-
-        rois = []
-        for roi in self.project.rois:
-            master = next((l for l in self.project.layers
-                           if l.source_id == roi.source_id and l.parent_id is None), None)
-            field = self._fields.get(master.layer_id) if master else None
-            if roi.visible and field is not None:
-                rois.append((file_axes(field), (roi.row, roi.col, roi.h, roi.w), roi.label))
         refs = []
         if self.project.map_crs:
             for rec in self.project.reference_layers:
@@ -9187,9 +9209,16 @@ both ``Canvas`` signals report the
 
                     x, y = transform("EPSG:4326", self.project.map_crs, list(ps.lon), list(ps.lat))
                     points.append((np.asarray(x), np.asarray(y)))
-        return {"rois": rois, "references": refs, "points": points}
+        return {"references": refs, "points": points}
 
     def _on_stack_changed(self) -> None:
+        changed = False
+        for roi in self.project.rois:          # an outline row's eye is the ROI's own H
+            node = self.project.layer_stack.node(f"roi:{roi.roi_id}")
+            if node is not None and node.visible != roi.visible:
+                roi.visible, changed = node.visible, True
+        if changed:
+            self._refresh_saved_rois()
         self._redraw_map()
         if self._arrangement_shown():
             self._sync_arrangement()
@@ -9201,6 +9230,8 @@ both ``Canvas`` signals report the
             self.layer_list.select_layer(int(rest.split(":", 1)[0]))
         elif kind == "ch":
             self.layer_list.select_layer(int(rest.split(":", 1)[0]))
+        elif kind == "roi":
+            self.layer_list.select_roi(rest)
         elif kind == "src":
             master = next((l for l in self.project.layers
                            if l.source_id == rest and l.parent_id is None), None)

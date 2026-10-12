@@ -59,3 +59,34 @@ def test_the_stack_hides_extrema_and_chains_and_fades_the_raster(tmp_path):
     assert scene._chains_actor_name(1) not in names
     raster = scene._plotter.actors[scene._mesh_actor_name(1)]
     assert abs(raster.GetProperty().GetOpacity() - 0.4) < 1e-9
+
+
+def test_a_hidden_outline_row_leaves_the_roi_outline_out(tmp_path):
+    scene = Scene(_plotter())
+    field = _geo_field(tmp_path, "a.tif")
+    res = _with_shape(_result([], _make_extrema0([2, 3], [5, 5]), roi=(1, 1, 10, 10)), field)
+    scene.set_layers([_entry(1, field, res)])
+    shown = len(scene._layer_actors[1])
+    scene.set_layers([_entry(1, field, dict(res), show_outline=False)])
+    assert len(scene._layer_actors[1]) == shown - 1
+
+
+def test_a_filtered_resync_keeps_the_stacks_flags_and_lift(tmp_path):
+    """The filter-only fast path rebuilds a layer's vectors in place: with the same stack flags
+    and rank lift as a full rebuild."""
+    scene = Scene(_plotter())
+    scene.set_frame_mode(True)
+    field = _geo_field(tmp_path, "a.tif")
+    res = _with_shape(_result([], _make_extrema0([2, 3], [5, 5]), roi=(1, 1, 10, 10)), field)
+    flags = {"extrema_style": "blocks", "rank": 3, "show_outline": False}
+    scene.set_layers([_entry(1, field, res, **flags)])
+    def heights():
+        mapper = scene._plotter.actors[scene._extrema_actor_name(1)].GetMapper()
+        mapper.Update()                       # the actor's pipeline runs on demand
+        return np.array(pv.wrap(mapper.GetInput()).points[:, 2])
+
+    z_before = heights()
+    scene.set_layers([_entry(1, field, dict(res), **flags)])          # a re-filtered result
+    assert not any(n.endswith("-roi") for n in scene._layer_actors[1])
+    z_after = heights()
+    assert z_after.size == 2 and np.allclose(z_after, z_before)

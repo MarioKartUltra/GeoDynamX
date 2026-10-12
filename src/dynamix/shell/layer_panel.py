@@ -721,6 +721,13 @@ class LayerPanel(QtWidgets.QTreeWidget):
         live = {r.roi_id for r in self._project.rois}
         for roi in self._project.rois:
             self._ensure_roi_row(roi.roi_id)
+            row = self._roi_rows.get(roi.roi_id)
+            if row is not None and row.hide_button.isChecked() == bool(roi.visible):
+                row.hide_button.blockSignals(True)      # the outline was toggled elsewhere
+                try:
+                    row.hide_button.setChecked(not roi.visible)
+                finally:
+                    row.hide_button.blockSignals(False)
         for roi_id in [rid for rid in self._roi_items if rid not in live]:
             self._forget_roi_row(roi_id, take=True)
 
