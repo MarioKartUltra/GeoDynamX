@@ -285,3 +285,38 @@ def test_the_row_note_says_when_the_energy_threshold_was_not_reached(builtins):
     assert dev.view(res, p)["_view_note"].endswith("energy threshold not reached")
     reached = dev.compute(_raster(_field()), {**p, "n_components": 40, "energy_threshold": 0.5})
     assert "not reached" not in dev.view(reached, p)["_view_note"]
+
+
+@pytest.mark.parametrize("solver", ("dense",) + _FFT_SOLVERS)
+def test_stop_lands_inside_the_decomposition_not_after_it(solver):
+    """Stop is checked at every progress tick and inside every FFT product, so a long
+    eigensolve stops within one product instead of running to the end."""
+    from dynamix.core.wtmm_backend import ComputeCancelled
+
+    checks, stages = [], []
+
+    def cancel():
+        checks.append(1)
+        return len(checks) > 3
+
+    with pytest.raises(ComputeCancelled):
+        ssa2d(_field(), rows_window=8, cols_window=9, n_components=6, solver=solver,
+              progress=lambda stage, frac: stages.append(stage), cancel=cancel)
+    assert "2D-SSA components" not in stages
+    if solver != "dense":
+        assert "2D-SSA factor arrays" not in stages            # stopped mid-eigensolver
+
+
+def test_the_stop_button_reaches_the_tool_whole_field_and_on_an_roi(builtins):
+    from dynamix.core.wtmm_backend import ComputeCancelled
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.roi.runner import run_on_region
+
+    dev = get_device("ssa2d")
+    assert dev.wants_cancel
+    _clean, F = _two_waves()
+    p = {**defaults_for(dev), "rows_window": 10, "cols_window": 10, "n_components": 4}
+    with pytest.raises(ComputeCancelled):
+        dev.compute(_raster(F), p, cancel=lambda: True)
+    with pytest.raises(ComputeCancelled):
+        run_on_region([(dev, p)], _raster(F), (30, 30, 40, 36), cancel=lambda: True)

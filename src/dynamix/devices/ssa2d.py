@@ -52,6 +52,7 @@ def _store(a):
 class SSA2D:
     """2D-SSA: eigentriples of every window of the field, components, groups, w-correlations."""
 
+    wants_cancel = True                  # the stop button reaches the eigensolver
     name = "ssa2d"
     label = "2-D SSA"
     families = ("Decomposition", "Reconstruction")
@@ -112,7 +113,7 @@ class SSA2D:
         span = max(int(params["rows_window"]), int(params["cols_window"])) - 1
         return int(math.ceil(float(params.get("margin_windows", 1.0)) * span))
 
-    def _decompose(self, vals, params: dict, progress=None) -> dict:
+    def _decompose(self, vals, params: dict, progress=None, cancel=None) -> dict:
         from dynamix.core.ssa2d import ssa2d
 
         if vals.ndim != 2:
@@ -125,7 +126,7 @@ class SSA2D:
                      power_iterations=int(params.get("power_iterations", 2)),
                      keep=params.get("keep", "count"),
                      energy_threshold=float(params.get("energy_threshold", 0.9)),
-                     progress=progress)
+                     progress=progress, cancel=cancel)
 
     def _result(self, field, out: dict, r0: int, c0: int, h: int, w: int, params: dict) -> dict:
         """The decomposition's result cut to ``[r0, r0 + h) x [c0, c0 + w)``."""
@@ -145,7 +146,7 @@ class SSA2D:
         res["_shape"] = (h, w)
         return res
 
-    def compute(self, field, params: dict, *, progress=None) -> dict:
+    def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         """The whole field, decomposed -- mirror-extended by the edge margin first when
         ``edge_extension`` is mirror, and cropped back."""
         import numpy as np
@@ -156,17 +157,17 @@ class SSA2D:
         mirror = params.get("edge_extension", "none") == "mirror" and vals.ndim == 2
         m = self.roi_margin(params) if mirror else 0
         ext = np.pad(vals, m, mode="symmetric") if m else vals
-        out = self._decompose(ext, params, progress)
+        out = self._decompose(ext, params, progress, cancel)
         return self._result(field, out, m, m, vals.shape[0], vals.shape[1], params)
 
     def compute_roi(self, window_field, core, params: dict, *, info=None,
-                    progress=None) -> dict:
+                    progress=None, cancel=None) -> dict:
         """A region: the runner's window (the ROI plus the edge margin of real data) decomposed
         as it is, then cut to the ROI."""
         from dynamix.devices.decompose import _field_values
 
         vals = _field_values(window_field, self.name)
-        out = self._decompose(vals, params, progress)
+        out = self._decompose(vals, params, progress, cancel)
         r0, c0, h, w = (int(v) for v in core)
         return self._result(window_field, out, r0, c0, h, w, params)
 

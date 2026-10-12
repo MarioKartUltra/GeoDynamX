@@ -51,6 +51,13 @@ _OVERSAMPLE = 10
 _CHUNK = 8
 
 
+def _stop(cancel):
+    """Cooperative stop: the run_wtmm2d stage-boundary contract."""
+    if cancel is not None and cancel():
+        from dynamix.core.wtmm_backend import ComputeCancelled
+        raise ComputeCancelled()
+
+
 def window_counts(shape, rows_window: int, cols_window: int) -> np.ndarray:
     """How many ``L_r x L_c`` windows cover each pixel -- the ``w_x(i) w_y(j)`` weights of the
     paper's Def 3.15 (and the divisor of the Hankel-block-Hankel projection)."""
@@ -86,7 +93,7 @@ def cluster_components(w_correlation, shares, distance: float = 0.5):
     return sorted(groups.values(), key=lambda g: (-share[g].sum(), g[0])), Z
 
 
-def _fft_operators(a, Lr: int, Lc: int):
+def _fft_operators(a, Lr: int, Lc: int, cancel=None):
     """``(Wt, W)`` for the image ``a``: ``Wt`` maps a stack of ``L_r x L_c`` arrays to their dot
     products with every window (``K_r x K_c`` each), ``W`` maps a stack of ``K_r x K_c`` arrays to
     their window-weighted sums (``L_r x L_c`` each). Both are the correlation of the image with
@@ -101,6 +108,7 @@ def _fft_operators(a, Lr: int, Lc: int):
         stack = np.asarray(stack, dtype=np.float64)
         out = np.empty((stack.shape[0], rows, cols))
         for c0 in range(0, stack.shape[0], _CHUNK):
+            _stop(cancel)                 # every eigensolver iteration runs through here
             part = stack[c0:c0 + _CHUNK]
             pad = np.zeros((part.shape[0], ny, nx))
             pad[:, :part.shape[1], :part.shape[2]] = part
@@ -111,7 +119,7 @@ def _fft_operators(a, Lr: int, Lc: int):
     return (lambda u: corr(u, Kr, Kc)), (lambda v: corr(v, Lr, Lc))
 
 
-def _fft_components(psi, A, shape):
+def _fft_components(psi, A, shape, cancel=None):
     """Each eigenarray convolved with its factor array (the overlap-add of the dense route), by
     FFT: the full convolution is exactly the image's size, so nothing wraps."""
     from dynamix.core.fft_policy import active as _fft
@@ -121,6 +129,7 @@ def _fft_components(psi, A, shape):
     _, Kr, Kc = A.shape
     out = np.empty((n, ny, nx))
     for c0 in range(0, n, _CHUNK):
+        _stop(cancel)
         m = min(_CHUNK, n - c0)
         p = np.zeros((m, ny, nx))
         q = np.zeros((m, ny, nx))
@@ -169,6 +178,15 @@ def _propack(Wt, W, Lr, Lc, Kr, Kc, n):
     except np.linalg.LinAlgError as exc:
         raise ValueError(f"2D-SSA: PROPACK did not converge ({exc}) -- a nearly flat spectrum "
                          "(very noisy data); use the Lanczos solver") from None
+    except SystemError as exc:
+        # PROPACK calls the products from Fortran: an exception raised in one (a stop, a
+        # backend error) comes back wrapped in SystemErrors; raise the original.
+        cause = exc.__cause__
+        while isinstance(cause, SystemError):
+            cause = cause.__cause__
+        if cause is None:
+            raise
+        raise cause from None
     order = np.argsort(s)[::-1]
     return s[order] ** 2, U[:, order]
 
@@ -192,7 +210,8 @@ def _randomized(Wt, W, Lr, Lc, Kr, Kc, n, power_iterations):
 
 def ssa2d(values, *, rows_window: int, cols_window: int, n_components: int = 16,
           solver: str = "dense", power_iterations: int = 2, keep: str = "count",
-          energy_threshold: float = 0.9, progress=None, block: int = 32) -> dict:
+          energy_threshold: float = 0.9, progress=None, block: int = 32,
+          cancel=None) -> dict:
     """2D-SSA of a 2-D field. Returns ``{"recon" (sum of the kept components), "residual",
     "components" (n, ny, nx), "eigen_share" (n,), "eigenarrays" (n, L_r, L_c),
     "factor_arrays" (n, K_r, K_c), "w_correlation" (n, n), "solver_used", "energy_reached"}``;
@@ -203,7 +222,10 @@ def ssa2d(values, *, rows_window: int, cols_window: int, n_components: int = 16,
     count reaches the window size (a tiny window, where dense is exact and instant) and says so
     in ``solver_used``. ``keep="energy"`` treats ``n_components`` as the most to find and keeps
     the fewest whose cumulative share reaches ``energy_threshold``; ``energy_reached`` is False
-    when ``n_components`` was not enough."""
+    when ``n_components`` was not enough.
+
+    ``cancel``: a zero-arg predicate, checked at every progress tick and inside every FFT
+    product; when it returns True the run raises ``ComputeCancelled``."""
     if solver not in SOLVERS:
         raise ValueError(f"unknown 2D-SSA solver {solver!r}; expected one of {SOLVERS}")
     if keep not in ("count", "energy"):
@@ -227,6 +249,7 @@ def ssa2d(values, *, rows_window: int, cols_window: int, n_components: int = 16,
     w = window_counts(a.shape, Lr, Lc)
 
     def report(stage, frac):
+        _stop(cancel)
         if progress is not None:
             progress(stage, frac)
 
@@ -273,7 +296,7 @@ def ssa2d(values, *, rows_window: int, cols_window: int, n_components: int = 16,
     else:
         from dynamix.core.fft_policy import active as _fft
 
-        Wt, W = _fft_operators(a, Lr, Lc)
+        Wt, W = _fft_operators(a, Lr, Lc, cancel)
         total = float((w * a * a).sum())                     # trace(W W^T), exactly
         report("2D-SSA eigentriples", 0.05)
         if solver == "lanczos":
@@ -288,7 +311,7 @@ def ssa2d(values, *, rows_window: int, cols_window: int, n_components: int = 16,
         report("2D-SSA factor arrays", 0.6)
         A = Wt(psi)
         report("2D-SSA components", 0.7)
-        comps = _fft_components(psi, A, a.shape)
+        comps = _fft_components(psi, A, a.shape, cancel)
         report("2D-SSA components", 1.0)
     comps /= w[None]
 
