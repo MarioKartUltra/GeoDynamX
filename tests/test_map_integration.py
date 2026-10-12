@@ -113,6 +113,71 @@ def test_a_lazy_output_on_show_is_its_layers_product_row(geo_window, qtbot):
                                   np.shape(win.cache.get(key)["raster"])[::-1])
 
 
+def test_a_view_knob_updates_the_map_row_without_a_landing(geo_window, qtbot):
+    win = geo_window
+    child = _roi_child(win, qtbot, "ssa2d")
+    win._set_center_view("map")
+    before = win.map_view._items[f"prod:{child.layer_id}"].image.copy()
+    i = win._names.index("ssa2d")
+    win._on_param_changed(i, "show", "residual")                 # a view knob: no compute
+    after = win.map_view._items[f"prod:{child.layer_id}"].image
+    assert not np.array_equal(before, after)
+
+
+def test_a_picked_chain_highlights_on_the_map(geo_window, qtbot):
+    win = geo_window
+    child = _roi_child(win, qtbot, "wtmm2d")
+    win._set_center_view("map")
+    assert win._active_result.get("chains")
+    win._group_palette.add_pick((child.layer_id, 0), shift=False)   # the Raster tab's pick
+    assert win.map_view._vectors[f"chn:{child.layer_id}"][2].isVisible()
+
+
+def test_the_live_band_preview_draws_on_the_map_at_the_roi(geo_window, qtbot, monkeypatch):
+    """A stride-s preview places block k centred on its sample, as the Raster tab does."""
+    import dynamix.shell.main_window as mw
+
+    win = geo_window
+    _save(win, row=30, col=40, h=24, w=30)
+    child = _roi_child(win, qtbot, "holder_measure")
+    win._set_center_view("map")
+    monkeypatch.setattr(mw, "_PREVIEW_MAX_DIM", 8)
+    hm = np.asarray(win._active_result["h_map"])
+    win._on_band_preview_requested(float(np.nanmin(hm)), float(np.nanmax(hm)) + 1.0, "mask")
+    s = -(-30 // 8)
+    rid = f"prod:{child.layer_id}"
+    assert win.map_view._items[rid].image.shape[:2] == (-(-30 // s), -(-24 // s))
+    r = win.map_view.item_rect(rid)
+    assert r.left() == pytest.approx(500000.0 + 10 * 40 + 5 - 10 * s / 2)
+
+
+def test_a_switched_layer_never_shows_the_previous_layers_result(geo_window, qtbot,
+                                                                 monkeypatch):
+    """Between a selection and its landing the active result is still the previous layer's:
+    the new layer's product row reads the cache, never that result."""
+    import dynamix.shell.main_window as mw
+
+    win = geo_window
+    a = _roi_child(win, qtbot, "holder_measure")
+    master = next(l for l in win.project.layers if l.parent_id is None)
+    win.layer_list.select_layer(master.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
+    monkeypatch.setattr(mw, "_AUTO_RUN_MAX_PX", 10)
+    from dynamix.model.device import defaults_for, get_device
+
+    desc = [{"device": "holder_measure",                  # another recipe: its own cache key
+             "params": {**defaults_for(get_device("holder_measure")), "n_scales": 5}}]
+    win.strips.set_steps(desc, field=win.field)
+    win._on_chain_edited(desc)
+    qtbot.wait(30)
+    b = win.layer
+    win._pending_layers.discard(b.layer_id)               # waiting no more, not yet computed
+    win.layer_list.select_layer(a.layer_id)
+    qtbot.waitUntil(lambda: win.layer is a and not win.is_computing, timeout=30000)
+    win.layer = b                                         # the switch, before b's landing
+    assert win._row_content(f"prod:{b.layer_id}").reason == "not run"
+
+
 from test_bus_shell import _Route, three_datasets  # noqa: F401,E402
 from tests.test_shell_window import stub_devices, window  # noqa: F401,E402
 

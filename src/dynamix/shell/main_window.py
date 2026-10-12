@@ -2420,6 +2420,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # the design's instruction) rather than a new one. Always runs, point layer active or
         # not -- the one setter a point layer's own selection is allowed to reach.
         self.canvas.set_points_style(style["color_points"], style["point_size"])
+        self._to_map_live()
 
     def _on_display_style_changed(self, name: str, value) -> None:
         """A display control moved: persist on the ACTIVE layer's tags and restyle the canvas.
@@ -2668,6 +2669,10 @@ off / z from this layer's own values / z from another loaded
         self.canvas.set_field(derived)              # in place of the dataset, as the h-map it previews
         self._apply_raster_visibility(showing_product=True)
         self._holder_raster_ref = None
+        # The Map places a stride preview by its sample axes: block k centred on its sample.
+        self._to_map_live(product=dataclasses.replace(derived, provenance={
+            k: v for k, v in (derived.provenance or {}).items()
+            if k not in ("display_stride", "display_anchor", "full_dims")}))
         # Vector view live too (center_view="vector" is a persisted
         # default, and the raster canvas is HIDDEN behind that tab):
         # swap the drape's scalars in place, or say honestly why not (hillshade bakes RGBA).
@@ -2849,6 +2854,7 @@ off / z from this layer's own values / z from another loaded
         self.composite_panel.set_bands(names, spec)
         self._composite_frame.setVisible(True)
         self.canvas.set_composite(spec)
+        self._to_map_live()
 
     def _on_composite_changed(self, spec: dict) -> None:
         import json
@@ -2856,6 +2862,7 @@ off / z from this layer's own values / z from another loaded
         if self.layer is not None:
             self.layer.tags["ui.composite"] = json.dumps(spec)
         self.canvas.set_composite(spec)
+        self._to_map_live()
 
     # -- arrangement mask -----------------------------------------
     def _on_mask_row_changed(self, payload: dict) -> None:
@@ -2967,6 +2974,8 @@ both ``Canvas`` signals report the
         indices = sorted(idx for (layer_id, idx) in self._group_palette.selection()
                           if layer_id == lid)
         self.canvas.set_selection_chains(indices)
+        if self.map_view is not None:
+            self.map_view.set_highlight(f"chn:{lid}", indices)
         self._push_skeleton_selection()
 
     # -- topology links ----------------------------------------
@@ -4094,6 +4103,7 @@ both ``Canvas`` signals report the
         values = np.asarray(result.values)
         self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
         self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
+        self._to_map_live()
         self._sync_composite_panel(result)
         self._refresh_panel_relevance()
         tail = self._names[-1] if self._names else ""
@@ -4702,6 +4712,7 @@ both ``Canvas`` signals report the
             self._displayed_layer_name = layer.name
             self._holder_raster_ref = None   # raw field is up -- holder display re-syncs on land
         self._update_scale_bar()
+        self._to_map_live()
         if layer.layer_id in self._pending_layers:
             self._apply_pending_ui()          # waits for Run (an edit, a Stop, a held drop)
         else:
@@ -7633,6 +7644,7 @@ both ``Canvas`` signals report the
         # the row name all read it; a missing one is requested as a job.
         result = self._show_lazy_output(renderable, result)
         self._active_result = result
+        self._active_result_owner = self.layer.layer_id if self.layer is not None else None
         self._refresh_topology_panel()
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
@@ -7730,6 +7742,7 @@ both ``Canvas`` signals report the
                 self.canvas.set_pick_chains(None)
             else:
                 self._canvas_overlay_dirty = True
+        self._to_map_live()                   # the Map draws it even while the canvas is hidden
         # After the overlay branch above, whose clear_overlays would take the outline off.
         self._sync_fill_outline(result)
         self._sync_controls()
@@ -8930,7 +8943,8 @@ both ``Canvas`` signals report the
         output on show rides a copy of the result as its ``raster_out``, as on the Raster tab."""
         if layer.layer_id in self._pending_layers:
             return None, "not run"
-        if layer is self.layer and isinstance(self._active_result, dict):
+        if (layer is self.layer and isinstance(self._active_result, dict)
+                and getattr(self, "_active_result_owner", None) == layer.layer_id):
             return self._active_result, None
         tail = self._arr_tail_key(layer)
         if tail is not None and tail not in self.cache:
@@ -9053,6 +9067,34 @@ both ``Canvas`` signals report the
             self.map_view.set_selected_row(f"prod:{self.layer.layer_id}")
         if self.layers_panel is not None:
             self.layers_panel.set_reasons(reasons)
+
+    def _to_map_live(self, product=None) -> None:
+        """The selected layer's rows on the Map follow every update the Raster canvas gets:
+        result, field, composite, style, picked chains, and a live preview (``product``, drawn
+        as the product row until the next landing). Only those rows are redrawn."""
+        if self.layer is None or self.map_view is None or \
+                self._center_stack.currentWidget() is not self.map_view:
+            return
+        from dynamix.shell.map_view import RowContent
+
+        lid = self.layer.layer_id
+        drawn = {row.id: (z, v, o) for z, (row, v, o) in
+                 enumerate(self.project.layer_stack.drawn(include_hidden=True))}
+        for rid in (f"src:{self.layer.source_id}", f"prod:{lid}", f"ext:{lid}", f"chn:{lid}"):
+            if rid not in drawn:
+                continue
+            z, visible, opacity = drawn[rid]
+            content = self._row_content(rid)
+            if product is not None and rid == f"prod:{lid}":
+                content = RowContent("product", field=product,
+                                     style=_display_style_of(self.layer))
+            self.map_view.update_row(rid, content, opacity=opacity if visible else 0.0, z=z)
+        picked = sorted(idx for (layer_id, idx) in self._group_palette.selection()
+                        if layer_id == lid)
+        self.map_view.set_highlight(f"chn:{lid}", picked)
+        if self.layers_panel is not None:
+            self.layers_panel.set_reasons(self.map_view.reasons())
+            self.layers_panel.relabel()
 
     def _map_overlays(self) -> dict:
         """ROI outlines (on their dataset's FILE-pixel axes), reference layers in the map CRS

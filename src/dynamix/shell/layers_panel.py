@@ -99,6 +99,15 @@ class LayersPanel(QtWidgets.QWidget):
             font.setBold(nid.endswith(f":{layer_id}"))
             item.setFont(0, font)
 
+    def relabel(self) -> None:
+        """Rows name what they show (a product row its layer's Show): refresh the names in
+        place, the tree and its widgets untouched."""
+        self._building = True
+        for nid, item in self._items.items():
+            if not isinstance(self._stack.node(nid), Group):
+                item.setText(0, self._label_of(nid))
+        self._building = False
+
     def set_reasons(self, reasons: dict) -> None:
         self._reasons = dict(reasons)
         self._apply_reasons()
