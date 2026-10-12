@@ -69,6 +69,7 @@ from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
                                     scan_footprints, scene_label)
 from dynamix.geo.mapping import axis_at, has_georeference
+from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
@@ -8369,6 +8370,13 @@ both ``Canvas`` signals report the
                                or not (src is not None and src.hidden))
                 if not layer.visible:
                     continue
+                # The layer stack decides what the 3-D views draw: a layer none of whose rows is
+                # visible is not drawn; its rows' order lifts it, their opacities fade it.
+                flags = self._stack_entry_flags(layer)
+                if flags is None:
+                    continue
+                stack_raster = flags["show_raster"]
+                stack_flags = {k: v for k, v in flags.items() if k != "show_raster"}
                 field = self._fields.get(layer.layer_id)
                 if field is None:
                     continue
@@ -8408,7 +8416,7 @@ both ``Canvas`` signals report the
                     point_status = "frame-points" if frame_mode else "ok"
                     entries.append({"layer": layer, "field": field, "result": None,
                                     "status": point_status, "signature": signature,
-                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster,
+                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": stack_raster and show_raster, **stack_flags,
                                     "kind": "points", "pointset": field,
                                     "points_color": points_color})
                     self._arr_errors.pop(layer.layer_id, None)
@@ -8461,15 +8469,29 @@ both ``Canvas`` signals report the
                                       and layer.source_id == self.layer.source_id
                                       and bool(layer.tags.get("roi.window")
                                                or self.layer.tags.get("roi.window")))
-                        if not (active_frame is not None
-                                and frames_compatible(layer_frame, active_frame)
-                                and layer_shape is not None
-                                and (layer_shape == active_shape or roi_family)):
-                            continue    # excluded entirely -- not even a legend line
+                        if (active_frame is not None
+                                and same_frame_family(layer_frame, active_frame)
+                                and getattr(layer_frame, "units", None) != "px"):
+                            # A frame family with real coordinates places it by its own axes;
+                            # pixel axes say nothing about where an unrelated grid sits.
+                            pass
+                        elif not (active_frame is not None
+                                  and frames_compatible(layer_frame, active_frame)
+                                  and layer_shape is not None
+                                  and (layer_shape == active_shape or roi_family)):
+                            # Listed with the reason; no field, so the scene draws nothing.
+                            entries.append({"layer": layer, "field": None, "result": None,
+                                            "status": "different frame", "signature": signature,
+                                            "colormap": colormap, "hillshade": hillshade,
+                                            "stretch": stretch, "surface": surface,
+                                            "vtrail_color": vtrail_color,
+                                            "show_raster": stack_raster and show_raster,
+                                            "levels": levels, **stack_flags})
+                            continue
                 elif not has_georeference(field):
                     entries.append({"layer": layer, "field": field, "result": None,
                                     "status": "no-georeference", "signature": signature,
-                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster,
+                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": stack_raster and show_raster, **stack_flags,
                                     "surface_field": surface_field,
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "levels": levels})
@@ -8483,7 +8505,7 @@ both ``Canvas`` signals report the
                     except Exception as exc:
                         entries.append({"layer": layer, "field": field, "result": None,
                                         "status": f"error:{exc}", "signature": signature,
-                                        "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster,
+                                        "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": stack_raster and show_raster, **stack_flags,
                                     "surface_field": surface_field,
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "levels": levels})
@@ -8523,7 +8545,7 @@ both ``Canvas`` signals report the
                             drape_offset = value.get("display_offset")
                     entries.append({"layer": layer, "field": field, "result": res,
                                     "status": "ok", "signature": signature,
-                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster or drape is not None,
+                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": stack_raster and (show_raster or drape is not None), **stack_flags,
                                     "surface_field": surface_field,
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "drape": drape,
@@ -8540,7 +8562,7 @@ both ``Canvas`` signals report the
                 if recorded is not None and recorded[0] == tail:
                     entries.append({"layer": layer, "field": field, "result": None,
                                     "status": recorded[1], "signature": signature,
-                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster,
+                                    "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": stack_raster and show_raster, **stack_flags,
                                     "surface_field": surface_field,
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "levels": levels})
@@ -8549,7 +8571,7 @@ both ``Canvas`` signals report the
                                 "status": ("edited — run to compute"
                                            if layer.layer_id in self._pending_layers else "computing"),
                                 "signature": signature,
-                                "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": show_raster,
+                                "colormap": colormap, "hillshade": hillshade, "stretch": stretch, "surface": surface, "vtrail_color": vtrail_color, "show_raster": stack_raster and show_raster, **stack_flags,
                                     "surface_field": surface_field,
                                     "surface_field_id": id(surface_field) if surface_field is not None else None,
                                     "levels": levels})
@@ -8850,6 +8872,32 @@ both ``Canvas`` signals report the
             self._center_stack.addWidget(self.map_view)
             self.map_view.set_map_crs(self.project.map_crs)
             self.map_view.rowClicked.connect(self._on_layers_row_selected)
+
+    def _stack_entry_flags(self, layer) -> "dict | None":
+        """What the layer stack says of ``layer``'s 3-D entry: its rank (the topmost of its
+        rows, in drawing order), the raster's and the vectors' opacity, and which of its rows
+        are visible; ``None`` when none is. A layer with no row in the stack draws as it did
+        before the stack existed."""
+        drawn = self.project.layer_stack.drawn(include_hidden=True)
+        rank = {row.id: z for z, (row, _v, _o) in enumerate(drawn)}
+        state = {row.id: (v, o) for row, v, o in drawn}
+        lid, sid = layer.layer_id, layer.source_id
+        raster_id = f"prod:{lid}" if f"prod:{lid}" in state else (
+            f"src:{sid}" if layer.parent_id is None else None)
+        if not any(r in state for r in (raster_id, f"ext:{lid}", f"chn:{lid}") if r):
+            return {"rank": 0, "raster_opacity": 1.0, "vector_opacity": 1.0,
+                    "show_raster": True, "show_extrema": True, "show_chains": True,
+                    "extrema_style": "polylines"}
+        rv, ro = state.get(raster_id, (False, 1.0)) if raster_id else (False, 1.0)
+        ev, eo = state.get(f"ext:{lid}", (False, 1.0))
+        cv, co = state.get(f"chn:{lid}", (False, 1.0))
+        if not (rv or ev or cv):
+            return None
+        ids = [r for r in (raster_id, f"ext:{lid}", f"chn:{lid}") if r in rank]
+        return {"rank": max(rank[r] for r in ids), "raster_opacity": ro,
+                "vector_opacity": max(eo if ev else 0.0, co if cv else 0.0),
+                "show_raster": rv, "show_extrema": ev, "show_chains": cv,
+                "extrema_style": "blocks"}
 
     def _arrangement_shown(self) -> bool:
         """Whether the Vector/Globe scene is the centre view on screen."""

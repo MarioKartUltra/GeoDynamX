@@ -360,6 +360,7 @@ def test_vector_admits_nongeoreferenced_active_layer_without_no_georeference_sta
 # --------------------------------------------------------------------------- (e) admission: incompatible frame
 
 
+@pytest.mark.skip(reason="the Vector tab lists a layer it cannot place with the reason 'different frame' and draws nothing of it (test_*_listed_as_different_frame)")
 def test_incompatible_frame_excluded_from_vector_but_present_in_geo(qtbot, stub_devices):
     from dynamix.shell.main_window import MainWindow
 
@@ -418,6 +419,7 @@ def test_compatible_frame_is_admitted_into_vector_entries(qtbot, stub_devices):
 # without the shape check, two grids of completely different sizes would overlay each other.
 
 
+@pytest.mark.skip(reason="the Vector tab lists a layer it cannot place with the reason 'different frame' and draws nothing of it (test_*_listed_as_different_frame)")
 def test_same_frame_different_shape_excluded_from_vector_entries(qtbot, stub_devices):
     """A sibling whose ``field.frame`` matches the active layer's own exactly, but whose grid
     ``shape`` does not, is excluded from vector entries -- the shape half of the AC3 gate."""
@@ -784,3 +786,70 @@ def test_roi_parent_is_admitted_when_the_child_is_active(qtbot, stub_devices):
     vector_ids = {e["layer"].layer_id for e in fake.set_layers_calls[-1]}
     assert parent_layer.layer_id in vector_ids
     assert child_layer.layer_id in vector_ids
+
+
+def _vector_entries_with(win, fake, other_field, name):
+    other_src = win.project.add_source(f"mem:{name}")
+    other_layer = win.project.add_layer(name, other_src.source_id, _chain_like_stub())
+    win.add_layer_row(other_layer, other_field)
+    win._set_center_view("vector")
+    return other_layer, {e["layer"].layer_id: e for e in fake.set_layers_calls[-1]}
+
+
+def test_an_incompatible_frame_is_listed_as_different_frame(qtbot, stub_devices):
+    """Listed with the reason and drawn nowhere (no field reaches the scene); the geo tab's own
+    rule is unchanged."""
+    from dynamix.shell.main_window import MainWindow
+
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    fake = _FakeArrangement()
+    win._arrangement = fake
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.load_field(_bare_field("active"), "mem:active")
+    other, entries = _vector_entries_with(win, fake, _bare_field("other", dx=5.0, dy=5.0),
+                                          "other")
+    assert entries[other.layer_id]["status"] == "different frame"
+    assert entries[other.layer_id]["field"] is None
+    win._set_center_view("geo")
+    assert other.layer_id in {e["layer"].layer_id for e in fake.set_layers_calls[-1]}
+
+
+def test_unrelated_pixel_grids_are_listed_as_different_frame(qtbot, stub_devices):
+    """Two bare grids share the default pixel frame; pixel axes say nothing about where one sits
+    on the other, so the shape gate still keeps the other one from being drawn."""
+    from dynamix.shell.main_window import MainWindow
+
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    fake = _FakeArrangement()
+    win._arrangement = fake
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.load_field(_bare_field("active"), "mem:active-shape")
+    other_field = RasterField._from_bare_array(
+        np.zeros((8, 8)), "different-shape", frame=LocalFrame(dx=1.0, dy=1.0, units="px"),
+        name="different-shape")
+    other, entries = _vector_entries_with(win, fake, other_field, "other")
+    assert entries[other.layer_id]["status"] == "different frame"
+    assert entries[other.layer_id]["field"] is None
+
+
+def test_a_same_family_grid_in_real_units_is_drawn_by_its_own_axes(qtbot, stub_devices):
+    """A fork's grid: the same metre frame and pixel size, another shape and anchor -- drawn
+    where its own axes put it."""
+    from dynamix.shell.main_window import MainWindow
+
+    def metres(ny, nx, x0):
+        return RasterField(name="m", values=np.zeros((ny, nx)),
+                           frame=LocalFrame(x0=x0, y0=0.0, dx=10.0, dy=10.0, units="metre"),
+                           x_axis=x0 + 10.0 * np.arange(nx), y_axis=10.0 * np.arange(ny))
+
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    fake = _FakeArrangement()
+    win._arrangement = fake
+    with qtbot.waitSignal(win.resolved, timeout=10000):
+        win.load_field(metres(16, 16, 0.0), "mem:parent")
+    fork, entries = _vector_entries_with(win, fake, metres(6, 5, 40.0), "fork")
+    assert entries[fork.layer_id]["status"] != "different frame"
+    assert entries[fork.layer_id]["field"] is not None

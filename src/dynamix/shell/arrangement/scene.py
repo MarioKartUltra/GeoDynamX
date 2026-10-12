@@ -547,6 +547,16 @@ def _subpixel_of(layer: dict, idx) -> "tuple | None":
     return (np.where(np.isfinite(xs), xs, xi), np.where(np.isfinite(ys), ys, yi))
 
 
+def _stack_keys(entry: dict) -> dict:
+    """The layer stack's say over one entry (rank lift, opacities, which rows draw, the
+    extrema style); the defaults draw as before the stack existed."""
+    return {"rank": entry.get("rank", 0), "raster_opacity": entry.get("raster_opacity", 1.0),
+            "vector_opacity": entry.get("vector_opacity", 1.0),
+            "show_extrema": entry.get("show_extrema", True),
+            "show_chains": entry.get("show_chains", True),
+            "extrema_style": entry.get("extrema_style", "polylines")}
+
+
 def _placement_of(result, layer: dict, idx) -> "tuple | None":
     """Where extrema ``idx`` of ``layer`` are drawn, as :meth:`Scene._scene_points`' ``sub``:
     :func:`_subpixel_of`, moved by ``result["_display_offset"] = (dx, dy)`` (pixels, x then y)
@@ -593,6 +603,9 @@ class Scene:
         #: docstring's "Frame mode" section. ``False`` (this default) is byte-for-byte today's
         #: geo behavior; every existing test/caller that predates this task never touches it.
         self._frame_mode = False
+        #: The layer-stack rank of the layer whose vector actors are being built: its vectors
+        #: lift (1 + rank) times the base lift, so a higher row draws over a lower one.
+        self._lift_rank = 0
         self._colormap = "viridis"
         #: (modulus_pctl, scale_lo, scale_hi) -- see set_mask's docstring. The starting value
         #: excludes nothing: scale_lo=0 never excludes on depth (every chain's deepest index is
@@ -1670,7 +1683,8 @@ class Scene:
                                              drape=entry.get("drape"),
                                              drape_offset=entry.get("drape_offset"),
                                              levels=entry.get("levels"),
-                                             edges_hidden=bool(entry.get("edges_hidden")))
+                                             edges_hidden=bool(entry.get("edges_hidden")),
+                                             **_stack_keys(entry))
                     continue
                 except NoGeoreference:
                     # Contract: "ok" entries carry a georeferenced field. Guarded
@@ -1702,7 +1716,8 @@ class Scene:
                                              surface_field=entry.get("surface_field"),
                                              drape=entry.get("drape"),
                                              drape_offset=entry.get("drape_offset"),
-                                             levels=entry.get("levels"))
+                                             levels=entry.get("levels"),
+                                             **_stack_keys(entry))
                 except NoGeoreference:
                     status = "no-georeference"
                 except Exception as exc:
@@ -1726,7 +1741,9 @@ class Scene:
     def _add_layer_geometry(self, layer, field, result, *, colormap=None,
                             vtrail_color=None, hillshade=None, stretch=None,
                             surface=None, surface_field=None, drape=None,
-                            levels=None, edges_hidden=False, drape_offset=None) -> None:
+                            levels=None, edges_hidden=False, drape_offset=None,
+                            rank=0, raster_opacity=1.0, vector_opacity=1.0, show_extrema=True,
+                            show_chains=True, extrema_style="polylines") -> None:
         """Everything ONE "ok" layer contributes: the raster drape, plus (when ``result`` carries
         them) its chains/extrema/ROI-outline vector actors -- ATOMIC per layer. Any exception
         raised while building the VECTOR actors rolls back every actor this call already added
@@ -1766,18 +1783,24 @@ class Scene:
             self._surface_fields.pop(id(field), None)
         raster_name = self._add_raster_actor(layer, field, colormap, hillshade, stretch, surface,
                                              surface_field=surface_field, drape=drape,
-                                             levels=levels, drape_offset=drape_offset)
+                                             levels=levels, drape_offset=drape_offset,
+                                             opacity=raster_opacity)
         names = [raster_name]
         chain_lookup_entry = None
         vector_mask_entry = None
+        self._lift_rank = int(rank)
         try:
             if result is not None:
                 chain_lookup_entry, vector_mask_entry = self._build_vector_actors(
-                    layer_id, field, result, names, vtrail_color, edges_hidden=edges_hidden)
+                    layer_id, field, result, names, vtrail_color, edges_hidden=edges_hidden,
+                    show_extrema=show_extrema, show_chains=show_chains,
+                    extrema_style=extrema_style, vector_opacity=vector_opacity)
         except Exception:
             for name in names:
                 self._plotter.remove_actor(name, render=False)
             raise
+        finally:
+            self._lift_rank = 0
 
         self._layer_actors[layer_id] = names
         if chain_lookup_entry is not None:
@@ -1803,7 +1826,7 @@ class Scene:
 
     def _add_raster_actor(self, layer, field, colormap=None, hillshade=None, stretch=None,
                           surface=None, surface_field=None, drape=None,
-                          levels=None, drape_offset=None) -> str:
+                          levels=None, drape_offset=None, opacity=1.0) -> str:
         """Build and add this layer's raster drape; return its actor name (NOT yet recorded into
         ``self._layer_actors`` -- :meth:`_add_layer_geometry` commits that only once the whole
         layer, vectors included, has built successfully).
@@ -1926,7 +1949,7 @@ class Scene:
             grid.point_data["rgba"] = (class_rgba.reshape(-1, 4) * 255.0).astype(np.uint8)
             name = self._mesh_actor_name(layer.layer_id)
             self._plotter.add_mesh(grid, scalars="rgba", rgba=True, show_scalar_bar=False,
-                                    name=name, reset_camera=False)
+                                    name=name, reset_camera=False, opacity=opacity)
             return name
         if classes01 is not None:
             # Density slice: discrete classes replace the continuous stretch --
@@ -1952,11 +1975,11 @@ class Scene:
             grid.point_data["rgba"] = self._shaded_rgba(field, z2d, _stride, colormap, hillshade,
                                                         stretch, color2d=color2d, levels=levels)
             self._plotter.add_mesh(grid, scalars="rgba", rgba=True, show_scalar_bar=False,
-                                    name=name, reset_camera=False)
+                                    name=name, reset_camera=False, opacity=opacity)
             return name
         self._plotter.add_mesh(grid, scalars="value", cmap=colormap or self._colormap,
                                 nan_opacity=0.0, show_scalar_bar=False, name=name,
-                                reset_camera=False)
+                                reset_camera=False, opacity=opacity)
         return name
 
     def preview_raster_values(self, layer_id, values, src_stride: int = 1) -> bool:
@@ -2244,7 +2267,7 @@ class Scene:
             # Vector lift (see _VECTOR_LIFT_FRAC): ADDED after the vexag multiply so the
             # separation is constant regardless of exaggeration, and after the scale-space
             # z-lift so a lifted cone rides the same epsilon above the drape as flat chains do.
-            pts[:, 2] += self._frame_vector_lift(field)
+            pts[:, 2] += self._frame_vector_lift(field) * (1 + self._lift_rank)
             return pts
         lon, lat = points_lonlat(field, cols, rows, sub=sub)
         h = np.asarray(height, dtype=np.float64) if height is not None else np.zeros_like(lon)
@@ -2254,7 +2277,8 @@ class Scene:
         # Vector lift, geo half (see _VECTOR_LIFT_KM): through the existing height plumbing --
         # radial on the globe, a small z on the flat modes; vexag scales it like every other
         # height, which stays invisible top-down at any slider value.
-        return project(lon, lat, h + _VECTOR_LIFT_KM, mode=self._mode, vexag=self._vexag)
+        return project(lon, lat, h + _VECTOR_LIFT_KM * (1 + self._lift_rank), mode=self._mode,
+                       vexag=self._vexag)
 
     @staticmethod
     def _frame_vector_lift(field) -> float:
@@ -2350,7 +2374,8 @@ class Scene:
         return True
 
     def _build_vector_actors(self, layer_id, field, result, names: list[str], vtrail_color=None,
-                             *, edges_hidden=False):
+                             *, edges_hidden=False, show_extrema=True, show_chains=True,
+                             extrema_style="polylines", vector_opacity=1.0):
         """One layer's chains/extrema/ROI-outline actors, added to the plotter. ``names`` is the
         CALLER's own list (:meth:`_add_layer_geometry`) -- appended to directly, in place, as each
         actor is genuinely added, so a failure partway through still leaves the caller holding
@@ -2386,13 +2411,14 @@ class Scene:
         # "drawing X of Y" reading rides the canvas/status note, which shares these counts.
         chains, _cap_note = stub_capped_chains(chains)
         n_voice = (result.get("params") or {}).get("n_voice")
-        geometry = self._build_chain_geometry(field, chains, vtrail_color, n_voice=n_voice)
+        geometry = (self._build_chain_geometry(field, chains, vtrail_color, n_voice=n_voice)
+                    if show_chains else None)
         if geometry is not None:
             poly, starts, chain_indices, max_log2_mod, hi_scale_idx, base_rgba = geometry
             name = self._chains_actor_name(layer_id)
             poly.point_data["colors"] = base_rgba
             self._plotter.add_mesh(poly, scalars="colors", rgba=True, name=name,
-                                    line_width=1.0, reset_camera=False)
+                                    line_width=1.0, reset_camera=False, opacity=vector_opacity)
             names.append(name)
             chain_lookup_entry = (starts, chain_indices)
             vector_mask_entry = _VectorMaskState(chains_actor_name=name,
@@ -2400,12 +2426,15 @@ class Scene:
                                                   hi_scale_idx=hi_scale_idx, base_rgba=base_rgba)
 
         extrema_layers = result.get("extrema") or []
-        if extrema_layers and not edges_hidden:
+        if extrema_layers and not edges_hidden and show_extrema:
             ext0 = extrema_layers[0]     # finest scale only -- see the module docstring
             ex = np.asarray(ext0.get("x", ()), dtype=np.intp)
             ey = np.asarray(ext0.get("y", ()), dtype=np.intp)
             k = min(len(ex), len(ey))
-            if k > 0:
+            if k > 0 and extrema_style == "blocks":
+                self._build_extrema_blocks(layer_id, field, result, ext0, k, ex, ey, names,
+                                           vector_opacity)
+            elif k > 0:
                 # H-lines as polylines: the same points joined along each labelled
                 # line, the way the 2-D canvas has always drawn them. One actor, one cell per
                 # contiguous run. Points that sit on a line are drawn AS the line; only the
@@ -2447,6 +2476,44 @@ class Scene:
                 names.append(roi_name)
 
         return chain_lookup_entry, vector_mask_entry
+
+    def _build_extrema_blocks(self, layer_id, field, result, ext0, k, ex, ey, names,
+                              opacity=1.0) -> None:
+        """The extrema as xsmurf draws them: every maximum its own point, none joined,
+        coloured by modulus, with an argument tick from each (3 px plus up to 30 px by
+        modulus, along the gradient direction)."""
+        from dynamix.geo.extrema_draw import modulus_scalars, tick_ends
+
+        sub = _placement_of(result, ext0, np.arange(k))
+        pts = self._scene_points(field, ex[:k], ey[:k], sub=sub)
+        name = self._extrema_actor_name(layer_id)
+        mod = np.asarray(ext0.get("mod", np.ones(k)), dtype=np.float64)[:k]
+        cloud = pv.PolyData(pts)
+        cloud["m"] = modulus_scalars(mod)
+        self._plotter.add_mesh(cloud, scalars="m", cmap="viridis", style="points",
+                               point_size=5.0, render_points_as_spheres=False,
+                               opacity=opacity, show_scalar_bar=False, name=name,
+                               reset_camera=False)
+        names.append(name)
+        if "arg" not in ext0:
+            return
+        c0 = sub[0] if sub is not None else ex[:k].astype(np.float64)
+        r0 = sub[1] if sub is not None else ey[:k].astype(np.float64)
+        c1, r1 = tick_ends(np.asarray(c0, dtype=np.float64), np.asarray(r0, dtype=np.float64),
+                           np.asarray(ext0["arg"], dtype=np.float64)[:k], mod,
+                           float(np.max(np.abs(mod))) if k else 1.0)
+        # The surface ride indexes by pixel: those indices stay on the grid; the tick end
+        # itself is placed along the axes, past the edge if it reaches there.
+        ci = np.clip(np.floor(c1), 0, field.nx - 1).astype(np.intp)
+        ri = np.clip(np.floor(r1), 0, field.ny - 1).astype(np.intp)
+        ends = self._scene_points(field, ci, ri, sub=(c1, r1))
+        seg = np.empty((2 * k, 3))
+        seg[0::2], seg[1::2] = pts, ends
+        lines = np.column_stack([np.full(k, 2), 2 * np.arange(k), 2 * np.arange(k) + 1]).ravel()
+        tname = name + ":ticks"
+        self._plotter.add_mesh(pv.PolyData(seg, lines=lines), color=EXTREMA_COLOR,
+                               line_width=1.0, opacity=opacity, name=tname, reset_camera=False)
+        names.append(tname)
 
     def _build_chain_geometry(self, field, chains, vtrail_color=None, *, n_voice=None):
         """Combine every chain in ``chains`` (``result["chains"]``, ORIGINAL list order -- chain

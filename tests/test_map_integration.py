@@ -178,6 +178,18 @@ def test_a_switched_layer_never_shows_the_previous_layers_result(geo_window, qtb
     assert win._row_content(f"prod:{b.layer_id}").reason == "not run"
 
 
+def test_stack_flags_for_the_3d_entries(geo_window, qtbot):
+    win = geo_window
+    child = _roi_child(win, qtbot, "wtmm2d")
+    stack = win.project.layer_stack
+    stack.node(f"ext:{child.layer_id}").visible = False
+    flags = win._stack_entry_flags(child)
+    assert flags["show_extrema"] is False and flags["show_chains"] is True
+    assert flags["extrema_style"] == "blocks" and flags["rank"] >= 0
+    stack.node(f"chn:{child.layer_id}").visible = False
+    assert win._stack_entry_flags(child) is None or not win._stack_entry_flags(child)["show_chains"]
+
+
 from test_bus_shell import _Route, three_datasets  # noqa: F401,E402
 from tests.test_shell_window import stub_devices, window  # noqa: F401,E402
 
