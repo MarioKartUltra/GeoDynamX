@@ -179,3 +179,97 @@ def test_extrema_on_a_bare_array_are_greyed(qtbot):
         lambda rid: RowContent("extrema" if rid.startswith("ext") else "chains",
                                result=_ext_result(), grid_field=np.zeros((40, 50))))
     assert reasons == {"ext:1": "no coordinates", "chn:1": "no coordinates"}
+
+
+def _bar(v):
+    return v.scale_bar.size, v.scale_bar.text.toPlainText()
+
+
+def test_the_scale_bar_reads_ground_distance_on_a_geographic_map(qtbot):
+    """Degrees convert to metres at the view centre's latitude: at 60 deg a 20-degree-wide view
+    is about 1113 km across, so a quarter of it rounds to 200 km = 3.593 degrees of longitude."""
+    v = _view(qtbot, crs="EPSG:4326")
+    v.view.setRange(xRange=(-10.0, 10.0), yRange=(55.0, 65.0), padding=0)
+    v._update_scale_bar()
+    size, text = _bar(v)
+    width = v.view.viewRange()[0][1] - v.view.viewRange()[0][0]
+    lat = sum(v.view.viewRange()[1]) / 2
+    metres = width * np.pi * 6378137.0 / 180.0 * np.cos(np.radians(lat))
+    from dynamix.shell.canvas import nice_round_scalebar
+    _label, want = nice_round_scalebar(metres)
+    assert text == (f"{want / 1000:g} km" if want >= 1000 else f"{want:g} m")
+    assert size == pytest.approx(want / (np.pi * 6378137.0 / 180.0 * np.cos(np.radians(lat))))
+
+
+def test_the_scale_bar_reads_metres_on_a_projected_map(qtbot):
+    v = _view(qtbot)
+    v.view.setRange(xRange=(500000.0, 505000.0), yRange=(4395000.0, 4400000.0), padding=0)
+    v._update_scale_bar()
+    size, text = _bar(v)
+    from dynamix.shell.canvas import nice_round_scalebar
+    width = v.view.viewRange()[0][1] - v.view.viewRange()[0][0]
+    _label, want = nice_round_scalebar(width)
+    assert size == pytest.approx(want)
+    assert text == (f"{want / 1000:g} km" if want >= 1000 else f"{want:g} m")
+
+
+def test_without_a_map_crs_the_scale_bar_follows_the_first_frame(qtbot):
+    from dynamix.core.frames import GeographicFrame
+
+    f = RasterField(name="g", values=np.zeros((20, 30)), frame=GeographicFrame(),
+                    x_axis=np.linspace(-30.0, 12.0, 30), y_axis=np.linspace(-23.0, 19.0, 20))
+    v = _view(qtbot, crs=None)
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                 lambda rid: RowContent("raster", field=f, style=STYLE))
+    v.view.setRange(xRange=(-30.0, 12.0), yRange=(-23.0, 19.0), padding=0)
+    v._update_scale_bar()
+    assert _bar(v)[1].endswith(" km")
+
+
+def test_an_unchanged_row_is_not_repainted(qtbot, monkeypatch):
+    """A live preview redraws the selected layer's rows on every tick: a row whose content and
+    style did not move keeps its image."""
+    from dynamix.shell import map_view
+
+    painted = []
+    real = map_view._RowPainter._paint
+    monkeypatch.setattr(map_view._RowPainter, "_paint",
+                        lambda self, item, field, s, **kw: (painted.append(1),
+                                                            real(self, item, field, s, **kw)))
+    v = _view(qtbot)
+    field = _utm()
+    content = lambda rid: RowContent("raster", field=field, style=STYLE)
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)], content)
+    v.update_row("src:a", content("src:a"), opacity=0.5, z=0)
+    assert painted == [1] and v._items["src:a"].opacity() == 0.5
+    v.update_row("src:a", RowContent("raster", field=field, style={**STYLE, "colormap": "magma"}))
+    assert painted == [1, 1]
+
+
+def test_a_copy_of_the_result_with_the_same_extrema_is_not_redrawn(qtbot):
+    """A lazy output landing hands over a copy of the result around the same extrema."""
+    v = _view(qtbot)
+    field, res = _utm(), _ext_result()
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0), (Row("chn:1", "chains"), True, 1.0)],
+                 lambda rid: RowContent("extrema" if rid.startswith("ext") else "chains",
+                                        result=res, grid_field=field))
+    blocks, trail = v._vectors["ext:1"][0], v._vectors["chn:1"][0]
+    calls = []
+    blocks.setData = lambda *a, **k: calls.append("ext")
+    trail.setData = lambda *a, **k: calls.append("chn")
+    copy = {**res, "raster_out": np.zeros((40, 50))}
+    v.update_row("ext:1", RowContent("extrema", result=copy, grid_field=field))
+    v.update_row("chn:1", RowContent("chains", result=copy, grid_field=field))
+    assert calls == []
+
+
+def test_group_colours_and_modulus_colours_mix_per_point(qtbot):
+    v = _view(qtbot)
+    res = _ext_result()
+    v.extrema_style = {**v.extrema_style, "colour": "group"}
+    res["chains"] = [{"x": np.array([10]), "y": np.array([5]), "mod": np.array([1.0]),
+                      "tags": [], "group_color": (255, 0, 0)}]
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=res, grid_field=_utm()))
+    brushes = v._vectors["ext:1"][0].data["brush"]
+    assert len(brushes) == 3

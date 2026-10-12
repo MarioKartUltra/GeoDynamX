@@ -13,9 +13,24 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.geo.placement import field_crs, image_transform, reproject_for_display
-from dynamix.shell.canvas import Canvas, lod_stride
+from dynamix.shell.canvas import Canvas, lod_stride, nice_round_scalebar
 
 MAX_DIM = 2048
+#: Ground metres in one degree along the equator (WGS84 semi-major axis).
+_M_PER_DEG = np.pi * 6378137.0 / 180.0
+
+
+_BRUSHES: list = []
+
+
+def _viridis_brushes() -> np.ndarray:
+    """The 256 viridis brushes, built once, as an object array a per-point index picks from."""
+    if not _BRUSHES:
+        lut = pg.colormap.get("viridis").getLookupTable(nPts=256)
+        brushes = np.empty(256, dtype=object)
+        brushes[:] = [pg.mkBrush(*c) for c in lut]
+        _BRUSHES.append(brushes)
+    return _BRUSHES[0].copy()
 
 
 @dataclasses.dataclass
@@ -75,6 +90,12 @@ class MapView(QtWidgets.QWidget):
         self._warp_cache: dict = {}
         self._reasons: dict[str, str] = {}
         self._chain_rows: dict = {}
+        #: What each row last drew: a row whose content and style did not move is not redrawn
+        #: (a live preview updates the selected layer's rows on every tick).
+        self._drawn: dict = {}
+        #: Ground metres per map unit: None for degrees (latitude-dependent), a number for a
+        #: linear CRS or frame, 0.0 for pixel axes (no ground distance).
+        self._unit_metres = 1.0
         self._selected_row = None
         self._overlay_items: list = []
         self.extrema_style = {"colour": "modulus", "mode": "linear", "q": 1.0,
@@ -84,18 +105,58 @@ class MapView(QtWidgets.QWidget):
         self.scale_bar = pg.ScaleBar(size=1000, suffix="m")
         self.scale_bar.setParentItem(self.view)
         self.scale_bar.anchor((1, 1), (1, 1), offset=(-20, -20))
+        self.view.sigRangeChanged.connect(self._update_scale_bar)
 
     def set_map_crs(self, crs) -> None:
         self._crs = str(crs) if crs else None
         self._warp_cache.clear()
+        self._drawn.clear()
         if self._crs is not None:
             from rasterio.crs import CRS
 
-            geographic = CRS.from_user_input(self._crs).is_geographic
-            size, suffix = (1.0, "°") if geographic else (1000.0, "m")
-            self.scale_bar.size = size
-            self.scale_bar.text.setText(pg.siFormat(size, suffix=suffix))
-            self.scale_bar.updateBar()
+            crs_obj = CRS.from_user_input(self._crs)
+            self._unit_metres = (None if crs_obj.is_geographic
+                                 else float(crs_obj.linear_units_factor[1] or 1.0))
+        self._update_scale_bar()
+
+    def _frame_unit_metres(self, frame):
+        """Ground metres per unit of a frame placed without a map CRS."""
+        from dynamix.core.frames import GeographicFrame
+
+        if isinstance(frame, GeographicFrame):
+            return None
+        units = str(getattr(frame, "units", "") or "").lower()
+        if units in ("m", "metre", "metres", "meter", "meters"):
+            return 1.0
+        if units in ("km", "kilometre", "kilometres", "kilometer", "kilometers"):
+            return 1000.0
+        if units in ("ft", "foot", "feet"):
+            return 0.3048
+        if units in ("us-ft", "us_survey_foot", "ftus"):
+            return 1200.0 / 3937.0
+        return 0.0
+
+    def _update_scale_bar(self, *_args) -> None:
+        """A bar a round ground distance long, about a quarter of the view: degrees convert at
+        the view centre's latitude (along a parallel); pixel axes read pixels."""
+        (x0, x1), (y0, y1) = self.view.viewRange()
+        width = x1 - x0
+        if not width > 0:
+            return
+        per_unit = self._unit_metres
+        if per_unit is None:
+            lat = float(np.clip((y0 + y1) / 2.0, -89.0, 89.0))
+            per_unit = _M_PER_DEG * np.cos(np.radians(lat))
+        if per_unit and per_unit > 0:
+            _label, metres = nice_round_scalebar(width * per_unit)
+            size = metres / per_unit
+            text = f"{metres / 1000:g} km" if metres >= 1000 else f"{metres:g} m"
+        else:
+            label, size = nice_round_scalebar(width)
+            text = f"{label} px"
+        self.scale_bar.size = size
+        self.scale_bar.text.setText(text)
+        self.scale_bar.updateBar()
 
     def reasons(self) -> dict:
         return dict(self._reasons)
@@ -110,14 +171,36 @@ class MapView(QtWidgets.QWidget):
         keep = {row.id for row, _v, _o in drawn}
         for rid in [r for r in self._items if r not in keep]:
             self.view.removeItem(self._items.pop(rid))
+            self._drawn.pop(rid, None)
         for rid in [r for r in self._vectors if r not in keep]:
             for item in self._vectors.pop(rid):
                 self.view.removeItem(item)
+            self._drawn.pop(rid, None)
         self._reasons = {}
         self._frame = None
         for z, (row, visible, opacity) in enumerate(drawn):
             self.update_row(row.id, content_of(row.id), opacity=opacity if visible else 0.0, z=z)
+        if self._crs is None:
+            self._unit_metres = (self._frame_unit_metres(self._frame) if self._frame is not None
+                                 else 1.0)
+            self._update_scale_bar()
         return self.reasons()
+
+    def _unchanged(self, row_id, signature, items) -> bool:
+        """Whether ``row_id`` already draws ``signature`` (objects compared by identity, the
+        rest by value); ``items`` then only take the new opacity and order."""
+        previous = self._drawn.get(row_id)
+        if previous is None or len(previous) != len(signature) or not items:
+            return False
+        return all((a == b) if isinstance(a, (str, int, float, type(None))) else (a is b)
+                   for a, b in zip(previous, signature))
+
+    def _settle(self, items, opacity, z) -> None:
+        for it in items:
+            it.setOpacity(opacity)
+            if z is not None:
+                it.setZValue(z)
+            it.setVisible(True)
 
     def update_row(self, row_id, content, opacity: float = 1.0, z=None) -> None:
         self._reasons.pop(row_id, None)
@@ -170,6 +253,11 @@ class MapView(QtWidgets.QWidget):
         if mode is None:
             self._hide(row_id, reason)
             return
+        signature = (field, repr(sorted((content.style or {}).items())),
+                     repr(sorted((content.composite or {}).items())), self._crs)
+        if self._unchanged(row_id, signature, [self._items.get(row_id)]):
+            self._settle([self._items[row_id]], opacity, z)
+            return
         item = self._items.get(row_id)
         if item is None:
             item = self._items[row_id] = pg.ImageItem()
@@ -194,10 +282,8 @@ class MapView(QtWidgets.QWidget):
             image, (x0, y0, sx, sy) = self._warp_cache[key]
             painter._paint(item, image, 1)
         item.setTransform(QtGui.QTransform(sx, 0.0, 0.0, sy, x0, y0))
-        item.setOpacity(opacity)
-        if z is not None:
-            item.setZValue(z)
-        item.setVisible(True)
+        self._drawn[row_id] = signature
+        self._settle([item], opacity, z)
 
     # -- extrema and chains -------------------------------------------------------------------
     def _grid(self, content):
@@ -238,6 +324,19 @@ class MapView(QtWidgets.QWidget):
             return
         ext = levels[min(s, len(levels) - 1)]
         st = self.extrema_style
+        # The extrema themselves, not the result dict around them: a lazy output landing hands
+        # over a copy of the result with the same extrema.
+        signature = (ext, int(s), content.grid_field, result.get("_roi_axes"),
+                     result.get("chains") if st["colour"] == "group" else None,
+                     repr(sorted(st.items())), self._crs)
+        if self._unchanged(row_id, signature, list(self._vectors.get(row_id, ()))):
+            blocks, ticks = self._vectors[row_id]
+            self._settle([blocks], opacity, z)
+            ticks.setOpacity(opacity)
+            if z is not None:
+                ticks.setZValue(z)
+            ticks.setVisible(bool(st["ticks"] and "arg" in ext))
+            return
         cols, rows = block_positions(ext, subpixel=st["subpixel"])
         x_axis, y_axis = self._grid(content)
         bx, by = self._to_map(content.grid_field, *to_axes(cols, rows, x_axis, y_axis))
@@ -249,9 +348,15 @@ class MapView(QtWidgets.QWidget):
                 rgb = group_rgb(result.get("chains"), s, cols, rows)
             else:
                 rgb = np.full((len(cols), 3), -1)
-            lut = pg.colormap.get("viridis").getLookupTable(nPts=256)
             k = (modulus_scalars(mod, st["mode"], st["q"]) * 255).astype(int)
-            brushes = [pg.mkBrush(*(c if c[0] >= 0 else lut[i])) for c, i in zip(rgb, k)]
+            brushes = _viridis_brushes()[k]            # one brush per colour, indexed per point
+            grouped = np.flatnonzero(rgb[:, 0] >= 0)
+            if grouped.size:
+                own = {}
+                for i in grouped:
+                    key = tuple(int(v) for v in rgb[i])
+                    brushes[i] = own.setdefault(key, pg.mkBrush(*key))
+            brushes = list(brushes)
         pixel = abs(float(x_axis[1] - x_axis[0])) if len(x_axis) > 1 else 1.0
         blocks, ticks = self._vector_items(row_id, 2)
         blocks.setData(x=bx, y=by, symbol="s", size=pixel, pxMode=False, pen=None, brush=brushes)
@@ -267,6 +372,7 @@ class MapView(QtWidgets.QWidget):
             if z is not None:
                 it.setZValue(z)
         blocks.setVisible(True)
+        self._drawn[row_id] = signature
 
     def _draw_outline(self, row_id, content, opacity, z) -> None:
         """An ROI's outline row: its box (``content.result["roi"] = (row, col, h, w)`` in the
@@ -315,6 +421,17 @@ class MapView(QtWidgets.QWidget):
             self._vectors[row_id] = items
         trail, ghosts, picked = items
         result = content.result
+        signature = (result.get("chains"), result.get("chains_excluded"), content.grid_field,
+                     result.get("_roi_axes"), bool(result.get("_show_ghosts", True)), self._crs)
+        if self._unchanged(row_id, signature, [trail]):
+            self._settle([trail], opacity, z)
+            for it in (ghosts, picked):
+                it.setOpacity(opacity)
+                if z is not None:
+                    it.setZValue(z)
+            ghosts.setVisible(bool(result.get("chains_excluded"))
+                              and result.get("_show_ghosts", True))
+            return
         self._chain_rows[row_id] = (content, result.get("chains") or [])
         trail.setData(*self._trail_xy(content, result.get("chains") or []))
         excluded = result.get("chains_excluded") or []
@@ -329,6 +446,7 @@ class MapView(QtWidgets.QWidget):
             if z is not None:
                 it.setZValue(z)
         trail.setVisible(True)
+        self._drawn[row_id] = signature
 
     def set_highlight(self, row_id, chain_indices) -> None:
         """Draw the chains at ``chain_indices`` of a chains row in the highlight colour (the
