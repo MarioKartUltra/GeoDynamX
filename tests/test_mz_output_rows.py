@@ -696,11 +696,13 @@ def test_in_the_vector_views_the_active_output_goes_before_background_layers(
     monkeypatch.setattr(win, "_arr_tail_key", lambda l: "not-cached")
     win._center_stack.addWidget(QtWidgets.QWidget())       # stands in for the arrangement
     win._center_stack.setCurrentIndex(1)
+    monkeypatch.setattr(win, "_arrangement_shown", lambda: True)   # the 3-D view is up
     win.layer_list.outputHideToggled.emit(layer.layer_id, "recon", False)
     win._arr_queue = [master.layer_id]
     win._dispatch_next()
     assert dispatches == ["recon"] and background == []
     assert win._arr_queue == [master.layer_id]
+    monkeypatch.setattr(win, "_arrangement_shown", lambda: False)
     win._center_stack.setCurrentIndex(0)
     qtbot.waitUntil(lambda: not win.is_computing and win._out_request is None, timeout=60000)
 

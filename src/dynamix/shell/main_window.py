@@ -154,7 +154,7 @@ TITLE = "DynamiX"
 #: ``frame_mode`` branch) -> Globe (the arrangement's original WGS84 placement, unchanged) ->
 #: back to Raster. ``_cycle_center_view`` walks this tuple; ``_set_center_view`` accepts any one
 #: directly (the switcher's three buttons, and ``Settings.center_view``'s restored value).
-_CENTER_VIEWS = ("raster", "vector", "geo")
+_CENTER_VIEWS = ("raster", "map", "vector", "geo")
 
 #: The legal selection-mode values -- EQSelect's own
 #: names ("lasso", not "freehand"). ``"transect"`` is legal from day one (it gets its own gesture) -- :meth:`MainWindow.set_selection_mode` raises on anything
@@ -1304,6 +1304,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._center_stack = QtWidgets.QStackedWidget()
         self._center_stack.addWidget(self.canvas)
         self._arrangement = None
+        self.map_view = None          # the Map view, built on first use (_ensure_map_view)
+        self.layers_panel = None      # the Layers section, built with the right panel
+        self._stack_near: dict = {}   # a fork's row -> the row it was forked from (placement)
         self._footprints: list = []   # dynamix.geo.footprints records (data browser)
         self._previews: dict = {}     # group_key -> (name, preview RasterField) draped on the world
         self._reference_layers: dict = {}   # ref_id -> geo.vectors.VectorLayer (native CRS)
@@ -1499,6 +1502,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self._transect_panel.selectionChanged.connect(self._on_transect_selection_changed)
         self._transect_panel.plotRequested.connect(self._on_transect_plot_requested)
         self.right_panel.add_section("Transect", self._transect_panel)
+        from dynamix.shell.layers_panel import LayersPanel
+
+        self.layers_panel = LayersPanel(self.project.layer_stack, self._row_label)
+        self.right_panel.add_section("Layers", self.layers_panel, first=True)
+        self.layers_panel.stackChanged.connect(self._on_stack_changed)
+        self.layers_panel.rowSelected.connect(self._on_layers_row_selected)
+        self.layers_panel.zoomRequested.connect(self._on_layers_zoom)
         self._refresh_panel_relevance()
         self.canvas.transectDrawn.connect(self._on_canvas_transect_drawn)
 
@@ -1626,7 +1636,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_switcher_group = QtWidgets.QButtonGroup(self)
         self._view_switcher_group.setExclusive(True)
         self._view_switcher_buttons: dict[str, QtWidgets.QToolButton] = {}
-        for view, label in (("raster", "Raster"), ("vector", "Vector"), ("geo", "Globe")):
+        for view, label in (("raster", "Raster"), ("map", "Map"), ("vector", "Vector"),
+                            ("geo", "Globe")):
             button = QtWidgets.QToolButton()
             button.setText(label)
             button.setCheckable(True)
@@ -1770,6 +1781,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._zoom_action.setShortcutContext(QtCore.Qt.WindowShortcut)
         self._zoom_action.triggered.connect(self._zoom_to_dataset)
         view_menu.addAction(self._zoom_action)
+        crs_action = QtGui.QAction("Map CRS…", self)
+        crs_action.triggered.connect(self._on_map_crs_action)
+        view_menu.addAction(crs_action)
         settings_menu = self.menuBar().addMenu("Settings")
         self._auto_run_action = QtGui.QAction("Auto-run transforms", self, checkable=True)
         self._auto_run_action.setChecked(load_settings().auto_run_wtmm)
@@ -2267,10 +2281,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_panel_relevance()
         if auto_run:
             self._start_worker()
+        self._reconcile_stack()
         if not self._center_view_restored:
             self._center_view_restored = True
             saved_view = load_settings().center_view
-            if saved_view in ("vector", "geo"):
+            if saved_view in ("map", "vector", "geo"):
                 self._set_center_view(saved_view)
         if not self._inspectors_restored:
             self._inspectors_restored = True
@@ -3236,7 +3251,8 @@ both ``Canvas`` signals report the
         overlays = has_ext or has_chains or points
         style = _display_style_of(self.layer)
         shade = single and style["hillshade"]
-        arrangement = getattr(self, "_center_view", "raster") != "raster"
+        arrangement = getattr(self, "_center_view", "raster") in ("vector", "geo")
+        stacked = getattr(self, "_center_view", "raster") != "raster"
         tables = res.get("hd_std") is not None and res.get("hd_cmax") is not None
         self.right_panel.apply_relevance({
             "knob:opacity": overlays,
@@ -3262,6 +3278,7 @@ both ``Canvas`` signals report the
             "Inpainting": bool(res.get("_hists")),
             "Transect": raster,
             _RECON_TITLE: self._recon_step() is not None,
+            "Layers": stacked,
         })
 
     def _refresh_anisotropy(self) -> None:
@@ -3545,7 +3562,7 @@ both ``Canvas`` signals report the
             return
         self._open_derivative(path, name=choice["name"], temporary=choice["temporary"],
                               nest_under=layer.source_id if choice["nest"] else None,
-                              vectors=choice["vectors"])
+                              vectors=choice["vectors"], origin_layer_id=layer.layer_id)
 
     def _derivative_path(self, name: str, *, temporary: bool) -> "str | None":
         """Where a derivative is written: this session's scratch folder (temporary), or wherever
@@ -3564,15 +3581,24 @@ both ``Canvas`` signals report the
         return path if path.lower().endswith(".npz") else path + ".npz"
 
     def _open_derivative(self, path: str, *, name: str, temporary: bool,
-                         nest_under: "str | None", vectors: bool) -> None:
+                         nest_under: "str | None", vectors: bool,
+                         origin_layer_id: "int | None" = None) -> None:
         """Register and open a derivative file as a dataset (the ordinary ``load_field`` path).
         The source is registered FIRST with its name and placement, so the dataset row is built
-        with them; a derivative carrying vectors gets its loader as its first step."""
+        with them; a derivative carrying vectors gets its loader as its first step. A fork's
+        stack row goes at the top of the group holding the rows of ``origin_layer_id``."""
         from dynamix.core.rasterfield import RasterField
 
         source = self.project.add_source(path, label=name, sha256=sha256_of(path))
         source.temporary = temporary
         source.nest_under = nest_under
+        if origin_layer_id is not None:
+            stack = self.project.layer_stack
+            anchor = next((r for r in (f"prod:{origin_layer_id}", f"ext:{origin_layer_id}",
+                                       f"chn:{origin_layer_id}") if stack.node(r) is not None),
+                          None)
+            if anchor is not None:
+                self._stack_near[f"src:{source.source_id}"] = anchor
         self.load_field(RasterField.from_file(path), path, inert=True)
         self.layer.name = name                  # load_field names a layer by its file's stem
         self.layer_list.set_layer_name(self.layer.layer_id, name)
@@ -3790,6 +3816,7 @@ both ``Canvas`` signals report the
             layer.roi_id = roi.roi_id
         self.add_layer_row(layer, host)
         self.layer_list.select_layer(layer.layer_id)
+        self._reconcile_stack()
         self._notify(f"{label} routed — drop pca, tucker or another multi-band tool on it",
                      "status")
 
@@ -4474,6 +4501,9 @@ both ``Canvas`` signals report the
         # only sync the active layer's.
         for layer in project.layers:
             self._sync_output_rows(layer)
+        if self.map_view is not None:
+            self.map_view.set_map_crs(project.map_crs)
+        self._reconcile_stack()                # an older project gets its default stack
         self.setWindowTitle(f"{TITLE} — {path.stem}")
         if first_id is not None:
             self.layer_list.select_layer(first_id)
@@ -4577,7 +4607,7 @@ both ``Canvas`` signals report the
                 self._refresh_saved_rois()
         if layer is not None and layer is not self.layer:
             self._select_layer(layer)
-            if self._center_stack.currentIndex() == 1:
+            if self._arrangement_shown():
                 # The arrangement's own idea of "the active layer" (which id the shared
                 # worker thread should favour over the rest of the queue, see
                 # ``_dispatch_next``) just changed -- resync while flipped so its entries and
@@ -4616,6 +4646,10 @@ both ``Canvas`` signals report the
         else:
             self._set_recipe([ref.device for ref in layer.chain.steps],
                              [dict(ref.params) for ref in layer.chain.steps])
+        if self.layers_panel is not None:
+            self.layers_panel.highlight_layer(layer.layer_id)
+        if self.map_view is not None:
+            self.map_view.set_selected_row(f"prod:{layer.layer_id}")
         # ``_names``/``_params`` are freshly, legitimately populated from THIS layer's own recipe
         # (even if that chain happens to be empty) -- whatever inert ``load_field`` last wiped
         # them for is no longer what they hold, so the next auto-run open must not reseed over a
@@ -4822,7 +4856,7 @@ both ``Canvas`` signals report the
         if layer is None:
             return
         layer.visible = not hidden
-        if self._center_stack.currentIndex() == 1:
+        if self._arrangement_shown():
             # ANY layer's visibility is part of the arrangement's own compositing rule
             # ("every layer with visible=True") -- resync regardless of whether the
             # toggled layer is the active one, which the branches below still gate on.
@@ -4882,7 +4916,7 @@ both ``Canvas`` signals report the
                 layer.tags.pop("ui.edges_hidden", None)
             if layer is self.layer:
                 self.canvas.set_maxima_visible(not hidden)
-            if self._center_stack.currentIndex() == 1:
+            if self._arrangement_shown():
                 self._sync_arrangement()
         elif output is not None and (shown_output(step, outputs) == name) == hidden:
             # Hiding the shown row, or un-hiding a hidden one; anything else is already true.
@@ -5691,6 +5725,7 @@ both ``Canvas`` signals report the
             self._out_keys.pop(rid, None)
             self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
+        self._reconcile_stack()
         # The 3-D view learns about removals too (the vector view kept
         # framing a REMOVED dataset's extent): resync drops the stale actors. The camera
         # deliberately stays -- removing one layer must not yank the view (the
@@ -5746,6 +5781,7 @@ both ``Canvas`` signals report the
         if self._active_roi_id == roi_id:
             self._active_roi_id = None
         self._refresh_saved_rois()
+        self._reconcile_stack()
         if self.layer is not None and self.layer.parent_id is None \
                 and self.layer_list.currentItem() is None:
             self.layer_list.select_layer(self.layer.layer_id)
@@ -5816,6 +5852,7 @@ both ``Canvas`` signals report the
             self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
+        self._reconcile_stack()
         # Removing a whole DATASET changes the subject: resync the 3-D view and refit its
         # camera to what remains (the load_field-autoRange analog for the vector view). Without
         # the refit the camera stays on the removed dataset's extent, far zoomed out and hard to
@@ -6048,7 +6085,7 @@ both ``Canvas`` signals report the
             return
         source.hidden = bool(hidden)
         self._apply_raster_visibility()
-        if self._center_stack.currentIndex() == 1:
+        if self._arrangement_shown():
             self._sync_arrangement()
 
     def _resolve_surface_source(self, text) -> "object | None":
@@ -6507,6 +6544,7 @@ both ``Canvas`` signals report the
         self._active_roi_id = roi.roi_id
         self._refresh_saved_rois()
         self.layer_list.select_roi(roi.roi_id)           # its row is the selection now
+        self._reconcile_stack()
         self._notify(f"ROI {roi.label} saved — drop a tool to run it on this region", "status")
 
     def _on_roi_activated(self, roi_id: str) -> None:
@@ -6528,7 +6566,7 @@ both ``Canvas`` signals report the
                        if l.source_id == roi.source_id and l.parent_id is None), None)
         if master is not None and master is not self.layer:
             self._select_layer(master)
-            if self._center_stack.currentIndex() == 1:
+            if self._arrangement_shown():
                 self._sync_arrangement()
         self._active_roi_id = roi.roi_id
         self._refresh_saved_rois()
@@ -6540,6 +6578,7 @@ both ``Canvas`` signals report the
             return
         roi.visible = not hidden
         self._refresh_saved_rois()
+        self._redraw_map()
 
     def _on_roi_child_create(self, spec: dict) -> None:
         """Child dataset was pressed: the drawn box becomes a NATIVE-PIXEL CROP of the
@@ -7333,6 +7372,7 @@ both ``Canvas`` signals report the
                 if held:
                     self._pending_layers.add(layer.layer_id)
                 self.layer_list.select_layer(layer.layer_id)   # -> _select_layer -> worker
+                self._reconcile_stack()
                 if held:
                     self._notify(f"{rows} × {cols} px ({rows * cols / 1e6:.0f} M) — press Run "
                                  "(⌘↩) to compute", "status")
@@ -7527,7 +7567,7 @@ both ``Canvas`` signals report the
             self._report_error(str(exc))
             return
         self._apply(renderable)
-        if self._center_stack.currentIndex() == 1:
+        if self._arrangement_shown():
             self._sync_arrangement()
 
     def _hybrid_chain(self, committed_chain) -> "Chain":
@@ -7607,7 +7647,7 @@ both ``Canvas`` signals report the
         # with the Vector tab showing otherwise has its extrema absent until a manual
         # flip-out/in). _sync_arrangement's own diffing keeps repeat landings cheap
         # (the filter-only fast path), same as the visibility-toggle resync just above it.
-        if self._center_stack.currentIndex() == 1 and self._arrangement is not None:
+        if self._arrangement_shown() and self._arrangement is not None:
             self._sync_arrangement()
         # Honesty notice: extrema drawn while the DATASET raster is hidden
         # (the source row's H) reads as "I can see the extrema but not the DEM" -- say so.
@@ -8126,7 +8166,7 @@ both ``Canvas`` signals report the
         ``self._arrangement`` stays ``None`` forever in that case, so this is exactly
         ``_dispatch_next()`` plus the closing check, same as the code it replaced.
         """
-        if self._arrangement is not None and self._center_stack.currentIndex() == 1:
+        if self._arrangement is not None and self._arrangement_shown():
             self._sync_arrangement()
         else:
             self._dispatch_next()
@@ -8175,7 +8215,7 @@ both ``Canvas`` signals report the
             if keys and keys[-1] not in self.cache:
                 self._start_worker()
                 return
-        if self._center_stack.currentIndex() != 1:
+        if not self._arrangement_shown():
             return
         # The output job the active layer's display waits for goes before background layers.
         self._dispatch_output()
@@ -8755,7 +8795,8 @@ both ``Canvas`` signals report the
             return
         from dynamix.shell.arrangement_facade import ArrangementView
         self._arrangement = ArrangementView(self)
-        self._center_stack.addWidget(self._arrangement)
+        # Index 1 whichever centre page was built first (the Map is parked after it).
+        self._center_stack.insertWidget(1, self._arrangement)
         # Hand the view its palette REFERENCE, once -- unlike the mask row's values
         # (pushed on every flip, just below), a reference only needs handing over once, since
         # the palette itself is never rebuilt across park/resume cycles (see
@@ -8786,6 +8827,337 @@ both ``Canvas`` signals report the
             return
         self._ensure_arrangement()
         self._arrangement.warm_up()
+
+    def _ensure_map_view(self) -> None:
+        """The Map view, built on first use and parked in the centre stack."""
+        if self.map_view is None:
+            from dynamix.shell.map_view import MapView
+
+            self.map_view = MapView(self)
+            self._center_stack.addWidget(self.map_view)
+            self.map_view.set_map_crs(self.project.map_crs)
+            self.map_view.rowClicked.connect(self._on_layers_row_selected)
+
+    def _arrangement_shown(self) -> bool:
+        """Whether the Vector/Globe scene is the centre view on screen."""
+        return self._arrangement is not None and \
+            self._center_stack.currentWidget() is self._arrangement
+
+    # -- the layer stack and the Map ---------------------------------------------------------
+    def _layer_infos(self) -> list:
+        """What placement needs of every raster layer: its contracts, its ROI, a bus's
+        channels, and whether its Show can put a raster output up."""
+        from dynamix.core.bus import parse_sends
+        from dynamix.model.contracts import chain_contracts
+        from dynamix.model.layer_stack import LayerInfo
+
+        infos = []
+        rois = {r.roi_id: r for r in self.project.rois}
+        for layer in self.project.layers:
+            if self._is_point_layer(layer):
+                continue
+            steps = list(layer.chain.steps)
+            channels = None
+            if steps and steps[0].device == "bus":
+                sends = parse_sends(steps[0].params.get("_sends"))
+                channels = tuple(s.get("label") or f"band {n + 1}" for n, s in enumerate(sends))
+            layer_input = self._layer_input(layer)
+            produced = chain_contracts(steps, layer_input)
+            _step, outputs = layer_outputs(layer, layer_input)
+            roi = rois.get(layer.roi_id) if layer.roi_id else None
+            infos.append(LayerInfo(layer.layer_id, layer.source_id, frozenset(produced),
+                                   roi_id=roi.roi_id if roi else None,
+                                   roi_label=roi.label if roi else None, channels=channels,
+                                   shows_raster=any(o.kind == "raster" for o in outputs)))
+        return infos
+
+    def _reconcile_stack(self, near=None) -> int:
+        """Give new content its rows by the default placement and drop rows whose content is
+        gone; the first georeferenced dataset sets the map CRS. Returns the rows dropped."""
+        from dynamix.geo.placement import field_crs
+        from dynamix.model.layer_stack import reconcile
+
+        # A removed dataset's SourceRef stays registered (an inert orphan): only a source with
+        # a layer has rows.
+        live = {l.source_id for l in self.project.layers}
+        sources = [(sid, s.label or Path(s.path).stem) for sid, s in self.project.sources.items()
+                   if s.kind != "points" and sid in live]
+        near = {**self._stack_near, **(near or {})}
+        self._stack_near = {}
+        dropped = reconcile(self.project.layer_stack, sources, self._layer_infos(), near=near)
+        if dropped and not near:
+            self._notify(f"layer stack: {dropped} row(s) for missing content dropped", "status")
+        if self.project.map_crs is None and self.field is not None:
+            self.project.map_crs = field_crs(self.field)
+            if self.map_view is not None:
+                self.map_view.set_map_crs(self.project.map_crs)
+        if self.layers_panel is not None:
+            self.layers_panel.set_stack(self.project.layer_stack)
+        self._redraw_map()
+        return dropped
+
+    def _shown_output_of(self, layer):
+        """The lazy output ``layer``'s Show puts up, or ``None`` (the field, or an eager
+        raster)."""
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
+        name = shown_output(step, outputs)
+        return next((o for o in outputs if o.name == name and o.lazy), None)
+
+    def _row_label(self, row_id: str) -> str:
+        from dynamix.core.bus import parse_sends
+
+        kind, _, rest = row_id.partition(":")
+        if kind == "prod":
+            rest = rest.split(":", 1)[0]             # prod:<layer_id>[:<output>]
+        if kind == "src":
+            src = self.project.sources.get(rest)
+            return (src.label or Path(src.path).stem) if src else row_id
+        if kind == "ch":
+            lid, n = (int(v) for v in rest.split(":"))
+            layer = self._layer_by_id.get(lid)
+            sends = parse_sends(layer.chain.steps[0].params.get("_sends")) if layer else []
+            return (sends[n].get("label") if n < len(sends) else None) or f"band {n + 1}"
+        layer = self._layer_by_id.get(int(rest))
+        if layer is None:
+            return row_id
+        if kind == "prod":
+            output = self._shown_output_of(layer)
+            return f"{layer.name} · {output.label or output.name}" if output else layer.name
+        return layer.name + {"ext": " · extrema", "chn": " · chains"}[kind]
+
+    def _layer_display(self, layer):
+        """``(result, reason)`` of ``layer`` from the cache only -- never a compute. A lazy
+        output on show rides a copy of the result as its ``raster_out``, as on the Raster tab."""
+        if layer.layer_id in self._pending_layers:
+            return None, "not run"
+        if layer is self.layer and isinstance(self._active_result, dict):
+            return self._active_result, None
+        tail = self._arr_tail_key(layer)
+        if tail is not None and tail not in self.cache:
+            return None, "computing" if self.is_computing else "not run"
+        field = self._fields.get(layer.layer_id)
+        try:
+            renderable = resolve(layer, field, self.cache, source_id=layer.source_id)
+        except Exception as exc:                                     # noqa: BLE001
+            return None, str(exc)
+        result = renderable.result
+        if not isinstance(result, dict):
+            return {}, None
+        value = self._cached_output_value(layer, renderable)
+        if value is not None:
+            result = {**result, "raster_out": value["raster"]}
+            if value.get("roi_axes") is not None:
+                result["_roi_axes"] = value["roi_axes"]
+            if value.get("display_offset") is not None:
+                result["_raster_display_offset"] = tuple(value["display_offset"])
+        return result, None
+
+    def _row_content(self, row_id: str):
+        from dynamix.shell.map_view import RowContent
+
+        kind, _, rest = row_id.partition(":")
+        if kind == "src":
+            master = next((l for l in self.project.layers
+                           if l.source_id == rest and l.parent_id is None), None)
+            field = self._fields.get(master.layer_id) if master else None
+            if field is None:
+                return RowContent("raster", reason="not loaded")
+            return RowContent("raster", field=field, style=_display_style_of(master),
+                              composite=self._composite_spec_for(master))
+        if kind == "ch":
+            lid, n = (int(v) for v in rest.split(":"))
+            layer = self._layer_by_id.get(lid)
+            field = self._bus_plane(layer, n) if layer else None
+            return (RowContent("channel", field=field, style=_display_style_of(layer))
+                    if field is not None else RowContent("channel", reason="not run"))
+        layer = self._layer_by_id.get(int(rest.split(":", 1)[0]))   # prod:<id>[:<output>]
+        if layer is None:
+            return RowContent(kind, reason="no layer")
+        result, reason = self._layer_display(layer)
+        if reason:
+            return RowContent(kind, reason=reason)
+        field = self._fields.get(layer.layer_id, self.field)
+        if kind == "prod":
+            return self._product_content(layer, result, field)
+        idx = 0 if len(result.get("extrema") or [None]) == 1 else int(result.get("_scale_idx", 0))
+        return RowContent("extrema" if kind == "ext" else "chains", result=result,
+                          scale_idx=idx, grid_field=field)
+
+    def _product_content(self, layer, result, field):
+        """A layer's product row: the raster its Show puts up, placed where the Raster tab
+        places it (the region's own axes, moved by where an output's samples register)."""
+        from dynamix.shell.map_view import RowContent
+
+        if result.get("_display_stride"):
+            return RowContent("product", reason="shown in the 2-D view")
+        raster = _display_raster_of(result)
+        if raster is None:
+            output = self._shown_output_of(layer)
+            if output is None:
+                return RowContent("product", reason="nothing shown")
+            busy = self._out_job is not None and self._out_job[0] is layer
+            return RowContent("product", reason="computing" if busy else "not computed")
+        prod = _roi_display_field(result, raster, field, layer.name) or dataclasses.replace(
+            field, values=np.asarray(raster, dtype=np.float64), name=layer.name)
+        offset = result.get("_raster_display_offset")
+        if offset is not None:
+            dx, dy = (float(d) for d in offset)
+            prod = dataclasses.replace(
+                prod, x_axis=axis_at(prod.x_axis, np.arange(len(prod.x_axis)) + dx),
+                y_axis=axis_at(prod.y_axis, np.arange(len(prod.y_axis)) + dy))
+        return RowContent("product", field=prod, style=_display_style_of(layer))
+
+    def _composite_spec_for(self, layer):
+        """The composite spec ``layer``'s dataset draws with: its ``ui.composite`` tag, else the
+        default for its band count; ``None`` for a single band."""
+        field = self._fields.get(layer.layer_id)
+        values = np.asarray(getattr(field, "values", np.empty(0)))
+        if values.ndim != 3:
+            return None
+        raw = layer.tags.get("ui.composite")
+        try:
+            spec = json.loads(raw) if raw else None
+        except ValueError:
+            spec = None
+        return spec if isinstance(spec, dict) else self._default_composite(int(values.shape[-1]))
+
+    def _bus_plane(self, layer, n):
+        """Channel ``n`` of a bus layer as a 2-D field, or ``None`` until its sends can be
+        materialised (a layer send waits for its source layer to have run)."""
+        from dynamix.core.bus import materialize, parse_sends
+
+        if self._active_field is not None and self._active_field[0] == layer.layer_id:
+            stack = self._active_field[1]
+        else:
+            host = self._fields.get(layer.layer_id)
+            try:
+                stack = materialize(host, parse_sends(layer.chain.steps[0].params.get("_sends")))
+            except Exception:                                        # noqa: BLE001
+                return None
+        values = np.asarray(stack.values)
+        if values.ndim == 2:
+            return stack if n == 0 else None
+        if n >= values.shape[-1]:
+            return None
+        return dataclasses.replace(stack, values=values[..., n])
+
+    def _redraw_map(self) -> None:
+        """Draw the stack on the Map while the Map is the centre view; the Layers panel greys
+        the rows it could not draw, with the reason."""
+        if self.map_view is None or self._center_stack.currentWidget() is not self.map_view:
+            return
+        reasons = self.map_view.show_stack(self.project.layer_stack.drawn(include_hidden=True),
+                                           self._row_content)
+        self.map_view.set_overlays(**self._map_overlays())
+        if self.layer is not None:
+            self.map_view.set_selected_row(f"prod:{self.layer.layer_id}")
+        if self.layers_panel is not None:
+            self.layers_panel.set_reasons(reasons)
+
+    def _map_overlays(self) -> dict:
+        """ROI outlines (on their dataset's FILE-pixel axes), reference layers in the map CRS
+        and point catalogues, for ``MapView.set_overlays``; visibility from their own controls."""
+        import types
+
+        from dynamix.geo.vectors import to_crs
+
+        def file_axes(field):
+            grid = file_pixel_grid(field)
+            if grid is not None:
+                x0, dx, y0, dy, nx, ny = grid
+                xa, ya = x0 + dx * np.arange(nx), y0 + dy * np.arange(ny)
+            else:
+                r_off, c_off = window_offset(field)
+                xa = axis_at(field.x_axis, np.arange(c_off + len(field.x_axis)) - c_off)
+                ya = axis_at(field.y_axis, np.arange(r_off + len(field.y_axis)) - r_off)
+            return types.SimpleNamespace(x_axis=xa, y_axis=ya, provenance=field.provenance)
+
+        rois = []
+        for roi in self.project.rois:
+            master = next((l for l in self.project.layers
+                           if l.source_id == roi.source_id and l.parent_id is None), None)
+            field = self._fields.get(master.layer_id) if master else None
+            if roi.visible and field is not None:
+                rois.append((file_axes(field), (roi.row, roi.col, roi.h, roi.w), roi.label))
+        refs = []
+        if self.project.map_crs:
+            for rec in self.project.reference_layers:
+                layer = self._reference_layers.get(rec.ref_id)
+                if rec.visible and layer is not None:
+                    try:
+                        refs.append(to_crs(layer, self.project.map_crs))
+                    except Exception:                                # noqa: BLE001
+                        pass                      # an unplaceable reference stays off the map
+        points = []
+        for layer in self.project.layers:
+            if self._is_point_layer(layer) and layer.visible and self.project.map_crs:
+                ps = self._fields.get(layer.layer_id)
+                if ps is not None:
+                    from rasterio.warp import transform
+
+                    x, y = transform("EPSG:4326", self.project.map_crs, list(ps.lon), list(ps.lat))
+                    points.append((np.asarray(x), np.asarray(y)))
+        return {"rois": rois, "references": refs, "points": points}
+
+    def _on_stack_changed(self) -> None:
+        self._redraw_map()
+        if self._arrangement_shown():
+            self._sync_arrangement()
+
+    def _on_layers_row_selected(self, row_id: str) -> None:
+        """A row picked in the Layers panel or clicked on the Map selects its layer."""
+        kind, _, rest = row_id.partition(":")
+        if kind in ("prod", "ext", "chn"):
+            self.layer_list.select_layer(int(rest.split(":", 1)[0]))
+        elif kind == "ch":
+            self.layer_list.select_layer(int(rest.split(":", 1)[0]))
+        elif kind == "src":
+            master = next((l for l in self.project.layers
+                           if l.source_id == rest and l.parent_id is None), None)
+            if master is not None:
+                self.layer_list.select_layer(master.layer_id)
+
+    def _on_layers_zoom(self, node_id: str) -> None:
+        """Zoom to: the Map frames the row (or every drawn row of a group)."""
+        if self.map_view is None:
+            return
+        stack = self.project.layer_stack
+        node = stack.node(node_id)
+        ids = ([r.id for r, _v, _o in stack.drawn()
+                if r.id == node_id or self._inside(stack, r.id, node_id)]
+               if node is not None else [])
+        rects = [self.map_view.item_rect(i) for i in ids if i in self.map_view._items]
+        if rects:
+            box = rects[0]
+            for r in rects[1:]:
+                box = box.united(r)
+            self.map_view.view.setRange(box.normalized())
+
+    @staticmethod
+    def _inside(stack, row_id, group_id) -> bool:
+        parent = stack.parent_of(row_id)
+        while parent is not None and parent.id != "root":
+            if parent.id == group_id:
+                return True
+            parent = stack.parent_of(parent.id)
+        return False
+
+    def _on_map_crs_action(self) -> None:
+        text, ok = QtWidgets.QInputDialog.getText(self, "Map CRS", "EPSG code",
+                                                  text=self.project.map_crs or "EPSG:4326")
+        if not ok:
+            return
+        try:
+            from rasterio.crs import CRS
+
+            crs = CRS.from_user_input(text.strip()).to_string()
+        except Exception as exc:                                     # noqa: BLE001
+            self._notify(f"Map CRS refused: {exc}", "status")
+            return
+        self.project.map_crs = crs
+        self._ensure_map_view()
+        self.map_view.set_map_crs(crs)
+        self._redraw_map()
 
     def _set_center_view(self, view: str) -> None:
         """Switch the center zone to ``view`` -- ``"raster"`` (the session canvas, index 0),
@@ -8831,6 +9203,14 @@ both ``Canvas`` signals report the
                 self._arrangement.deactivate()
             self._center_stack.setCurrentIndex(0)
             self._redraw_canvas_overlay_if_dirty()   # deferred while the canvas was hidden
+            self._sync_view_switcher()
+            return
+        if view == "map":
+            if self._arrangement is not None:
+                self._arrangement.deactivate()
+            self._ensure_map_view()
+            self._center_stack.setCurrentWidget(self.map_view)
+            self._redraw_map()
             self._sync_view_switcher()
             return
         self._ensure_arrangement()

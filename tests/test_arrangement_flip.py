@@ -13,9 +13,11 @@ def test_app_boots_with_arrangement_never_built(window):
 
 
 def test_tab_flips_and_builds_lazily(qtbot, window):
-    # Tab cycles THREE states -- raster -> vector -> geo -> raster
-    # (MainWindow._cycle_center_view) -- so a full round trip takes three presses. The arrangement
-    # builds lazily on the very first press (into "vector").
+    # Tab cycles FOUR states -- raster -> map -> vector -> geo -> raster
+    # (MainWindow._cycle_center_view) -- so a full round trip takes four presses. The arrangement
+    # builds lazily on the first press into "vector"; the Map does not build it.
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)
+    assert window._center_view == "map" and window._arrangement is None
     qtbot.keyClick(window, QtCore.Qt.Key_Tab)
     assert window._center_stack.currentIndex() == 1
     assert window._arrangement is not None
@@ -38,7 +40,8 @@ def test_tab_inside_a_line_edit_does_not_flip(qtbot, window):
 def test_missing_pyvista_degrades_to_notice(qtbot, window, monkeypatch):
     import dynamix.shell.arrangement.view as av
     monkeypatch.setattr(av, "_import_pyvista", lambda: None)
-    qtbot.keyClick(window, QtCore.Qt.Key_Tab)
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)          # raster -> map
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)          # map -> vector
     assert window._center_stack.currentIndex() == 1     # flip still works
     assert window._arrangement.available is False       # notice, not crash
 
@@ -154,6 +157,7 @@ def test_activate_under_the_offscreen_qpa_platform_does_not_crash_and_leaves_the
 
     assert _QtWidgets.QApplication.instance().platformName() == "offscreen"
 
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)          # raster -> map
     qtbot.keyClick(window, QtCore.Qt.Key_Tab)          # would SIGSEGV the whole run if unguarded
 
     assert window._center_stack.currentIndex() == 1     # the flip itself still happens
@@ -313,6 +317,7 @@ def test_view_options_button_opens_the_view_dialog(qtbot, window):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.view_dialog import ViewDialog
 
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)      # raster -> map
     qtbot.keyClick(window, QtCore.Qt.Key_Tab)      # builds + activates the arrangement
     if not window._arrangement.available:
         pytest.skip("pyvista/pyvistaqt not installed in this environment")
@@ -327,7 +332,8 @@ def test_view_options_button_opens_the_view_dialog(qtbot, window):
 def test_view_options_button_reuses_the_same_dialog_instance(qtbot, window):
     pytest.importorskip("pyvista", reason="pyvista not installed")
 
-    qtbot.keyClick(window, QtCore.Qt.Key_Tab)
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)          # raster -> map
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)          # map -> vector
     if not window._arrangement.available:
         pytest.skip("pyvista/pyvistaqt not installed in this environment")
     window._arrangement._view_options_button.click()
@@ -364,7 +370,8 @@ def test_activation_pushes_the_persisted_view_options_into_the_view(qtbot, windo
     monkeypatch.setattr(ArrangementView, "set_background",
                          lambda self, v: calls.append(("set_background", v)))
 
-    qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # raster -> vector (background-only push)
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # raster -> map
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # map -> vector (background-only push)
     qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # vector -> geo (the full push this test covers)
     assert window._center_view == "geo"
 
@@ -391,7 +398,8 @@ def test_activation_with_no_saved_view_options_pushes_defaults(qtbot, window, mo
     monkeypatch.setattr(ArrangementView, "set_background",
                          lambda self, v: calls.append(("set_background", v)))
 
-    qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # raster -> vector (background-only push)
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # raster -> map
+    qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # map -> vector (background-only push)
     qtbot.keyClick(window, QtCore.Qt.Key_Tab)     # vector -> geo (the full push this test covers)
     assert window._center_view == "geo"
 

@@ -148,6 +148,26 @@ def test_opens_in_raster_view_at_stack_index_0(window):
 # --------------------------------------------------------------------------- (b) cycle order
 
 
+def test_cycle_center_view_walks_raster_map_vector_geo_raster(loaded):
+    loaded._arrangement = _FakeArrangement()
+
+    loaded._cycle_center_view()
+    assert loaded._center_view == "map"
+    assert loaded._center_stack.currentWidget() is loaded.map_view
+
+    loaded._cycle_center_view()
+    assert loaded._center_view == "vector"
+
+    loaded._cycle_center_view()
+    assert loaded._center_view == "geo"
+
+    loaded._cycle_center_view()
+    assert loaded._center_view == "raster"
+    assert loaded._center_stack.currentIndex() == 0
+
+
+@pytest.mark.skip(reason="the centre views are raster, map, vector, geo: the cycle walks the Map "
+                         "too (test_cycle_center_view_walks_raster_map_vector_geo_raster)")
 def test_cycle_center_view_walks_raster_vector_geo_raster(loaded):
     loaded._arrangement = _FakeArrangement()
 

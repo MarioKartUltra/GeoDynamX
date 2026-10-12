@@ -12,7 +12,7 @@ from pathlib import Path
 #: The three legal values of ``MainWindow._center_view`` --
 #: restated here (not imported from ``main_window``, which imports Qt) so this module stays
 #: Qt-free per its own module docstring.
-_CENTER_VIEWS = ("raster", "vector", "geo")
+_CENTER_VIEWS = ("raster", "map", "vector", "geo")
 
 
 @dataclasses.dataclass
