@@ -262,6 +262,29 @@ def real_pic_window(qtbot, registered_builtins, tmp_path):
     return win
 
 
+@pytest.mark.parametrize("roi", [(2, 3, 4, 5), (20, 24, 16, 20)])
+def test_a_child_dataset_of_a_picture_holds_the_native_pixels_under_the_roi(real_pic_window,
+                                                                            roi):
+    """The ROI's numbers are FILE pixels on a picture: the child reads the file there, at
+    native resolution -- inside the picture's own (small) array size or beyond it."""
+    import rasterio
+
+    win = real_pic_window
+    master = win.layer
+    with rasterio.open(win.project.sources[master.source_id].path) as ds:
+        native = ds.read(1).astype(np.float64)
+        x0, y0 = ds.xy(0, 0)
+    r, c, h, w = roi
+    win._on_roi_child_create({"roi_row": r, "roi_col": c, "roi_h": h, "roi_w": w,
+                              "boundary": "auto"})
+    child = win.layer
+    assert child is not master and child.tags["roi.window"] == f"{r},{c},{h},{w}"
+    f = win._fields[child.layer_id]
+    np.testing.assert_array_equal(np.asarray(f.values), native[r:r + h, c:c + w])
+    assert f.x_axis[0] == pytest.approx(x0 + 2.0 * c)            # 2 m pixels (the fixture)
+    assert f.y_axis[0] == pytest.approx(y0 - 2.0 * r)
+
+
 def test_an_roi_hmap_is_shown_pinned_at_the_roi(real_pic_window, qtbot):
     win = real_pic_window
     win._on_roi_save({"roi_row": 20, "roi_col": 24, "roi_h": 16, "roi_w": 20,

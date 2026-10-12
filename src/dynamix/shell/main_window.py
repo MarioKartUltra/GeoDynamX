@@ -6562,8 +6562,26 @@ both ``Canvas`` signals report the
         r, c = int(spec["roi_row"]), int(spec["roi_col"])
         h, w = int(spec["roi_h"]), int(spec["roi_w"])
         vals = np.asarray(field.values)
-        if r < 0 or c < 0 or r + h > vals.shape[0] or c + w > vals.shape[1]:
+        ny, nx = native_shape(field)
+        if r < 0 or c < 0 or r + h > ny or c + w > nx:
             return                              # the panel's own legality gate already said no
+        if display_stride(field) > 1:
+            # A picture draws the file, and the ROI's numbers are FILE pixels: the child reads
+            # the file's native pixels under the box, with their own georeference (the region
+            # runner's reader, so every format it reads works here).
+            from dynamix.roi.runner import read_processing_window
+
+            child_field, _info = read_processing_window(field, (r, c, h, w), 0)
+            src = self.project.sources.get(parent.source_id)
+            base = (src.label or Path(src.path).stem) if src is not None else parent.name
+            child_field = dataclasses.replace(child_field, name=f"{base}@r{r}c{c}")
+            layer = self.project.add_layer(
+                f"{base} · child[{r},{c} {h}×{w}]",
+                parent.source_id, Chain(()), parent_id=parent.layer_id)
+            layer.tags["roi.window"] = f"{r},{c},{h},{w}"
+            self.add_layer_row(layer, child_field)
+            self.layer_list.select_layer(layer.layer_id)
+            return
         ov = int(prov.get("overview", 1) or 1)
         if ov != 1:
             # A box on a whole-extent OVERVIEW cuts native pixels by reading the window straight
