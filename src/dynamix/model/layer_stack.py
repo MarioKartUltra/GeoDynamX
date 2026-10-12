@@ -4,15 +4,16 @@
 
 Rows point at existing content by id -- ``src:<source_id>`` (a dataset's raster),
 ``prod:<layer_id>`` (a layer's shown raster), ``ext:<layer_id>`` (its extrema),
-``chn:<layer_id>`` (its vertical chains), ``ch:<bus_layer_id>:<n>`` (a bus channel). Groups nest;
-a ``stack`` group is a bus. Children lists are top first: the first child draws on top. Display
+``chn:<layer_id>`` (its vertical chains), ``ch:<bus_layer_id>:<n>`` (a bus channel),
+``roi:<roi_id>`` (a saved ROI's outline, at the top of the ROI's group). Groups nest; a ``stack``
+group is a bus. Children lists are top first: the first child draws on top. Display
 state only -- analysis never reads it.
 """
 from __future__ import annotations
 
 import dataclasses
 
-ROW_KINDS = ("raster", "product", "extrema", "chains", "channel")
+ROW_KINDS = ("raster", "product", "extrema", "chains", "channel", "outline")
 
 
 @dataclasses.dataclass
@@ -200,14 +201,22 @@ def _auto_group(stack, gid, name, parent_id="root", kind="group"):
     return group
 
 
-def reconcile(stack: LayerStack, sources, layers, near=None) -> int:
+def _top(group) -> int:
+    """Where a new row goes in ``group``: its top, below an ROI's outline row there."""
+    return 1 if group.children and getattr(group.children[0], "kind", None) == "outline" else 0
+
+
+def reconcile(stack: LayerStack, sources, layers, near=None, rois=()) -> int:
     """Give content without a row a row by the default placement, and remove rows whose
     content is gone. Rows already present never move. ``near`` maps a new row id to an
-    existing row id: the new row goes to the top of that row's group (a fork). Returns the
-    number of rows removed."""
+    existing row id: the new row goes to the top of that row's group (a fork). ``rois`` are the
+    saved ROIs ``(roi_id, source_id, label)``: each has a group in its dataset's group with its
+    outline row on top. Returns the number of rows removed."""
     near = near or {}
     labels = dict(sources)
+    rois = [r for r in rois if r[1] in labels]
     wanted = {f"src:{sid}" for sid, _label in sources}
+    wanted.update(f"roi:{roi_id}" for roi_id, _sid, _label in rois)
     for info in layers:
         wanted.update(rid for rid, _k in rows_for(info))
         wanted.update(f"ch:{info.layer_id}:{n}" for n in range(len(info.channels or ())))
@@ -225,7 +234,13 @@ def reconcile(stack: LayerStack, sources, layers, near=None) -> int:
             parent = _auto_group(stack, f"ds:{sid}", label)
             stack.insert(Row(rid, "raster"), parent.id, len(parent.children))
         else:
-            stack.insert(Row(rid, "raster"), parent.id, 0)
+            stack.insert(Row(rid, "raster"), parent.id, _top(parent))
+
+    for roi_id, sid, label in rois:
+        if stack.node(f"roi:{roi_id}") is None:
+            group = _auto_group(stack, f"roig:{roi_id}", f"ROI {label}",
+                                parent_id=_auto_group(stack, f"ds:{sid}", labels[sid]).id)
+            stack.insert(Row(f"roi:{roi_id}", "outline"), group.id, 0)
 
     for info in layers:
         if info.channels is not None:
@@ -242,5 +257,5 @@ def reconcile(stack: LayerStack, sources, layers, near=None) -> int:
                                      parent_id=target.id)
         for rid, kind in reversed(rows_for(info)):
             if stack.node(rid) is None:
-                stack.insert(Row(rid, kind), target.id, 0)
+                stack.insert(Row(rid, kind), target.id, _top(target))
     return len(gone)

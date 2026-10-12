@@ -77,3 +77,28 @@ def test_chain_contracts_reads_the_contract_walk(clean_registry):
     register_builtin_devices()
     assert chain_contracts([DeviceRef("holder_measure", {})], FIELD) == {"HMap"}
     assert chain_contracts([], FIELD) == {FIELD}
+
+
+def test_a_saved_roi_is_a_group_with_its_outline_on_top():
+    """Saving an ROI gives it a group holding its outline row; its results go below the
+    outline; a deleted ROI takes its outline and its emptied group."""
+    s = LayerStack()
+    rois = [("roi0", "src0", "A")]
+    reconcile(s, [("src0", "dem")], [], rois=rois)
+    assert _tree(s) == [("ds:src0", [("roig:roi0", ["roi:roi0"]), "src:src0"])]
+    roi_layer = LayerInfo(1, "src0", HOLDER, roi_id="roi0", roi_label="A")
+    reconcile(s, [("src0", "dem")], [roi_layer], rois=rois)
+    assert _tree(s) == [("ds:src0", [("roig:roi0", ["roi:roi0", "prod:1"]), "src:src0"])]
+    assert s.node("roi:roi0").kind == "outline"
+    reconcile(s, [("src0", "dem")], [], rois=[])
+    assert _tree(s) == [("ds:src0", ["src:src0"])]
+
+
+def test_a_fork_near_an_roi_result_goes_below_the_outline():
+    s = LayerStack()
+    rois = [("roi0", "src0", "A")]
+    layers = [LayerInfo(1, "src0", HOLDER, roi_id="roi0", roi_label="A")]
+    reconcile(s, [("src0", "dem")], layers, rois=rois)
+    reconcile(s, [("src0", "dem"), ("src1", "fork")], layers, near={"src:src1": "prod:1"},
+              rois=rois)
+    assert _tree(s)[0][1][0] == ("roig:roi0", ["roi:roi0", "src:src1", "prod:1"])
