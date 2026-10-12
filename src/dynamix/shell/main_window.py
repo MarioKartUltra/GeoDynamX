@@ -556,6 +556,22 @@ def _inherited_window(parent, **extra) -> dict:
     return tags
 
 
+#: A dropped tool, or an Auto-run edit, that would read more pixels than this waits for Run.
+_AUTO_RUN_MAX_PX = 4096 * 4096
+
+
+def _read_shape(layer, field) -> tuple[int, int]:
+    """``(rows, cols)`` of native pixels ``layer``'s tool reads: its region's, else the
+    dataset's file size."""
+    window = layer.tags.get("roi.window")
+    if window:
+        _r, _c, h, w = (int(v) for v in window.split(","))
+        return h, w
+    if np.ndim(getattr(field, "values", None)) < 2:
+        return 0, 0                                # a point catalogue reads no raster
+    return native_shape(field)
+
+
 def _field_choices(field, note: str) -> list:
     """A produced field as fork choices ``[(label, 2-D array)]``: the field itself when it is
     one band, else one choice per band (tick them all for a multiband derivative)."""
@@ -4652,7 +4668,10 @@ both ``Canvas`` signals report the
             self._displayed_layer_name = layer.name
             self._holder_raster_ref = None   # raw field is up -- holder display re-syncs on land
         self._update_scale_bar()
-        self._start_worker()
+        if layer.layer_id in self._pending_layers:
+            self._apply_pending_ui()          # waits for Run (an edit, a Stop, a held drop)
+        else:
+            self._start_worker()
         # The ACTIVE LAYER just changed, which is what turns
         # every open inspector's picture from live into kept or back again -- and it changes here,
         # not when a result lands. Waiting for ``resolved`` to re-word them leaves a window
@@ -6859,6 +6878,14 @@ both ``Canvas`` signals report the
         self.browser.set_rack_context(transforms, layer_input, master=master,
                                       roi_holder=roi_holder)
 
+    def _auto_runs(self) -> bool:
+        """Auto-run is on and the active layer's tool reads at most ``_AUTO_RUN_MAX_PX`` native
+        pixels; a bigger read waits for Run."""
+        if not self._auto_run_action.isChecked():
+            return False
+        rows, cols = _read_shape(self.layer, self._fields.get(self.layer.layer_id, self.field))
+        return rows * cols <= _AUTO_RUN_MAX_PX
+
     def _mark_transforms_pending(self) -> None:
         """A transform edit under manual run: record it, show it, dispatch nothing.
         The display keeps the LAST RUN's result; Run (or ⌘↩) commits everything at once."""
@@ -7050,7 +7077,7 @@ both ``Canvas`` signals report the
         device = get_device(self._names[step_index])
         view_only = any(p.name == name and p.view for p in device.params)
         if not self._bypassed[step_index] and is_transform(device) and not view_only:
-            if self._auto_run_action.isChecked():
+            if self._auto_runs():
                 self._pending_layers.discard(self.layer.layer_id)
                 self._start_worker()
             else:
@@ -7087,22 +7114,6 @@ both ``Canvas`` signals report the
         notice = _lock_notice(self.layer)
         if notice is not None:
             self.strips._show_warning(notice)
-            return
-        if (display_stride(self.field) > 1 and not self.layer.tags.get("roi.window")
-                and self._active_roi_for(self.layer.source_id) is None
-                and any(is_transform(get_device(d["device"]))
-                        and not getattr(get_device(d["device"]), "reads_source", False)
-                        for d in descriptors if not d.get("bypassed"))):
-            # No tool runs on the display PICTURE -- it is a drawing of a
-            # file too big to analyse whole. Revert the zone (after this signal unwinds, the
-            # armed-roi idiom) and say how to get native pixels.
-            revert = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
-                      for n, pp, b, r in zip(self._names, self._params, self._bypassed,
-                                             self._rack)]
-            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=self.field))
-            self._notify("this dataset is shown as a picture (too big to analyse whole) — "
-                         "draw a box and Save ROI, then drop the tool to run it on the ROI",
-                         "status")
             return
         if self.layer.tags.get("roi.window"):
             # An ROI-holder child NEVER forks. A drop that introduces a DIFFERENT primary
@@ -7244,6 +7255,11 @@ both ``Canvas`` signals report the
                     # roi.window is data identity (resolve's cache fold) and what the engine's
                     # runner reads (+ the tool's own margin) off the file.
                     tags["roi.window"] = f"{roi.row},{roi.col},{roi.h},{roi.w}"
+                elif display_stride(field) > 1 and "roi.window" not in tags:
+                    # A picture is a drawing of the file: the tool reads the whole file's
+                    # native pixels through the region runner.
+                    h, w = native_shape(field)
+                    tags["roi.window"] = f"0,0,{h},{w}"
                 name = (f"{label} @{roi.label}" if roi is not None
                         else f"{parent.name} · {label}")
                 layer = self.project.add_layer(name, parent.source_id, chain,
@@ -7251,7 +7267,14 @@ both ``Canvas`` signals report the
                 if roi is not None:
                     layer.roi_id = roi.roi_id
                 self.add_layer_row(layer, field)
+                rows, cols = _read_shape(layer, field)
+                held = rows * cols > _AUTO_RUN_MAX_PX
+                if held:
+                    self._pending_layers.add(layer.layer_id)
                 self.layer_list.select_layer(layer.layer_id)   # -> _select_layer -> worker
+                if held:
+                    self._notify(f"{rows} × {cols} px ({rows * cols / 1e6:.0f} M) — press Run "
+                                 "(⌘↩) to compute", "status")
 
             QtCore.QTimer.singleShot(0, _spawn)
             self._notify("new analysis forked into its own layer — the current one is "
@@ -7276,7 +7299,7 @@ both ``Canvas`` signals report the
         # The Outputs group follows the chain too: the declared outputs of its last transform.
         self._sync_output_rows(self.layer)
         if self._transform_signature() != before:
-            if self._auto_run_action.isChecked():
+            if self._auto_runs():
                 self._pending_layers.discard(self.layer.layer_id)
                 self._start_worker()
             else:

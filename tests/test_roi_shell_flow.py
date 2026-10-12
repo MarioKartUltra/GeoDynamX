@@ -89,20 +89,90 @@ def test_the_reported_misplacement_is_gone_roi_numbers_stay_file_pixels(pic_wind
     assert (step.params["roi_h"], step.params["roi_w"]) == (16, 20)
 
 
-def test_a_tool_dropped_on_the_picture_without_an_roi_is_refused(pic_window, qtbot):
-    """No tool runs on the picture itself: the drop spawns nothing and says why."""
-    from dynamix.model.device import defaults_for, get_device
+def test_a_tool_dropped_on_the_picture_without_an_roi_reads_the_whole_file(pic_window, qtbot):
+    """No tool runs on the picture itself: a drop with no ROI spawns a child over the whole
+    file, which the region runner reads at native resolution."""
+    pic_window._start_worker = lambda: None
+    master = pic_window.layer
+    _drop(pic_window, qtbot, "holder_measure")
+    child = pic_window.layer
+    assert child is not master and child.parent_id == master.layer_id
+    assert child.tags["roi.window"] == "0,0,50,70"            # the file, not the 10 x 14 picture
 
+
+def test_the_pixels_a_tool_reads_are_its_region_else_the_file():
+    from dynamix.core.pointset import PointSet
+    from dynamix.model.chain import Chain
+    from dynamix.model.layer import Layer
+    from dynamix.shell.main_window import _read_shape
+
+    roi = Layer(layer_id=1, name="c", source_id="s", chain=Chain(()),
+                tags={"roi.window": "3,4,16,20"})
+    plain = Layer(layer_id=2, name="m", source_id="s", chain=Chain(()))
+    assert _read_shape(roi, _picture()) == (16, 20)
+    assert _read_shape(plain, _picture()) == (50, 70)          # the file, not the picture
+    assert _read_shape(plain, PointSet(lon=np.zeros(3), lat=np.zeros(3))) == (0, 0)
+
+
+def test_a_drop_over_the_pixel_limit_waits_for_run_then_runs_native(real_pic_window, qtbot,
+                                                                    monkeypatch):
+    import dynamix.shell.main_window as mw
+
+    win = real_pic_window
+    monkeypatch.setattr(mw, "_AUTO_RUN_MAX_PX", 100)          # the 64 x 80 file is "big"
     notes = []
-    pic_window._notify = lambda msg, *a, **k: notes.append(msg)
-    n_layers = len(pic_window.project.layers)
-    desc = [{"device": "holder_measure",
-             "params": defaults_for(get_device("holder_measure"))}]
-    pic_window.strips.set_steps(desc, field=pic_window.field)
-    pic_window._on_chain_edited(desc)
-    qtbot.wait(20)                                   # a deferred fork would land here
-    assert len(pic_window.project.layers) == n_layers
-    assert any("ROI" in n for n in notes)
+    win._notify = lambda msg, *a, **k: notes.append(msg)
+    master = win.layer
+    _drop(win, qtbot, "holder_measure")
+    child = win.layer
+    assert child is not master and child.tags["roi.window"] == "0,0,64,80"
+    assert child.layer_id in win._pending_layers and win.run_button.isEnabled()
+    assert not win.is_computing
+    assert any("64 × 80" in n and "Run" in n for n in notes)
+    # selecting away and back does not start it either
+    win.layer_list.select_layer(master.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)   # the master's own resolve
+    win.layer_list.select_layer(child.layer_id)
+    assert not win.is_computing and child.layer_id in win._pending_layers
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._run_transforms()
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win._active_result["_shape"] == (64, 80)
+    assert child.layer_id not in win._pending_layers
+
+
+def test_a_drop_under_the_pixel_limit_computes_at_once(real_pic_window, qtbot):
+    win = real_pic_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "holder_measure")
+    assert win.layer.layer_id not in win._pending_layers
+    assert win._active_result["_shape"] == (64, 80)
+
+
+def test_a_small_roi_on_a_big_file_computes_at_once(real_pic_window, qtbot, monkeypatch):
+    """The limit is on the pixels the tool reads: the ROI's, not the file's."""
+    import dynamix.shell.main_window as mw
+
+    win = real_pic_window
+    monkeypatch.setattr(mw, "_AUTO_RUN_MAX_PX", 1000)         # file 5120 px > 1000 > ROI 320
+    win._on_roi_save({"roi_row": 20, "roi_col": 24, "roi_h": 16, "roi_w": 20,
+                      "boundary": "auto"})
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "holder_measure")
+    assert win.layer.layer_id not in win._pending_layers
+
+
+def test_an_auto_run_edit_over_the_pixel_limit_waits_for_run(plain_window, qtbot,
+                                                              monkeypatch):
+    import dynamix.shell.main_window as mw
+
+    win = plain_window
+    child = _whole_field_child(win, qtbot, "cdf_edges")
+    monkeypatch.setattr(mw, "_AUTO_RUN_MAX_PX", 100)          # the 40 x 50 field is "big"
+    win._auto_run_action.setChecked(True)
+    i = win._names.index("cdf_edges")
+    win._on_param_changed(i, "n_levels", 3)
+    assert child.layer_id in win._pending_layers and not win.is_computing
 
 
 def _drop(win, qtbot, device):
@@ -156,9 +226,10 @@ def test_activation_and_deactivation_follow_the_panel(pic_window, qtbot):
     assert pic_window._active_roi_id == first
     pic_window.roi_panel.roiActivated.emit("")          # the panel's Deselect
     assert pic_window._active_roi_id is None
-    n = len(pic_window.project.layers)
-    _drop(pic_window, qtbot, "holder_measure")          # the picture refuses again
-    assert len(pic_window.project.layers) == n
+    pic_window._start_worker = lambda: None             # the fixture's file does not exist
+    _drop(pic_window, qtbot, "holder_measure")          # no ROI active: the whole file
+    assert pic_window.layer.tags["roi.window"] == "0,0,50,70"
+    assert pic_window.layer.roi_id is None
 
 
 def test_the_legacy_one_click_also_saves_the_roi_it_runs_on(pic_window):
