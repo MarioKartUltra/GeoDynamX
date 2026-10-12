@@ -163,3 +163,83 @@ def _groups(group):
         if isinstance(child, Group):
             yield child
             yield from _groups(child)
+
+
+@dataclasses.dataclass(frozen=True)
+class LayerInfo:
+    """What placement needs to know about one layer (the shell builds it)."""
+    layer_id: int
+    source_id: str
+    produces: frozenset
+    roi_id: str | None = None
+    roi_label: str | None = None
+    channels: tuple | None = None          # a bus: its send labels in send order
+
+
+_PRODUCT = frozenset({"HMap", "Components"})
+
+
+def rows_for(info: LayerInfo) -> list:
+    """``(row_id, kind)`` a layer contributes, top first."""
+    out = []
+    if "VChains" in info.produces:
+        out.append((f"chn:{info.layer_id}", "chains"))
+    if "ExtremaStack" in info.produces:
+        out.append((f"ext:{info.layer_id}", "extrema"))
+    if info.produces & _PRODUCT:
+        out.append((f"prod:{info.layer_id}", "product"))
+    return out
+
+
+def _auto_group(stack, gid, name, parent_id="root", kind="group"):
+    group = stack.node(gid)
+    if group is None:
+        group = Group(gid, name, kind=kind, auto=True)
+        stack.insert(group, parent_id, 0)
+    return group
+
+
+def reconcile(stack: LayerStack, sources, layers, near=None) -> int:
+    """Give content without a row a row by the default placement, and remove rows whose
+    content is gone. Rows already present never move. ``near`` maps a new row id to an
+    existing row id: the new row goes to the top of that row's group (a fork). Returns the
+    number of rows removed."""
+    near = near or {}
+    labels = dict(sources)
+    wanted = {f"src:{sid}" for sid, _label in sources}
+    for info in layers:
+        wanted.update(rid for rid, _k in rows_for(info))
+        wanted.update(f"ch:{info.layer_id}:{n}" for n in range(len(info.channels or ())))
+    gone = [rid for rid in stack.row_ids() if rid not in wanted]
+    for rid in gone:
+        stack.remove(rid)
+
+    for sid, label in sources:
+        rid = f"src:{sid}"
+        if stack.node(rid) is not None:
+            continue
+        anchor = near.get(rid)
+        parent = stack.parent_of(anchor) if anchor else None
+        if parent is None:
+            parent = _auto_group(stack, f"ds:{sid}", label)
+            stack.insert(Row(rid, "raster"), parent.id, len(parent.children))
+        else:
+            stack.insert(Row(rid, "raster"), parent.id, 0)
+
+    for info in layers:
+        if info.channels is not None:
+            target = _auto_group(stack, f"stack:{info.layer_id}", "Stack", kind="stack")
+            for n in range(len(info.channels)):
+                rid = f"ch:{info.layer_id}:{n}"
+                if stack.node(rid) is None:
+                    stack.insert(Row(rid, "channel"), target.id, len(target.children))
+        else:
+            target = _auto_group(stack, f"ds:{info.source_id}",
+                                 labels.get(info.source_id, info.source_id))
+            if info.roi_id is not None:
+                target = _auto_group(stack, f"roig:{info.roi_id}", f"ROI {info.roi_label}",
+                                     parent_id=target.id)
+        for rid, kind in reversed(rows_for(info)):
+            if stack.node(rid) is None:
+                stack.insert(Row(rid, kind), target.id, 0)
+    return len(gone)

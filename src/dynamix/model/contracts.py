@@ -201,6 +201,11 @@ def step_states(steps, layer_input: str, *, level_view: bool = False) -> list[St
     return _walk(steps, layer_input, level_view)[0]
 
 
+def chain_contracts(steps, layer_input: str) -> frozenset:
+    """The contracts a layer's chain leaves available after its last applying step."""
+    return _walk(steps, layer_input, False)[1]
+
+
 def next_step_state(steps, layer_input: str, device_name: str, params: dict | None = None, *,
                     level_view: bool = False) -> StepState:
     """Whether ``device_name`` would apply if added to ``steps``: a Transform after the
