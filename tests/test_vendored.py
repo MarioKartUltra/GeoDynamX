@@ -4,9 +4,10 @@
 
 - With mlx absent (a Windows / Intel-Mac install), the vendored packages import, the policy runs
   every FFT on FFTW3, and a 2-D WTMM transform + partition function run end to end.
-- Every vendored file is byte-identical to its source at the vendoring commit, except the four
-  recorded edits (import rewrite, trimmed wtmm_ebsd/__init__.py, guarded mlx in cwt2d.py, and
-  the Borges A_q Gamma ratios in wtmm/wavelets.py as Pochhammer symbols).
+- Every vendored file is byte-identical to its source at the vendoring commit, except the five
+  recorded edits (import rewrite, trimmed wtmm_ebsd/__init__.py, guarded mlx in cwt2d.py, each
+  mlx product evaluated before numpy reads it in cwt2d.py, and the Borges A_q Gamma ratios in
+  wtmm/wavelets.py as Pochhammer symbols).
 """
 from __future__ import annotations
 
@@ -73,6 +74,9 @@ def test_the_two_edited_files_differ_only_by_their_recorded_edits():
     theirs = (SOURCE / "wtmm_ebsd" / "cwt2d.py").read_text().splitlines()
     removed = [ln for ln in theirs if ln not in ours]
     assert removed == ["import mlx.core as mx"]
+    added = [ln.split("#")[0].strip() for ln in ours if ln not in theirs]
+    assert added == ["try:", "import mlx.core as mx", "except ImportError:", "mx = None",
+                     "mx.eval(conv)"]
     init = (VENDOR / "wtmm_ebsd" / "__init__.py").read_text()
     for gone in ("orientation", "symmetry", "grains", "demean", "cpo", "ipf", "kam"):
         assert f"from .{gone} import" not in init
@@ -94,3 +98,26 @@ def test_wavelets_differs_only_by_the_borges_constant_fix():
         "from scipy.special import poch", "",
         "np.sqrt((q - 1.0)**2.5 * poch(arg1 - 2.5, 2.5))",
         "np.sqrt((1.0 - q)**0.5 * poch(arg2 + 1.0, 0.5))"]
+
+
+def test_an_mlx_error_in_the_vendored_cwt_is_a_python_exception_never_an_abort():
+    """cwt_2d_f32 evaluates each product before reading it into numpy: an error raised while
+    np.array pulls an unevaluated mlx array cannot cross that C boundary and aborts the
+    process (a GPU out-of-memory on a huge raster did). Run in a subprocess: the unfixed
+    failure kills the interpreter."""
+    pytest.importorskip("mlx.core")
+    script = textwrap.dedent("""
+        import numpy as np, mlx.core as mx
+        import dynamix._vendor.wtmm_ebsd.cwt2d as cwt
+        cap = mx.device_info()["max_buffer_length"]
+        rows = cap // (8 * 8 * 12000) + 1                  # complex64 just over the Metal cap
+        mx.fft.ifft2 = lambda a, *k, **kw: mx.zeros((8, rows, 12000), dtype=mx.complex64)
+        try:
+            cwt.cwt_2d_f32(np.zeros((16, 16)), [2.0], verbose=False)
+        except RuntimeError as exc:
+            print("raised:", exc)
+    """)
+    run = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                         timeout=120)
+    assert run.returncode == 0, run.stderr[-500:]
+    assert "raised:" in run.stdout and "metal::malloc" in run.stdout

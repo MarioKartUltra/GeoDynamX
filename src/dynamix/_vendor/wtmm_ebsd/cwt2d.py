@@ -134,6 +134,7 @@ def cwt_2d_f32(
         filters = _build_wavelet_filters_f32(KX, KY, scale, wavelet=wavelet)
         for name in names:
             conv = mx.fft.ifft2(image_fft * filters[name])
+            mx.eval(conv)    # an mlx error inside np.array's buffer read aborts; mx.eval raises
             result[name][i] = np.array(conv.real)[crop]
         dx_s, dy_s = result['dx'][i], result['dy'][i]
         result['mod'][i] = np.sqrt(dx_s * dx_s + dy_s * dy_s)
