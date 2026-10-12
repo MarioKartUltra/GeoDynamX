@@ -4991,6 +4991,7 @@ both ``Canvas`` signals report the
         self._sync_marked_pins(layer)
         if layer is self.layer:
             self._sync_recon_section()
+            self._sync_run_button()
 
     # -- the Reconstruction section ------------------------------------------------------------
     def _recon_step(self) -> "tuple | None":
@@ -5183,11 +5184,16 @@ both ``Canvas`` signals report the
 
     # -- lazily computed outputs ---------------------------------------------------------------
     def _output_refusal(self, layer, step, output) -> "str | None":
-        """Why lazy ``output`` of ``layer`` cannot be computed, or ``None``: an ROI result (the
-        region runner does not reconstruct), or an output pinning the 2^J thumbnail (Coarse =
-        thumbnail, for the outputs that read Coarse) on a grid 2^J does not divide."""
+        """Why lazy ``output`` of ``layer`` cannot be computed, or ``None``: on an ROI result, a
+        tool with its own region path (``compute_roi``) or an output on its own coarser grid
+        (:func:`~dynamix.engine.resolve.resolve_output` refuses both there), or an output
+        pinning the 2^J thumbnail (Coarse = thumbnail, for the outputs that read Coarse) on a
+        grid 2^J does not divide."""
         if layer.tags.get("roi.window"):
-            return "not on ROI results yet"
+            if getattr(get_device(step.device), "compute_roi", None) is not None:
+                return "not on ROI results yet"
+            if output.grid == "stride":
+                return "not on ROI results"
         if "coarse" in output.params:
             params = validate_params(get_device(step.device), step.params)
             if params.get("coarse") == "thumbnail":
@@ -5217,13 +5223,13 @@ both ``Canvas`` signals report the
         """``{name: key}`` of ``layer``'s lazy outputs, derived from its chain the way
         :func:`~dynamix.engine.resolve.resolve_output` derives them (the analysis step and its
         selection with the steps that do not apply on :meth:`_layer_input` passed over, the
-        analysis key from :meth:`_cache_keys_for`); empty without lazy outputs and for an ROI
-        result. Outputs without a row of their own (a preview, :data:`_PREVIEW_OF`) are keyed
-        too; a per-level output at ``level`` (0-based), by default the level its row shows
-        (:func:`row_level`)."""
+        analysis key from :meth:`_cache_keys_for`, whose source identity carries an ROI's
+        window); empty without lazy outputs. Outputs without a row of their own (a preview,
+        :data:`_PREVIEW_OF`) are keyed too; a per-level output at ``level`` (0-based), by
+        default the level its row shows (:func:`row_level`)."""
         layer_input = self._layer_input(layer)
         step, _outputs = layer_outputs(layer, layer_input)
-        if step is None or layer.tags.get("roi.window"):
+        if step is None:
             return {}
         device = get_device(step.device)
         lazy = [o for o in declared_outputs(device) if o.lazy]
@@ -5246,13 +5252,17 @@ both ``Canvas`` signals report the
         membership and the window's own notes only, never a cached value, so it is safe while
         a job holds the worker slot. A row drawing its preview (:meth:`_draws_preview`) reads
         the preview's state, or :data:`_AWAITS_RUN` while it waits for Run
-        (:meth:`_awaits_run`)."""
+        (:meth:`_awaits_run`), as every output row of an ROI result does until Run asks for it
+        (:meth:`_waits_region`)."""
         disabled = self._output_disabled(layer, step, outputs)
         busy = {job[2] for job in (self._out_job, self._out_request) if job is not None}
         notes = {}
         keys = self._output_keys(layer)
         for name, key in keys.items():
             if name in disabled:
+                continue
+            if self._waits_region(layer, key):
+                notes[name] = _AWAITS_RUN
                 continue
             if self._draws_preview(layer, step, name, key):
                 key = keys[_PREVIEW_OF[name]]
@@ -5314,12 +5324,33 @@ both ``Canvas`` signals report the
         return (params.get("algorithm") == "lastwave" and not params.get("recon_live", True)
                 and key not in self.cache and self._recon_run != (layer.layer_id, key))
 
+    def _waits_region(self, layer, key) -> bool:
+        """Whether output ``key`` of an ROI result waits for Run: on a region an output is
+        computed only when Run asks for it (``_recon_run``), never on show. Such a row draws
+        the region's analysis, reads :data:`_AWAITS_RUN` and requests nothing."""
+        return (bool(layer.tags.get("roi.window")) and key is not None
+                and key not in self.cache and self._recon_run != (layer.layer_id, key))
+
+    def _region_output_waiting(self, layer) -> "str | None":
+        """The key of the lazy output ``layer``'s step shows while it waits for Run on an ROI
+        result (:meth:`_waits_region`); ``None`` otherwise, and for a refused output."""
+        if layer is None or not layer.tags.get("roi.window"):
+            return None
+        step, outputs = layer_outputs(layer, self._layer_input(layer))
+        name = shown_output(step, outputs)
+        output = next((o for o in outputs if o.name == name and o.lazy), None)
+        if output is None or self._output_refusal(layer, step, output) is not None:
+            return None
+        key = self._output_keys(layer).get(name)
+        return key if self._waits_region(layer, key) else None
+
     def _shown_lazy(self, layer, renderable) -> "tuple | None":
         """``(output, key)`` of the lazy output ``layer``'s step shows, keyed from
         ``renderable``'s analysis, or ``None``: nothing lazy on show, a refused output
         (:meth:`_output_refusal`), or a renderable whose analysis is another step's. A row
         drawing its preview (:meth:`_draws_preview`) gives the preview's, and nothing while it
-        waits for Run (:meth:`_awaits_run`)."""
+        waits for Run (:meth:`_awaits_run`), as an output of an ROI result does until Run asks
+        for it (:meth:`_waits_region`)."""
         if layer is None or renderable.analysis_key is None:
             return None
         step, outputs = layer_outputs(layer, self._layer_input(layer))
@@ -5332,6 +5363,8 @@ both ``Canvas`` signals report the
         key = output_key(renderable.analysis_device, output, renderable.analysis_params,
                          renderable.analysis_key, selection if output.selects else None,
                          level=row_level(layer))
+        if self._waits_region(layer, key):
+            return None
         if self._draws_preview(layer, step, name, key):
             output = next(o for o in declared_outputs(get_device(step.device))
                           if o.name == _PREVIEW_OF[name])
@@ -5345,12 +5378,14 @@ both ``Canvas`` signals report the
 
     def _displayed_output_key(self, layer) -> "str | None":
         """The key of the output ``layer``'s shown row draws (its own, or its preview's; none
-        while it waits for Run, :meth:`_awaits_run`), derived from the chain as
-        :meth:`_output_keys` derives it."""
+        while it waits for Run, :meth:`_awaits_run`, :meth:`_waits_region`), derived from the
+        chain as :meth:`_output_keys` derives it."""
         step, outputs = layer_outputs(layer, self._layer_input(layer))
         name = shown_output(step, outputs)
         keys = self._output_keys(layer)
         key = keys.get(name)
+        if self._waits_region(layer, key):
+            return None
         if self._draws_preview(layer, step, name, key):
             preview_key = keys[_PREVIEW_OF[name]]
             return None if self._awaits_run(step, preview_key) else preview_key
@@ -6958,6 +6993,10 @@ both ``Canvas`` signals report the
         if self.layer is None:
             self._notify("no layer to run — open a dataset first", "status")
             return
+        # An ROI result's output on show is computed when Run asks for it, after its analysis.
+        waiting = self._region_output_waiting(self.layer)
+        if waiting is not None:
+            self._recon_run = (self.layer.layer_id, waiting)
         if self.layer.layer_id in self._pending_layers:
             self._pending_layers.discard(self.layer.layer_id)
             self._apply_pending_ui()
@@ -6966,6 +7005,9 @@ both ``Canvas`` signals report the
         keys = self._cache_keys_for(self.layer)
         if self._errored or (keys and keys[-1] not in self.cache):
             self._start_worker()
+        elif waiting is not None:
+            self._sync_run_button()
+            self._reresolve()
         elif not keys:
             self._notify("the chain has no transform — drop wtmm2d in the rack, then Run", "status")
         else:
@@ -6980,9 +7022,16 @@ both ``Canvas`` signals report the
 
     def _apply_pending_ui(self) -> None:
         pending = self.layer is not None and self.layer.layer_id in self._pending_layers
-        self.run_button.setEnabled(pending)
+        self._sync_run_button()
         if pending:
             self._set_transform_states("pending")
+
+    def _sync_run_button(self) -> None:
+        """Run is enabled while the active layer's edits wait for it, and while an output of an
+        ROI result waits for it (:meth:`_region_output_waiting`)."""
+        self.run_button.setEnabled(self.layer is not None and (
+            self.layer.layer_id in self._pending_layers
+            or self._region_output_waiting(self.layer) is not None))
 
     def _transform_signature(self):
         """What the worker would compute: the source plus every ENABLED transform step's params.

@@ -537,6 +537,11 @@ def test_the_thumbnail_block_drawn_over_an_impulse_holds_its_maximum(qtbot, buil
 
 
 # --------------------------------------------------------------------------- greyed-out rows
+_SUPERSEDED = pytest.mark.skip(reason="outputs of ROI results are computed when Run asks "
+                                      "(test_roi_outputs_shell.py)")
+
+
+@_SUPERSEDED
 def test_an_roi_result_greys_out_its_lazy_rows(win, qtbot, dispatches):
     win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
                       "boundary": "auto"})
@@ -554,6 +559,7 @@ def test_an_roi_result_greys_out_its_lazy_rows(win, qtbot, dispatches):
     assert dispatches == [] and not win.is_computing
 
 
+@_SUPERSEDED
 def test_a_reopened_roi_child_greys_out_its_lazy_rows_behind_the_active_master(win, qtbot,
                                                                               tmp_path):
     from dynamix.shell.main_window import MainWindow
@@ -574,6 +580,45 @@ def test_a_reopened_roi_child_greys_out_its_lazy_rows_behind_the_active_master(w
         item = _row(win2, back, name)
         assert item.isDisabled() and item.toolTip(0) == "not on ROI results yet"
     assert not _row(win2, back, "edges").isDisabled()
+
+
+def test_an_roi_result_greys_only_the_thumbnail_and_computes_nothing_on_show(win, qtbot,
+                                                                             dispatches):
+    win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
+                      "boundary": "auto"})
+    child = _mz_layer(win, qtbot)
+    assert child.tags.get("roi.window")
+    rows = win.layer_list._output_rows[child.layer_id]
+    item = _row(win, child, "thumbnail")
+    assert item.isDisabled() and item.toolTip(0) == "not on ROI results"
+    for name in ("coarse", "recon", "recon_edges_only", "residual", "edges"):
+        assert not _row(win, child, name).isDisabled()
+        assert rows[name].hide_button.isEnabled()
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        win._on_param_changed(win._names.index("mz_edges"), "show", "recon")
+    qtbot.wait(50)
+    assert dispatches == [] and not win.is_computing
+
+
+def test_a_reopened_roi_child_greys_only_the_thumbnail_behind_the_active_master(win, qtbot,
+                                                                              tmp_path):
+    from dynamix.shell.main_window import MainWindow
+
+    win._on_roi_save({"roi_row": 64, "roi_col": 64, "roi_h": 64, "roi_w": 64,
+                      "boundary": "auto"})
+    child = _mz_layer(win, qtbot)
+    path = win._save_project_to(tmp_path / "session.dynamix")
+
+    win2 = MainWindow(steps=())
+    qtbot.addWidget(win2)
+    win2._open_project_path(path)
+    qtbot.waitUntil(lambda: not win2.is_computing, timeout=30000)
+    assert win2.layer.parent_id is None                  # the master is the active layer
+    back = next(l for l in win2.project.layers if l.layer_id == child.layer_id)
+    item = _row(win2, back, "thumbnail")
+    assert item.isDisabled() and item.toolTip(0) == "not on ROI results"
+    for name in ("coarse", "recon", "recon_edges_only", "residual", "edges"):
+        assert not _row(win2, back, name).isDisabled()
 
 
 def test_a_thumbnail_coarse_on_a_non_divisible_grid_greys_recon_but_draws_the_thumbnail(
