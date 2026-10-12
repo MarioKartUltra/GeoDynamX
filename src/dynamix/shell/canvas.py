@@ -1852,6 +1852,14 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self._draw_roi_band(self._roi_press, self._roi_press)
             event.accept()
             return
+        if self._roi_place is not None and event.button() == QtCore.Qt.MouseButton.LeftButton:
+            # An armed placement takes the next click in every selection mode: recorded like a
+            # plain click (a drag still pans) and stamped at release.
+            pos = event.position()
+            self._press_pos = (pos.x(), pos.y())
+            self._press_shift = False
+            super().mousePressEvent(event)
+            return
         if (event.button() == QtCore.Qt.MouseButton.LeftButton
                 and self._selection_mode == "click"
                 and bool(event.modifiers() & LASSO_MODIFIER)):

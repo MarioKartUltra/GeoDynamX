@@ -1249,6 +1249,18 @@ def test_armed_canvas_ghosts_the_footprint_under_the_cursor_and_places_on_click(
     assert canvas._roi_place is None                              # placing disarms
 
 
+@pytest.mark.parametrize("mode", ["click", "box", "lasso", "transect", "mask"])
+def test_an_armed_placement_takes_the_click_in_every_selection_mode(qtbot, canvas, mode):
+    canvas.set_selection_mode(mode)
+    canvas.arm_roi_placement(24, 30)
+    pos = _scene_pt(canvas, 40.0, 40.0)
+    canvas.mouseMoveEvent(_move(pos, _NO))
+    with qtbot.waitSignal(canvas.roiPlaced, timeout=1000) as sig:
+        canvas.mousePressEvent(_press(pos, _NO))
+        canvas.mouseReleaseEvent(_release(pos, _NO))
+    assert sig.args[2:] == [24, 30] and canvas._roi_place is None
+
+
 def test_armed_placement_clamps_the_footprint_to_the_field(qtbot, canvas):
     canvas.arm_roi_placement(24, 30)
     pos = _scene_pt(canvas, 2.0, 2.0)                             # near the corner
