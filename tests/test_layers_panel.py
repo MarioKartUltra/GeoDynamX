@@ -135,3 +135,18 @@ def test_show_only_this_on_a_group_keeps_its_rows(qtbot):
     p._solo("ds:src0")
     assert {r.id: v for r, v, _o in s.drawn(include_hidden=True)} == {
         "ext:2": False, "src:src0": True, "prod:1": True}
+
+
+def test_a_name_click_after_a_keyboard_eye_toggle_selects(qtbot):
+    s, p = _panel(qtbot)
+    p.show()
+    seen = []
+    p.rowSelected.connect(seen.append)
+    item = p.item_for("prod:1")
+    p.tree.setCurrentItem(item)
+    p.tree.setFocus()
+    qtbot.keyClick(p.tree, QtCore.Qt.Key_Space)          # Qt toggles the eye; no click follows
+    assert s.node("prod:1").visible is False
+    qtbot.mouseClick(p.tree.viewport(), QtCore.Qt.LeftButton,
+                     pos=p.tree.visualItemRect(item).center())
+    assert seen == ["prod:1"]

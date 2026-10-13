@@ -103,6 +103,7 @@ class LayersPanel(QtWidgets.QWidget):
         # A QTreeWidget drag takes the item out and inserts it again: rowsInserted, never
         # rowsMoved.
         self.tree.model().rowsInserted.connect(self._on_dropped)
+        self.tree.viewport().installEventFilter(self)      # each press starts the latch clean
         self.grip = _Grip(self.tree)
         self.grip.resized.connect(self.heightChanged.emit)
 
@@ -326,6 +327,13 @@ class LayersPanel(QtWidgets.QWidget):
         walk(None, "root")
         self.refresh()
         self.stackChanged.emit()
+
+    def eventFilter(self, obj, event):
+        # The latch belongs to the click that set it; a keyboard toggle sets it with no click
+        # to clear it, so each press starts clean.
+        if obj is self.tree.viewport() and event.type() == QtCore.QEvent.MouseButtonPress:
+            self._eye_clicked = False
+        return super().eventFilter(obj, event)
 
     def _on_clicked(self, item, _column) -> None:
         """A click on a row's name selects it; a click on its eye only toggles the eye."""
