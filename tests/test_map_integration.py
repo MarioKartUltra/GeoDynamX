@@ -693,3 +693,23 @@ def test_a_microcanonical_result_opens_the_fitter_on_its_moment_tables(geo_windo
     assert construction.per_scale_check is not None and construction.gh_check is not None
     construction.gh_check.setChecked(True)
     assert construction._gh_curve.getData()[0].size > 0
+
+
+def test_the_partition_axis_follows_the_bars_units_including_degrees(geo_window, qtbot, monkeypatch):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    win._on_spectrum_button_clicked()
+    fitter = win._multifractal_window
+    assert fitter._physical(3.0)[1] in ("m", "km")
+    win._on_bar_style_changed("wavelet", {**win._bar_styles["wavelet"], "units": "km"})
+    assert fitter._physical(3.0)[1] == "km"                        # live: the same closure
+    monkeypatch.setattr(win, "_physical_length", lambda px: (0.5, "deg"))
+    monkeypatch.setattr(win, "_centre_latitude", lambda: 60.0)
+    value, unit = win._in_bar_units(10.0)
+    assert unit == "km" and value == pytest.approx(0.5 * np.pi * 6378137.0 / 180.0 * 0.5 / 1000.0)
+    win._on_bar_style_changed("wavelet", {**win._bar_styles["wavelet"], "units": "native"})
+    assert win._in_bar_units(10.0) == (0.5, "deg")

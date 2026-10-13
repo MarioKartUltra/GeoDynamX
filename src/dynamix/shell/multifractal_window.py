@@ -115,6 +115,22 @@ class PhysicalAxis(pg.AxisItem):
         return out
 
 
+class PhysicalLog2Axis(pg.AxisItem):
+    """A bottom axis whose ticks sit at the panel's log₂ a positions and read log₂ of the
+    physical length λ* there -- the partition functions against the length the bars quote."""
+
+    def __init__(self, physical, orientation: str = "bottom", **kw) -> None:
+        super().__init__(orientation, **kw)
+        self._physical = physical
+
+    def tickStrings(self, values, scale, spacing):
+        out = []
+        for v in values:
+            got = self._physical(float(v))
+            out.append(f"{np.log2(got[0]):.2f}" if got is not None and got[0] > 0 else "")
+        return out
+
+
 class MultifractalWindow(QtWidgets.QDialog):
     """Interactive canonical (Arneodo WTMM) spectrum fitter over ``hd_std``/``hd_cmax``."""
 
@@ -238,6 +254,14 @@ class MultifractalWindow(QtWidgets.QDialog):
         controls.addWidget(self._fitmode_combo)
         self._focus_readout = QtWidgets.QLabel("")
         controls.addWidget(self._focus_readout)
+
+        # The families' abscissa: log₂ a in pixels, or log₂ of the physical λ* in the bars' unit.
+        controls.addWidget(QtWidgets.QLabel("x"))
+        self._xaxis_combo = QtWidgets.QComboBox()
+        self._xaxis_combo.addItems(["log₂ a (px)", "log₂ λ* (unit)"])
+        self._xaxis_combo.setEnabled(self._physical is not None)
+        self._xaxis_combo.currentTextChanged.connect(self._on_xaxis_changed)
+        controls.addWidget(self._xaxis_combo)
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -576,6 +600,41 @@ class MultifractalWindow(QtWidgets.QDialog):
         """The fit mode as :func:`dynamix.core.spectra.fit_spectra` names it."""
         return {"naive": "naive", "fixed focus": "fixed_focus",
                 "focus": "focus"}[self._fitmode_combo.currentText()]
+
+    def _physical_unit(self) -> str:
+        """The unit the physical conversion reads at the middle of the scale range."""
+        if self._physical is None:
+            return ""
+        log2_s = np.asarray(self._current_hd()["log2_scales"], dtype=np.float64)
+        for v in (float(np.median(log2_s)), float(log2_s.min()), float(log2_s.max())):
+            got = self._physical(v)
+            if got is not None:
+                return str(got[1])
+        return ""
+
+    def _on_xaxis_changed(self, text: str) -> None:
+        physical = text.startswith("log₂ λ*") and self._physical is not None
+        for plot in self._family_plots.values():
+            if physical:
+                plot.setAxisItems({"bottom": PhysicalLog2Axis(self._physical)})
+                plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
+            else:
+                plot.setAxisItems({"bottom": pg.AxisItem("bottom")})
+                plot.setLabel("bottom", "log₂ a")
+
+    def refresh_physical_axes(self) -> None:
+        """The bars' units changed: the physical axes re-read their conversion."""
+        if self._physical is None:
+            return
+        for plot in self._family_plots.values():
+            for name in ("top", "bottom"):
+                axis = plot.getAxis(name)
+                axis.picture = None
+                axis.update()
+            if isinstance(plot.getAxis("bottom"), PhysicalLog2Axis):
+                plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
+        lo, hi = self._region.getRegion()
+        self.range_label.setText(self._range_text(float(lo), float(hi)))
 
     def _on_fit_mode_changed(self, text: str) -> None:
         self._rebuild_family()                 # the Z family's rows change space with the mode

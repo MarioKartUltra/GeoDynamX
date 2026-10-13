@@ -28,7 +28,7 @@ import re
 
 import numpy as np
 
-__all__ = ["in_units", "linear_unit_to_m", "px_to_metres", "UNIT_CHOICES"]
+__all__ = ["deg_to_metres", "in_units", "linear_unit_to_m", "px_to_metres", "UNIT_CHOICES"]
 
 # Factor-to-metres for every linear unit name this app recognises, matching the exact WKT UNIT[]
 # conversion factors GDAL/PROJ emit (EPSG 9001 metre, 9003 US survey foot, 9002 international
@@ -192,3 +192,14 @@ def in_units(value: float, unit: str, choice: str, *, length_px=None) -> tuple[f
                 return metres / _SI[name], name
         return metres / _SI["μm"], "μm"
     return metres / _SI[choice], choice
+
+
+_M_PER_DEG = 3.141592653589793 * 6378137.0 / 180.0
+
+
+def deg_to_metres(value_deg: float, lat_deg: float) -> float:
+    """Degrees of longitude along the parallel at ``lat_deg`` as ground metres (the Map's
+    distance bar's conversion)."""
+    import math
+
+    return float(value_deg) * _M_PER_DEG * math.cos(math.radians(float(lat_deg)))

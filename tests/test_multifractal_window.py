@@ -404,3 +404,18 @@ def test_the_histogram_construction_rides_on_the_dh_panel_and_the_source_titles(
     xb, _ = bare._dh_hist_curve.getData()
     assert xb is None or xb.size == 0
     assert "canonical" in bare.windowTitle()
+
+
+def test_the_family_panels_can_read_log2_of_the_physical_length_on_the_bottom_axis(qtbot):
+    window = MultifractalWindow(*_pair(), physical_of_log2a=lambda v: (2.0 ** v * 3.0, "km"))
+    qtbot.addWidget(window)
+    plot = window._family_plots["tau_qa"]
+    assert window._xaxis_combo.currentText() == "log₂ a (px)"
+    assert plot.getAxis("bottom").tickStrings([1.0], 1.0, 1.0) == ["1"]
+    window._xaxis_combo.setCurrentText("log₂ λ* (unit)")
+    axis = plot.getAxis("bottom")
+    assert axis.tickStrings([1.0], 1.0, 1.0) == [f"{np.log2(6.0):.2f}"]
+    assert "km" in axis.labelText
+    window._xaxis_combo.setCurrentText("log₂ a (px)")
+    assert plot.getAxis("bottom").tickStrings([1.0], 1.0, 1.0) == ["1"]
+    window.refresh_physical_axes()                                   # a units change re-reads

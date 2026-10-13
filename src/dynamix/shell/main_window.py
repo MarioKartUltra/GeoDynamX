@@ -122,7 +122,7 @@ from dynamix.shell.surface_dialog import SurfaceDialog
 from dynamix.shell.topology_panel import TopologyPanel
 from dynamix.shell.transect_panel import TransectPanel
 from dynamix.shell.transport import Transport
-from dynamix.shell.units import in_units, px_to_metres
+from dynamix.shell.units import deg_to_metres, in_units, px_to_metres
 from dynamix.shell.view_dialog import ViewDialog, normalized_view_options
 from dynamix.shell.worker import OutputWorker, ResolveWorker
 from dynamix.shell.workflow_zone import BOX_HEIGHT, WorkflowZone
@@ -9084,6 +9084,8 @@ both ``Canvas`` signals report the
             self.canvas.set_wavelet_profile(*self._canvas_bar_state())
             self._feed_cascade()
             self._feed_map_bar()
+            if self._multifractal_window is not None:
+                self._multifractal_window.refresh_physical_axes()
         else:
             self.canvas.set_scale_bar_style(style)
             if self.map_view is not None:
@@ -9093,9 +9095,24 @@ both ``Canvas`` signals report the
 
     def _in_bar_units(self, length_px: float) -> tuple:
         """A pixel length as the wavelet bars show it: the field's physical length in the
-        bars' units choice."""
+        bars' units choice. Degrees convert to ground metres along the parallel at the
+        field's centre latitude (the Map's distance bar's rule) when a metric unit is asked."""
         value, unit = self._physical_length(length_px)
-        return in_units(value, unit, self._bar_styles["wavelet"]["units"], length_px=length_px)
+        choice = self._bar_styles["wavelet"]["units"]
+        if unit == "deg" and choice not in ("native", "px"):
+            lat = self._centre_latitude()
+            if lat is not None:
+                value, unit = deg_to_metres(value, lat), "m"
+        return in_units(value, unit, choice, length_px=length_px)
+
+    def _centre_latitude(self):
+        """The active layer's field's centre latitude when its axes are degrees; None otherwise."""
+        field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
+        frame = getattr(field, "frame", None)
+        y = getattr(field, "y_axis", None)
+        if frame is None or str(getattr(frame, "units", "")) != "deg" or y is None or len(y) == 0:
+            return None
+        return float(np.nanmean(np.asarray(y, dtype=np.float64)))
 
     def _bar_label(self, profile) -> str:
         from dynamix.core.wavelet_profiles import format_length
@@ -9172,7 +9189,7 @@ both ``Canvas`` signals report the
 
         def of(log2a: float):
             lam = lambda_px(device, params, 2.0 ** float(log2a))
-            return self._physical_length(lam) if np.isfinite(lam) else None
+            return self._in_bar_units(lam) if np.isfinite(lam) else None   # the bars' units, live
 
         return of
 

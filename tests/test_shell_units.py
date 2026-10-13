@@ -489,3 +489,10 @@ def test_in_units_re_expresses_a_length_per_the_bars_choice():
     assert in_units(0.33, "deg", "km") == (0.33, "deg")              # not an SI length: as is
     assert in_units(2500.0, "m", "px", length_px=12.0) == (12.0, "px")
     assert in_units(2500.0, "m", "px") == (2500.0, "m")               # no pixel length known
+
+
+def test_deg_to_metres_runs_along_the_parallel():
+    from dynamix.shell.units import deg_to_metres
+
+    assert deg_to_metres(1.0, 0.0) == pytest.approx(np.pi * 6378137.0 / 180.0)
+    assert deg_to_metres(2.0, 60.0) == pytest.approx(2.0 * np.pi * 6378137.0 / 180.0 * 0.5)
