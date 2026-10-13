@@ -334,3 +334,38 @@ def test_a_bus_is_a_stack_group_of_its_channels(three_datasets, qtbot, monkeypat
     assert group is not None and group.kind == "stack" and group.name == "Stack"
     assert [c.id for c in group.children] == [f"ch:{bus.layer_id}:0", f"ch:{bus.layer_id}:1"]
     assert win._bus_plane(bus, 1).values.shape == (36, 36)
+
+
+def test_a_tool_dropped_on_a_child_dataset_gets_its_rows(geo_window, qtbot):
+    """A child dataset's rack commits in place (it never forks): the stack follows the commit."""
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    win._on_roi_child_create({"roi_row": 10, "roi_col": 10, "roi_h": 24, "roi_w": 30})
+    child = win.layer
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.layer is child
+    stack = win.project.layer_stack
+    assert all(stack.node(f"{k}:{child.layer_id}") is not None for k in ("ext", "chn", "prod"))
+
+
+def test_editing_a_bus_s_sends_follows_in_the_stack(three_datasets, qtbot, monkeypatch):
+    import json
+
+    import dynamix.shell.main_window as mw
+    from dynamix.core.bus import parse_sends
+
+    win, (host, _tex, _far) = three_datasets
+    route = _Route(lambda cands: [s for c in cands if c["label"] in ("tex", "host")
+                                  for s in c["sends"]][::-1])
+    monkeypatch.setattr(mw, "BusDialog", route)
+    with qtbot.waitSignal(win.resolved, timeout=20000):
+        win._on_bus_requested(host.layer_id)
+    bus = win.layer
+    sends = parse_sends(bus.chain.steps[0].params.get("_sends"))
+    with qtbot.waitSignal(win.resolved, timeout=20000):
+        win._on_param_changed(0, "_sends", json.dumps(sends[:1]))
+    group = win.project.layer_stack.node(f"stack:{bus.layer_id}")
+    assert [c.id for c in group.children] == [f"ch:{bus.layer_id}:0"]

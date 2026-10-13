@@ -7195,6 +7195,8 @@ both ``Canvas`` signals report the
             self._stamp_backproject(self._names, self._params)
         self.layer.chain = self._chain()
         self._snapshot_recipe()
+        if name == "_sends":
+            self._reconcile_stack()            # a bus's channel rows follow its sends
         if legacy_scale:
             # The scale is addressable from two places; the one that did not originate this
             # change still has to follow it, or the slider and its reading contradict the canvas
@@ -7429,6 +7431,9 @@ both ``Canvas`` signals report the
         self.layer_list.refresh_master_rows()
         # The Outputs group follows the chain too: the declared outputs of its last transform.
         self._sync_output_rows(self.layer)
+        # So does the layer stack: the rows a chain's contracts call for (an ROI-holder child
+        # commits in place and never forks, so no spawn reconciles for it).
+        self._reconcile_stack()
         if self._transform_signature() != before:
             if self._auto_runs():
                 self._pending_layers.discard(self.layer.layer_id)
