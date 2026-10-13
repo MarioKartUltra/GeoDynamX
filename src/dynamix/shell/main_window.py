@@ -322,6 +322,7 @@ def _display_style_of(layer) -> dict:
         out[name] = raw if isinstance(raw, str) and _HEX_RE.match(raw) else default
     out["show_trails"] = tags.get("ui.show_trails") == "True"
     out["wavelet_cascade"] = tags.get("ui.wavelet_cascade") != "False"
+    out["show_isolated"] = tags.get("ui.show_isolated") == "True"
     raw = tags.get("ui.arrows")
     out["arrows"] = raw if raw in ("off", "wtmmm", "all") else "off"
     out["hillshade"] = tags.get("ui.hillshade") == "True"
@@ -2440,6 +2441,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_overlay_colors(style["color_hchain"], style["color_vtrail"],
                                            style["color_extrema"])
             self.canvas.set_show_trails(style["show_trails"])
+            self.canvas.set_show_isolated(style["show_isolated"])
             self.canvas.set_arrow_mode(style["arrows"])
             self.canvas.set_stretch(style["stretch"], style["stretch_pct"])
             self.canvas.set_levels(style["levels"], style["levels_colors"],
@@ -2473,10 +2475,13 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if name in _DISPLAY_PARAM_NAMES:
             self.layer.tags[f"ui.{name}"] = repr(float(value))
-        elif name in ("show_trails", "hillshade", "surface", "depth_positive", "wavelet_cascade"):
+        elif name in ("show_trails", "hillshade", "surface", "depth_positive", "wavelet_cascade",
+                      "show_isolated"):
             self.layer.tags[f"ui.{name}"] = "True" if value else "False"
         else:
             self.layer.tags[f"ui.{name}"] = str(value)
+        if name == "color_vtrail" and self.layer.tags.get("ui.show_trails") != "True":
+            self.layer.tags["ui.show_trails"] = "True"      # a colour for the trails asks to see them
         # The proposal is now the layer's truth, so show it: ``DragValue`` never updates its own
         # label on a drag (knob_widgets.py's feedback-loop contract -- the OWNER calls
         # ``set_value`` once it has applied the value). Without this the thickness applied while

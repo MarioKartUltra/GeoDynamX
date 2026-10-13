@@ -844,6 +844,10 @@ class Canvas(pg.GraphicsLayoutWidget):
         # set_result; the rect carries the ROI/window offset and center registration.
         self.extrema_raster_item = pg.ImageItem()
         self.view.addItem(self.extrema_raster_item)
+        # The isolated maxima (no H-line) as their own raster, hidden unless asked for.
+        self.isolated_raster_item = pg.ImageItem()
+        self.view.addItem(self.isolated_raster_item)
+        self.isolated_raster_item.setVisible(False)
 
         # INVISIBLE in this view: interpolated polylines and the line-width
         # style are the VECTOR view's rendering of extrema. The items stay constructed and
@@ -901,6 +905,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         # Whether the maxima pixels and arrows draw at all (set_maxima_visible); set_result
         # re-applies it on every redraw.
         self._maxima_visible = True
+        self._show_isolated = False       # isolated maxima: the Display toggle
+        self._color_extrema = tuple(EXTREMA_COLOR)
+        self._maxima_masks = None          # the last result's maxima, for a repaint
 
         # The point-layer scatter overlay -- one array-fed ScatterPlotItem, shown only
         # when the raster currently displayed IS the bound target of a point layer's own
@@ -1290,7 +1297,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """
         self._overlay_opacity = float(opacity)
         self._overlay_line_width = float(line_width)
-        for item in (self.extrema_item, self.extrema_raster_item, self.arrow_item,
+        for item in (self.extrema_item, self.extrema_raster_item, self.isolated_raster_item, self.arrow_item,
                      self.hchain_item, self.vtrail_item, self.seam_item, self.ghost_item,
                      *self._group_items.values()):
             item.setOpacity(float(opacity))
@@ -1529,6 +1536,31 @@ a bounded gather of at most :attr:`draw_cap` chains per
         pen.setWidthF(self._overlay_line_width)
         self.vtrail_item.setPen(pen)
         self.extrema_item.setBrush(pg.mkBrush(extrema))
+        self._color_extrema = tuple(pg.mkColor(extrema).getRgb()[:3])
+        self._paint_maxima_rasters()           # every maximum pixel takes the extrema colour
+
+    def set_show_isolated(self, visible: bool) -> None:
+        """Show or hide the isolated maxima (no H-line) -- their raster, in the raster view."""
+        self._show_isolated = bool(visible)
+        self._apply_maxima_visibility()
+
+    def _apply_maxima_visibility(self) -> None:
+        self.extrema_raster_item.setVisible(self._maxima_visible)
+        self.isolated_raster_item.setVisible(self._maxima_visible and self._show_isolated)
+
+    def _paint_maxima_rasters(self) -> None:
+        """The two maxima rasters from the last result's masks, in the extrema colour."""
+        if self._maxima_masks is None:
+            return
+        (ny_r, nx_r), (on_y, on_x), (iso_y, iso_x), rect = self._maxima_masks
+        r, g, b = self._color_extrema
+        for item, (ys, xs) in ((self.extrema_raster_item, (on_y, on_x)),
+                               (self.isolated_raster_item, (iso_y, iso_x))):
+            rgba = np.zeros((ny_r, nx_r, 4), dtype=np.ubyte)
+            rgba[ys, xs] = (r, g, b, 255)
+            item.setImage(rgba.transpose(1, 0, 2), autoLevels=False)
+            item.setRect(rect)
+        self._apply_maxima_visibility()
 
     def set_points_style(self, color: str, size: float) -> None:
         """Per-layer point-overlay styling (``ui.color_points``/``ui.point_size``) --
@@ -1701,6 +1733,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # with them, so hiding a layer never leaves its extrema standing.
         self.fill_outline_item.setData([], [])
         self.extrema_raster_item.clear()
+        self.isolated_raster_item.clear()
+        self._maxima_masks = None
         self.extrema_item.setData([], [])
         self.arrow_item.setData([], [])
         self._last_arrows = None
@@ -2283,21 +2317,24 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # vertices (pre-cap), orphans from the iso dots; the rect places it under the ROI/
         # window offset with the center registration the image itself uses.
         ny_r, nx_r = int(shape[0]), int(shape[1])
-        rgba = np.zeros((ny_r, nx_r, 4), dtype=np.ubyte)
+        # The maxima as pixel masks (on an H-line, isolated), painted in the extrema colour
+        # by _paint_maxima_rasters -- a recolour repaints them without a new result.
+        on_y = on_x = np.empty(0, dtype=np.int64)
         if len(hx_pre):
             fin = np.isfinite(hx_pre) & np.isfinite(hy_pre)
             mx = np.rint(np.asarray(hx_pre)[fin]).astype(np.int64)
             my = np.rint(np.asarray(hy_pre)[fin]).astype(np.int64)
             ok = (mx >= 0) & (mx < nx_r) & (my >= 0) & (my < ny_r)
-            rgba[my[ok], mx[ok]] = (*HCHAIN_COLOR, 255)
+            on_y, on_x = my[ok], mx[ok]
+        iso_y = iso_x = np.empty(0, dtype=np.int64)
         if ext_x[iso].size:
             dx_i = np.asarray(ext_x[iso], dtype=np.int64)
             dy_i = np.asarray(ext_y[iso], dtype=np.int64)
             ok = (dx_i >= 0) & (dx_i < nx_r) & (dy_i >= 0) & (dy_i < ny_r)
-            rgba[dy_i[ok], dx_i[ok]] = (*EXTREMA_COLOR, 255)
-        self.extrema_raster_item.setImage(rgba.transpose(1, 0, 2), autoLevels=False)
-        self.extrema_raster_item.setRect(QtCore.QRectF(max_col - 0.5, max_row - 0.5,
-                                                       nx_r, ny_r))
+            iso_y, iso_x = dy_i[ok], dx_i[ok]
+        self._maxima_masks = ((ny_r, nx_r), (on_y, on_x), (iso_y, iso_x),
+                              QtCore.QRectF(max_col - 0.5, max_row - 0.5, nx_r, ny_r))
+        self._paint_maxima_rasters()
 
         # Split by `tags` -- see the docstring above for why. `chain.get("tags")` is absent on
         # every pre-Task-4 chain, so `seam_chains` is empty and `plain_chains == chains` there.
@@ -2348,7 +2385,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.ghost_item.setVisible(bool(result.get("_show_ghosts", True)))
         # The maxima gate: arrow mode "off" already leaves arrow_item empty, so the flag only
         # ever takes drawn maxima away.
-        self.extrema_raster_item.setVisible(self._maxima_visible)
+        self._apply_maxima_visibility()
         self.arrow_item.setVisible(self._maxima_visible)
 
         self._update_coi_outline(result, scale_idx, row_off, col_off)
@@ -2448,7 +2485,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """Show or hide the raster-view maxima dots and gradient arrows. The result's extrema are
         untouched, so filters, the spectrum and anisotropy keep reading them."""
         self._maxima_visible = bool(visible)
-        self.extrema_raster_item.setVisible(self._maxima_visible)
+        self._apply_maxima_visibility()
         self.arrow_item.setVisible(self._maxima_visible)
 
     def set_show_trails(self, value: bool) -> None:

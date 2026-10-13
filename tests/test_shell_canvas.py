@@ -1560,3 +1560,22 @@ def test_hline_base_geometry_fallback_path_draws_float_but_keys_integer():
     np.testing.assert_allclose(sorted(hx[fin].tolist()), [0.25, 1.25, 2.25, 3.25, 4.25])
     np.testing.assert_allclose(hy[fin], 0.1)
     np.testing.assert_array_equal(np.sort(vert[fin]), np.array([0, 1, 2, 3, 4]))
+
+
+def test_the_extrema_colour_paints_every_maximum_pixel_and_isolated_ones_hide_by_default(qtbot):
+    from dynamix.shell.canvas import Canvas
+
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(np.zeros((64, 64)))
+    canvas.set_overlay_colors("#ffffff", "#00ff00", "#ff0000")
+    canvas.set_result(_synthetic_result(), 0)
+    img = canvas.extrema_raster_item.image                   # (x, y, 4)
+    assert tuple(img[11, 5, :3]) == (255, 0, 0)              # an on-line maximum, the extrema colour
+    assert not canvas.isolated_raster_item.isVisible()      # the raster view draws pixels, not dots
+    canvas.set_show_isolated(True)
+    assert canvas.isolated_raster_item.isVisible()
+    assert tuple(canvas.isolated_raster_item.image[40, 5, :3]) == (255, 0, 0)
+    canvas.set_overlay_colors("#ffffff", "#00ff00", "#0000ff")   # a recolour repaints the pixels
+    assert tuple(canvas.extrema_raster_item.image[11, 5, :3]) == (0, 0, 255)
+    assert tuple(canvas.isolated_raster_item.image[40, 5, :3]) == (0, 0, 255)

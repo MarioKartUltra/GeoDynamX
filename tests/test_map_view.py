@@ -469,6 +469,10 @@ def test_isolated_maxima_are_dots_and_arrows_sit_only_on_the_wtmmm(qtbot):
     _lines, dots, arrows = v._vectors["ext:1"]
     dx, dy = dots.getData()
     assert list(dx) == [pytest.approx(500305.0)] and list(dy) == [pytest.approx(4399795.0)]
+    assert not dots.isVisible()                                  # isolated maxima hide by default
+    v.update_row("ext:1", RowContent("extrema", result=res, grid_field=_utm(),
+                                     style={**STYLE_EXT, "show_isolated": True}), 1.0, 0)
+    assert v._vectors["ext:1"][1].isVisible()
     w = wtmmm_by_scale(res["extrema"])[0]
     ax, ay = arrows.getData()
     starts = np.array(sorted(zip(ax[0::6], ay[0::6])))        # six points per arrow, shaft first

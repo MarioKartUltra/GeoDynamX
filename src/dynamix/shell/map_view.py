@@ -477,8 +477,10 @@ class MapView(QtWidgets.QWidget):
         signature = (ext, int(s), content.grid_field, result.get("_roi_axes"), mode,
                      repr(sorted(style.items())), self._crs)
         items = self._line_items(row_id)
+        show_isolated = bool(style.get("show_isolated", False))
         if self._unchanged(row_id, signature, list(items)):
             self._settle(items, opacity, z)
+            items[1].setVisible(show_isolated)
             return
         lines, dots, arrows = items
         x_axis, y_axis = self._grid(content)
@@ -497,6 +499,7 @@ class MapView(QtWidgets.QWidget):
         ax, ay = self._arrow_xy(result, ext, s, mode, x_axis, y_axis, content.grid_field)
         arrows.setData(ax, ay)
         self._settle(items, opacity, z)
+        dots.setVisible(show_isolated)                   # isolated maxima: the Display toggle
         self._drawn[row_id] = signature
 
     def _arrow_xy(self, result, ext, s, mode, x_axis, y_axis, grid_field):

@@ -582,3 +582,18 @@ def test_the_spectrum_windows_follow_the_racks_chain_filter_and_share_the_fit_mo
     fitter._fitmode_combo.setCurrentText("fixed focus")
     assert construction._fitmode_combo.currentText() == "fixed focus"
     assert "filtered" in construction.windowTitle()
+
+
+def test_a_v_trail_colour_turns_the_trails_on_and_isolated_maxima_toggle(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert not win.canvas.vtrail_item.isVisible()
+    win._on_display_style_changed("color_vtrail", "#00ff00")
+    assert win.layer.tags.get("ui.show_trails") == "True" and win.canvas.vtrail_item.isVisible()
+    assert not win.canvas.isolated_raster_item.isVisible()        # isolated maxima hidden by default
+    win._on_display_style_changed("show_isolated", True)
+    assert win.canvas.isolated_raster_item.isVisible() and win.right_panel.isolated_check.isChecked()

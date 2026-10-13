@@ -279,6 +279,11 @@ class RightPanel(QtWidgets.QScrollArea):
         self.cascade_check.toggled.connect(
             lambda checked: self.styleChanged.emit("wavelet_cascade", checked))
         column.addWidget(self.cascade_check)
+        # The isolated maxima (no H-line): off by default, they clutter the picture.
+        self.isolated_check = QtWidgets.QCheckBox("Isolated maxima")
+        self.isolated_check.toggled.connect(
+            lambda checked: self.styleChanged.emit("show_isolated", checked))
+        column.addWidget(self.isolated_check)
         # Gradient arrows along each maximum's argument, at the current scale.
         arrows_row = QtWidgets.QWidget()
         arrows_lay = QtWidgets.QHBoxLayout(arrows_row)
@@ -430,6 +435,9 @@ class RightPanel(QtWidgets.QScrollArea):
         self.cascade_check.blockSignals(True)
         self.cascade_check.setChecked(style.get("wavelet_cascade", True))
         self.cascade_check.blockSignals(False)
+        self.isolated_check.blockSignals(True)
+        self.isolated_check.setChecked(style.get("show_isolated", False))
+        self.isolated_check.blockSignals(False)
         self.arrows_combo.blockSignals(True)
         self.arrows_combo.setCurrentIndex(max(self.arrows_combo.findData(
             style.get("arrows", "off")), 0))
