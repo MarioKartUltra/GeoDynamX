@@ -1301,6 +1301,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.wavelet_bar.moved.connect(
             lambda off: self._remember_bar("wavelet_bar", "raster", off))
         self._wavelet_bar_state = (None, "")      # (Profile, label) of the active landing
+        #: Every layer's latest landed result, for the fitter's other-method sources.
+        self._landed_results: dict = {}
         self._load_bar_styles()
         cascade = load_settings().view_options.get("wavelet_cascade")
         if isinstance(cascade, list) and len(cascade) == 2:
@@ -3261,6 +3263,30 @@ both ``Canvas`` signals report the
                               min_chain_len=int(params.get("min_chain_len", 2)))
         return std, cmax, (hd_std, hd_cmax), f"filtered: {len(chains)} of {total} chains"
 
+    def _spectrum_sources(self, result) -> list:
+        """Every OTHER layer's landed result that carries partition tables or an h-map, as the
+        fitter's secondary sources, named by method and layer -- the comparison across methods."""
+        from dynamix.core.microcanonical import dh_histogram_errors
+
+        active = self.layer.layer_id if self.layer is not None else None
+        out = []
+        for lid, res in self._landed_results.items():
+            if lid == active or res is result or not isinstance(res, dict):
+                continue
+            layer = self._layer_by_id.get(lid)
+            if layer is None:
+                continue
+            source = {"name": f"{res.get('hd_source') or 'canonical (Arneodo WTMM)'} · {layer.name}",
+                      "hd_std": res.get("hd_std"), "hd_cmax": res.get("hd_cmax")}
+            if res.get("h_map") is not None:
+                h, D, dD, _counts = dh_histogram_errors(np.asarray(res["h_map"]))
+                if h.size:
+                    source["dh_hist"] = (h, D, dD)
+            if source["hd_std"] is None and "dh_hist" not in source:
+                continue
+            out.append(source)
+        return out
+
     def _log2_extent(self, result) -> "float | None":
         shape = result.get("_shape") if isinstance(result, dict) else None
         if shape is None or len(shape) < 2:
@@ -3303,7 +3329,8 @@ both ``Canvas`` signals report the
                                     log2_L=self._log2_extent(result), all_tables=all_tables,
                                     filter_note=filter_note, extrema_mods=mods, scales=scales,
                                     dh_hist=dh_hist,
-                                    source=result.get("hd_source") or "canonical (Arneodo WTMM)")
+                                    source=result.get("hd_source") or "canonical (Arneodo WTMM)",
+                                    sources=self._spectrum_sources(result))
         self._multifractal_window = window
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
@@ -7775,6 +7802,8 @@ both ``Canvas`` signals report the
         result = self._show_lazy_output(renderable, result)
         self._active_result = result
         self._active_result_owner = self.layer.layer_id if self.layer is not None else None
+        if self.layer is not None:
+            self._landed_results[self.layer.layer_id] = result
         # The wavelet bars: the analysing wavelet of this landing's device at the level on
         # show. First, so the Transport's reading and the multifractal axis read the same λ*.
         self._wavelet_bar_state = self._bar_state(renderable, result)

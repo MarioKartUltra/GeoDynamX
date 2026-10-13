@@ -419,3 +419,43 @@ def test_the_family_panels_can_read_log2_of_the_physical_length_on_the_bottom_ax
     window._xaxis_combo.setCurrentText("log₂ a (px)")
     assert plot.getAxis("bottom").tickStrings([1.0], 1.0, 1.0) == ["1"]
     window.refresh_physical_axes()                                   # a units change re-reads
+
+
+def test_other_methods_ride_as_sources_with_a_show_menu(qtbot):
+    """Every other method's tables draw beside the primary's -- their rows on the family
+    panels, their fitted tau/D/h under the same window and fit mode -- and the Show menu
+    toggles each source, the primary included."""
+    hd_a, hd_b = _pair()
+    window = MultifractalWindow(hd_a, hd_a,
+                                sources=[{"name": "moments · B", "hd_std": hd_b, "hd_cmax": hd_b}])
+    qtbot.addWidget(window)
+    assert [a.text() for a in window.show_menu.actions()] == ["canonical (Arneodo WTMM)", "moments · B"]
+    assert all(a.isChecked() for a in window.show_menu.actions())
+    items = window._source_items["moments · B"]
+    rows = items["rows"]["tau_qa"]
+    assert len(rows) == 3 and all(r.isVisible() for r in rows)
+    np.testing.assert_allclose(rows[1].yData, hd_b["tau_qa"][1])
+    lo, hi = window._region.getRegion()
+    fit = spectra.fit_spectra(hd_b, float(lo), float(hi))
+    x, y = items["curves"]["tau"].getData()
+    np.testing.assert_allclose(x, fit["q_list"])
+    np.testing.assert_allclose(y, fit["tau"])
+    xd, yd = items["curves"]["D"].getData()
+    np.testing.assert_allclose(xd, fit["h"])
+    np.testing.assert_allclose(yd, fit["D"])
+    window._region.setRegion((1.0, 5.0))
+    np.testing.assert_allclose(items["curves"]["tau"].getData()[1],
+                               spectra.fit_spectra(hd_b, 1.0, 5.0)["tau"])
+    window.show_menu.actions()[1].setChecked(False)
+    assert not items["curves"]["tau"].isVisible() and not rows[0].isVisible()
+    window.show_menu.actions()[0].setChecked(False)
+    assert not window._spectrum_curves["tau"].isVisible()
+    assert not window._family_items_by_table["tau_qa"][0].isVisible()
+    window.show_menu.actions()[0].setChecked(True)
+    assert window._spectrum_curves["tau"].isVisible()
+    assert window._family_items_by_table["tau_qa"][0].isVisible()
+    hist_only = MultifractalWindow(hd_a, hd_a, sources=[
+        {"name": "histogram · C", "dh_hist": (np.linspace(0, 1, 5), np.full(5, 1.5), np.zeros(5))}])
+    qtbot.addWidget(hist_only)
+    assert "histogram · C" in hist_only._source_items
+    assert hist_only._source_items["histogram · C"]["curves"]["dh"].getData()[0].size == 5

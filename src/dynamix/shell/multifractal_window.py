@@ -85,6 +85,8 @@ class WheelAxisViewBox(pg.ViewBox):
 #: Six grid columns: the three families span two each on top, the 2 x 2 spectra three each.
 _SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (2, 0)}
 POWER_MEAN_LABEL = "(log₂Z − log₂N_a)/q"
+#: One hue per secondary source (another method's tables beside the primary's).
+_SOURCE_HUES = ("#f2a93b", "#4cc9f0", "#f15bb5", "#9ef01a", "#ff6b6b", "#b388ff")
 
 
 def _q_color(i: int, n: int) -> tuple:
@@ -147,7 +149,12 @@ class MultifractalWindow(QtWidgets.QDialog):
                  forward_note: str = "", parent=None, physical_of_log2a=None,
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
                  extrema_mods=None, scales=None, dh_hist=None,
-                 source: str = "canonical (Arneodo WTMM)"):
+                 source: str = "canonical (Arneodo WTMM)", sources=None):
+        #: Other methods' results drawn beside the primary's, each a dict with ``name`` and
+        #: ``hd_std``/``hd_cmax`` and/or ``dh_hist``; the Show menu toggles each.
+        self._sources = [dict(s) for s in (sources or [])]
+        self._source_items: dict = {}
+        self._primary_visible = True
         #: The histogram construction ``(h, D, dD)`` of an h-map result, drawn beside the
         #: canonical points; None without one.
         self._dh_hist = tuple(dh_hist) if dh_hist is not None else None
@@ -262,6 +269,19 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._xaxis_combo.setEnabled(self._physical is not None)
         self._xaxis_combo.currentTextChanged.connect(self._on_xaxis_changed)
         controls.addWidget(self._xaxis_combo)
+
+        # Show: which method's spectra and partition functions are drawn, the primary included.
+        self.show_button = QtWidgets.QToolButton()
+        self.show_button.setText("Show")
+        self.show_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.show_menu = QtWidgets.QMenu(self.show_button)
+        for name in [self._source] + [s["name"] for s in self._sources]:
+            action = self.show_menu.addAction(name)
+            action.setCheckable(True)
+            action.setChecked(True)
+            action.toggled.connect(lambda checked, n=name: self._on_source_toggled(n, checked))
+        self.show_button.setMenu(self.show_menu)
+        controls.addWidget(self.show_button)
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -468,6 +488,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         # when shown, a fifth).
         self._set_bershadskii_visible(False)
 
+        self._build_source_items()
+
         # Click-to-set q* on either panel: ln-q abscissa on the left panel, plain q on the scan
         # (the workbook's exact gesture pair, cell 49).
         self._glw.scene().sigMouseClicked.connect(self._on_scene_clicked)
@@ -502,16 +524,125 @@ class MultifractalWindow(QtWidgets.QDialog):
                                        connect="finite")
                 plot.addItem(line)
                 self._family_lines_by_table[key].append(line)
+        self._rebuild_source_rows()
         self._update_family_visibility()
+
+    # -- the other methods' sources -------------------------------------------------------
+    def _source_table(self, source: dict) -> "dict | None":
+        """The source's table under the primary's Table choice (one table when it has one)."""
+        cmax = self._table_combo.currentText() == "sup (cmax)"
+        return source.get("hd_cmax" if cmax else "hd_std") or source.get("hd_std") \
+            or source.get("hd_cmax")
+
+    def _build_source_items(self) -> None:
+        """One set of items per source: its rows on the family panels (filled by
+        ``_rebuild_source_rows``), its fitted tau/D/h and c(q) curves, its histogram on D(h)."""
+        for i, source in enumerate(self._sources):
+            hue = _SOURCE_HUES[i % len(_SOURCE_HUES)]
+            pen = pg.mkPen(hue, width=1.4)
+            items = {"hue": hue, "visible": True, "rows": {k: [] for k, _ in FAMILY_TABLES},
+                     "curves": {}, "fit": None}
+            if self._source_table(source) is not None:
+                for name in ("tau", "D", "h"):
+                    curve = pg.PlotDataItem(pen=pen, connect="finite", symbol="o", symbolSize=3,
+                                            symbolPen=None, symbolBrush=hue, name=source["name"])
+                    self._spectrum_plots[name].addItem(curve)
+                    items["curves"][name] = curve
+                cq = pg.PlotDataItem(pen=pen, connect="finite", name=source["name"])
+                self._cq_plot.addItem(cq)
+                items["curves"]["cq"] = cq
+            if source.get("dh_hist") is not None:
+                h, D, _dD = (np.asarray(a, dtype=np.float64) for a in source["dh_hist"])
+                hist = pg.PlotDataItem(h, D, pen=pg.mkPen(hue, width=1.2,
+                                                           style=QtCore.Qt.DashLine),
+                                       connect="finite", name=f"{source['name']} (histogram)")
+                self._spectrum_plots["D"].addItem(hist)
+                items["curves"]["dh"] = hist
+            self._source_items[source["name"]] = items
+
+    def _rebuild_source_rows(self) -> None:
+        for source in self._sources:
+            items = self._source_items.get(source["name"])
+            hd = self._source_table(source)
+            if items is None or hd is None:
+                continue
+            colour = pg.mkColor(items["hue"])
+            colour.setAlpha(150)
+            log2_s = np.asarray(hd["log2_scales"], dtype=np.float64)
+            for key, _label in FAMILY_TABLES:
+                plot = self._family_plots[key]
+                for item in items["rows"][key]:
+                    plot.removeItem(item)
+                table = self._family_table_of(hd, key)
+                items["rows"][key] = []
+                for row in table:
+                    item = pg.PlotDataItem(log2_s, row, pen=pg.mkPen(colour, width=0.9),
+                                           connect="finite")
+                    plot.addItem(item)
+                    items["rows"][key].append(item)
+
+    def _refit_sources(self) -> None:
+        """Every source's fit under the primary's window, mode, eta and frame."""
+        lo, hi = self._region.getRegion()
+        mode = self.fit_mode()
+        for source in self._sources:
+            items = self._source_items[source["name"]]
+            hd = self._source_table(source)
+            if hd is None or "tau" not in items["curves"]:
+                continue
+            fit = spectra.fit_spectra(hd, float(lo), float(hi), eta=self._eta_spin.value(),
+                                      frame=self._frame_combo.currentText(), fit_mode=mode,
+                                      log2_L=self._log2_L if mode != "naive" else None)
+            items["fit"] = fit
+            q = np.asarray(fit["q_list"], dtype=np.float64)
+            mask = self._q_mask(q)
+            items["curves"]["tau"].setData(q[mask], np.asarray(fit["tau"])[mask])
+            items["curves"]["D"].setData(np.asarray(fit["h"])[mask], np.asarray(fit["D"])[mask])
+            items["curves"]["h"].setData(q[mask], np.asarray(fit["h"])[mask])
+            items["curves"]["cq"].setData(q[mask], spectra.specific_heat(q, fit["tau"])[mask])
+
+    def _apply_source_visibility(self, name: str) -> None:
+        items = self._source_items[name]
+        shown = bool(items["visible"])
+        for curve in items["curves"].values():
+            curve.setVisible(shown)
+        source = next(s for s in self._sources if s["name"] == name)
+        hd = self._source_table(source)
+        if hd is None:
+            return
+        mask = self._q_mask(np.asarray(hd["q_list"], dtype=np.float64))
+        for rows in items["rows"].values():
+            for item, visible in zip(rows, mask):
+                item.setVisible(shown and bool(visible)
+                                and bool(np.isfinite(item.yData).any()))
+
+    def _set_primary_visible(self) -> None:
+        shown = self._primary_visible
+        for curve in list(self._spectrum_curves.values()) + list(self._spectrum_errbars.values()):
+            curve.setVisible(shown)
+        for item in (self._cq_curve, self._cq_cum_curve, self._cq_ln_curve,
+                     self._dh_hist_curve, self._dh_hist_err):
+            item.setVisible(shown)
+        self._update_family_visibility()
+
+    def _on_source_toggled(self, name: str, checked: bool) -> None:
+        if name == self._source:
+            self._primary_visible = bool(checked)
+            self._set_primary_visible()
+        elif name in self._source_items:
+            self._source_items[name]["visible"] = bool(checked)
+            self._apply_source_visibility(name)
 
     def _power_mean_view(self) -> bool:
         """A focus mode shows the Z family as power means, the space its lines meet in."""
         return self.fit_mode() != "naive"
 
     def _family_table(self, key: str) -> np.ndarray:
-        """The rows the family panel draws: the table itself, or for the Z family in a focus
-        mode its power means (log2 Z - log2 N_a)/q (no row at q = 0)."""
-        hd = self._current_hd()
+        return self._family_table_of(self._current_hd(), key)
+
+    def _family_table_of(self, hd: dict, key: str) -> np.ndarray:
+        """The rows a family panel draws for ``hd``: the table itself, or for the Z family in a
+        focus mode its power means (log2 Z - log2 N_a)/q (no row at q = 0)."""
         table = np.asarray(hd[key], dtype=np.float64)
         if key != "tau_qa" or not self._power_mean_view():
             return table
@@ -592,9 +723,12 @@ class MultifractalWindow(QtWidgets.QDialog):
         mask = self._q_mask(q)
         for key, items in self._family_items_by_table.items():
             for item, line, visible in zip(items, self._family_lines_by_table[key], mask):
-                drawn = bool(visible) and bool(np.isfinite(item.yData).any())
+                drawn = self._primary_visible and bool(visible) \
+                    and bool(np.isfinite(item.yData).any())
                 item.setVisible(drawn)
                 line.setVisible(drawn)
+        for name in self._source_items:
+            self._apply_source_visibility(name)
 
     def fit_mode(self) -> str:
         """The fit mode as :func:`dynamix.core.spectra.fit_spectra` names it."""
@@ -682,6 +816,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._update_convexity_marker()
         self._update_specific_heat()
         self._update_fit_lines()
+        self._refit_sources()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
     def _update_spectrum_plots(self) -> None:

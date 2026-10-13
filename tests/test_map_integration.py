@@ -713,3 +713,24 @@ def test_the_partition_axis_follows_the_bars_units_including_degrees(geo_window,
     assert unit == "km" and value == pytest.approx(0.5 * np.pi * 6378137.0 / 180.0 * 0.5 / 1000.0)
     win._on_bar_style_changed("wavelet", {**win._bar_styles["wavelet"], "units": "native"})
     assert win._in_bar_units(10.0) == (0.5, "deg")
+
+
+def test_the_fitter_gathers_the_other_layers_landed_methods_as_sources(geo_window, qtbot):
+    from types import SimpleNamespace
+
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    res = win._active_result
+    assert win._landed_results[win.layer.layer_id] is res
+    win._landed_results[4242] = {"hd_std": res["hd_std"], "hd_cmax": res["hd_cmax"],
+                                 "hd_source": "moments over the projections", "scales": res["scales"]}
+    win._layer_by_id[4242] = SimpleNamespace(name="B · holder_measure", layer_id=4242)
+    sources = win._spectrum_sources(res)
+    assert [s["name"] for s in sources] == ["moments over the projections · B · holder_measure"]
+    win._on_spectrum_button_clicked()
+    names = [a.text() for a in win._multifractal_window.show_menu.actions()]
+    assert names[0].startswith("canonical") and names[1].startswith("moments")
