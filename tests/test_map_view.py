@@ -389,3 +389,10 @@ def test_the_readout_falls_back_to_the_dataset_row(qtbot):
                  lambda rid: RowContent("raster", field=_utm(), style=STYLE))
     v.set_selected_row("prod:1", fallback="src:a")
     assert "src:a = " in v._readout_at(500105.0, 4399905.0)
+
+
+def test_an_unresolvable_map_crs_does_not_raise(qtbot):
+    v = MapView()
+    qtbot.addWidget(v)
+    v.set_map_crs("not a crs")
+    assert v._unit_metres == 1.0

@@ -9023,7 +9023,8 @@ both ``Canvas`` signals report the
         if kind == "ch":
             lid, n = (int(v) for v in rest.split(":"))
             layer = self._layer_by_id.get(lid)
-            sends = parse_sends(layer.chain.steps[0].params.get("_sends")) if layer else []
+            steps = layer.chain.steps if layer else ()      # a bus whose step went: no sends
+            sends = parse_sends(steps[0].params.get("_sends")) if steps else []
             return (sends[n].get("label") if n < len(sends) else None) or f"band {n + 1}"
         layer = self._layer_by_id.get(int(rest))
         if layer is None:
@@ -9309,7 +9310,11 @@ both ``Canvas`` signals report the
                 if ps is not None:
                     from rasterio.warp import transform
 
-                    x, y = transform("EPSG:4326", self.project.map_crs, list(ps.lon), list(ps.lat))
+                    try:
+                        x, y = transform("EPSG:4326", self.project.map_crs, list(ps.lon),
+                                         list(ps.lat))
+                    except Exception:                                # noqa: BLE001
+                        continue                  # an unplaceable catalogue stays off the map
                     points.append((np.asarray(x), np.asarray(y)))
         return {"references": refs, "points": points}
 
@@ -9335,7 +9340,7 @@ both ``Canvas`` signals report the
             self._sync_arrangement()
 
     def _on_layers_row_selected(self, row_id: str) -> None:
-        """A row picked in the Layers panel or clicked on the Map selects its layer."""
+        """A row picked in the Layers panel selects its layer (a Map click does not)."""
         kind, _, rest = row_id.partition(":")
         if kind in ("prod", "ext", "chn"):
             self.layer_list.select_layer(int(rest.split(":", 1)[0]))

@@ -143,9 +143,12 @@ class MapView(QtWidgets.QWidget):
         if self._crs is not None:
             from rasterio.crs import CRS
 
-            crs_obj = CRS.from_user_input(self._crs)
-            self._unit_metres = (None if crs_obj.is_geographic
-                                 else float(crs_obj.linear_units_factor[1] or 1.0))
+            try:
+                crs_obj = CRS.from_user_input(self._crs)
+                self._unit_metres = (None if crs_obj.is_geographic
+                                     else float(crs_obj.linear_units_factor[1] or 1.0))
+            except Exception:                                        # noqa: BLE001
+                self._unit_metres = 1.0       # a CRS PROJ cannot read: the bar reads map units
         self._update_scale_bar()
 
     def _frame_unit_metres(self, frame):

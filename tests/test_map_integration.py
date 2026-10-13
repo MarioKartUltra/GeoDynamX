@@ -405,3 +405,30 @@ def test_the_lift_rank_is_dense_over_the_layers_that_draw_vectors(geo_window):
     rank = {lid: win._stack_entry_flags(Layer(layer_id=lid, name="", source_id="x"))["rank"]
             for lid in (7, 8)}
     assert rank == {8: 0, 7: 1}
+
+
+def test_a_channel_row_of_an_emptied_bus_still_has_a_label(geo_window):
+    from dynamix.model.layer_stack import Row
+
+    win = geo_window
+    win.project.layer_stack.insert(Row(f"ch:{win.layer.layer_id}:0", "channel"), "root", 0)
+    assert win._row_label(f"ch:{win.layer.layer_id}:0") == "band 1"
+
+
+def test_a_point_layer_the_map_cannot_place_stays_off_the_map(geo_window, monkeypatch):
+    import types
+
+    import rasterio.warp
+
+    from dynamix.model.chain import Chain
+
+    win = geo_window
+    src = win.project.add_source("mem:pts", kind="points")
+    layer = win.project.add_layer("pts", src.source_id, Chain())
+    win._fields[layer.layer_id] = types.SimpleNamespace(lon=[1.0], lat=[2.0])
+
+    def boom(*_a, **_k):
+        raise ValueError("no transform")
+
+    monkeypatch.setattr(rasterio.warp, "transform", boom)
+    assert win._map_overlays()["points"] == []
