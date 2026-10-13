@@ -631,3 +631,22 @@ def test_a_microcanonical_tool_shows_its_cascade_and_no_single_bar_on_the_raster
     assert win.canvas.wavelet_cascade.isVisible()
     assert not win.canvas.wavelet_bar.isVisible()                 # the view shows h, not coefficients
     assert win._wavelet_bar_state[0] is not None                  # the Transport and the Map still read λ*
+
+
+def test_removing_the_effect_takes_the_wavelet_bars_away(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.canvas.wavelet_bar.isVisible()
+    win._ensure_map_view()
+    win._to_map_live()
+    assert win.map_view.wavelet_bar.isVisible()
+    win.strips.strip(0).removeRequested.emit()                # the strip's own x
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    qtbot.wait(50)
+    assert not win.canvas.wavelet_bar.isVisible()
+    assert win._wavelet_bar_state == (None, "")
+    assert not win.map_view.wavelet_bar.isVisible()

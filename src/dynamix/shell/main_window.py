@@ -7763,6 +7763,7 @@ both ``Canvas`` signals report the
         self._wavelet_bar_state = self._bar_state(renderable, result)
         self.canvas.set_wavelet_profile(*self._canvas_bar_state())
         self._feed_cascade()
+        self._feed_map_bar()                   # whichever tab is up: a stale bar never lingers
         self._refresh_topology_panel()
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
@@ -9010,6 +9011,7 @@ both ``Canvas`` signals report the
             scale_bar = options.get("map_scale_bar")
             if isinstance(scale_bar, list) and len(scale_bar) == 2:
                 self.map_view.scale_bar.set_offset(scale_bar)
+            self._feed_map_bar()           # a view built after a landing shows its bar
             self.map_view.wavelet_bar.moved.connect(
                 lambda off: self._remember_bar("wavelet_bar", "map", off))
             self.map_view.scale_bar.moved.connect(
