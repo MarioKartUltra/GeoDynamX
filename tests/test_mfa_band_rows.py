@@ -53,9 +53,9 @@ def h_maps(monkeypatch):
     seen: list = []
     real = hm.method_arrays
 
-    def counted(vals, method, params, progress=None):
+    def counted(vals, method, params, progress=None, *args, **kwargs):
         seen.append(method)
-        return real(vals, method, params, progress)
+        return real(vals, method, params, progress, *args, **kwargs)
 
     monkeypatch.setattr(hm, "method_arrays", counted)
     return seen
