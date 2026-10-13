@@ -1010,6 +1010,13 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.view.addItem(self.smoother_item)
         self.wavelet_item = pg.PlotDataItem(pen=pg.mkPen(ANALYZER_COLOR))
         self.view.addItem(self.wavelet_item)
+        # The wavelet scale bar on screen (shell/wavelet_bar.py): the window feeds it the
+        # analysing wavelet's section and its λ* (set_wavelet_profile); the θ/ψ duo above
+        # stays, disconnected. Anchored lower-right, above the distance bar's label.
+        from dynamix.shell.wavelet_bar import WaveletBar
+
+        self.wavelet_bar = WaveletBar(offset=(-20.0, -44.0))
+        self.wavelet_bar.setParentItem(self.view)
 
         # Built BEFORE scale_bar_label: the `is None` guard above keys off scale_bar_label, so
         # every label _reposition_overlays touches has to exist by the time that one does.
@@ -2341,7 +2348,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
         self._update_coi_outline(result, scale_idx, row_off, col_off)
         self._update_roi_bounds(result, row_off, col_off)
-        self._update_wavelet_bar(result, scale_idx)
+        # The wavelet bar is the window's to feed (set_wavelet_profile, every landing): it
+        # knows the device; _update_wavelet_bar's duo is no longer drawn.
 
     def _draw_grouped_trails(self, grouped_xy: dict, col_off: int, row_off: int) -> None:
         """One :class:`pyqtgraph.PlotDataItem` per distinct committed-group color THIS result
@@ -2531,6 +2539,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         anchor = self._data_at(_MARGIN_PX, self.scale_bar_label.y() - _LABEL_GAP_PX)
         self.scale_bar_line.setData([anchor.x(), anchor.x() + bar_len],
                                     [anchor.y(), anchor.y()])
+
+    def set_wavelet_profile(self, profile, label: str) -> None:
+        """The wavelet scale bar: ``profile`` (a :class:`dynamix.core.wavelet_profiles.Profile`
+        of the level on show) with its label; ``None`` hides the bar."""
+        self.wavelet_bar.set_profile(profile, label, 1.0)
 
     def set_wavelet_bar(self, x_theta, theta, x_psi, psi, label: str = "") -> None:
         """Corner-anchored wavelet-bar DUO from already-rendered ``(x_theta, theta)`` (the

@@ -87,3 +87,18 @@ def test_the_distance_bar_drags(qtbot):
     sb.moved.connect(moved.append)
     sb.drag_by(-30.0, -10.0)
     assert tuple(moved[-1]) == (-50.0, -30.0)
+
+
+def test_the_canvas_bar_follows_set_wavelet_profile_and_the_duo_stays_empty(qtbot):
+    from dynamix.shell.canvas import Canvas
+
+    c = Canvas()
+    qtbot.addWidget(c)
+    c.resize(500, 400)
+    c.show()
+    c.set_field(np.random.default_rng(0).standard_normal((64, 64)))
+    c.set_wavelet_profile(_profile(20.0), "20 px")
+    assert c.wavelet_bar.isVisible() and c.wavelet_bar.label == "20 px"
+    assert c.wavelet_item.xData is None or len(c.wavelet_item.xData) == 0   # the duo draws nothing
+    c.set_wavelet_profile(None, "")
+    assert not c.wavelet_bar.isVisible()
