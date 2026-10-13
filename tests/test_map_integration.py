@@ -496,3 +496,19 @@ def test_a_bar_drag_is_remembered_per_view(geo_window, qtbot):
     win._set_center_view("map")
     win.map_view.scale_bar.drag_by(-5.0, -5.0)
     assert load_settings().view_options["map_scale_bar"] == [-25.0, -25.0]
+
+
+def test_the_transport_reading_quotes_lambda_in_metres(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    from dynamix.core.scale_units import lambda_peak_px
+    from dynamix.core.wavelet_profiles import format_length
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    a = float(win._scales[1])
+    lam = lambda_peak_px(a, win._active_result["params"]["wavelet"], 1)
+    assert win._scale_reading(1) == (f"a = {a:.1f} · λ* {lam:.1f} px ≈ "
+                                     f"{format_length(lam * 10.0, 'm')}")

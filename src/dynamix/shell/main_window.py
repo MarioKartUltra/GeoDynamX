@@ -7692,6 +7692,10 @@ both ``Canvas`` signals report the
         result = self._show_lazy_output(renderable, result)
         self._active_result = result
         self._active_result_owner = self.layer.layer_id if self.layer is not None else None
+        # The wavelet bars: the analysing wavelet of this landing's device at the level on
+        # show. First, so the Transport's reading and the multifractal axis read the same λ*.
+        self._wavelet_bar_state = self._bar_state(renderable, result)
+        self.canvas.set_wavelet_profile(*self._wavelet_bar_state)
         self._refresh_topology_panel()
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
@@ -7702,9 +7706,6 @@ both ``Canvas`` signals report the
         self._refresh_inpaint_button()
         self._sync_holder_raster(result)
         self._sync_output_rows(self.layer)
-        # The wavelet bars: the analysing wavelet of this landing's device at the level on show.
-        self._wavelet_bar_state = self._bar_state(renderable, result)
-        self.canvas.set_wavelet_profile(*self._wavelet_bar_state)
         # A landing while the Vector/Globe tab is up must reach the scene (a forked wtmm computed
         # with the Vector tab showing otherwise has its extrema absent until a manual
         # flip-out/in). _sync_arrangement's own diffing keeps repeat landings cheap
@@ -8704,6 +8705,20 @@ both ``Canvas`` signals report the
         from dynamix.core.scale_units import sigma_px
 
         a = self._scales[idx]
+        # With a wavelet on show the reading is λ*, the bandpass peak wavelength: the one
+        # physical length the bars and the multifractal axis quote (spec 2026-10-13).
+        device_params = getattr(self, "_bar_device", None)
+        if device_params:
+            from dynamix.core.wavelet_profiles import format_length, lambda_px
+
+            try:
+                lam = lambda_px(device_params[0], device_params[1], a)
+            except Exception:                                        # noqa: BLE001
+                lam = float("nan")
+            if np.isfinite(lam):
+                text = f"a = {a:.1f} · λ* {lam:.1f} px"
+                value, unit = self._physical_length(lam)
+                return text if unit == "px" else f"{text} ≈ {format_length(value, unit)}"
         sigma = sigma_px(a)
         units = self._units()
         if units == "px":
