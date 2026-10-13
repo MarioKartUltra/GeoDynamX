@@ -509,3 +509,22 @@ def test_h_lines_take_the_layers_line_width(qtbot):
                                         style={**STYLE_EXT, "line_width": 2.5}))
     lines = v._vectors["ext:1"][0]
     assert lines.opts["pen"].widthF() == pytest.approx(2.5)
+
+
+def test_the_map_bar_takes_the_layers_axis_step(qtbot):
+    from dynamix.core.wavelet_profiles import Profile
+    from dynamix.shell.wavelet_bar import DraggableScaleBar
+
+    v = _view(qtbot)
+    v.resize(600, 400)
+    v.show()
+    qtbot.wait(20)                                                   # the layout settles
+    v.view.setRange(xRange=(500000, 500600), yRange=(4399400, 4400000), padding=0)
+    x = np.linspace(-40.0, 40.0, 401)
+    prof = Profile(x_px=x, psi=-x * np.exp(-x * x / 50.0) / 5.0, scale_px=10.0,
+                   lambda_px=20.0, family="t")
+    v.set_wavelet_profile(prof, "200 m", 10.0)                      # 10 m pixels
+    (x0, x1), _y = v.view.viewRange()                                # the aspect lock widens x
+    px_per_unit = v.view.width() / (x1 - x0)
+    assert v.wavelet_bar.bracket_px() == pytest.approx(200.0 * px_per_unit, rel=0.02)
+    assert isinstance(v.scale_bar, DraggableScaleBar)

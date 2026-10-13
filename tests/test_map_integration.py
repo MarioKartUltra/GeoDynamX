@@ -463,3 +463,36 @@ def test_a_reference_layer_is_reprojected_once_per_map_crs(geo_window, monkeypat
     win._map_overlays()
     win._map_overlays()
     assert calls == [1]
+
+
+def test_both_bars_read_lambda_of_the_shown_level_in_metres(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    from dynamix.core.scale_units import lambda_peak_px
+    from dynamix.core.wavelet_profiles import format_length
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    res = win._active_result
+    a = float(np.asarray(res["scales"])[int(res.get("_scale_idx", 0))])
+    lam = lambda_peak_px(a, res["params"]["wavelet"], 1)
+    want = format_length(lam * 10.0, "m")                        # 10 m pixels
+    assert win.canvas.wavelet_bar.isVisible() and win.canvas.wavelet_bar.label == want
+    win._set_center_view("map")
+    assert win.map_view.wavelet_bar.isVisible() and win.map_view.wavelet_bar.label == want
+    (x0, x1), _y = win.map_view.view.viewRange()
+    m_per_px = (x1 - x0) / win.map_view.view.width()
+    assert win.map_view.wavelet_bar.bracket_px() == pytest.approx(lam * 10.0 / m_per_px, rel=0.05)
+
+
+def test_a_bar_drag_is_remembered_per_view(geo_window, qtbot):
+    from dynamix.shell.settings import load_settings
+
+    win = geo_window
+    win.canvas.wavelet_bar.drag_by(-30.0, -10.0)
+    assert load_settings().view_options["wavelet_bar"]["raster"] == [-50.0, -54.0]
+    win._set_center_view("map")
+    win.map_view.scale_bar.drag_by(-5.0, -5.0)
+    assert load_settings().view_options["map_scale_bar"] == [-25.0, -25.0]

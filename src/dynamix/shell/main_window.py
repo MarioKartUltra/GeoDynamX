@@ -1286,6 +1286,14 @@ class MainWindow(QtWidgets.QMainWindow):
         panel_column.addWidget(self.roi_tool_button)
         panel_column.addWidget(self.roi_panel)
         self.canvas = Canvas()
+        # The wavelet bar's remembered place on this view, and the drag that moves it.
+        bars = load_settings().view_options.get("wavelet_bar") or {}
+        if isinstance(bars, dict) and isinstance(bars.get("raster"), list) \
+                and len(bars["raster"]) == 2:
+            self.canvas.wavelet_bar.set_offset(bars["raster"])
+        self.canvas.wavelet_bar.moved.connect(
+            lambda off: self._remember_bar("wavelet_bar", "raster", off))
+        self._wavelet_bar_state = (None, "")      # (Profile, label) of the active landing
         self.canvas.roiDrawn.connect(self._on_roi_drawn)
         self.canvas.roiPlaced.connect(self._on_roi_placed)
         # The canvas re-derives both corner overlays whenever the camera moves, but the distance
@@ -4105,6 +4113,9 @@ both ``Canvas`` signals report the
         band row its band, a bus its sends. Bypass the stage to A/B against the dry data. The
         field is what "Fork derivative dataset…" takes from this row."""
         self._active_result = {}               # never a previous layer's result, for the fork
+        self._wavelet_bar_state = (None, "")   # nor its wavelet bar, until this one lands
+        self.canvas.set_wavelet_profile(None, "")
+        self._feed_map_bar()
         self._active_field = None
         if not hasattr(result, "values"):
             self._notify("chain ends on a field transform (noise) — add wtmm2d after it to "
@@ -7662,6 +7673,9 @@ both ``Canvas`` signals report the
             # Field-producing chain tail (noise alone; see _on_finished's own guard):
             # nothing to overlay -- land quietly with the hint instead of crashing on result.get.
             self._active_result = {}
+            self._wavelet_bar_state = (None, "")
+            self.canvas.set_wavelet_profile(None, "")
+            self._feed_map_bar()
             self.canvas.clear_overlays()
             self.canvas.set_fill_outline(None)
             self._land_field_result(result)
@@ -7688,6 +7702,9 @@ both ``Canvas`` signals report the
         self._refresh_inpaint_button()
         self._sync_holder_raster(result)
         self._sync_output_rows(self.layer)
+        # The wavelet bars: the analysing wavelet of this landing's device at the level on show.
+        self._wavelet_bar_state = self._bar_state(renderable, result)
+        self.canvas.set_wavelet_profile(*self._wavelet_bar_state)
         # A landing while the Vector/Globe tab is up must reach the scene (a forked wtmm computed
         # with the Vector tab showing otherwise has its extrema absent until a manual
         # flip-out/in). _sync_arrangement's own diffing keeps repeat landings cheap
@@ -8903,6 +8920,83 @@ both ``Canvas`` signals report the
             self.map_view = MapView(self)
             self._center_stack.addWidget(self.map_view)
             self.map_view.set_map_crs(self.project.map_crs)
+            options = load_settings().view_options
+            bars = options.get("wavelet_bar") or {}
+            if isinstance(bars, dict) and isinstance(bars.get("map"), list) \
+                    and len(bars["map"]) == 2:
+                self.map_view.wavelet_bar.set_offset(bars["map"])
+            scale_bar = options.get("map_scale_bar")
+            if isinstance(scale_bar, list) and len(scale_bar) == 2:
+                self.map_view.scale_bar.set_offset(scale_bar)
+            self.map_view.wavelet_bar.moved.connect(
+                lambda off: self._remember_bar("wavelet_bar", "map", off))
+            self.map_view.scale_bar.moved.connect(
+                lambda off: self._remember_bar("map_scale_bar", None, off))
+
+    def _remember_bar(self, key: str, sub, offset) -> None:
+        """A bar was dragged: its offset goes into ``view_options[key]`` (under ``sub`` when
+        the key holds one entry per view)."""
+        options = dict(load_settings().view_options)
+        value = [float(offset[0]), float(offset[1])]
+        if sub is None:
+            options[key] = value
+        else:
+            bars = dict(options.get(key) or {})
+            bars[sub] = value
+            options[key] = bars
+        update_settings(view_options=options)
+
+    def _bar_state(self, renderable, result) -> tuple:
+        """``(Profile, label)`` of the wavelet bar for a landing: the analysing wavelet of
+        ``renderable``'s device at the level on show, labelled with λ* in the field's physical
+        unit (``shell.units.physical``); ``(None, "")`` when there is no wavelet to draw."""
+        from dynamix.core.wavelet_profiles import format_length, profile_for
+        from dynamix.shell.units import physical
+
+        device, params = renderable.analysis_device, renderable.analysis_params
+        if not device or not isinstance(result, dict):
+            return None, ""
+        layers = result.get("extrema") or []
+        idx = 0 if len(layers) == 1 else int(result.get("_scale_idx", 0))
+        try:
+            profile = profile_for(device, params or {}, result, idx)
+        except Exception as exc:                                     # noqa: BLE001
+            self._notify(f"wavelet bar: {exc}", "status")
+            return None, ""
+        if profile is None:
+            return None, ""
+        if np.isfinite(profile.lambda_px):
+            field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
+            value, unit = physical(profile.lambda_px, field)
+            if unit.upper().startswith("EPSG:"):        # a bare code: PROJ names its unit
+                from dynamix.geo.placement import crs_metres
+
+                named = crs_metres(unit)
+                if named is not None and named[0] is not None:
+                    value, unit = value * named[0], named[1]
+            label = format_length(value, unit)
+            if profile.broad:
+                label += " · broad"
+            if profile.off_ladder:
+                label += " · off ladder"
+        else:
+            label = "no band"
+        return profile, label
+
+    @staticmethod
+    def _axis_step(field) -> float:
+        """The layer's map units per image pixel along x (1 for a bare array)."""
+        x = getattr(field, "x_axis", None)
+        if x is None or len(x) < 2:
+            return 1.0
+        return abs(float(x[-1]) - float(x[0])) / (len(x) - 1)
+
+    def _feed_map_bar(self) -> None:
+        if self.map_view is None:
+            return
+        profile, label = self._wavelet_bar_state
+        field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
+        self.map_view.set_wavelet_profile(profile, label, self._axis_step(field))
 
     def _stack_entry_flags(self, layer) -> "dict | None":
         """What the layer stack says of ``layer``'s 3-D entry: its rank (the topmost of its
@@ -9184,6 +9278,7 @@ both ``Canvas`` signals report the
         reasons = self.map_view.show_stack(self.project.layer_stack.drawn(include_hidden=True),
                                            self._row_content)
         self.map_view.set_overlays(**self._map_overlays())
+        self._feed_map_bar()
         if self.layer is not None:
             self.map_view.set_selected_row(f"prod:{self.layer.layer_id}",
                                            fallback=f"src:{self.layer.source_id}")
@@ -9215,6 +9310,7 @@ both ``Canvas`` signals report the
         picked = sorted(idx for (layer_id, idx) in self._group_palette.selection()
                         if layer_id == lid)
         self.map_view.set_highlight(f"chn:{lid}", picked)
+        self._feed_map_bar()
         if self.layers_panel is not None:
             self.layers_panel.set_reasons(self.map_view.reasons())
             self.layers_panel.relabel()

@@ -34,6 +34,11 @@ class _Drag:
     def offset(self) -> tuple:
         return tuple(self._offset)
 
+    def set_offset(self, offset) -> None:
+        """Put the item where the user last left it (a remembered offset)."""
+        self._offset = [float(offset[0]), float(offset[1])]
+        self.place()
+
     def place(self) -> None:
         if self.parentItem() is not None:
             self.anchor(itemPos=self._corner, parentPos=self._corner, offset=tuple(self._offset))
@@ -118,7 +123,7 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         if view is None:
             return
         view.sigRangeChanged.connect(self._rebuild)
-        view.sigResized.connect(self._clamp)
+        view.sigResized.connect(self._rebuild)      # a resize changes the pixels per data unit
         self._rebuild()
         self.place()
 
@@ -160,6 +165,7 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         rect = rect.united(QtCore.QRectF(-half, y_bracket - TICK_PX, 2 * half, 2 * TICK_PX))
         self._rect = rect.adjusted(-3.0, -3.0, 3.0, 3.0)
         self.update()
+        self.place()
 
     # -- readings for tests and tooltips ----------------------------------------------------
     def bracket_px(self) -> float:

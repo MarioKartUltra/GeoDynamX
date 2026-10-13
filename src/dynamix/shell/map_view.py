@@ -142,10 +142,16 @@ class MapView(QtWidgets.QWidget):
                               "subpixel": False, "ticks": True, "heads": False}
         self.plot.scene().sigMouseMoved.connect(self._on_mouse_moved)
         self.plot.scene().sigMouseClicked.connect(self._on_clicked)
-        self.scale_bar = pg.ScaleBar(size=1000, suffix="m")
+        from dynamix.shell.wavelet_bar import DraggableScaleBar, WaveletBar
+
+        self.scale_bar = DraggableScaleBar(size=1000, suffix="m")
         self.scale_bar.setParentItem(self.view)
         self.scale_bar.anchor((1, 1), (1, 1), offset=(-20, -20))
         self.view.sigRangeChanged.connect(self._update_scale_bar)
+        #: The wavelet scale bar of the selected layer (set_wavelet_profile), above the
+        #: distance bar.
+        self.wavelet_bar = WaveletBar(offset=(-20.0, -60.0))
+        self.wavelet_bar.setParentItem(self.view)
 
     def set_map_crs(self, crs) -> None:
         self._crs = str(crs) if crs else None
@@ -200,6 +206,11 @@ class MapView(QtWidgets.QWidget):
         self.scale_bar.size = size
         self.scale_bar.text.setText(text)
         self.scale_bar.updateBar()
+
+    def set_wavelet_profile(self, profile, label: str, dx_data: float = 1.0) -> None:
+        """The wavelet scale bar: ``profile`` of the selected layer's shown level with its
+        label; ``dx_data`` the layer's map units per image pixel; ``None`` hides it."""
+        self.wavelet_bar.set_profile(profile, label, dx_data)
 
     def reasons(self) -> dict:
         return dict(self._reasons)

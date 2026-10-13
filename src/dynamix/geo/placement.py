@@ -13,6 +13,21 @@ def field_crs(field) -> "str | None":
     return str(crs) if crs else None
 
 
+def crs_metres(crs) -> "tuple | None":
+    """``(metres per CRS unit, unit label)`` for a CRS the unit parser could not name (a bare
+    EPSG code): ``(None, "deg")`` for a geographic one, ``(factor, "m")`` for a projected one;
+    ``None`` when PROJ cannot read it. Display only."""
+    try:
+        from rasterio.crs import CRS
+
+        obj = CRS.from_user_input(str(crs))
+        if obj.is_geographic:
+            return None, "deg"
+        return float(obj.linear_units_factor[1] or 1.0), "m"
+    except Exception:                                                # noqa: BLE001
+        return None
+
+
 def image_transform(field, s: int = 1):
     """``(x0, y0, sx, sy)``: the map coordinate of item pixel (0, 0)'s corner and the step of
     one drawn pixel at decimation ``s``. A display picture registers on its native file grid."""
