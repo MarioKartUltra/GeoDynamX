@@ -334,6 +334,7 @@ def test_a_bus_is_a_stack_group_of_its_channels(three_datasets, qtbot, monkeypat
     assert group is not None and group.kind == "stack" and group.name == "Stack"
     assert [c.id for c in group.children] == [f"ch:{bus.layer_id}:0", f"ch:{bus.layer_id}:1"]
     assert win._bus_plane(bus, 1).values.shape == (36, 36)
+    assert win._bus_plane(bus, 1) is win._bus_plane(bus, 1)     # one plane per stack
 
 
 def test_a_tool_dropped_on_a_child_dataset_gets_its_rows(geo_window, qtbot):

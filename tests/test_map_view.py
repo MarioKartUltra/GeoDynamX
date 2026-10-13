@@ -3,6 +3,8 @@
 """The Map view draws the stack's raster rows by georeference in one map CRS."""
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -336,3 +338,46 @@ def test_subpixel_extrema_keep_their_squares(qtbot):
                  lambda rid: RowContent("extrema", result=_ext_result(), grid_field=_utm()))
     xs, _ys = v._vectors["ext:1"][0].getData()
     assert len(xs) == 3
+
+
+def _three_band(crs="EPSG:32613"):
+    f = _utm(crs=crs)
+    return dataclasses.replace(f, values=np.stack([f.values, 2 * f.values, 3 * f.values], -1))
+
+
+def test_a_reprojected_composite_draws_as_rgba(qtbot):
+    v = _view(qtbot, crs="EPSG:4326")
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                 lambda rid: RowContent("raster", field=_three_band(), style=STYLE,
+                                        composite={"r": 0, "g": 1, "b": 2}))
+    img = v._items["src:a"].image
+    assert img.ndim == 3 and img.shape[-1] == 4
+
+
+def test_a_reprojected_hillshade_keeps_its_native_spacing(qtbot):
+    """A plane rising 0.5 per 10 m pixel shades the same whether or not the Map reprojects it."""
+    f = _utm()
+    f = dataclasses.replace(f, values=np.tile(0.5 * np.arange(f.values.shape[1]),
+                                              (f.values.shape[0], 1)))
+    style = {**STYLE, "hillshade": True}
+    shades = []
+    for crs in ("EPSG:32613", "EPSG:4326"):
+        v = _view(qtbot, crs=crs)
+        v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                     lambda rid: RowContent("raster", field=f, style=style))
+        img = v._items["src:a"].image.astype(np.float64)
+        shades.append(img[..., 0][img[..., 3] > 0].mean())
+    assert abs(shades[0] - shades[1]) < 6.0
+
+
+def test_the_warp_cache_holds_one_entry_per_row_and_prunes_with_the_row(qtbot):
+    v = _view(qtbot, crs="EPSG:4326")
+    a, b = _utm(), _utm()
+    for f in (a, b):
+        v.update_row("src:a", RowContent("raster", field=f, style=STYLE), 1.0, 0)
+    assert list(v._warp_cache) == ["src:a"] and v._warp_cache["src:a"][0] is b.values
+    v.show_stack([(Row("chn:1", "chains"), True, 1.0)],
+                 lambda rid: RowContent("chains", result=_ext_result(), grid_field=_utm()))
+    assert not v._warp_cache and "src:a" not in v._painters and "chn:1" in v._chain_rows
+    v.show_stack([], lambda rid: None)
+    assert not v._chain_rows

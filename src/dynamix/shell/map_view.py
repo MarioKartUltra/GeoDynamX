@@ -33,6 +33,34 @@ def _viridis_brushes() -> np.ndarray:
     return _BRUSHES[0].copy()
 
 
+class _Capture:
+    """What ``Canvas._paint`` hands an ImageItem, kept to resample: the painted picture in
+    pyqtgraph's (x, y[, channel]) orientation, its ``setImage`` keywords and its colormap."""
+
+    def __init__(self) -> None:
+        self.image, self.kw, self.cmap = None, {}, None
+
+    def setImage(self, image, **kw) -> None:
+        self.image, self.kw = image, kw
+
+    def setColorMap(self, cmap) -> None:
+        self.cmap = cmap
+
+
+def _resample(image, index):
+    """``image`` (pyqtgraph orientation, painted on the strided source grid) gathered through
+    ``index`` (destination pixel -> flat source index, ``-1`` outside the source)."""
+    src = image.transpose(1, 0, 2) if image.ndim == 3 else image.T
+    flat = src.reshape(src.shape[0] * src.shape[1], -1)
+    out = flat[np.where(index >= 0, index, 0)]
+    outside = index < 0
+    if out.dtype.kind == "f":
+        out[outside] = np.nan
+    elif out.shape[-1] == 4:
+        out[outside, 3] = 0
+    return out.transpose(1, 0, 2) if image.ndim == 3 else out[..., 0].T
+
+
 @dataclasses.dataclass
 class RowContent:
     kind: str
@@ -172,10 +200,13 @@ class MapView(QtWidgets.QWidget):
         for rid in [r for r in self._items if r not in keep]:
             self.view.removeItem(self._items.pop(rid))
             self._drawn.pop(rid, None)
+            self._warp_cache.pop(rid, None)
+            self._painters.pop(rid, None)
         for rid in [r for r in self._vectors if r not in keep]:
             for item in self._vectors.pop(rid):
                 self.view.removeItem(item)
             self._drawn.pop(rid, None)
+            self._chain_rows.pop(rid, None)
         self._reasons = {}
         self._frame = None
         for z, (row, visible, opacity) in enumerate(drawn):
@@ -253,6 +284,17 @@ class MapView(QtWidgets.QWidget):
             return None, "no CRS"
         return ("affine", None) if crs == self._crs else ("warp", None)
 
+    def _warp_map(self, raw, field, s):
+        """Where each pixel of the Map's picture of ``field`` reads in its values decimated by
+        ``s``: the flat source index per destination pixel (``-1`` outside), and the picture's
+        transform. One reprojection per row and array; the painted picture is gathered
+        through it, so composite, hillshade and levels draw as the affine path draws them."""
+        ny, nx = np.shape(raw)[:2]
+        shape = ((ny + s - 1) // s, (nx + s - 1) // s)
+        index = np.arange(shape[0] * shape[1], dtype=np.float64).reshape(shape)
+        warped, xform = reproject_for_display(index, field, self._crs, s=s, max_dim=MAX_DIM)
+        return np.where(np.isfinite(warped), warped, -1).astype(np.intp), xform
+
     def _draw_raster(self, row_id, content, opacity, z) -> None:
         field = content.field
         mode, reason = self._placeable(field)
@@ -270,23 +312,26 @@ class MapView(QtWidgets.QWidget):
             self.view.addItem(item)
         painter = self._painters.setdefault(row_id, _RowPainter())
         painter.apply_style(content.style, content.composite)
-        values = np.asarray(getattr(field, "values", field), dtype=np.float64)
-        s = lod_stride(values.shape[:2], MAX_DIM)
+        raw = getattr(field, "values", field)
+        s = lod_stride(np.shape(raw)[:2], MAX_DIM)
         if mode == "affine":
             painter._paint(item, field, s)
             x0, y0, sx, sy = image_transform(field, s)
         else:
-            key = (row_id, id(values), self._crs)
-            if key not in self._warp_cache:
-                plane = values if values.ndim == 2 else values[..., 0]
+            cached = self._warp_cache.get(row_id)
+            if cached is None or cached[0] is not raw or cached[1] != self._crs:
                 try:
-                    self._warp_cache[key] = reproject_for_display(
-                        plane[::s, ::s], field, self._crs, s=s, max_dim=MAX_DIM)
+                    cached = (raw, self._crs, *self._warp_map(raw, field, s))
                 except Exception as exc:                             # noqa: BLE001
                     self._hide(row_id, f"reprojection failed: {exc}")
                     return
-            image, (x0, y0, sx, sy) = self._warp_cache[key]
-            painter._paint(item, image, 1)
+                self._warp_cache[row_id] = cached
+            _raw, _crs, index, (x0, y0, sx, sy) = cached
+            capture = _Capture()
+            painter._paint(capture, field, s)      # on its own grid, as the affine path paints
+            item.setImage(_resample(capture.image, index), **capture.kw)
+            if capture.cmap is not None:
+                item.setColorMap(capture.cmap)
         item.setTransform(QtGui.QTransform(sx, 0.0, 0.0, sy, x0, y0))
         self._drawn[row_id] = signature
         self._settle([item], opacity, z)

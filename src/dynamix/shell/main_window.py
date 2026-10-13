@@ -1307,6 +1307,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._arrangement = None
         self.map_view = None          # the Map view, built on first use (_ensure_map_view)
         self._prod_memo: dict = {}    # layer_id -> (raster, result, field, product field)
+        self._bus_plane_memo: dict = {}   # (bus layer_id, n) -> (stack, sends text, plane)
         self.layers_panel = None      # the Layers section, built with the right panel
         self._stack_near: dict = {}   # a fork's row -> the row it was forked from (placement)
         self._footprints: list = []   # dynamix.geo.footprints records (data browser)
@@ -4463,6 +4464,7 @@ both ``Canvas`` signals report the
         self._marked_keys = {}
         self._out_keys = {}
         self._prod_memo = {}
+        self._bus_plane_memo = {}
         self._out_request = None
         self._out_held = None
         self._recon_run = None
@@ -5745,6 +5747,8 @@ both ``Canvas`` signals report the
             self._arr_errors.pop(rid, None)   # No dead entry for a layer_id gone for good
             self._out_keys.pop(rid, None)
             self._prod_memo.pop(rid, None)
+            for key in [k for k in self._bus_plane_memo if k[0] == rid]:
+                self._bus_plane_memo.pop(key)
             self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         self._reconcile_stack()
@@ -5872,6 +5876,8 @@ both ``Canvas`` signals report the
             self._arr_errors.pop(rid, None)
             self._out_keys.pop(rid, None)
             self._prod_memo.pop(rid, None)
+            for key in [k for k in self._bus_plane_memo if k[0] == rid]:
+                self._bus_plane_memo.pop(key)
             self._release_marks(rid)
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
@@ -9135,20 +9141,28 @@ both ``Canvas`` signals report the
         materialised (a layer send waits for its source layer to have run)."""
         from dynamix.core.bus import materialize, parse_sends
 
-        if self._active_field is not None and self._active_field[0] == layer.layer_id:
-            stack = self._active_field[1]
+        text = layer.chain.steps[0].params.get("_sends")
+        active = self._active_field is not None and self._active_field[0] == layer.layer_id
+        src = self._active_field[1] if active else self._fields.get(layer.layer_id)
+        memo = self._bus_plane_memo.get((layer.layer_id, n))
+        if memo is not None and memo[0] is src and memo[1] == text:
+            return memo[2]              # the same plane object while its stack and sends stand
+        if active:
+            stack = src
         else:
-            host = self._fields.get(layer.layer_id)
             try:
-                stack = materialize(host, parse_sends(layer.chain.steps[0].params.get("_sends")))
+                stack = materialize(src, parse_sends(text))
             except Exception:                                        # noqa: BLE001
                 return None
         values = np.asarray(stack.values)
         if values.ndim == 2:
-            return stack if n == 0 else None
-        if n >= values.shape[-1]:
-            return None
-        return dataclasses.replace(stack, values=values[..., n])
+            plane = stack if n == 0 else None
+        elif n >= values.shape[-1]:
+            plane = None
+        else:
+            plane = dataclasses.replace(stack, values=values[..., n])
+        self._bus_plane_memo[(layer.layer_id, n)] = (src, text, plane)
+        return plane
 
     def _redraw_map(self) -> None:
         """Draw the stack on the Map while the Map is the centre view; the Layers panel greys
