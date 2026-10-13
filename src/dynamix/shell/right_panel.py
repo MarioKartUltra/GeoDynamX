@@ -274,6 +274,11 @@ class RightPanel(QtWidgets.QScrollArea):
             lambda checked: self.styleChanged.emit("show_trails", checked))
         column.addWidget(self.trails_check)
         self._relevant_items["trails"] = self.trails_check
+        # The microcanonical tools' ladder of wavelets over the raster (the wavelet cascade).
+        self.cascade_check = QtWidgets.QCheckBox("Wavelet cascade")
+        self.cascade_check.toggled.connect(
+            lambda checked: self.styleChanged.emit("wavelet_cascade", checked))
+        column.addWidget(self.cascade_check)
         # Gradient arrows along each maximum's argument, at the current scale.
         arrows_row = QtWidgets.QWidget()
         arrows_lay = QtWidgets.QHBoxLayout(arrows_row)
@@ -422,6 +427,9 @@ class RightPanel(QtWidgets.QScrollArea):
         self.trails_check.blockSignals(True)
         self.trails_check.setChecked(style["show_trails"])
         self.trails_check.blockSignals(False)
+        self.cascade_check.blockSignals(True)
+        self.cascade_check.setChecked(style.get("wavelet_cascade", True))
+        self.cascade_check.blockSignals(False)
         self.arrows_combo.blockSignals(True)
         self.arrows_combo.setCurrentIndex(max(self.arrows_combo.findData(
             style.get("arrows", "off")), 0))

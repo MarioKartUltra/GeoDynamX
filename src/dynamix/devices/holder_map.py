@@ -24,6 +24,8 @@ refused here with a pointed message rather than mis-analysed.
 """
 from __future__ import annotations
 
+import numpy as np
+
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.param import Param, ParamKind
 
@@ -129,14 +131,21 @@ class HolderMap:
     )
 
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
-        """The measure kernel's section and λ* at r = ``scale_px`` (the wavelet scale bar)."""
-        from dynamix.core.wavelet_profiles import measure_profile
+        """The kernel's section and λ* at r = ``scale_px`` (the wavelet scale bar): the
+        positive kernel for the measure estimator, its Laplacian for the multiaffine one."""
+        from dynamix.core.wavelet_profiles import measure_profile, multiaffine_profile
 
-        return measure_profile(params["wavelet"], scale_px, beta=params["beta"],
-                               q_tsallis=params["q_tsallis"],
-                               frac_n=params.get("frac_n", 2.0),
-                               q_pairing=params.get("q_pairing", "fixed"),
-                               q_beta=params.get("q_beta", 0.5))
+        make = measure_profile if params.get("estimator") == "measure" else multiaffine_profile
+        return make(params["wavelet"], scale_px, beta=params["beta"],
+                    q_tsallis=params["q_tsallis"], frac_n=params.get("frac_n", 2.0),
+                    q_pairing=params.get("q_pairing", "fixed"),
+                    q_beta=params.get("q_beta", 0.5))
+
+    def scale_ladder(self, params: dict) -> np.ndarray:
+        """The scales the tool runs at, r_min to r_min·κ in n_scales geometric steps (the
+        wavelet cascade draws one section per entry)."""
+        return np.geomspace(float(params["r_min"]), float(params["r_min"]) * float(params["kappa"]),
+                            int(params["n_scales"]))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         vals = field_values_2d(field, self.name)

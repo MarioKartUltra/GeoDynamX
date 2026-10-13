@@ -512,3 +512,41 @@ def test_the_transport_reading_quotes_lambda_in_metres(geo_window, qtbot):
     lam = lambda_peak_px(a, win._active_result["params"]["wavelet"], 1)
     assert win._scale_reading(1) == (f"a = {a:.1f} · λ* {lam:.1f} px ≈ "
                                      f"{format_length(lam * 10.0, 'm')}")
+
+
+def test_the_cascade_follows_the_racks_knobs_before_a_run(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "holder_measure")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    cascade = win.canvas.wavelet_cascade
+    n = int(win._active_result["params"]["n_scales"])
+    assert cascade.isVisible() and len(cascade.widths_px()) == n
+    last_before = cascade.labels[1]
+    i = win._names.index("holder_measure")
+    win._on_param_changed(i, "kappa", float(win._params[i]["kappa"]) * 4.0)
+    assert cascade.labels[1] != last_before                      # moved at once, before any landing
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+
+
+def test_the_cascade_hides_without_a_microcanonical_tool_and_with_the_toggle(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert not win.canvas.wavelet_cascade.isVisible()
+    master = next(l for l in win.project.layers if l.parent_id is None)
+    win.layer_list.select_layer(master.layer_id)
+    qtbot.waitUntil(lambda: win.layer is master and not win.is_computing, timeout=30000)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "holder_multiaffine")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.canvas.wavelet_cascade.isVisible()
+    win._on_display_style_changed("wavelet_cascade", False)
+    assert not win.canvas.wavelet_cascade.isVisible()
+    win._on_display_style_changed("wavelet_cascade", True)
+    assert win.canvas.wavelet_cascade.isVisible()

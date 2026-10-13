@@ -157,6 +157,11 @@ TITLE = "DynamiX"
 #: directly (the switcher's three buttons, and ``Settings.center_view``'s restored value).
 _CENTER_VIEWS = ("raster", "map", "vector", "geo")
 
+#: The analysers whose coefficients the views never show: their ladder of wavelets is drawn
+#: over the raster instead (the wavelet cascade), from the rack's knobs, before any run.
+_CASCADE_DEVICES = frozenset({"holder_measure", "holder_multiaffine", "holder_map",
+                              "band_recon_measure", "band_recon_multiaffine"})
+
 #: The legal selection-mode values -- EQSelect's own
 #: names ("lasso", not "freehand"). ``"transect"`` is legal from day one (it gets its own gesture) -- :meth:`MainWindow.set_selection_mode` raises on anything
 #: outside this tuple.
@@ -316,6 +321,7 @@ def _display_style_of(layer) -> dict:
         raw = tags.get(f"ui.{name}")
         out[name] = raw if isinstance(raw, str) and _HEX_RE.match(raw) else default
     out["show_trails"] = tags.get("ui.show_trails") == "True"
+    out["wavelet_cascade"] = tags.get("ui.wavelet_cascade") != "False"
     raw = tags.get("ui.arrows")
     out["arrows"] = raw if raw in ("off", "wtmmm", "all") else "off"
     out["hillshade"] = tags.get("ui.hillshade") == "True"
@@ -1294,6 +1300,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.wavelet_bar.moved.connect(
             lambda off: self._remember_bar("wavelet_bar", "raster", off))
         self._wavelet_bar_state = (None, "")      # (Profile, label) of the active landing
+        cascade = load_settings().view_options.get("wavelet_cascade")
+        if isinstance(cascade, list) and len(cascade) == 2:
+            self.canvas.wavelet_cascade.set_offset(cascade)
+        self.canvas.wavelet_cascade.moved.connect(
+            lambda off: self._remember_bar("wavelet_cascade", None, off))
         self.canvas.roiDrawn.connect(self._on_roi_drawn)
         self.canvas.roiPlaced.connect(self._on_roi_placed)
         # The canvas re-derives both corner overlays whenever the camera moves, but the distance
@@ -2439,6 +2450,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # the design's instruction) rather than a new one. Always runs, point layer active or
         # not -- the one setter a point layer's own selection is allowed to reach.
         self.canvas.set_points_style(style["color_points"], style["point_size"])
+        self._feed_cascade()
         self._to_map_live()
 
     def _on_display_style_changed(self, name: str, value) -> None:
@@ -2461,7 +2473,7 @@ class MainWindow(QtWidgets.QMainWindow):
             return
         if name in _DISPLAY_PARAM_NAMES:
             self.layer.tags[f"ui.{name}"] = repr(float(value))
-        elif name in ("show_trails", "hillshade", "surface", "depth_positive"):
+        elif name in ("show_trails", "hillshade", "surface", "depth_positive", "wavelet_cascade"):
             self.layer.tags[f"ui.{name}"] = "True" if value else "False"
         else:
             self.layer.tags[f"ui.{name}"] = str(value)
@@ -4115,6 +4127,7 @@ both ``Canvas`` signals report the
         self._active_result = {}               # never a previous layer's result, for the fork
         self._wavelet_bar_state = (None, "")   # nor its wavelet bar, until this one lands
         self.canvas.set_wavelet_profile(None, "")
+        self.canvas.set_wavelet_cascade([], ("", ""), 0)
         self._feed_map_bar()
         self._active_field = None
         if not hasattr(result, "values"):
@@ -4710,6 +4723,7 @@ both ``Canvas`` signals report the
             self._snapshot_recipe()
         self.setWindowTitle(f"{TITLE} — {layer.name}")
         self._build_strips()
+        self._feed_cascade()                   # the new layer's ladder, from its rack
         # A send step with LIVE layer sends: re-fingerprint what it sends, so a referenced layer
         # edited since shows up here (its stamp moves the bus's cache key). It runs once the
         # zone holds THIS layer's boxes: the rewrite writes the fresh text into the strip and its
@@ -7215,6 +7229,7 @@ both ``Canvas`` signals report the
             self._stamp_backproject(self._names, self._params)
         self.layer.chain = self._chain()
         self._snapshot_recipe()
+        self._feed_cascade()                   # the ladder follows the knobs, before any run
         if name == "_sends":
             self._reconcile_stack()            # a bus's channel rows follow its sends
         if legacy_scale:
@@ -7696,6 +7711,7 @@ both ``Canvas`` signals report the
         # show. First, so the Transport's reading and the multifractal axis read the same λ*.
         self._wavelet_bar_state = self._bar_state(renderable, result)
         self.canvas.set_wavelet_profile(*self._wavelet_bar_state)
+        self._feed_cascade()
         self._refresh_topology_panel()
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
@@ -9022,6 +9038,48 @@ both ``Canvas`` signals report the
             return self._physical_length(lam) if np.isfinite(lam) else None
 
         return of
+
+    def _cascade_state(self) -> tuple:
+        """``(profiles, (label_min, label_max), shown)`` of the active layer's microcanonical
+        step from the rack's CURRENT knobs (no run needed): one profile per scale of the
+        device's own ladder; ``([], ("", ""), 0)`` without such a step."""
+        from dynamix.core.wavelet_profiles import format_length
+
+        if self.layer is None:
+            return [], ("", ""), 0
+        for i, name in enumerate(self._names):
+            if name in _CASCADE_DEVICES and not self._bypassed[i]:
+                break
+        else:
+            return [], ("", ""), 0
+        device = get_device(name)
+        try:
+            params = validate_params(device, dict(self._params[i]))
+            ladder = device.scale_ladder(params)
+            profiles = [device.wavelet_profile(params, float(r), k) for k, r in enumerate(ladder)]
+        except Exception as exc:                                     # noqa: BLE001
+            self._notify(f"wavelet cascade: {exc}", "status")
+            return [], ("", ""), 0
+
+        def label(p):
+            if not np.isfinite(p.lambda_px):
+                return f"r {p.scale_px:g} px · no band"
+            return f"r {p.scale_px:g} px · λ* {format_length(*self._physical_length(p.lambda_px))}"
+
+        shown = shown_level(self.layer)
+        if shown is None:
+            shown = int((self._active_result or {}).get("_scale_idx", 0)) \
+                if isinstance(self._active_result, dict) else 0
+        shown = int(np.clip(shown, 0, len(profiles) - 1))
+        return profiles, (label(profiles[0]), label(profiles[-1])), shown
+
+    def _feed_cascade(self) -> None:
+        """The Raster canvas's wavelet cascade follows the active layer's rack and its Display
+        toggle."""
+        if self.layer is None or not _display_style_of(self.layer).get("wavelet_cascade", True):
+            self.canvas.set_wavelet_cascade([], ("", ""), 0)
+            return
+        self.canvas.set_wavelet_cascade(*self._cascade_state())
 
     @staticmethod
     def _axis_step(field) -> float:

@@ -102,3 +102,22 @@ def test_the_canvas_bar_follows_set_wavelet_profile_and_the_duo_stays_empty(qtbo
     assert c.wavelet_item.xData is None or len(c.wavelet_item.xData) == 0   # the duo draws nothing
     c.set_wavelet_profile(None, "")
     assert not c.wavelet_bar.isVisible()
+
+
+def test_the_cascade_nests_its_curves_in_the_ladders_ratios(qtbot):
+    from dynamix.core.wavelet_profiles import measure_profile
+    from dynamix.shell.wavelet_bar import WaveletCascade
+
+    w = _view(qtbot)
+    c = WaveletCascade()
+    c.setParentItem(w.getViewBox())
+    profiles = [measure_profile("gaussian", r) for r in (2.0, 4.0, 8.0)]
+    c.set_profiles(profiles, ("2 px", "8 px"), shown=1)
+    widths = c.widths_px()
+    assert len(widths) == 3
+    assert widths[1] / widths[0] == pytest.approx(2.0, rel=0.05)
+    assert widths[2] / widths[1] == pytest.approx(2.0, rel=0.05)
+    assert c.isVisible() and c.labels == ("2 px", "8 px") and c.shown == 1
+    assert w.getViewBox().sceneBoundingRect().contains(c.sceneBoundingRect())
+    c.set_profiles([], ("", ""), 0)
+    assert not c.isVisible()

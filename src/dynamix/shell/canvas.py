@@ -1017,6 +1017,11 @@ class Canvas(pg.GraphicsLayoutWidget):
 
         self.wavelet_bar = WaveletBar(offset=(-20.0, -44.0))
         self.wavelet_bar.setParentItem(self.view)
+        # A microcanonical tool's whole ladder, nested, lower-left (set_wavelet_cascade).
+        from dynamix.shell.wavelet_bar import WaveletCascade
+
+        self.wavelet_cascade = WaveletCascade()
+        self.wavelet_cascade.setParentItem(self.view)
 
         # Built BEFORE scale_bar_label: the `is None` guard above keys off scale_bar_label, so
         # every label _reposition_overlays touches has to exist by the time that one does.
@@ -2544,6 +2549,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """The wavelet scale bar: ``profile`` (a :class:`dynamix.core.wavelet_profiles.Profile`
         of the level on show) with its label; ``None`` hides the bar."""
         self.wavelet_bar.set_profile(profile, label, 1.0)
+
+    def set_wavelet_cascade(self, profiles, labels, shown: int = 0) -> None:
+        """The wavelet cascade: one profile per scale of the tool's ladder, the two end
+        labels, the index on show; an empty list hides it."""
+        self.wavelet_cascade.set_profiles(profiles, labels, shown)
 
     def set_wavelet_bar(self, x_theta, theta, x_psi, psi, label: str = "") -> None:
         """Corner-anchored wavelet-bar DUO from already-rendered ``(x_theta, theta)`` (the

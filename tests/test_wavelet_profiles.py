@@ -107,8 +107,8 @@ def test_the_devices_route_their_own_params(clean_registry):
     assert hm.lambda_px / 6.0 == pytest.approx(8.09, rel=0.01)
     ma = wp.profile_for("holder_multiaffine", {"wavelet": "g2", **_MEASURE_DEFAULTS}, res, 0)
     assert ma.lambda_px / 6.0 == pytest.approx(np.pi, rel=0.01)
-    hmap = wp.profile_for("holder_map", {"wavelet": "gaussian", "beta": 1.0, "q_tsallis": 1.5},
-                          res, 0)
+    hmap = wp.profile_for("holder_map", {"wavelet": "gaussian", "beta": 1.0, "q_tsallis": 1.5,
+                                         "estimator": "measure"}, res, 0)
     assert hmap.lambda_px / 6.0 == pytest.approx(np.pi * np.sqrt(2), rel=0.01)
 
 
@@ -175,3 +175,33 @@ def test_a_plane_wave_peaks_where_lambda_reads_its_wavelength(clean_registry):
                  for ext in res["extrema"]]
     a = float(np.asarray(res["scales"])[int(np.argmax(strengths))])
     assert wp.lambda_px("wtmm2d", params, a) == pytest.approx(L, rel=2 ** (1 / 8) - 1 + 0.05)
+
+
+_MICRO = ("holder_measure", "holder_multiaffine", "holder_map", "band_recon_measure",
+          "band_recon_multiaffine")
+
+
+def test_microcanonical_devices_expose_their_scale_ladder(clean_registry):
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+
+    register_builtin_devices()
+    for name in _MICRO:
+        dev = get_device(name)
+        params = {**defaults_for(dev), "r_min": 2.0, "kappa": 8.0, "n_scales": 4}
+        np.testing.assert_allclose(dev.scale_ladder(params), np.geomspace(2.0, 16.0, 4))
+    assert not hasattr(get_device("wtmm2d"), "scale_ladder")
+
+
+def test_holder_map_profile_follows_its_estimator(clean_registry):
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+
+    register_builtin_devices()
+    dev = get_device("holder_map")
+    base = {**defaults_for(dev), "wavelet": "gaussian"}
+    measure = dev.wavelet_profile({**base, "estimator": "measure"}, 6.0, 0)
+    multi = dev.wavelet_profile({**base, "estimator": "multiaffine"}, 6.0, 0)
+    assert measure.lambda_px / 6.0 == pytest.approx(np.pi * np.sqrt(2), rel=0.01)
+    assert multi.lambda_px / 6.0 == pytest.approx(np.pi, rel=0.01)
+    assert measure.psi.min() >= -1e-9 and multi.psi.min() < -0.05      # a kernel, a hat

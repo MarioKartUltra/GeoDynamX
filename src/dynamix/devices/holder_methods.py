@@ -37,6 +37,8 @@ recomputes only the output.
 """
 from __future__ import annotations
 
+import numpy as np
+
 import dataclasses
 import functools
 
@@ -469,6 +471,12 @@ class HolderMeasure:
                                q_pairing=params.get("q_pairing", "fixed"),
                                q_beta=params.get("q_beta", 0.5))
 
+    def scale_ladder(self, params: dict) -> np.ndarray:
+        """The scales the tool runs at, r_min to r_min·κ in n_scales geometric steps (the
+        wavelet cascade draws one section per entry)."""
+        return np.geomspace(float(params["r_min"]), float(params["r_min"]) * float(params["kappa"]),
+                            int(params["n_scales"]))
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "measure", field, params, progress)
 
@@ -530,6 +538,12 @@ class HolderMultiaffine:
                                frac_n=params.get("frac_n", 2.0),
                                q_pairing=params.get("q_pairing", "fixed"),
                                q_beta=params.get("q_beta", 0.5))
+
+    def scale_ladder(self, params: dict) -> np.ndarray:
+        """The scales the tool runs at, r_min to r_min·κ in n_scales geometric steps (the
+        wavelet cascade draws one section per entry)."""
+        return np.geomspace(float(params["r_min"]), float(params["r_min"]) * float(params["kappa"]),
+                            int(params["n_scales"]))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "multiaffine", field, params, progress)

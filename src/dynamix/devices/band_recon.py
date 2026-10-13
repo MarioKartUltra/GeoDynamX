@@ -25,6 +25,8 @@ same estimator settings, so read the band off that display or the Slice histogra
 """
 from __future__ import annotations
 
+import numpy as np
+
 from dynamix.devices.holder_map import HolderMap, field_values_2d, holder_arrays
 from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
 from dynamix.model.contracts import FIELD, HMAP
@@ -196,6 +198,12 @@ class BandReconMeasure:
                                q_pairing=params.get("q_pairing", "fixed"),
                                q_beta=params.get("q_beta", 0.5))
 
+    def scale_ladder(self, params: dict) -> np.ndarray:
+        """The scales the tool runs at, r_min to r_min·κ in n_scales geometric steps (the
+        wavelet cascade draws one section per entry)."""
+        return np.geomspace(float(params["r_min"]), float(params["r_min"]) * float(params["kappa"]),
+                            int(params["n_scales"]))
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _split_band_compute(self, "measure", field, params, progress)
 
@@ -238,6 +246,12 @@ class BandReconMultiaffine:
                                frac_n=params.get("frac_n", 2.0),
                                q_pairing=params.get("q_pairing", "fixed"),
                                q_beta=params.get("q_beta", 0.5))
+
+    def scale_ladder(self, params: dict) -> np.ndarray:
+        """The scales the tool runs at, r_min to r_min·κ in n_scales geometric steps (the
+        wavelet cascade draws one section per entry)."""
+        return np.geomspace(float(params["r_min"]), float(params["r_min"]) * float(params["kappa"]),
+                            int(params["n_scales"]))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _split_band_compute(self, "multiaffine", field, params, progress)

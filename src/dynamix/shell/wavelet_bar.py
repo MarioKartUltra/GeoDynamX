@@ -228,3 +228,148 @@ class DraggableScaleBar(_Drag, pg.ScaleBar):
     def boundingRect(self) -> QtCore.QRectF:
         rect = QtCore.QRectF(self.bar.rect())
         return rect.united(self.text.mapRectToParent(self.text.boundingRect()))
+
+
+def _section(profile, k: float):
+    """``(x_screen, y_screen, x_px)`` of a profile's drawn section: |ψ| ≥ 1 % of its peak and
+    |x| ≤ 2λ*, at ``k`` screen pixels per image pixel."""
+    x, psi = np.asarray(profile.x_px, dtype=np.float64), np.asarray(profile.psi, dtype=np.float64)
+    peak = float(np.max(np.abs(psi))) if psi.size else 0.0
+    keep = np.abs(psi) >= TAIL_FRACTION * peak if peak > 0 else np.zeros(psi.shape, bool)
+    if np.isfinite(profile.lambda_px):
+        keep &= np.abs(x) <= CAP_LAMBDAS * profile.lambda_px
+    return x[keep] * k, -0.5 * CURVE_HEIGHT_PX * psi[keep], x[keep]
+
+
+class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
+    """A microcanonical tool's whole ladder of wavelets, nested on one centre over the raster:
+    every scale's section to scale, the level on show at full strength and the rest faint,
+    with a bracket and a label for the smallest and the largest. Draggable like the bar."""
+
+    moved = QtCore.Signal(object)
+
+    def __init__(self, corner=(0, 1), offset=(20.0, -44.0)) -> None:
+        pg.GraphicsObject.__init__(self)
+        pg.GraphicsWidgetAnchor.__init__(self)
+        self._init_drag(corner, offset)
+        self._profiles: list = []
+        self.labels: tuple = ("", "")
+        self.shown = 0
+        self._paths: list = []
+        self._widths: list = []
+        self._brackets: list = []
+        self._texts: list = []
+        self._rect = QtCore.QRectF()
+        self._font = QtGui.QFont()
+        self._font.setBold(True)
+        self._font.setPointSizeF(9.0)
+        self.hide()
+
+    def set_profiles(self, profiles, labels, shown: int = 0) -> None:
+        """The ladder's profiles (smallest first), the labels of its two ends, and the index
+        of the level on show; an empty list hides the cascade."""
+        self._profiles = list(profiles)
+        self.labels = (str(labels[0]), str(labels[1])) if len(labels) >= 2 else ("", "")
+        self.shown = int(shown)
+        if not self._profiles:
+            self.hide()
+            return
+        self.setToolTip(" · ".join(p.family for p in self._profiles[:1])
+                        + f" · {len(self._profiles)} scales")
+        self._rebuild()
+        self.show()
+        self.place()
+
+    def changeParent(self) -> None:
+        view = self.parentItem()
+        if view is None:
+            return
+        view.sigRangeChanged.connect(self._rebuild)
+        view.sigResized.connect(self._rebuild)
+        self._rebuild()
+        self.place()
+
+    def _px_per_data(self) -> float:
+        view = self.parentItem()
+        if view is None:
+            return 1.0
+        p0 = view.mapFromViewToItem(self, QtCore.QPointF(0.0, 0.0))
+        p1 = view.mapFromViewToItem(self, QtCore.QPointF(1.0, 0.0))
+        return abs(p1.x() - p0.x()) or 1.0
+
+    def _rebuild(self, *_args) -> None:
+        if not self._profiles:
+            return
+        self.prepareGeometryChange()
+        k = self._px_per_data()
+        self._paths, self._widths = [], []
+        rect = QtCore.QRectF()
+        for p in self._profiles:
+            xs, ys, _x_px = _section(p, k)
+            path = QtGui.QPainterPath()
+            if xs.size:
+                path.moveTo(xs[0], ys[0])
+                for xi, yi in zip(xs[1:], ys[1:]):
+                    path.lineTo(xi, yi)
+            self._paths.append(path)
+            self._widths.append(float(xs.max() - xs.min()) if xs.size else 0.0)
+            rect = rect.united(path.boundingRect())
+        metrics = QtGui.QFontMetricsF(self._font)
+        self._brackets, self._texts = [], []
+        y = 0.5 * CURVE_HEIGHT_PX + BRACKET_GAP_PX
+        for p, label in zip((self._profiles[0], self._profiles[-1]), self.labels):
+            half = 0.5 * p.lambda_px * k if np.isfinite(p.lambda_px) else 0.0
+            self._brackets.append(QtCore.QLineF(-half, y, half, y))
+            text = QtGui.QPainterPath()
+            text.addText(-0.5 * metrics.horizontalAdvance(label),
+                         y + TICK_PX + metrics.ascent() + 2.0, self._font, label)
+            self._texts.append(text)
+            rect = rect.united(text.boundingRect())
+            rect = rect.united(QtCore.QRectF(-half, y - TICK_PX, 2 * half, 2 * TICK_PX))
+            y += TICK_PX + metrics.height() + 10.0
+        self._rect = rect.adjusted(-3.0, -3.0, 3.0, 3.0)
+        self.update()
+        self.place()
+
+    def widths_px(self) -> list:
+        return list(self._widths)
+
+    def boundingRect(self) -> QtCore.QRectF:
+        return QtCore.QRectF(self._rect)
+
+    def paint(self, painter, *_args) -> None:
+        if not self._profiles:
+            return
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+        faint, shadow = QtGui.QColor(_GREEN), QtGui.QColor(_BLACK)
+        faint.setAlpha(190)
+        shadow.setAlpha(110)
+        for i, path in enumerate(self._paths):
+            if i == self.shown:
+                continue
+            for pen in (QtGui.QPen(shadow, 2.4), QtGui.QPen(faint, 1.1)):
+                pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawPath(path)
+        if 0 <= self.shown < len(self._paths):
+            for pen in (QtGui.QPen(_BLACK, 3.0), QtGui.QPen(_GREEN, 1.4)):
+                pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
+                painter.setPen(pen)
+                painter.drawPath(self._paths[self.shown])
+        for bracket in self._brackets:
+            if bracket.length() <= 0:
+                continue
+            for pen in (QtGui.QPen(_BLACK, 3.0), QtGui.QPen(_GREEN, 1.2)):
+                painter.setPen(pen)
+                painter.drawLine(bracket)
+                for xe in (bracket.x1(), bracket.x2()):
+                    painter.drawLine(QtCore.QLineF(xe, bracket.y1() - TICK_PX,
+                                                   xe, bracket.y1() + TICK_PX))
+        for text in self._texts:
+            painter.setPen(QtGui.QPen(_BLACK, 2.5))
+            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            painter.drawPath(text)
+            painter.setPen(QtCore.Qt.PenStyle.NoPen)
+            painter.setBrush(_GREEN)
+            painter.drawPath(text)
