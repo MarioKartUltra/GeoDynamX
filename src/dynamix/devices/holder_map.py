@@ -128,6 +128,16 @@ class HolderMap:
               soft_min=0.5, soft_max=2.0, units="", label="β"),
     )
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The measure kernel's section and λ* at r = ``scale_px`` (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import measure_profile
+
+        return measure_profile(params["wavelet"], scale_px, beta=params["beta"],
+                               q_tsallis=params["q_tsallis"],
+                               frac_n=params.get("frac_n", 2.0),
+                               q_pairing=params.get("q_pairing", "fixed"),
+                               q_beta=params.get("q_beta", 0.5))
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         vals = field_values_2d(field, self.name)
         h_map, r2_map, scales = holder_arrays(vals, params, progress)

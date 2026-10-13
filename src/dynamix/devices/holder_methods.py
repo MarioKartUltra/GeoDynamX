@@ -459,6 +459,16 @@ class HolderMeasure:
         q_width_check("measure", params)
         construction_check("measure", params)
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The measure kernel's section and λ* at r = ``scale_px`` (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import measure_profile
+
+        return measure_profile(params["wavelet"], scale_px, beta=params["beta"],
+                               q_tsallis=params["q_tsallis"],
+                               frac_n=params.get("frac_n", 2.0),
+                               q_pairing=params.get("q_pairing", "fixed"),
+                               q_beta=params.get("q_beta", 0.5))
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "measure", field, params, progress)
 
@@ -510,6 +520,16 @@ class HolderMultiaffine:
     def check(self, params: dict) -> None:
         q_width_check("multiaffine", params)
         construction_check("multiaffine", params)
+
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The multiaffine wavelet's section and λ* at r = ``scale_px`` (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import multiaffine_profile
+
+        return multiaffine_profile(params["wavelet"], scale_px, beta=params["beta"],
+                               q_tsallis=params["q_tsallis"],
+                               frac_n=params.get("frac_n", 2.0),
+                               q_pairing=params.get("q_pairing", "fixed"),
+                               q_beta=params.get("q_beta", 0.5))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         return _compute(self, "multiaffine", field, params, progress)
