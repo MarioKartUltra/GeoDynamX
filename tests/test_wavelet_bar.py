@@ -180,3 +180,19 @@ def test_the_curves_amplitude_grows_with_their_width_on_screen(qtbot):
     amps, widths = c.amplitudes_px(), c.widths_px()
     assert amps[2] == pytest.approx(CURVE_ASPECT * widths[2])
     assert amps[2] > amps[0] >= CURVE_HEIGHT_PX
+
+
+def test_the_wtmm_knob_names_the_smoother_and_the_bar_names_the_analyser(clean_registry):
+    """The wtmm2d choice "mexican"/"gaussian" is the smoothing function θ; the analysing
+    wavelet is its gradient, g3 or g1 -- the knob says so and the bar's family does too."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.core.wavelet_profiles import wtmm_profile
+    from dynamix.model.device import get_device
+
+    register_builtin_devices()
+    param = next(p for p in get_device("wtmm2d").params if p.name == "wavelet")
+    assert "θ" in param.label
+    labels = dict(zip(param.choices, param.choice_labels))
+    assert "g3" in labels["mexican"] and "g1" in labels["gaussian"]
+    assert "g3" in wtmm_profile("mexican", 8.0).family and "θ" in wtmm_profile("mexican", 8.0).family
+    assert "g1" in wtmm_profile("gaussian", 8.0).family

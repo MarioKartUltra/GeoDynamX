@@ -56,8 +56,11 @@ class WTMM2D:
         Param("n_voice", ParamKind.INT, default=4, min=1, max=64, label="Voices/octave"),
         Param("a_min", ParamKind.FLOAT, default=1.0, min=0.01, max=64.0,
               soft_min=0.5, soft_max=4.0, units="", label="aₘᵢₙ"),
+        # The choice names the smoothing function θ; the analysing wavelets are its gradient
+        # components, g3 for the Mexican hat and g1 for the Gaussian.
         Param("wavelet", ParamKind.CHOICE, default="mexican",
-              choices=("mexican", "gaussian"), label="Wavelet"),
+              choices=("mexican", "gaussian"), label="Smoother θ",
+              choice_labels=("mexican (ψ = g3)", "gaussian (ψ = g1)")),
         # The M-Z devices' seeded half-LSB dither, on the WTMM path: it breaks up processing
         # noise before chaining. Applied by THIS device to a CLONE of the field (the backend is
         # a verbatim EQSelect copy and rejects unknown params); fails toward no-op when no

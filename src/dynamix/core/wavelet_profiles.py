@@ -57,7 +57,7 @@ def wtmm_profile(smoothing: str, a: float) -> Profile:
     x, psi = _normalised(*kernel_section(float(a), smoothing, 1))
     theta_name, psi_name = analyzing_names(smoothing)
     return Profile(x, psi, float(a), lambda_peak_px(float(a), smoothing, 1),
-                   f"ψ {psi_name} (WTMM {smoothing})",
+                   f"WTMM ψ {psi_name} = ∇θ (θ {smoothing}, {theta_name})",
                    extra={"a": float(a), "sigma": sigma_px(float(a)), "theta": theta_name})
 
 
