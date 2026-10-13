@@ -369,3 +369,25 @@ def test_editing_a_bus_s_sends_follows_in_the_stack(three_datasets, qtbot, monke
         win._on_param_changed(0, "_sends", json.dumps(sends[:1]))
     group = win.project.layer_stack.node(f"stack:{bus.layer_id}")
     assert [c.id for c in group.children] == [f"ch:{bus.layer_id}:0"]
+
+
+def test_a_non_active_layers_map_rows_follow_its_shown_level(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    from dynamix.engine.resolve import resolve
+
+    win = geo_window
+    master = win.layer
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    wt = win.layer
+    wt.tags["ui.scale_idx"] = "2"                       # the Transport's shown level
+    win.layer_list.select_layer(master.layer_id)
+    qtbot.waitUntil(lambda: win.layer is master and not win.is_computing, timeout=30000)
+    content = win._row_content(f"ext:{wt.layer_id}")
+    shown = resolve(wt, win._fields[wt.layer_id], win.cache, source_id=wt.source_id,
+                    level=2).result
+    assert content.result.get("_scale_idx") == 2
+    np.testing.assert_array_equal(content.result["extrema"][content.scale_idx]["x"],
+                                  shown["extrema"][0]["x"])

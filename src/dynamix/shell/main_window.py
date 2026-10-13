@@ -9031,7 +9031,8 @@ both ``Canvas`` signals report the
             return None, "computing" if self.is_computing else "not run"
         field = self._fields.get(layer.layer_id)
         try:
-            renderable = resolve(layer, field, self.cache, source_id=layer.source_id)
+            renderable = resolve(layer, field, self.cache, source_id=layer.source_id,
+                                 level=shown_level(layer))     # the level its views show
         except Exception as exc:                                     # noqa: BLE001
             return None, str(exc)
         result = renderable.result
