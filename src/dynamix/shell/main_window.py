@@ -3238,6 +3238,29 @@ both ``Canvas`` signals report the
             "No partition tables in the active layer's result yet -- run a full wtmm2d compute "
             "(a finest-scale preview has none) before opening the spectrum window")
 
+    def _spectrum_tables(self, result) -> tuple:
+        """``(hd_std, hd_cmax, all_tables, note)`` the spectrum windows fit: the transform's own
+        tables when the rack's filters left every chain, else tables rebuilt over the surviving
+        chains (memoised), with the unfiltered pair and a note saying how many survived."""
+        hd_std, hd_cmax = result.get("hd_std"), result.get("hd_cmax")
+        chains = result.get("chains") or []
+        total = int(result.get("_chains_total", len(chains)) or 0)
+        if hd_std is None or hd_cmax is None or total <= len(chains):
+            return hd_std, hd_cmax, None, ""
+        from dynamix.core.chain_groups import subset_hd
+
+        params = result.get("params") or {}
+        std, cmax = subset_hd(chains, result.get("scales"), hd_std["q_list"],
+                              np.ones(len(chains), dtype=bool),
+                              min_chain_len=int(params.get("min_chain_len", 2)))
+        return std, cmax, (hd_std, hd_cmax), f"filtered: {len(chains)} of {total} chains"
+
+    def _log2_extent(self, result) -> "float | None":
+        shape = result.get("_shape") if isinstance(result, dict) else None
+        if shape is None or len(shape) < 2:
+            return None
+        return float(np.log2(min(int(shape[0]), int(shape[1]))))
+
     def _on_spectrum_button_clicked(self) -> None:
         """"Multifractal spectrum…" clicked -- a FRESH ``MultifractalWindow`` on the active
         result's own tables, previous one closed first (``_on_skeleton_button_clicked``'s exact
@@ -3250,21 +3273,24 @@ both ``Canvas`` signals report the
         seed is ``params["fracint_alpha"]`` whenever it is non-zero, regardless of mode. The
         window displays the note verbatim so an edited η stays an informed decision."""
         result = self._active_result
-        hd_std = result.get("hd_std") if result is not None else None
-        hd_cmax = result.get("hd_cmax") if result is not None else None
+        hd_std, hd_cmax, all_tables, filter_note = (self._spectrum_tables(result)
+                                                    if result else (None, None, None, ""))
         if hd_std is None or hd_cmax is None:
             return          # the button is disabled in this state -- a defensive no-op
         eta_seed, note = _eta_note_of(result)
         if self._multifractal_window is not None:
             self._multifractal_window.close()
         window = MultifractalWindow(hd_std, hd_cmax, eta_seed=eta_seed, forward_note=note,
-                                    parent=self, physical_of_log2a=self._physical_of_log2a())
+                                    parent=self, physical_of_log2a=self._physical_of_log2a(),
+                                    log2_L=self._log2_extent(result), all_tables=all_tables,
+                                    filter_note=filter_note)
         self._multifractal_window = window
-        # The coupling channel (cell-49-inherits-cell-47): the fitter's window drives an open
-        # construction window; connected on whichever of the two opens second.
+        # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
+        # drive an open construction window; connected on whichever of the two opens second.
         if self._spectrum_construction_window is not None:
             window.scaleWindowChanged.connect(
                 self._spectrum_construction_window.set_scale_window)
+            window.fitModeChanged.connect(self._spectrum_construction_window.set_fit_mode)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -3395,7 +3421,7 @@ both ``Canvas`` signals report the
         result = self._active_result
         if not result:
             return
-        hd_std, hd_cmax = result.get("hd_std"), result.get("hd_cmax")
+        hd_std, hd_cmax, all_tables, filter_note = self._spectrum_tables(result)
         h_map = result.get("h_map")
         if (hd_std is None or hd_cmax is None) and h_map is None:
             return          # button disabled in this state -- defensive no-op
@@ -3413,12 +3439,14 @@ both ``Canvas`` signals report the
             h_map_estimator=str(params.get("estimator", "")),
             eta_seed=eta_seed, forward_note=note,
             min_chain_len=int(params.get("min_chain_len", 2)),
-            log2_L=log2_L, parent=self)
+            log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note)
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)
+            self._multifractal_window.fitModeChanged.connect(window.set_fit_mode)
             fit_lo, fit_hi = self._multifractal_window._region.getRegion()
             window.set_scale_window(float(fit_lo), float(fit_hi))
+            window.set_fit_mode(self._multifractal_window._fitmode_combo.currentText())
         window.show()
         window.raise_()
         window.activateWindow()

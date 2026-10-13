@@ -383,6 +383,12 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                        lambda l: level_keeps(layer, analysis_raw, device, params, l,
                                              layer_input))
 
+    # The transform's own chain count rides on a result its filters or level view already
+    # copied, so a result whose chains a filter narrowed can rebuild its partition tables over
+    # the survivors and say "N of M"; an untouched result keeps its identity (no stamp needed).
+    if (isinstance(result, dict) and isinstance(analysis_raw, dict)
+            and result is not analysis_raw and analysis_raw.get("chains") is not None):
+        result = {**result, "_chains_total": len(analysis_raw["chains"])}
     return Renderable(
         layer_id=layer.layer_id,
         result=result,

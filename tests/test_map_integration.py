@@ -550,3 +550,35 @@ def test_the_cascade_hides_without_a_microcanonical_tool_and_with_the_toggle(geo
     assert not win.canvas.wavelet_cascade.isVisible()
     win._on_display_style_changed("wavelet_cascade", True)
     assert win.canvas.wavelet_cascade.isVisible()
+
+
+def test_the_spectrum_windows_follow_the_racks_chain_filter_and_share_the_fit_mode(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    from dynamix.model.device import defaults_for, get_device
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    i = win._names.index("wtmm2d")
+    desc = [{"device": "wtmm2d", "params": dict(win._params[i])},
+            {"device": "chain_length", "params": {**defaults_for(get_device("chain_length")),
+                                                  "min_len": 6}}]
+    win.strips.set_steps(desc, field=win.field)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    res = win._active_result
+    assert res["_chains_total"] > len(res["chains"])
+    std, _cmax, all_tables, note = win._spectrum_tables(res)
+    assert note.startswith("filtered:") and std is not res["hd_std"] and all_tables[0] is res["hd_std"]
+    win._on_spectrum_button_clicked()
+    fitter = win._multifractal_window
+    assert "filtered" in fitter.windowTitle() and fitter.all_chains_check is not None
+    assert fitter._fitmode_combo.isEnabled()
+    win._on_dh_button_clicked()
+    construction = win._spectrum_construction_window
+    fitter._fitmode_combo.setCurrentText("fixed focus")
+    assert construction._fitmode_combo.currentText() == "fixed focus"
+    assert "filtered" in construction.windowTitle()

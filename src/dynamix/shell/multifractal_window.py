@@ -109,8 +109,20 @@ class MultifractalWindow(QtWidgets.QDialog):
     #: cell-49-inherits-cell-47 pattern).
     scaleWindowChanged = QtCore.Signal(float, float)
 
+    #: The fit mode chosen here (``naive`` / ``fixed focus`` / ``focus``), for the construction
+    #: window to follow: one fit mode, chosen where the fit happens.
+    fitModeChanged = QtCore.Signal(str)
+
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,
-                 forward_note: str = "", parent=None, physical_of_log2a=None):
+                 forward_note: str = "", parent=None, physical_of_log2a=None,
+                 log2_L: "float | None" = None, all_tables=None, filter_note: str = ""):
+        #: log2 of the field extent, the focus anchor the focus fit modes need; None leaves
+        #: them unavailable.
+        self._log2_L = float(log2_L) if log2_L is not None else None
+        #: ``(hd_std, hd_cmax)`` over EVERY chain of the transform when the tables given are
+        #: over the rack's filtered chains, with the note that says so; None when they are the same.
+        self._all_tables = tuple(all_tables) if all_tables is not None else None
+        self._filter_note = str(filter_note)
         #: ``log2 a -> (length, unit) | None``: λ* of the analysing wavelet at that scale in
         #: the field's physical unit (the wavelet scale bar's own conversion), for a top axis
         #: on the three family panels and the fit window's readout; None leaves them out.
@@ -122,6 +134,9 @@ class MultifractalWindow(QtWidgets.QDialog):
         self.setWindowTitle("Multifractal spectrum — canonical (Arneodo WTMM)")
 
         self._hd_by_choice = {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
+        self._filtered_tables = (hd_std, hd_cmax)
+        if self._filter_note:
+            self.setWindowTitle(self.windowTitle() + f" — {self._filter_note}")
         self._fit: dict | None = None
         #: Per family table, its PlotDataItems; ``_family_items`` stays the tau list (the
         #: original single-panel attribute, kept as the visibility contract's face).
@@ -174,6 +189,30 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._frame_combo.addItems(["original", "integrated"])
         self._frame_combo.currentTextChanged.connect(lambda _t: self._refit())
         controls.addWidget(self._frame_combo)
+
+        # The fit mode (core/spectra.focus_regression): plain per-q slopes, or every q fitted
+        # through one focus at the field extent. Chosen here, where the fit happens; the
+        # construction window follows (fitModeChanged).
+        controls.addWidget(QtWidgets.QLabel("Fit"))
+        self._fitmode_combo = QtWidgets.QComboBox()
+        self._fitmode_combo.addItems(["naive", "fixed focus", "focus"])
+        if self._log2_L is None:
+            self._fitmode_combo.setEnabled(False)
+            self._fitmode_combo.setToolTip(
+                "focus fitting needs the field extent (log2 L) -- open from a computed result")
+        self._fitmode_combo.currentTextChanged.connect(self._on_fit_mode_changed)
+        controls.addWidget(self._fitmode_combo)
+        self._focus_readout = QtWidgets.QLabel("")
+        controls.addWidget(self._focus_readout)
+
+        # The rack's filters narrowed the chains: the tables are over the survivors; this
+        # switch shows the whole transform's instead.
+        self.all_chains_check = None
+        if self._all_tables is not None:
+            self.all_chains_check = QtWidgets.QCheckBox("all chains")
+            self.all_chains_check.setToolTip(self._filter_note)
+            self.all_chains_check.toggled.connect(self._on_all_chains_toggled)
+            controls.addWidget(self.all_chains_check)
 
         q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)
         controls.addWidget(QtWidgets.QLabel("q"))
@@ -345,6 +384,21 @@ class MultifractalWindow(QtWidgets.QDialog):
             for item, visible in zip(items, mask):
                 item.setVisible(bool(visible))
 
+    def fit_mode(self) -> str:
+        """The fit mode as :func:`dynamix.core.spectra.fit_spectra` names it."""
+        return {"naive": "naive", "fixed focus": "fixed_focus",
+                "focus": "focus"}[self._fitmode_combo.currentText()]
+
+    def _on_fit_mode_changed(self, text: str) -> None:
+        self._refit()
+        self.fitModeChanged.emit(text)
+
+    def _on_all_chains_toggled(self, checked: bool) -> None:
+        std, cmax = self._all_tables if checked else self._filtered_tables
+        self._hd_by_choice = {"sup (cmax)": cmax, "no-sup (std)": std}
+        self._rebuild_family()
+        self._refit()
+
     def _range_text(self, lo: float, hi: float) -> str:
         from dynamix.core.wavelet_profiles import format_length
 
@@ -358,9 +412,19 @@ class MultifractalWindow(QtWidgets.QDialog):
     def _refit(self) -> None:
         lo, hi = self._region.getRegion()
         self.range_label.setText(self._range_text(float(lo), float(hi)))
+        mode = self.fit_mode()
         self._fit = spectra.fit_spectra(
             self._current_hd(), float(lo), float(hi),
-            eta=self._eta_spin.value(), frame=self._frame_combo.currentText())
+            eta=self._eta_spin.value(), frame=self._frame_combo.currentText(),
+            fit_mode=mode, log2_L=self._log2_L if mode != "naive" else None)
+        focus = self._fit.get("focus")
+        if focus is None:
+            self._focus_readout.setText("")
+        elif focus.get("branch") == "unavailable":
+            self._focus_readout.setText(f"focus: unavailable ({focus.get('reason', '')})")
+        else:
+            self._focus_readout.setText(
+                f"focus: {focus.get('branch', '')} · x̂₀ = {float(focus.get('x0', float('nan'))):.2f}")
         self._update_spectrum_plots()
         self._update_phase_transition()
         self._update_convexity_marker()

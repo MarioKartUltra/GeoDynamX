@@ -223,3 +223,40 @@ def test_a_physical_top_axis_and_the_range_readout(qtbot):
     assert axis.isVisible() and axis.tickStrings([3.0], 1.0, 1.0) == ["113 m"]
     window.set_scale_window(2.0, 4.0)
     assert "56.4 m" in window.range_label.text() and "226 m" in window.range_label.text()
+
+
+def test_the_fitter_owns_the_fit_mode_and_the_construction_window_follows(qtbot):
+    from dynamix.shell.spectrum_window import SpectrumWindow
+
+    hd_std, hd_cmax = _pair()
+    fitter = MultifractalWindow(hd_std, hd_cmax, log2_L=8.0)
+    qtbot.addWidget(fitter)
+    assert fitter._fitmode_combo.isEnabled()
+    assert [fitter._fitmode_combo.itemText(i) for i in range(3)] == ["naive", "fixed focus", "focus"]
+    construction = SpectrumWindow(hd_std, hd_cmax, log2_L=8.0)
+    qtbot.addWidget(construction)
+    fitter.fitModeChanged.connect(construction.set_fit_mode)
+    with qtbot.waitSignal(fitter.fitModeChanged) as sig:
+        fitter._fitmode_combo.setCurrentText("focus")
+    assert sig.args == ["focus"]
+    assert fitter.current_fit().get("focus") is not None           # the fitter fits through the focus
+    assert construction._fitmode_combo.currentText() == "focus"
+    blind = MultifractalWindow(hd_std, hd_cmax)                     # no extent: no focus modes
+    qtbot.addWidget(blind)
+    assert not blind._fitmode_combo.isEnabled()
+
+
+def test_filtered_tables_carry_their_note_and_a_switch_to_all_chains(qtbot):
+    hd_std, hd_cmax = _pair()
+    all_std, all_cmax = _pair()
+    w = MultifractalWindow(hd_std, hd_cmax, all_tables=(all_std, all_cmax),
+                           filter_note="filtered: 12 of 40 chains")
+    qtbot.addWidget(w)
+    assert "filtered: 12 of 40 chains" in w.windowTitle()
+    assert w.all_chains_check.isVisible() or not w.all_chains_check.isChecked()
+    assert w._current_hd() is hd_cmax or w._current_hd() is hd_std
+    w.all_chains_check.setChecked(True)
+    assert w._current_hd() is all_cmax or w._current_hd() is all_std
+    plain = MultifractalWindow(hd_std, hd_cmax)
+    qtbot.addWidget(plain)
+    assert "filtered" not in plain.windowTitle() and plain.all_chains_check is None

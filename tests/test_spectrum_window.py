@@ -171,3 +171,18 @@ def test_focus_fit_modes_and_the_honesty_readout(qtbot):
     bare = SpectrumWindow(*_pair())
     qtbot.addWidget(bare)
     assert not bare._fitmode_combo.isEnabled()
+
+
+def test_filtered_tables_carry_their_note_and_a_switch_to_all_chains(qtbot):
+    hd_std, hd_cmax = _pair()
+    all_std, all_cmax = _pair()
+    w = SpectrumWindow(hd_std, hd_cmax, all_tables=(all_std, all_cmax),
+                       filter_note="filtered: 12 of 40 chains")
+    qtbot.addWidget(w)
+    assert "filtered: 12 of 40 chains" in w.windowTitle()
+    assert w._current_hd() is hd_cmax or w._current_hd() is hd_std
+    w.all_chains_check.setChecked(True)
+    assert w._current_hd() is all_cmax or w._current_hd() is all_std
+    plain = SpectrumWindow(hd_std, hd_cmax)
+    qtbot.addWidget(plain)
+    assert "filtered" not in plain.windowTitle() and plain.all_chains_check is None

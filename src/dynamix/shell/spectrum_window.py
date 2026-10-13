@@ -67,16 +67,25 @@ class SpectrumWindow(QtWidgets.QDialog):
                  chains: "list | None" = None, scales=None, h_map=None,
                  h_map_estimator: str = "", eta_seed: float = 0.0,
                  forward_note: str = "", min_chain_len: int = 2,
-                 log2_L: "float | None" = None, parent=None):
+                 log2_L: "float | None" = None, parent=None, all_tables=None,
+                 filter_note: str = ""):
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
         self.setWindowTitle("Singularity spectrum — construction")
+        #: ``(hd_std, hd_cmax)`` over EVERY chain of the transform when the tables given are
+        #: over the rack's filtered chains, with the note that says so; None when they are the same.
+        self._all_tables = tuple(all_tables) if all_tables is not None else None
+        self._filter_note = str(filter_note)
+        if self._filter_note:
+            self.setWindowTitle(self.windowTitle() + f" — {self._filter_note}")
+        self.all_chains_check = None
 
         if (hd_std is None or hd_cmax is None) and h_map is None:
             raise ValueError("SpectrumWindow needs the partition tables (hd_std AND hd_cmax) "
                              "or an h_map -- got neither")
         self._hd_by_choice = ({"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
                               if hd_std is not None and hd_cmax is not None else None)
+        self._filtered_tables = (hd_std, hd_cmax)
         self._chains = chains if chains else None
         #: The focus anchor -- log2 of the field extent (Mukli Eq. 7); None disables the
         #: focus fit modes (the anchor is the SIGNAL LENGTH, unknowable from tables alone).
@@ -113,6 +122,17 @@ class SpectrumWindow(QtWidgets.QDialog):
         """The latest dominant/non-dominant membership, or None without chains."""
         return self._grouping
 
+    def _on_all_chains_toggled(self, checked: bool) -> None:
+        std, cmax = self._all_tables if checked else self._filtered_tables
+        self._hd_by_choice = {"sup (cmax)": cmax, "no-sup (std)": std}
+        self._recompute()
+
+    def set_fit_mode(self, text: str) -> None:
+        """Follow the fitter's fit mode (``naive`` / ``fixed focus`` / ``focus``); ignored
+        when the focus modes are unavailable here."""
+        if text in ("naive", "fixed focus", "focus") and self._fitmode_combo.isEnabled():
+            self._fitmode_combo.setCurrentText(text)
+
     def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
         """Programmatic fit-window set -- the fitter-window coupling channel."""
         if self._hd_by_choice is None:
@@ -139,6 +159,13 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._table_combo.addItems(list(TABLE_CHOICES))
         self._table_combo.currentTextChanged.connect(lambda _t: self._recompute())
         controls.addWidget(self._table_combo)
+        if self._all_tables is not None and self._hd_by_choice is not None:
+            # The rack's filters narrowed the chains: the tables are over the survivors; this
+            # switch shows the whole transform's instead.
+            self.all_chains_check = QtWidgets.QCheckBox("all chains")
+            self.all_chains_check.setToolTip(self._filter_note)
+            self.all_chains_check.toggled.connect(self._on_all_chains_toggled)
+            controls.addWidget(self.all_chains_check)
 
         # Focus regression (Schadner/Mukli -- core/spectra.focus_regression):
         # joint fit of every q through one focus. The readout is the honesty display the
