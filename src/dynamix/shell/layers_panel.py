@@ -358,12 +358,21 @@ class LayersPanel(QtWidgets.QWidget):
             self.stackChanged.emit()
 
     def _solo(self, node_id) -> None:
-        keep = {node_id}
-        parent = self._stack.parent_of(node_id)
-        while parent is not None and parent.id != "root":
-            keep.add(parent.id)
-            parent = self._stack.parent_of(parent.id)
-        for row, _v, _o in self._stack.drawn(include_hidden=True):
+        """Show only ``node_id``: a row alone, a group with every row inside it."""
+        rows = self._stack.drawn(include_hidden=True)
+        if isinstance(self._stack.node(node_id), Group):
+            keep = {r.id for r, _v, _o in rows if self._within(r.id, node_id)}
+        else:
+            keep = {node_id}
+        for row, _v, _o in rows:
             row.visible = row.id in keep
         self.refresh()
         self.stackChanged.emit()
+
+    def _within(self, row_id, group_id) -> bool:
+        parent = self._stack.parent_of(row_id)
+        while parent is not None and parent.id != "root":
+            if parent.id == group_id:
+                return True
+            parent = self._stack.parent_of(parent.id)
+        return False

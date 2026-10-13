@@ -125,3 +125,13 @@ def test_the_grip_resizes_the_list(qtbot):
     assert p.tree.height() == 360
     p.set_tree_height(10)
     assert p.tree.height() >= 100
+
+
+def test_show_only_this_on_a_group_keeps_its_rows(qtbot):
+    s, p = _panel(qtbot)
+    s.insert(Group("grp:9", "mine"), "root", 0)
+    s.insert(Row("ext:2", "extrema"), "grp:9", 0)
+    p.refresh()
+    p._solo("ds:src0")
+    assert {r.id: v for r, v, _o in s.drawn(include_hidden=True)} == {
+        "ext:2": False, "src:src0": True, "prod:1": True}
