@@ -432,3 +432,17 @@ def test_a_point_layer_the_map_cannot_place_stays_off_the_map(geo_window, monkey
 
     monkeypatch.setattr(rasterio.warp, "transform", boom)
     assert win._map_overlays()["points"] == []
+
+
+def test_file_axes_of_a_sample_anchored_stride_field_start_at_its_first_sample():
+    import types
+
+    from dynamix.shell.main_window import MainWindow
+
+    f = types.SimpleNamespace(x_axis=100.0 + 40.0 * np.arange(5),
+                              y_axis=200.0 - 40.0 * np.arange(4), frame=None,
+                              provenance={"display_stride": 4, "display_anchor": "sample",
+                                          "full_dims": (16, 20)})
+    axes = MainWindow._file_axes(f)
+    assert (axes.x_axis[0], axes.x_axis[1], len(axes.x_axis)) == (100.0, 110.0, 20)
+    assert (axes.y_axis[0], axes.y_axis[1]) == (200.0, 190.0)

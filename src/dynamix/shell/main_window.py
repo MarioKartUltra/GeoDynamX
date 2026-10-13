@@ -9226,6 +9226,11 @@ both ``Canvas`` signals report the
         grid = file_pixel_grid(field)
         if grid is not None:
             x0, dx, y0, dy, nx, ny = grid
+            if (getattr(field, "provenance", None) or {}).get("display_anchor") == "sample":
+                # Its samples sit AT file pixels k*s, not at block centres: file pixel 0 is
+                # the first sample.
+                half = display_stride(field) // 2
+                x0, y0 = x0 + half * dx, y0 + half * dy
             xa, ya = x0 + dx * np.arange(nx), y0 + dy * np.arange(ny)
         else:
             r_off, c_off = window_offset(field)
