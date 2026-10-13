@@ -293,7 +293,7 @@ def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot
     assert xb is None or len(xb) == 0
 
 
-# ------------------------------------------------------------------------------- the 2026-10-13 layout
+# ------------------------------------------------------------------------------- the grid layout
 
 def test_the_layout_is_partition_functions_over_a_two_by_two_grid_with_bershadskii_optional(qtbot):
     window = MultifractalWindow(*_pair())
