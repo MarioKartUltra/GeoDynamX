@@ -61,8 +61,9 @@ def test_the_bar_stays_inside_the_view_and_a_drag_moves_its_offset(qtbot):
     moved = []
     bar.moved.connect(moved.append)
     assert w.getViewBox().sceneBoundingRect().contains(bar.sceneBoundingRect())
+    ox, oy = bar.offset()
     bar.drag_by(-100.0, -50.0)
-    assert moved and tuple(moved[-1]) == (-120.0, -70.0)
+    assert moved and tuple(moved[-1]) == (ox - 100.0, oy - 50.0)
     assert w.getViewBox().sceneBoundingRect().contains(bar.sceneBoundingRect())
     bar.drag_by(-1000.0, -1000.0)                                       # clamped inside
     assert w.getViewBox().sceneBoundingRect().contains(bar.sceneBoundingRect())
@@ -121,3 +122,39 @@ def test_the_cascade_nests_its_curves_in_the_ladders_ratios(qtbot):
     assert w.getViewBox().sceneBoundingRect().contains(c.sceneBoundingRect())
     c.set_profiles([], ("", ""), 0)
     assert not c.isVisible()
+
+
+def test_the_bar_is_anchored_at_its_centre(qtbot):
+    """A wider profile (or a zoom) grows the bar about its centre, never from one edge."""
+    w = _view(qtbot)
+    bar = WaveletBar()
+    bar.setParentItem(w.getViewBox())
+    bar.set_profile(_profile(20.0), "20 m", 1.0)
+    x0 = bar.scenePos().x()
+    bar.set_profile(_profile(80.0), "80 m", 1.0)
+    assert bar.bracket_px() > 2 * 20.0 and bar.scenePos().x() == pytest.approx(x0)
+
+
+def test_a_deep_zoom_in_and_back_out_leaves_the_bar_where_it_was(qtbot):
+    w = _view(qtbot)
+    bar = WaveletBar()
+    bar.setParentItem(w.getViewBox())
+    bar.set_profile(_profile(20.0), "20 m", 1.0)
+    offset0, x0 = bar.offset(), bar.scenePos().x()
+    w.getViewBox().setRange(xRange=(295.0, 305.0), yRange=(195.0, 205.0), padding=0)   # 60x: wider than the view
+    assert w.getViewBox().sceneBoundingRect().contains(bar.scenePos())    # its centre stays on screen
+    w.getViewBox().setRange(xRange=(0.0, 600.0), yRange=(0.0, 400.0), padding=0)
+    assert bar.offset() == offset0 and bar.scenePos().x() == pytest.approx(x0)
+
+
+def test_the_cascade_keeps_its_centre_when_the_ladder_widens(qtbot):
+    from dynamix.core.wavelet_profiles import measure_profile
+    from dynamix.shell.wavelet_bar import WaveletCascade
+
+    w = _view(qtbot)
+    c = WaveletCascade()
+    c.setParentItem(w.getViewBox())
+    c.set_profiles([measure_profile("gaussian", r) for r in (2.0, 4.0)], ("2", "4"), 0)
+    x0 = c.scenePos().x()
+    c.set_profiles([measure_profile("gaussian", r) for r in (2.0, 4.0, 8.0, 16.0)], ("2", "16"), 0)
+    assert c.scenePos().x() == pytest.approx(x0)

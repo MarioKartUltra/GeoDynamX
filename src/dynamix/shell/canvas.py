@@ -1015,7 +1015,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         # stays, disconnected. Anchored lower-right, above the distance bar's label.
         from dynamix.shell.wavelet_bar import WaveletBar
 
-        self.wavelet_bar = WaveletBar(offset=(-20.0, -44.0))
+        self.wavelet_bar = WaveletBar(offset=(-110.0, -44.0))
         self.wavelet_bar.setParentItem(self.view)
         # A microcanonical tool's whole ladder, nested, lower-left (set_wavelet_cascade).
         from dynamix.shell.wavelet_bar import WaveletCascade

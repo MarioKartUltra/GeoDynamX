@@ -150,7 +150,7 @@ class MapView(QtWidgets.QWidget):
         self.view.sigRangeChanged.connect(self._update_scale_bar)
         #: The wavelet scale bar of the selected layer (set_wavelet_profile), above the
         #: distance bar.
-        self.wavelet_bar = WaveletBar(offset=(-20.0, -60.0))
+        self.wavelet_bar = WaveletBar(offset=(-110.0, -60.0))
         self.wavelet_bar.setParentItem(self.view)
 
     def set_map_crs(self, crs) -> None:

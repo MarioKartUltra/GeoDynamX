@@ -492,7 +492,7 @@ def test_a_bar_drag_is_remembered_per_view(geo_window, qtbot):
 
     win = geo_window
     win.canvas.wavelet_bar.drag_by(-30.0, -10.0)
-    assert load_settings().view_options["wavelet_bar"]["raster"] == [-50.0, -54.0]
+    assert load_settings().view_options["wavelet_bar"]["raster"] == [-140.0, -54.0]
     win._set_center_view("map")
     win.map_view.scale_bar.drag_by(-5.0, -5.0)
     assert load_settings().view_options["map_scale_bar"] == [-25.0, -25.0]

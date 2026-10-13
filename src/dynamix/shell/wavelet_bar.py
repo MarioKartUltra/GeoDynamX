@@ -23,11 +23,16 @@ _BLACK = QtGui.QColor(0, 0, 0)
 
 
 class _Drag:
-    """A corner-anchored item the pointer can drag: the anchor offset follows the drag, clamped
-    so the item stays inside its view. The host defines ``moved``."""
+    """A corner-anchored item the pointer can drag. The remembered offset is the user's; when a
+    zoom makes the item wider than the room it has, it is shifted into the view for that zoom
+    only, so a zoom in and back out lands it where it started. The host defines ``moved``."""
 
-    def _init_drag(self, corner=(1, 1), offset=(-20.0, -20.0)) -> None:
+    def _init_drag(self, corner=(1, 1), offset=(-20.0, -20.0), item_anchor=None) -> None:
         self._corner = (float(corner[0]), float(corner[1]))
+        # The point of the item that sits on the corner: (0, 1) is the bottom of a rect
+        # symmetric about x = 0, the bar's and the cascade's centre, so they grow symmetrically.
+        self._item_anchor = (tuple(float(v) for v in item_anchor) if item_anchor is not None
+                             else self._corner)
         self._offset = [float(offset[0]), float(offset[1])]
         self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
 
@@ -39,29 +44,41 @@ class _Drag:
         self._offset = [float(offset[0]), float(offset[1])]
         self.place()
 
-    def place(self) -> None:
-        if self.parentItem() is not None:
-            self.anchor(itemPos=self._corner, parentPos=self._corner, offset=tuple(self._offset))
-            self._clamp()
+    def _anchor_at(self, offset) -> None:
+        pg.GraphicsWidgetAnchor.anchor(self, self._item_anchor, self._corner, tuple(offset))
 
-    def _clamp(self) -> None:
+    def _overflow(self) -> tuple:
+        """``(dx, dy)`` that brings the item a pixel inside its view; zeros when it is."""
         view = self.parentItem()
         if view is None:
-            return
-        inside = view.boundingRect().adjusted(1.0, 1.0, -1.0, -1.0)   # a pixel in from the edge
+            return 0.0, 0.0
+        inside = view.boundingRect().adjusted(1.0, 1.0, -1.0, -1.0)
         mine = self.mapRectToParent(self.boundingRect())
         if mine.isEmpty() or inside.isEmpty():
-            return
+            return 0.0, 0.0
         dx = max(0.0, inside.left() - mine.left()) - max(0.0, mine.right() - inside.right())
         dy = max(0.0, inside.top() - mine.top()) - max(0.0, mine.bottom() - inside.bottom())
+        return dx, dy
+
+    def place(self) -> None:
+        if self.parentItem() is None:
+            return
+        self._anchor_at(self._offset)
+        dx, dy = self._overflow()
         if dx or dy:
-            self._offset[0] += dx
-            self._offset[1] += dy
-            self.anchor(itemPos=self._corner, parentPos=self._corner, offset=tuple(self._offset))
+            self._anchor_at((self._offset[0] + dx, self._offset[1] + dy))
+
+    def _clamp(self) -> None:
+        self.place()
 
     def drag_by(self, dx: float, dy: float) -> None:
         self._offset[0] += float(dx)
         self._offset[1] += float(dy)
+        if self.parentItem() is not None:         # a drag cannot leave the item off the view
+            self._anchor_at(self._offset)
+            ox, oy = self._overflow()
+            self._offset[0] += ox
+            self._offset[1] += oy
         self.place()
         self.moved.emit(tuple(self._offset))
 
@@ -74,10 +91,10 @@ class _Drag:
 class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
     moved = QtCore.Signal(object)
 
-    def __init__(self, corner=(1, 1), offset=(-20.0, -20.0)) -> None:
+    def __init__(self, corner=(1, 1), offset=(-110.0, -20.0)) -> None:
         pg.GraphicsObject.__init__(self)
         pg.GraphicsWidgetAnchor.__init__(self)
-        self._init_drag(corner, offset)
+        self._init_drag(corner, offset, item_anchor=(0.0, 1.0))     # its centre on the corner
         self._profile = None
         self._dx_data = 1.0
         self.label = ""
@@ -248,10 +265,10 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
 
     moved = QtCore.Signal(object)
 
-    def __init__(self, corner=(0, 1), offset=(20.0, -44.0)) -> None:
+    def __init__(self, corner=(0, 1), offset=(180.0, -44.0)) -> None:
         pg.GraphicsObject.__init__(self)
         pg.GraphicsWidgetAnchor.__init__(self)
-        self._init_drag(corner, offset)
+        self._init_drag(corner, offset, item_anchor=(0.0, 1.0))     # its centre on the corner
         self._profiles: list = []
         self.labels: tuple = ("", "")
         self.shown = 0
