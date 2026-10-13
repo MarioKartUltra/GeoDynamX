@@ -43,7 +43,7 @@ def test_a_higher_rank_lifts_its_vectors_further(tmp_path):
                       _entry(2, field, dict(res), extrema_style="blocks", rank=3)])
     z = [pv.wrap(scene._plotter.actors[scene._extrema_actor_name(i)].GetMapper().GetInput())
          .points[:, 2].max() for i in (1, 2)]
-    assert abs(z[1] / z[0] - 4.0) < 1e-6
+    assert abs(z[1] / z[0] - 1.75) < 1e-6              # a quarter step per rank
 
 
 def test_the_stack_hides_extrema_and_chains_and_fades_the_raster(tmp_path):

@@ -392,3 +392,16 @@ def test_a_non_active_layers_map_rows_follow_its_shown_level(geo_window, qtbot):
     assert content.result.get("_scale_idx") == 2
     np.testing.assert_array_equal(content.result["extrema"][content.scale_idx]["x"],
                                   shown["extrema"][0]["x"])
+
+
+def test_the_lift_rank_is_dense_over_the_layers_that_draw_vectors(geo_window):
+    from dynamix.model.layer import Layer
+    from dynamix.model.layer_stack import Row
+
+    win = geo_window
+    stack = win.project.layer_stack
+    for rid, kind in (("ext:8", "extrema"), ("chn:7", "chains"), ("ext:7", "extrema")):
+        stack.insert(Row(rid, kind), "root", 0)            # ext:7 on top, then chn:7, ext:8
+    rank = {lid: win._stack_entry_flags(Layer(layer_id=lid, name="", source_id="x"))["rank"]
+            for lid in (7, 8)}
+    assert rank == {8: 0, 7: 1}

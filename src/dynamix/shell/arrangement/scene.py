@@ -339,6 +339,9 @@ DEFAULT_MODE = "mercator"
 #: separation survives any data units (degrees, metres, survey feet, px).
 _VECTOR_LIFT_KM = 0.5
 _VECTOR_LIFT_FRAC = 1e-3
+#: The layer stack's ordering lift: each rank above the lowest vector-drawing layer adds this
+#: fraction of the base lift, enough to order the layers, small enough to stay an epsilon.
+_LIFT_STEP = 0.25
 
 #: Name of the corner legend's text actor -- excluded from :meth:`Scene.actor_count`, and never
 #: collides with a layer's own mesh-actor name (see :meth:`Scene._mesh_actor_name`).
@@ -2280,7 +2283,7 @@ class Scene:
             # Vector lift (see _VECTOR_LIFT_FRAC): ADDED after the vexag multiply so the
             # separation is constant regardless of exaggeration, and after the scale-space
             # z-lift so a lifted cone rides the same epsilon above the drape as flat chains do.
-            pts[:, 2] += self._frame_vector_lift(field) * (1 + self._lift_rank)
+            pts[:, 2] += self._frame_vector_lift(field) * (1 + _LIFT_STEP * self._lift_rank)
             return pts
         lon, lat = points_lonlat(field, cols, rows, sub=sub)
         h = np.asarray(height, dtype=np.float64) if height is not None else np.zeros_like(lon)
@@ -2290,8 +2293,8 @@ class Scene:
         # Vector lift, geo half (see _VECTOR_LIFT_KM): through the existing height plumbing --
         # radial on the globe, a small z on the flat modes; vexag scales it like every other
         # height, which stays invisible top-down at any slider value.
-        return project(lon, lat, h + _VECTOR_LIFT_KM * (1 + self._lift_rank), mode=self._mode,
-                       vexag=self._vexag)
+        return project(lon, lat, h + _VECTOR_LIFT_KM * (1 + _LIFT_STEP * self._lift_rank),
+                       mode=self._mode, vexag=self._vexag)
 
     @staticmethod
     def _frame_vector_lift(field) -> float:

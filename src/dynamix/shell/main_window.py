@@ -8907,8 +8907,16 @@ both ``Canvas`` signals report the
         are visible; ``None`` when none is. A layer with no row in the stack draws as it did
         before the stack existed."""
         drawn = self.project.layer_stack.drawn(include_hidden=True)
-        rank = {row.id: z for z, (row, _v, _o) in enumerate(drawn)}
         state = {row.id: (v, o) for row, v, o in drawn}
+        # The lift rank counts the layers that draw vectors, bottom first by their highest
+        # vector row: dense, so a tall stack of rasters never lifts anything far.
+        vectors: list = []
+        for row, _v, _o in drawn:
+            if row.kind in ("extrema", "chains"):
+                owner = row.id.split(":", 1)[1]
+                if owner in vectors:
+                    vectors.remove(owner)
+                vectors.append(owner)
         lid, sid = layer.layer_id, layer.source_id
         raster_id = f"prod:{lid}" if f"prod:{lid}" in state else (
             f"src:{sid}" if layer.parent_id is None else None)
@@ -8922,8 +8930,8 @@ both ``Canvas`` signals report the
         cv, co = state.get(f"chn:{lid}", (False, 1.0))
         if not (rv or ev or cv):
             return None
-        ids = [r for r in (raster_id, f"ext:{lid}", f"chn:{lid}") if r in rank]
-        return {"rank": max(rank[r] for r in ids), "raster_opacity": ro,
+        return {"rank": vectors.index(str(lid)) if str(lid) in vectors else 0,
+                "raster_opacity": ro,
                 "vector_opacity": max(eo if ev else 0.0, co if cv else 0.0),
                 "show_raster": rv, "show_extrema": ev, "show_chains": cv,
                 "show_outline": show_outline, "extrema_style": "blocks"}
