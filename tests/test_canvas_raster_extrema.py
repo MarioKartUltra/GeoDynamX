@@ -40,9 +40,12 @@ def test_overlay_lights_exactly_the_extrema_pixels(qtbot):
     # transpose back to (row, col) to compare against the extrema grid
     rgba = np.asarray(img).transpose(1, 0, 2)
     lit = set(zip(*np.nonzero(rgba[..., 3])))
-    assert lit == {(7, 3), (7, 4), (7, 5), (2, 9)}
-    # line members and orphans carry DIFFERENT colors
-    assert not np.array_equal(rgba[7, 3, :3], rgba[2, 9, :3])
+    assert lit == {(7, 3), (7, 4), (7, 5)}                   # the line members
+    # the orphan (no H-line) is its own raster, in the same extrema colour, hidden by default
+    iso = np.asarray(canvas.isolated_raster_item.image).transpose(1, 0, 2)
+    assert set(zip(*np.nonzero(iso[..., 3]))) == {(2, 9)}
+    assert np.array_equal(rgba[7, 3, :3], iso[2, 9, :3])
+    assert not canvas.isolated_raster_item.isVisible()
 
 
 def test_overlay_rect_is_center_registered_like_the_image(qtbot):

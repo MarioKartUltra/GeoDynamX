@@ -51,8 +51,11 @@ def test_result_overlays_ride_at_the_same_offset(qtbot):
     rect = canvas.extrema_raster_item.mapRectToView(
         canvas.extrema_raster_item.boundingRect())
     assert (rect.x(), rect.y()) == (6.5, 4.5)
-    # the orphan dot at field-local (3, 2) lights file-absolute pixel (7+3, 5+2)
-    rgba = np.asarray(canvas.extrema_raster_item.image).transpose(1, 0, 2)
+    # the orphan dot at field-local (3, 2) lights file-absolute pixel (7+3, 5+2) -- on the
+    # isolated-maxima raster, which rides at the same offset
+    rect = canvas.isolated_raster_item.mapRectToView(canvas.isolated_raster_item.boundingRect())
+    assert (rect.x(), rect.y()) == (6.5, 4.5)
+    rgba = np.asarray(canvas.isolated_raster_item.image).transpose(1, 0, 2)
     assert set(zip(*np.nonzero(rgba[..., 3]))) == {(2, 3)}   # local inside the overlay image
 
 
