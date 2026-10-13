@@ -291,3 +291,99 @@ def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot
     assert bare.current_cumulants() is None
     xb, _ = bare._cq_cum_curve.getData()
     assert xb is None or len(xb) == 0
+
+
+# ------------------------------------------------------------------------------- the 2026-10-13 layout
+
+def test_the_layout_is_partition_functions_over_a_two_by_two_grid_with_bershadskii_optional(qtbot):
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    ci = window._glw.ci
+    assert ci.rows[0][0] is window._family_plots["tau_qa"] and ci.rows[0][4] is window._family_plots["D_qa"]
+    assert ci.rows[1][0] is window._spectrum_plots["tau"] and ci.rows[1][3] is window._spectrum_plots["D"]
+    assert ci.rows[2][0] is window._spectrum_plots["h"] and ci.rows[2][3] is window._cq_plot
+    assert ci.layout.rowStretchFactor(0) == 2 and ci.layout.rowStretchFactor(1) == 1
+    assert [ci.layout.columnStretchFactor(c) for c in range(6)] == [1] * 6
+    assert not window.bershadskii_check.isChecked()
+    assert window._pt_plot not in ci.items and not window._pt_label.isVisible()
+    window.bershadskii_check.setChecked(True)
+    assert ci.rows[3][0] is window._pt_plot and ci.rows[3][4] is window._pt_scan_plot
+    assert ci.layout.rowStretchFactor(0) == 3
+    window.bershadskii_check.setChecked(False)
+    assert window._pt_plot not in ci.items and ci.layout.rowStretchFactor(0) == 2
+
+
+def test_the_wheel_zooms_x_and_with_shift_y(qtbot):
+    from PySide6 import QtCore
+
+    class _Wheel:
+        def __init__(self, mods):
+            self._mods = mods
+
+        def delta(self):
+            return 120
+
+        def modifiers(self):
+            return self._mods
+
+        def pos(self):
+            return QtCore.QPointF(0.0, 0.0)
+
+        def accept(self):
+            pass
+
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    vb = window._spectrum_plots["tau"].getViewBox()
+    vb.setRange(xRange=(-3.0, 3.0), yRange=(-4.0, 1.0), padding=0)   # a settled view
+    (x0, x1), (y0, y1) = vb.viewRange()
+    vb.wheelEvent(_Wheel(QtCore.Qt.NoModifier))
+    (x0b, x1b), (y0b, y1b) = vb.viewRange()
+    assert (x0b, x1b) != (x0, x1) and (y0b, y1b) == (y0, y1)
+    vb.wheelEvent(_Wheel(QtCore.Qt.ShiftModifier))
+    (x0c, x1c), (y0c, y1c) = vb.viewRange()
+    assert (x0c, x1c) == (x0b, x1b) and (y0c, y1c) != (y0b, y1b)
+
+
+def test_fit_lines_lie_on_the_core_lines_in_naive_mode(qtbot):
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    lo, hi = window._region.getRegion()
+    lines = spectra.partition_fit_lines(window._current_hd(), float(lo), float(hi))
+    for key in ("tau_qa", "h_qa", "D_qa"):
+        items = window._family_lines_by_table[key]
+        assert len(items) == 3
+        for i, item in enumerate(items):
+            x, y = item.getData()
+            expect = lines["lines"][key]["slope"][i] * x + lines["lines"][key]["intercept"][i]
+            np.testing.assert_allclose(y, expect, atol=1e-9)
+    assert not window._focus_markers["tau_qa"].isVisible()
+
+
+def test_a_focus_mode_shows_the_power_means_their_lines_meeting_at_the_marked_focus(qtbot):
+    from test_spectra import _focal_hd
+
+    hd, h_q, q = _focal_hd(x0=9.0, log2_N=6.0)
+    window = MultifractalWindow(hd, hd, log2_L=9.0)
+    qtbot.addWidget(window)
+    window._fitmode_combo.setCurrentText("fixed focus")
+    lines = spectra.partition_fit_lines(hd, *map(float, window._region.getRegion()),
+                                        fit_mode="fixed_focus", log2_L=9.0)
+    x0, y0 = lines["focus"]
+    nz = np.flatnonzero(q != 0)
+    rows = window._family_items_by_table["tau_qa"]
+    np.testing.assert_allclose(rows[nz[0]].yData, (hd["tau_qa"][nz[0]] - 6.0) / q[nz[0]], atol=1e-12)
+    assert not rows[int(np.flatnonzero(q == 0)[0])].isVisible()          # no power mean at q = 0
+    for j, i in enumerate(nz):
+        x, y = window._family_lines_by_table["tau_qa"][i].getData()
+        assert x[-1] == pytest.approx(x0)
+        assert y[-1] == pytest.approx(y0, abs=1e-8)
+    assert all(window._focus_markers[k].isVisible() for k in ("tau_qa", "h_qa", "D_qa"))
+    fx, fy = window._focus_markers["tau_qa"].getData()
+    assert (fx[0], fy[0]) == pytest.approx((x0, y0))
+    assert "/q" in window._family_plots["tau_qa"].getAxis("left").labelText
+    assert window._L_lines["tau_qa"].isVisible() and window._L_lines["tau_qa"].value() == 9.0
+    window._fitmode_combo.setCurrentText("naive")
+    rows = window._family_items_by_table["tau_qa"]                      # rebuilt with the mode
+    np.testing.assert_allclose(rows[nz[0]].yData, hd["tau_qa"][nz[0]], atol=1e-12)
+    assert not window._focus_markers["tau_qa"].isVisible() and not window._L_lines["tau_qa"].isVisible()

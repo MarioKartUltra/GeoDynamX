@@ -384,11 +384,17 @@ def _focal_hd(x0=9.0, y0=-3.0, n_sc=8, log2_N=6.0):
     tau = np.empty((q.size, n_sc))
     for i, qq in enumerate(q):
         tau[i] = qq * (y0 + (log2_s - x0) * h_q[i]) + log2_N
+    # The canonical channels are exact cones at the same x0 too: h(q, a) through (x0, y0)
+    # (one maximum at L: h(q, L) = log2|T(L)| for every q) and D(q, a) through (x0, 0) with
+    # slopes D_q = 2 - 0.1 q^2 (one maximum at L: D(q, L) = 0).
+    D_q = 2.0 - 0.1 * q ** 2
+    h_tab = y0 + (log2_s[None, :] - x0) * h_q[:, None]
+    D_tab = (log2_s[None, :] - x0) * D_q[:, None]
     sig = np.full((q.size, n_sc), 0.1)
     return {
         "q_list": q, "scales": 2.0 ** log2_s, "log2_scales": log2_s,
         "N_a": np.full(n_sc, int(2 ** log2_N), dtype=np.int64),
-        "tau_qa": tau, "h_qa": tau.copy(), "D_qa": tau.copy(),
+        "tau_qa": tau, "h_qa": h_tab, "D_qa": D_tab,
         "sigma_tau_qa": sig, "sigma_h_qa": sig.copy(), "sigma_D_qa": sig.copy(),
     }, h_q, q
 
@@ -471,3 +477,66 @@ def test_cascade_cumulants_recover_a_log_normal_cascade_in_the_fit_window():
     np.testing.assert_allclose(c["c4"], 0.0, atol=0.1)
     assert 0.0 <= c["r2"] <= 1.0                               # the worst order: c3/c4 have no slope
     assert np.isnan(spectra.cascade_cumulants(mods[:1], scales[:1], 1.0, 6.0)["c2"])
+
+
+# ------------------------------------------------------------------ focus modes: the whole spectrum
+
+def test_focus_modes_fit_the_h_and_D_families_through_their_own_focus():
+    """Mukli's one-window-at-L argument (Eq. 7) holds for the canonical channels: at a = L one
+    maximum carries the whole Boltzmann weight, so h(q, L) = log2|T(L)| for every q and
+    D(q, L) = 0 -- each family has a focus at log2 L. A focus mode fits each family through
+    its own focus (no ordering enforced on D, which peaks at q = 0); h and D stay the direct
+    channels, never a Legendre transform of tau."""
+    hd, h_q, q = _focal_hd(x0=9.0, log2_N=6.0)
+    out = spectra.fit_spectra(hd, 0.0, 7.0, fit_mode="fixed_focus", log2_L=9.0)
+    np.testing.assert_allclose(out["h"], h_q, atol=1e-8)
+    np.testing.assert_allclose(out["D"], 2.0 - 0.1 * q ** 2, atol=1e-8)
+    assert out["focus"]["h"]["branch"] == "fixed" and out["focus"]["h"]["y0"] == pytest.approx(-3.0)
+    assert out["focus"]["D"]["branch"] == "fixed" and out["focus"]["D"]["y0"] == pytest.approx(0.0, abs=1e-8)
+    hd["h_qa"][0] += 0.5                    # one row off its focus: the joint fit moves, OLS doesn't
+    naive = spectra.fit_spectra(hd, 0.0, 7.0)
+    joint = spectra.fit_spectra(hd, 0.0, 7.0, fit_mode="fixed_focus", log2_L=9.0)
+    np.testing.assert_allclose(naive["h"], h_q, atol=1e-8)
+    assert not np.allclose(joint["h"], h_q, atol=1e-6)
+    orig = spectra.fit_spectra(hd, 0.0, 7.0, fit_mode="fixed_focus", log2_L=9.0, eta=0.3)
+    np.testing.assert_allclose(orig["h"], joint["h"] - 0.3, atol=1e-12)
+    np.testing.assert_allclose(orig["D"], joint["D"], atol=1e-12)
+
+
+def test_partition_fit_lines_reproduce_the_naive_fit_and_the_exact_tables():
+    hd = _hd([1.0, 2.0, 3.0], [0.3, 0.5, 0.7], [2.0, 2.0, 1.4])
+    lines = spectra.partition_fit_lines(hd, -0.5, 5.5)
+    fit = spectra.fit_spectra(hd, -0.5, 5.5, frame="integrated")
+    x = np.asarray(hd["log2_scales"])
+    for key, name in (("tau_qa", "tau"), ("h_qa", "h"), ("D_qa", "D")):
+        np.testing.assert_allclose(lines["lines"][key]["slope"], fit[name], rtol=1e-12)
+        y = lines["lines"][key]["slope"][:, None] * x[None, :] + lines["lines"][key]["intercept"][:, None]
+        np.testing.assert_allclose(y, hd[key], atol=1e-12)        # exact-line tables
+    assert lines["focus"] is None and lines["branch"] is None
+    assert lines["power_mean"]["q"].tolist() == [-1.0, 2.0]
+
+
+def test_partition_fit_lines_meet_at_the_fixed_focus():
+    """Mukli Eq. (17): every power-mean line log S(q, s) = H(q) (log s - log L) + log S(L)
+    passes through the focus; the log2 Z lines carry the fit's own tau as slope."""
+    hd, h_q, q = _focal_hd(x0=9.0, log2_N=6.0)
+    lines = spectra.partition_fit_lines(hd, 0.0, 7.0, fit_mode="fixed_focus", log2_L=9.0)
+    assert lines["branch"] == "fixed"
+    x0, y0 = lines["focus"]
+    assert x0 == pytest.approx(9.0)
+    pm = lines["power_mean"]
+    np.testing.assert_allclose(pm["slope"] * x0 + pm["intercept"], y0, atol=1e-9)
+    nz = q != 0
+    np.testing.assert_allclose(pm["slope"], h_q[nz], atol=1e-8)
+    np.testing.assert_allclose(pm["table"], (hd["tau_qa"][nz] - 6.0) / q[nz, None], atol=1e-12)
+    fit = spectra.fit_spectra(hd, 0.0, 7.0, frame="integrated", fit_mode="fixed_focus", log2_L=9.0)
+    np.testing.assert_allclose(lines["lines"]["tau_qa"]["slope"], fit["tau"], atol=1e-12)
+    # the log2 Z line of every q passes through q*y0 + log2 N at x0 (N constant: s_N = 0)
+    z = lines["lines"]["tau_qa"]
+    np.testing.assert_allclose((z["slope"] * x0 + z["intercept"])[nz], q[nz] * y0 + 6.0, atol=1e-8)
+    # the H and D families' lines meet at their own foci: (x0, log2|T(L)|) and (x0, 0)
+    for key, name, y0_fam in (("h_qa", "h", -3.0), ("D_qa", "D", 0.0)):
+        fam = lines["lines"][key]
+        np.testing.assert_allclose(fam["slope"], fit[name], atol=1e-12)
+        np.testing.assert_allclose(fam["slope"] * x0 + fam["intercept"], y0_fam, atol=1e-8)
+        assert lines["family_focus"][key] == pytest.approx((9.0, y0_fam), abs=1e-8)

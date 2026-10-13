@@ -118,6 +118,22 @@ def fit_spectra(hd: dict, log2_a_min: float, log2_a_max: float, *,
                                   sse=f["sse"], sse_naive=f["sse_naive"],
                                   mse_q=f["mse_q"], h_q_mean=f["h_q"],
                                   h_q_mean_naive=f["h_q_naive"], s_N=s_N)
+        # The canonical channels have a focus by the same argument: at a = L one maximum
+        # carries the whole Boltzmann weight, so h(q, L) = log2|T(L)| for every q and
+        # D(q, L) = 0. Each family is fitted through its own focus; D(q) peaks at q = 0, so
+        # no ordering is enforced on it. The rows left out of a joint fit (not finite across
+        # the window) keep their per-q slopes.
+        for key, name, monotone in (("h_qa", "h", True), ("D_qa", "D", False)):
+            fam = _family_focus(x, np.asarray(hd[key], dtype=np.float64)[:, mask],
+                                float(log2_L), generalized=(fit_mode == "focus"),
+                                monotone=monotone)
+            if fam is None:
+                focus_info[name] = {"branch": "unavailable"}
+                continue
+            slopes = np.array(out[name], dtype=np.float64)
+            slopes[fam["cols"]] = fam["h_q"]
+            out[name] = slopes
+            focus_info[name] = {k: fam[k] for k in ("branch", "x0", "y0", "sse", "sse_naive")}
         out["focus"] = focus_info
 
     if frame == "original" and eta != 0.0:
@@ -247,6 +263,85 @@ def negative_branch_convexity_loss(q_list, tau, *, rel_tol: float = 1e-3):
     if not bad.any():
         return None
     return float(q_mid[bad].max())              # the loss CLOSEST to q = 0 on the way out
+
+
+def _family_focus(x, rows, x0_min: float, *, generalized: bool, monotone: bool):
+    """:func:`focus_regression` over one family's rows (one per q) that are finite across the
+    window; ``{"h_q", "cols", "x0", "y0", "branch", "sse", "sse_naive"}`` or None when fewer
+    than 5 scales or 3 such rows are there."""
+    rows = np.asarray(rows, dtype=np.float64)
+    cols = np.flatnonzero(np.all(np.isfinite(rows), axis=1))
+    if x.size < 5 or cols.size < 3:
+        return None
+    try:
+        f = focus_regression(x, rows[cols].T, x0_min=float(x0_min), generalized=generalized,
+                             enforce_monotone=monotone)
+    except ValueError:
+        return None
+    return {"h_q": f["h_q"], "cols": cols, "x0": f["x0"], "y0": f["y0"], "branch": f["branch"],
+            "sse": f["sse"], "sse_naive": f["sse_naive"]}
+
+
+def partition_fit_lines(hd: dict, log2_a_min: float, log2_a_max: float, *,
+                        fit_mode: str = "naive", log2_L: "float | None" = None) -> dict:
+    """The lines a fitter draws over the partition-function families, in the tables' own
+    (integrated) frame: per family, ``slope`` and ``intercept`` per q in log2 a. Naive: the
+    per-q OLS line through the row's window mean. A focus branch (interior or fixed): the
+    family's lines meet at its focus (x0, y0) -- the Z family's in power-mean space
+    Y_q = (log2 Z - log2 N_a)/q (Mukli Eq. 17: log S(q, s) = H(q)(log s - log L) + log S(L)),
+    carried back to log2 Z with the window's log2 N_a line. Also ``power_mean`` (the Z
+    family's q != 0 rows over every scale and their lines), ``focus`` (the Z family's, or
+    None), ``branch`` (the Z family's, or None in naive mode) and ``family_focus`` (per family,
+    None without one)."""
+    fit = fit_spectra(hd, log2_a_min, log2_a_max, frame="integrated", fit_mode=fit_mode,
+                      log2_L=log2_L)
+    q = np.asarray(hd["q_list"], dtype=np.float64)
+    log2_s = np.asarray(hd["log2_scales"], dtype=np.float64)
+    mask = (log2_s >= log2_a_min) & (log2_s <= log2_a_max)
+    x = log2_s[mask]
+    out = {"q_list": q, "lines": {}, "focus": None, "branch": None,
+           "family_focus": {"tau_qa": None, "h_qa": None, "D_qa": None}}
+
+    def through_means(slope, table):
+        Y = np.asarray(table, dtype=np.float64)[:, mask]
+        fin = np.isfinite(Y)
+        n = fin.sum(axis=1)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ybar = np.where(fin, Y, 0.0).sum(axis=1) / n
+            xbar = (fin * x[None, :]).sum(axis=1) / n
+        return {"slope": np.asarray(slope, dtype=np.float64), "intercept": ybar - slope * xbar}
+
+    for key, name in (("tau_qa", "tau"), ("h_qa", "h"), ("D_qa", "D")):
+        out["lines"][key] = through_means(fit[name], hd[key])
+
+    N_a = np.asarray(hd["N_a"], dtype=np.float64)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log2N = np.where(N_a > 0, np.log2(np.where(N_a > 0, N_a, 1.0)), np.nan)
+    nz = q != 0.0
+    pm_table = (np.asarray(hd["tau_qa"], dtype=np.float64)[nz] - log2N[None, :]) / q[nz, None]
+    pm = {"q": q[nz], "table": pm_table}
+    focus = fit.get("focus") or {}
+    if focus.get("branch") in ("interior", "fixed"):
+        x0, y0, h, s_N = focus["x0"], focus["y0"], np.asarray(focus["h_q_mean"]), focus["s_N"]
+        nbar, xbar = float(np.mean(log2N[mask])), float(x.mean())
+        pm["slope"], pm["intercept"] = h, y0 - h * x0
+        z = out["lines"]["tau_qa"]
+        z["slope"][nz] = q[nz] * h + s_N
+        z["intercept"][nz] = q[nz] * (y0 - h * x0) + nbar - s_N * xbar
+        out["focus"] = out["family_focus"]["tau_qa"] = (float(x0), float(y0))
+    else:
+        naive = through_means(_masked_slopes(x, pm_table[:, mask]), pm_table)
+        pm["slope"], pm["intercept"] = naive["slope"], naive["intercept"]
+    out["branch"] = focus.get("branch")
+    out["power_mean"] = pm
+    for key, name in (("h_qa", "h"), ("D_qa", "D")):
+        fam = focus.get(name) or {}
+        if fam.get("branch") in ("interior", "fixed"):
+            x0, y0 = float(fam["x0"]), float(fam["y0"])
+            slope = out["lines"][key]["slope"]
+            out["lines"][key]["intercept"] = y0 - slope * x0
+            out["family_focus"][key] = (x0, y0)
+    return out
 
 
 def _all_nan_result(q_arr: np.ndarray, eta: float, frame: str) -> dict:

@@ -73,6 +73,20 @@ Q_WARM = (235, 95, 60)
 TABLE_CHOICES = ("sup (cmax)", "no-sup (std)")
 
 
+class WheelAxisViewBox(pg.ViewBox):
+    """The wheel zooms the x axis; with Shift held, the y axis."""
+
+    def wheelEvent(self, ev, axis=None):
+        if axis is None:
+            axis = 1 if bool(ev.modifiers() & QtCore.Qt.ShiftModifier) else 0
+        super().wheelEvent(ev, axis)
+
+
+#: Six grid columns: the three families span two each on top, the 2 x 2 spectra three each.
+_SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (2, 0)}
+POWER_MEAN_LABEL = "(log₂Z − log₂N_a)/q"
+
+
 def _q_color(i: int, n: int) -> tuple:
     """Linear cold->warm ramp over the q index -- plain lerp, no colormap dependency."""
     t = i / (n - 1) if n > 1 else 0.5
@@ -148,6 +162,9 @@ class MultifractalWindow(QtWidgets.QDialog):
         #: Per family table, its PlotDataItems; ``_family_items`` stays the tau list (the
         #: original single-panel attribute, kept as the visibility contract's face).
         self._family_items_by_table: dict[str, list] = {k: [] for k, _ in FAMILY_TABLES}
+        #: Per family table, the best-fit line of each q row (``partition_fit_lines``).
+        self._family_lines_by_table: dict[str, list] = {k: [] for k, _ in FAMILY_TABLES}
+        self._fit_lines: dict | None = None
         self._region_syncing = False
 
         self._build_ui(eta_seed, forward_note)
@@ -240,7 +257,13 @@ class MultifractalWindow(QtWidgets.QDialog):
 
         # The phase-transition break point (cell 49): settable here or by clicking either
         # bottom-row panel. Positive branch only, so the floor sits just above zero.
-        controls.addWidget(QtWidgets.QLabel("q*"))
+        # The Bershadskii specific heat (tau against ln q, the phase-transition row): shown
+        # on request, off by default.
+        self.bershadskii_check = QtWidgets.QCheckBox("Bershadskii c(q)")
+        self.bershadskii_check.toggled.connect(self._set_bershadskii_visible)
+        controls.addWidget(self.bershadskii_check)
+        self._qstar_label = QtWidgets.QLabel("q*")
+        controls.addWidget(self._qstar_label)
         self._qstar_spin = QtWidgets.QDoubleSpinBox()
         self._qstar_spin.setRange(0.02, max(float(q.max()), 0.02))
         self._qstar_spin.setSingleStep(0.1)
@@ -284,7 +307,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._family_plots: dict[str, pg.PlotItem] = {}
         self._regions: list[pg.LinearRegionItem] = []
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
-            plot = self._glw.addPlot(row=0, col=col)
+            plot = self._glw.addPlot(row=0, col=2 * col, colspan=2, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", "log₂ a")
             plot.setLabel("left", ylabel)
             if self._physical is not None:
@@ -301,6 +324,22 @@ class MultifractalWindow(QtWidgets.QDialog):
         # The tau panel/region remain the canonical names the public API and older callers use.
         self._partition_plot = self._family_plots["tau_qa"]
         self._region = self._regions[0]
+        # A focus mode's focus on each family panel, and the field extent L ruled.
+        dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        self._focus_markers: dict[str, pg.ScatterPlotItem] = {}
+        self._L_lines: dict[str, pg.InfiniteLine] = {}
+        for key, plot in self._family_plots.items():
+            marker = pg.ScatterPlotItem(symbol="o", size=11,
+                                        pen=pg.mkPen(RESTRAINED_DARK.amber, width=1.5),
+                                        brush=pg.mkBrush(None))
+            marker.setVisible(False)
+            plot.addItem(marker)
+            self._focus_markers[key] = marker
+            line = pg.InfiniteLine(angle=90, movable=False, pen=dash, label="L",
+                                   labelOpts={"position": 0.92})
+            line.setVisible(False)
+            plot.addItem(line)
+            self._L_lines[key] = line
 
         ink = pg.mkPen(RESTRAINED_DARK.ink, width=1.4)
         muted = pg.mkPen(RESTRAINED_DARK.ink_muted)
@@ -310,7 +349,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         for col, (name, xlabel, ylabel) in enumerate((("tau", "q", "τ(q)"),
                                                       ("D", "h", "D(h)"),
                                                       ("h", "q", "h(q)"))):
-            plot = self._glw.addPlot(row=1, col=col)
+            row, col0 = _SPECTRUM_CELLS[name]
+            plot = self._glw.addPlot(row=row, col=col0, colspan=3, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", xlabel)
             plot.setLabel("left", ylabel)
             self._spectrum_plots[name] = plot
@@ -336,7 +376,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
         muted_dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
-        self._pt_plot = self._glw.addPlot(row=2, col=0, colspan=2)
+        self._pt_plot = pg.PlotItem(viewBox=WheelAxisViewBox())
         self._pt_plot.setLabel("bottom", "ln q  (positive branch)")
         self._pt_plot.setLabel("left", "τ(q)")
         self._pt_points = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5,
@@ -351,7 +391,7 @@ class MultifractalWindow(QtWidgets.QDialog):
                                               pen=pg.mkPen(RESTRAINED_DARK.amber))
         self._pt_plot.addItem(self._pt_qstar_line)
 
-        self._pt_scan_plot = self._glw.addPlot(row=2, col=2)
+        self._pt_scan_plot = pg.PlotItem(viewBox=WheelAxisViewBox())
         self._pt_scan_plot.setLabel("bottom", "q*")
         self._pt_scan_plot.setLabel("left", "weighted R²")
         self._pt_scan_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink),
@@ -367,7 +407,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Row 3: the specific heat c(q) = -q² τ'' off the fit (points), the cumulant expansion's
         # curve from the maxima moduli, and the log-normal reference c₂ q² (the workbook's
         # specific-heat figure).
-        self._cq_plot = self._glw.addPlot(row=3, col=0, colspan=3)
+        self._cq_plot = self._glw.addPlot(row=2, col=3, colspan=3, viewBox=WheelAxisViewBox())
         self._cq_plot.setLabel("bottom", "q")
         self._cq_plot.setLabel("left", "c(q) = −q² τ″")
         self._cq_plot.addLegend(offset=(-10, 10))
@@ -382,11 +422,15 @@ class MultifractalWindow(QtWidgets.QDialog):
                                             name="log-normal c₂q²")
         self._cq_plot.addItem(self._cq_ln_curve)
 
+        # The families take half the height; the 2 x 2 grid the rest (the Bershadskii row,
+        # when shown, a fifth).
+        self._set_bershadskii_visible(False)
+
         # Click-to-set q* on either panel: ln-q abscissa on the left panel, plain q on the scan
         # (the workbook's exact gesture pair, cell 49).
         self._glw.scene().sigMouseClicked.connect(self._on_scene_clicked)
 
-        self.resize(1150, 1100)
+        self.resize(1150, 1000)
 
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:
@@ -397,26 +441,118 @@ class MultifractalWindow(QtWidgets.QDialog):
         only on a table switch; a q-subrange change just toggles visibility."""
         hd = self._current_hd()
         log2_s = np.asarray(hd["log2_scales"], dtype=np.float64)
-        for key, _label in FAMILY_TABLES:
+        for key, label in FAMILY_TABLES:
             plot = self._family_plots[key]
-            for item in self._family_items_by_table[key]:
+            for item in self._family_items_by_table[key] + self._family_lines_by_table[key]:
                 plot.removeItem(item)
             self._family_items_by_table[key] = []
-            table = np.asarray(hd[key], dtype=np.float64)
+            self._family_lines_by_table[key] = []
+            table = self._family_table(key)
+            plot.setLabel("left", POWER_MEAN_LABEL
+                          if key == "tau_qa" and self._power_mean_view() else label)
             n_q = table.shape[0]
             for i in range(n_q):
                 item = pg.PlotDataItem(log2_s, table[i], pen=pg.mkPen(_q_color(i, n_q)),
                                        connect="finite")
                 plot.addItem(item)
                 self._family_items_by_table[key].append(item)
+                line = pg.PlotDataItem(pen=pg.mkPen((*_q_color(i, n_q), 150), width=1),
+                                       connect="finite")
+                plot.addItem(line)
+                self._family_lines_by_table[key].append(line)
         self._update_family_visibility()
+
+    def _power_mean_view(self) -> bool:
+        """A focus mode shows the Z family as power means, the space its lines meet in."""
+        return self.fit_mode() != "naive"
+
+    def _family_table(self, key: str) -> np.ndarray:
+        """The rows the family panel draws: the table itself, or for the Z family in a focus
+        mode its power means (log2 Z - log2 N_a)/q (no row at q = 0)."""
+        hd = self._current_hd()
+        table = np.asarray(hd[key], dtype=np.float64)
+        if key != "tau_qa" or not self._power_mean_view():
+            return table
+        q = np.asarray(hd["q_list"], dtype=np.float64)
+        N_a = np.asarray(hd["N_a"], dtype=np.float64)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log2N = np.where(N_a > 0, np.log2(np.where(N_a > 0, N_a, 1.0)), np.nan)
+            out = (table - log2N[None, :]) / q[:, None]
+        out[q == 0.0] = np.nan
+        return out
+
+    def _update_fit_lines(self) -> None:
+        """The best-fit line over every family row: the per-q line over the window (naive,
+        clipped to the data's own span as the figures do), or in a focus mode the family's
+        lines drawn out to its focus, the focus marked and the field extent L ruled."""
+        hd = self._current_hd()
+        lo, hi = self._region.getRegion()
+        mode = self.fit_mode()
+        lines = spectra.partition_fit_lines(
+            hd, float(lo), float(hi), fit_mode=mode,
+            log2_L=self._log2_L if mode != "naive" else None)
+        self._fit_lines = lines
+        log2_s = np.asarray(hd["log2_scales"], dtype=np.float64)
+        q = np.asarray(hd["q_list"], dtype=np.float64)
+        for key, _label in FAMILY_TABLES:
+            focus = lines["family_focus"][key]
+            if key == "tau_qa" and self._power_mean_view():
+                slope, intercept = np.full(q.size, np.nan), np.full(q.size, np.nan)
+                nz = q != 0.0
+                slope[nz], intercept[nz] = lines["power_mean"]["slope"], lines["power_mean"]["intercept"]
+            else:
+                slope, intercept = lines["lines"][key]["slope"], lines["lines"][key]["intercept"]
+            x_end = focus[0] if focus is not None else float(log2_s.max())
+            xs = np.linspace(float(log2_s.min()), x_end, 64)
+            table = self._family_table(key)
+            clip = focus is None and np.isfinite(table).any()
+            if clip:
+                y_lo, y_hi = float(np.nanmin(table)), float(np.nanmax(table))
+                pad = 0.05 * (y_hi - y_lo)
+            for i, item in enumerate(self._family_lines_by_table[key]):
+                ys = slope[i] * xs + intercept[i]
+                if clip:
+                    ys = np.where((ys >= y_lo - pad) & (ys <= y_hi + pad), ys, np.nan)
+                item.setData(xs, ys)
+            marker = self._focus_markers[key]
+            if focus is not None:
+                marker.setData([focus[0]], [focus[1]])
+            else:
+                marker.setData([], [])
+            marker.setVisible(focus is not None)
+            show_L = mode != "naive" and self._log2_L is not None
+            if show_L:
+                self._L_lines[key].setPos(float(self._log2_L))
+            self._L_lines[key].setVisible(show_L)
+
+    def _set_bershadskii_visible(self, visible: bool) -> None:
+        """The Bershadskii row (tau against ln q, the R² scan) joins or leaves the grid; the
+        families keep half the height either way."""
+        ci = self._glw.ci
+        visible = bool(visible)
+        if visible and self._pt_plot not in ci.items:
+            ci.addItem(self._pt_plot, row=3, col=0, colspan=4)
+            ci.addItem(self._pt_scan_plot, row=3, col=4, colspan=2)
+        elif not visible and self._pt_plot in ci.items:
+            ci.removeItem(self._pt_plot)
+            ci.removeItem(self._pt_scan_plot)
+        for col in range(6):                   # equal columns: thirds on top, halves below
+            ci.layout.setColumnStretchFactor(col, 1)
+        ci.layout.setRowStretchFactor(0, 3 if visible else 2)
+        ci.layout.setRowStretchFactor(1, 1)
+        ci.layout.setRowStretchFactor(2, 1)
+        ci.layout.setRowStretchFactor(3, 1 if visible else 0)
+        for widget in (self._pt_label, self._qstar_label, self._qstar_spin):
+            widget.setVisible(visible)
 
     def _update_family_visibility(self) -> None:
         q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)
         mask = self._q_mask(q)
-        for items in self._family_items_by_table.values():
-            for item, visible in zip(items, mask):
-                item.setVisible(bool(visible))
+        for key, items in self._family_items_by_table.items():
+            for item, line, visible in zip(items, self._family_lines_by_table[key], mask):
+                drawn = bool(visible) and bool(np.isfinite(item.yData).any())
+                item.setVisible(drawn)
+                line.setVisible(drawn)
 
     def fit_mode(self) -> str:
         """The fit mode as :func:`dynamix.core.spectra.fit_spectra` names it."""
@@ -424,6 +560,7 @@ class MultifractalWindow(QtWidgets.QDialog):
                 "focus": "focus"}[self._fitmode_combo.currentText()]
 
     def _on_fit_mode_changed(self, text: str) -> None:
+        self._rebuild_family()                 # the Z family's rows change space with the mode
         self._refit()
         self.fitModeChanged.emit(text)
 
@@ -457,12 +594,17 @@ class MultifractalWindow(QtWidgets.QDialog):
         elif focus.get("branch") == "unavailable":
             self._focus_readout.setText(f"focus: unavailable ({focus.get('reason', '')})")
         else:
-            self._focus_readout.setText(
-                f"focus: {focus.get('branch', '')} · x̂₀ = {float(focus.get('x0', float('nan'))):.2f}")
+            text = f"focus: {focus.get('branch', '')} · x̂₀ = {float(focus.get('x0', float('nan'))):.2f}"
+            for name in ("h", "D"):
+                fam = focus.get(name) or {}
+                if fam.get("branch"):
+                    text += f" · {name}: {fam['branch']}"
+            self._focus_readout.setText(text)
         self._update_spectrum_plots()
         self._update_phase_transition()
         self._update_convexity_marker()
         self._update_specific_heat()
+        self._update_fit_lines()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
     def _update_spectrum_plots(self) -> None:
@@ -580,6 +722,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         """Click-to-set q* (cell 49's gesture pair): the tau-vs-ln-q panel maps the click's x
         back through exp; the scan panel takes it as q* directly."""
         for plot, is_log in ((self._pt_plot, True), (self._pt_scan_plot, False)):
+            if plot.scene() is None:            # the Bershadskii row is off the grid
+                continue
             vb = plot.getViewBox()
             if vb.sceneBoundingRect().contains(ev.scenePos()):
                 x = float(vb.mapSceneToView(ev.scenePos()).x())
