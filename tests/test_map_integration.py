@@ -650,3 +650,27 @@ def test_removing_the_effect_takes_the_wavelet_bars_away(geo_window, qtbot):
     assert not win.canvas.wavelet_bar.isVisible()
     assert win._wavelet_bar_state == (None, "")
     assert not win.map_view.wavelet_bar.isVisible()
+
+
+def test_a_bar_style_change_applies_everywhere_and_is_remembered(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    from dynamix.shell.settings import load_settings
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    win._ensure_map_view()
+    assert win.canvas.wavelet_bar.label.endswith(" m")
+    win.canvas.wavelet_bar.set_style({"units": "px"})
+    win.canvas.wavelet_bar.styleChanged.emit(win.canvas.wavelet_bar.style())   # the menu's path
+    assert win.canvas.wavelet_bar.label.endswith(" px")
+    assert win.map_view.wavelet_bar.label.endswith(" px")
+    assert win.map_view.wavelet_bar.style()["units"] == "px"
+    assert load_settings().view_options["bar_style"]["wavelet"]["units"] == "px"
+    win.map_view.scale_bar.set_style({"units": "km", "color": "#ff0000"})
+    win.map_view.scale_bar.styleChanged.emit(win.map_view.scale_bar.style())
+    assert win.canvas.scale_bar_label.text().endswith(" km")
+    assert win.canvas.scale_bar_line.opts["pen"].color().name() == "#ff0000"
+    assert load_settings().view_options["bar_style"]["scale"]["color"] == "#ff0000"

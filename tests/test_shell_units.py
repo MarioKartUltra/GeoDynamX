@@ -472,3 +472,20 @@ def test_scale_reading_with_physical_unit_example_from_brief(qtbot, clean_regist
     assert win._scale_reading(0) == expected
     # Verify the specific numbers from the design
     assert expected == "a = 7.0 · σ 1.6 px ≈ 62.8 m"
+
+
+# ----------------------------------------------------------------------------- the bars' units
+
+def test_in_units_re_expresses_a_length_per_the_bars_choice():
+    from dynamix.shell.units import in_units
+
+    assert in_units(2500.0, "m", "auto") == (2.5, "km")
+    assert in_units(0.0032, "m", "auto") == pytest.approx((3.2, "mm"))
+    assert in_units(2.5e-6, "m", "auto")[1] == "μm"
+    assert in_units(2500.0, "m", "km") == (2.5, "km")
+    assert in_units(2.5, "km", "m") == (2500.0, "m")
+    assert in_units(52.0, "um", "mm") == pytest.approx((0.052, "mm"))
+    assert in_units(52.0, "um", "native") == (52.0, "μm")
+    assert in_units(0.33, "deg", "km") == (0.33, "deg")              # not an SI length: as is
+    assert in_units(2500.0, "m", "px", length_px=12.0) == (12.0, "px")
+    assert in_units(2500.0, "m", "px") == (2500.0, "m")               # no pixel length known

@@ -692,6 +692,7 @@ class Canvas(pg.GraphicsLayoutWidget):
     #: listens: the distance bar's LABEL is the one part of the reading this widget cannot
     #: recompute, because only the window knows the field's physical units.
     viewChanged = QtCore.Signal()
+    scaleBarStyleChanged = QtCore.Signal(object)   # the distance bar's menu changed its style
 
     #: A ⌘-drag finished: ``(row, col, h, w)`` in IMAGE pixels, clamped to the field (see
     #: :func:`roi_from_corners`). The window turns this into the precision panel; the canvas
@@ -1039,6 +1040,12 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.scale_bar_label = QtWidgets.QLabel("", self)
         self.scale_bar_label.setProperty("reading", "true")
         self.scale_bar_label.setVisible(False)
+        # The distance bar's style (colour, line width, units): its label's right-click menu.
+        from dynamix.shell.wavelet_bar import DEFAULT_SCALE_STYLE
+
+        self._scale_bar_style = dict(DEFAULT_SCALE_STYLE)
+        self.scale_bar_label.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.scale_bar_label.customContextMenuRequested.connect(self._scale_bar_menu)
 
         self._show_trails = False
         self.view.sigRangeChanged.connect(self._on_view_range_changed)
@@ -2554,6 +2561,29 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self._coi_cache[a_idx] = cached
         _, x, y = cached
         self.coi_item.setData(x + col_off, y + row_off)
+
+    def scale_bar_style(self) -> dict:
+        return dict(self._scale_bar_style)
+
+    def set_scale_bar_style(self, changes: dict) -> None:
+        """The distance bar's colour and line width (its units are the window's to read)."""
+        from dynamix.shell.wavelet_bar import LINE_WIDTHS, merged_style
+
+        self._scale_bar_style = merged_style(self._scale_bar_style, changes)
+        colour = self._scale_bar_style["color"]
+        self.scale_bar_line.setPen(
+            pg.mkPen(colour, width=LINE_WIDTHS[self._scale_bar_style["width"]] + 0.6))
+        self.scale_bar_label.setStyleSheet(f"color: {colour};")
+
+    def _scale_bar_menu(self, pos) -> None:
+        from dynamix.shell.wavelet_bar import style_menu
+
+        def change(changes):
+            self.set_scale_bar_style(changes)
+            self.scaleBarStyleChanged.emit(self.scale_bar_style())
+
+        menu = style_menu(self._scale_bar_style, change, self.scale_bar_label)
+        menu.exec(self.scale_bar_label.mapToGlobal(pos))
 
     def set_scale_bar_text(self, text: str) -> None:
         """Corner-anchored distance-scale overlay: a short data-space line plus the caller-

@@ -532,3 +532,14 @@ def test_the_map_bar_takes_the_layers_axis_step(qtbot):
     px_per_unit = v.view.width() / (x1 - x0)
     assert v.wavelet_bar.bracket_px() == pytest.approx(200.0 * px_per_unit, rel=0.02)
     assert isinstance(v.scale_bar, DraggableScaleBar)
+
+
+def test_the_scale_bars_units_choice_fixes_its_unit(qtbot):
+    v = _view(qtbot)
+    v.view.setRange(xRange=(500000.0, 505000.0), yRange=(4395000.0, 4400000.0), padding=0)
+    v.scale_bar.set_style({"units": "m"})
+    v._update_scale_bar()
+    assert _bar(v)[1].endswith(" m")
+    v.scale_bar.set_style({"units": "km"})
+    v._update_scale_bar()
+    assert _bar(v)[1].endswith(" km")

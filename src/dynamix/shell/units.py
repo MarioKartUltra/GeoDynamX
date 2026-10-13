@@ -28,7 +28,7 @@ import re
 
 import numpy as np
 
-__all__ = ["linear_unit_to_m", "px_to_metres"]
+__all__ = ["in_units", "linear_unit_to_m", "px_to_metres", "UNIT_CHOICES"]
 
 # Factor-to-metres for every linear unit name this app recognises, matching the exact WKT UNIT[]
 # conversion factors GDAL/PROJ emit (EPSG 9001 metre, 9003 US survey foot, 9002 international
@@ -164,3 +164,31 @@ def px_to_metres(field) -> tuple[float | None, str]:
     if factor is None:
         return dx, label
     return dx * factor, label
+
+
+# ----------------------------------------------------------------------- the bars' unit choice
+
+_SI = {"nm": 1e-9, "um": 1e-6, "μm": 1e-6, "mm": 1e-3, "cm": 1e-2, "m": 1.0, "km": 1e3}
+_SI_NAME = {"um": "μm"}
+#: What a bar's right-click menu offers: the tiered SI unit, the field's own unit, pixels, or a
+#: fixed SI unit.
+UNIT_CHOICES = ("auto", "native", "px", "km", "m", "mm", "μm")
+
+
+def in_units(value: float, unit: str, choice: str, *, length_px=None) -> tuple[float, str]:
+    """``(value, unit)`` re-expressed per a bar's units choice. ``"native"`` leaves it; ``"px"``
+    gives ``length_px`` when it is known; an SI choice converts between SI lengths; ``"auto"``
+    picks the SI unit that puts the number in [1, 1000). A unit that is not an SI length
+    (degrees, feet, pixels) stays as it is whatever the choice: nothing is fabricated."""
+    value, unit = float(value), str(unit)
+    if choice == "px":
+        return (float(length_px), "px") if length_px is not None else (value, unit)
+    if unit not in _SI or choice == "native" or choice not in _SI and choice != "auto":
+        return value, _SI_NAME.get(unit, unit)
+    metres = value * _SI[unit]
+    if choice == "auto":
+        for name in ("km", "m", "mm", "μm"):
+            if metres / _SI[name] >= 1.0:
+                return metres / _SI[name], name
+        return metres / _SI["μm"], "μm"
+    return metres / _SI[choice], choice

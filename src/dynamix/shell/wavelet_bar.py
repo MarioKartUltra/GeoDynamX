@@ -5,14 +5,17 @@ on the image (its width in data units), its height a fixed share of that width o
 floor (so a zoom keeps the curve's proportions instead of stretching it flat), a dimension bracket exactly
 λ* wide carrying the label with the physical length, green over a black stroke. Anchored to a
 corner of the view in screen pixels, so it never clips, and draggable; the Map's distance bar
-drags the same way. Display only."""
+drags the same way. A right-click menu sets a bar's units, colour, outline and line width (its
+style, remembered by the window). Display only."""
 from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.shell.canvas import ANALYZER_COLOR
+from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.units import UNIT_CHOICES
 
 CURVE_HEIGHT_PX = 28.0          # the curve's smallest peak-to-peak excursion on screen
 CURVE_ASPECT = 0.25             # and, zoomed in, its excursion as a share of its width on screen
@@ -22,6 +25,101 @@ TAIL_FRACTION = 0.01            # the curve stops where |ψ| falls below this of
 CAP_LAMBDAS = 2.0               # and never runs past ±2λ*
 _GREEN = QtGui.QColor(*ANALYZER_COLOR)
 _BLACK = QtGui.QColor(0, 0, 0)
+
+LINE_WIDTHS = {"thin": 0.8, "normal": 1.4, "bold": 2.4}
+DEFAULT_WAVELET_STYLE = {"units": "auto", "color": _GREEN.name(), "outline": True,
+                         "width": "normal"}
+DEFAULT_SCALE_STYLE = {"units": "auto", "color": QtGui.QColor(RESTRAINED_DARK.ink).name(),
+                       "outline": False, "width": "normal"}
+
+
+def merged_style(style: dict, changes: dict) -> dict:
+    """``style`` with the valid entries of ``changes`` applied (unknown keys and values are
+    ignored, never stored)."""
+    out = dict(style)
+    changes = changes or {}
+    if changes.get("units") in UNIT_CHOICES:
+        out["units"] = changes["units"]
+    if changes.get("width") in LINE_WIDTHS:
+        out["width"] = changes["width"]
+    if "outline" in changes:
+        out["outline"] = bool(changes["outline"])
+    colour = QtGui.QColor(str(changes.get("color", "")))
+    if colour.isValid():
+        out["color"] = colour.name()
+    return out
+
+
+def style_menu(style: dict, on_change, parent=None) -> QtWidgets.QMenu:
+    """The bars' right-click menu: Units, Colour…, Outline, Line width; every pick calls
+    ``on_change({key: value})``."""
+    menu = QtWidgets.QMenu(parent)
+    units = menu.addMenu("Units")
+    group = QtGui.QActionGroup(units)
+    for choice in UNIT_CHOICES:
+        act = units.addAction(choice)
+        act.setCheckable(True)
+        act.setChecked(style["units"] == choice)
+        group.addAction(act)
+        act.triggered.connect(lambda _checked=False, c=choice: on_change({"units": c}))
+
+    def pick_colour():
+        colour = QtWidgets.QColorDialog.getColor(QtGui.QColor(style["color"]), parent,
+                                                 "Bar colour")
+        if colour.isValid():
+            on_change({"color": colour.name()})
+
+    menu.addAction("Colour…").triggered.connect(pick_colour)
+    outline = menu.addAction("Outline")
+    outline.setCheckable(True)
+    outline.setChecked(bool(style["outline"]))
+    outline.triggered.connect(lambda checked: on_change({"outline": bool(checked)}))
+    widths = menu.addMenu("Line width")
+    wgroup = QtGui.QActionGroup(widths)
+    for name in LINE_WIDTHS:
+        act = widths.addAction(name)
+        act.setCheckable(True)
+        act.setChecked(style["width"] == name)
+        wgroup.addAction(act)
+        act.triggered.connect(lambda _checked=False, n=name: on_change({"width": n}))
+    return menu
+
+
+class _Styled:
+    """A bar with a style -- units, colour, outline, line width -- and a right-click menu. The
+    host defines ``styleChanged`` (emitted on a menu pick, never on ``set_style``) and may
+    override ``_apply_style``."""
+
+    def _init_style(self, default: dict) -> None:
+        self._style = dict(default)
+        self._menu = None
+
+    def style(self) -> dict:
+        return dict(self._style)
+
+    def colour(self) -> QtGui.QColor:
+        return QtGui.QColor(self._style["color"])
+
+    def set_style(self, changes: dict) -> None:
+        """Apply ``changes`` (a partial style) without telling anyone."""
+        self._style = merged_style(self._style, changes)
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        self.update()
+
+    def _change_style(self, changes: dict) -> None:
+        self.set_style(changes)
+        self.styleChanged.emit(self.style())
+
+    def context_menu(self, parent=None) -> QtWidgets.QMenu:
+        self._menu = style_menu(self._style, self._change_style, parent)
+        return self._menu
+
+    def mouseClickEvent(self, ev) -> None:
+        if ev.button() == QtCore.Qt.MouseButton.RightButton:
+            ev.accept()
+            self.context_menu().popup(ev.screenPos().toPoint())
 
 
 class _Drag:
@@ -36,7 +134,8 @@ class _Drag:
         self._item_anchor = (tuple(float(v) for v in item_anchor) if item_anchor is not None
                              else self._corner)
         self._offset = [float(offset[0]), float(offset[1])]
-        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton)
+        self.setAcceptedMouseButtons(QtCore.Qt.MouseButton.LeftButton
+                                     | QtCore.Qt.MouseButton.RightButton)
 
     def offset(self) -> tuple:
         return tuple(self._offset)
@@ -90,13 +189,15 @@ class _Drag:
         self.drag_by(d.x(), d.y())
 
 
-class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
+class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
     moved = QtCore.Signal(object)
+    styleChanged = QtCore.Signal(object)
 
     def __init__(self, corner=(1, 1), offset=(-110.0, -20.0)) -> None:
         pg.GraphicsObject.__init__(self)
         pg.GraphicsWidgetAnchor.__init__(self)
         self._init_drag(corner, offset, item_anchor=(0.0, 1.0))     # its centre on the corner
+        self._init_style(DEFAULT_WAVELET_STYLE)
         self._profile = None
         self._dx_data = 1.0
         self.label = ""
@@ -203,7 +304,7 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         if self._profile is None:
             return
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
-        for pen in (QtGui.QPen(_BLACK, 3.0), QtGui.QPen(_GREEN, 1.4)):
+        for pen in _stroke_pens(self._style):
             pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
             painter.setPen(pen)
@@ -214,25 +315,51 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
                 for xe in (self._bracket.x1(), self._bracket.x2()):
                     painter.drawLine(QtCore.QLineF(xe, self._bracket.y1() - TICK_PX,
                                                    xe, self._bracket.y1() + TICK_PX))
+        _draw_text(painter, self._text, self._style)
+
+
+def _stroke_pens(style: dict) -> tuple:
+    """The pens a bar's curve and bracket are stroked with: a black outline under the colour
+    when the style asks for one."""
+    width = LINE_WIDTHS[style["width"]]
+    colour = QtGui.QPen(QtGui.QColor(style["color"]), width)
+    if not style["outline"]:
+        return (colour,)
+    return (QtGui.QPen(_BLACK, width + 1.6), colour)
+
+
+def _draw_text(painter, path, style: dict) -> None:
+    if style["outline"]:
         painter.setPen(QtGui.QPen(_BLACK, 2.5))
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        painter.drawPath(self._text)
-        painter.setPen(QtCore.Qt.PenStyle.NoPen)
-        painter.setBrush(_GREEN)
-        painter.drawPath(self._text)
+        painter.drawPath(path)
+    painter.setPen(QtCore.Qt.PenStyle.NoPen)
+    painter.setBrush(QtGui.QColor(style["color"]))
+    painter.drawPath(path)
 
 
-class DraggableScaleBar(_Drag, pg.ScaleBar):
+class DraggableScaleBar(_Drag, _Styled, pg.ScaleBar):
     """pyqtgraph's distance bar, draggable; ``anchor(corner, corner, offset)`` places it and
-    ``moved`` reports the offset the user left it at."""
+    ``moved`` reports the offset the user left it at. Its style colours the bar and its text;
+    its units choice is read by whoever writes the text."""
 
     moved = QtCore.Signal(object)
+    styleChanged = QtCore.Signal(object)
 
     def __init__(self, size, width=5, brush=None, pen=None, suffix="m", corner=(1, 1),
                  offset=(-20.0, -20.0)) -> None:
         pg.ScaleBar.__init__(self, size, width=width, brush=brush, pen=pen, suffix=suffix,
                              offset=None)
         self._init_drag(corner, offset)
+        self._init_style(DEFAULT_SCALE_STYLE)
+        self._apply_style()
+
+    def _apply_style(self) -> None:
+        colour = self.colour()
+        self.bar.setPen(pg.mkPen(colour, width=LINE_WIDTHS[self._style["width"]]))
+        self.bar.setBrush(pg.mkBrush(colour))
+        self.text.setColor(colour)
+        self.update()
 
     def anchor(self, itemPos, parentPos, offset=(0, 0)) -> None:
         self._corner = (float(itemPos[0]), float(itemPos[1]))
@@ -266,17 +393,19 @@ def _section(profile, k: float):
     return xs, -0.5 * amplitude * psi[keep], x[keep], amplitude
 
 
-class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
+class WaveletCascade(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
     """A microcanonical tool's whole ladder of wavelets, nested on one centre over the raster:
     every scale's section to scale, the level on show at full strength and the rest faint,
     with a bracket and a label for the smallest and the largest. Draggable like the bar."""
 
     moved = QtCore.Signal(object)
+    styleChanged = QtCore.Signal(object)
 
     def __init__(self, corner=(0, 1), offset=(180.0, -44.0)) -> None:
         pg.GraphicsObject.__init__(self)
         pg.GraphicsWidgetAnchor.__init__(self)
         self._init_drag(corner, offset, item_anchor=(0.0, 1.0))     # its centre on the corner
+        self._init_style(DEFAULT_WAVELET_STYLE)
         self._profiles: list = []
         self.labels: tuple = ("", "")
         self.shown = 0
@@ -372,34 +501,33 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             return
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-        faint, shadow = QtGui.QColor(_GREEN), QtGui.QColor(_BLACK)
+        colour, width = self.colour(), LINE_WIDTHS[self._style["width"]]
+        faint, shadow = QtGui.QColor(colour), QtGui.QColor(_BLACK)
         faint.setAlpha(190)
         shadow.setAlpha(110)
+        faint_pens = [QtGui.QPen(faint, 0.8 * width)]
+        if self._style["outline"]:
+            faint_pens.insert(0, QtGui.QPen(shadow, 0.8 * width + 1.3))
         for i, path in enumerate(self._paths):
             if i == self.shown:
                 continue
-            for pen in (QtGui.QPen(shadow, 2.4), QtGui.QPen(faint, 1.1)):
+            for pen in faint_pens:
                 pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
                 painter.drawPath(path)
         if 0 <= self.shown < len(self._paths):
-            for pen in (QtGui.QPen(_BLACK, 3.0), QtGui.QPen(_GREEN, 1.4)):
+            for pen in _stroke_pens(self._style):
                 pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
                 painter.setPen(pen)
                 painter.drawPath(self._paths[self.shown])
         for bracket in self._brackets:
             if bracket.length() <= 0:
                 continue
-            for pen in (QtGui.QPen(_BLACK, 3.0), QtGui.QPen(_GREEN, 1.2)):
+            for pen in _stroke_pens(self._style):
                 painter.setPen(pen)
                 painter.drawLine(bracket)
                 for xe in (bracket.x1(), bracket.x2()):
                     painter.drawLine(QtCore.QLineF(xe, bracket.y1() - TICK_PX,
                                                    xe, bracket.y1() + TICK_PX))
         for text in self._texts:
-            painter.setPen(QtGui.QPen(_BLACK, 2.5))
-            painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
-            painter.drawPath(text)
-            painter.setPen(QtCore.Qt.PenStyle.NoPen)
-            painter.setBrush(_GREEN)
-            painter.drawPath(text)
+            _draw_text(painter, text, self._style)

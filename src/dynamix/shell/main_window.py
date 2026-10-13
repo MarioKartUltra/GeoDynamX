@@ -122,7 +122,7 @@ from dynamix.shell.surface_dialog import SurfaceDialog
 from dynamix.shell.topology_panel import TopologyPanel
 from dynamix.shell.transect_panel import TransectPanel
 from dynamix.shell.transport import Transport
-from dynamix.shell.units import px_to_metres
+from dynamix.shell.units import in_units, px_to_metres
 from dynamix.shell.view_dialog import ViewDialog, normalized_view_options
 from dynamix.shell.worker import OutputWorker, ResolveWorker
 from dynamix.shell.workflow_zone import BOX_HEIGHT, WorkflowZone
@@ -1301,6 +1301,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.wavelet_bar.moved.connect(
             lambda off: self._remember_bar("wavelet_bar", "raster", off))
         self._wavelet_bar_state = (None, "")      # (Profile, label) of the active landing
+        self._load_bar_styles()
         cascade = load_settings().view_options.get("wavelet_cascade")
         if isinstance(cascade, list) and len(cascade) == 2:
             self.canvas.wavelet_cascade.set_offset(cascade)
@@ -8804,11 +8805,15 @@ both ``Canvas`` signals report the
             self.canvas.set_scale_bar_text("")
             return
         label, bar_px = nice_round_scalebar(width)
-        units = self._units()
-        if units == "px":
+        # The same physical reading the wavelet bar uses (a bare EPSG code resolves to its
+        # unit there), then the bars' units choice.
+        value, unit = self._physical_length(bar_px)
+        choice = self._bar_styles["scale"]["units"]
+        if unit == "px" or choice == "px":
             self.canvas.set_scale_bar_text(f"{label} px")
         else:
-            self.canvas.set_scale_bar_text(f"{bar_px * self._px_to_unit():.4g} {units}")
+            value, unit = in_units(value, unit, choice)
+            self.canvas.set_scale_bar_text(f"{value:.4g} {unit}")
 
     def _units(self) -> str:
         _, unit = px_to_metres(self.field)
@@ -9011,11 +9016,82 @@ both ``Canvas`` signals report the
             scale_bar = options.get("map_scale_bar")
             if isinstance(scale_bar, list) and len(scale_bar) == 2:
                 self.map_view.scale_bar.set_offset(scale_bar)
+            self.map_view.wavelet_bar.set_style(self._bar_styles["wavelet"])
+            self.map_view.wavelet_bar.styleChanged.connect(
+                lambda s: self._on_bar_style_changed("wavelet", s))
+            self.map_view.scale_bar.set_style(self._bar_styles["scale"])
+            self.map_view.scale_bar.styleChanged.connect(
+                lambda s: self._on_bar_style_changed("scale", s))
+            self.map_view._update_scale_bar()
             self._feed_map_bar()           # a view built after a landing shows its bar
             self.map_view.wavelet_bar.moved.connect(
                 lambda off: self._remember_bar("wavelet_bar", "map", off))
             self.map_view.scale_bar.moved.connect(
                 lambda off: self._remember_bar("map_scale_bar", None, off))
+
+    def _load_bar_styles(self) -> None:
+        """The bars' remembered styles (``view_options["bar_style"]``: ``wavelet`` for the
+        wavelet bars and the cascade, ``scale`` for the distance bars), applied to the Raster
+        canvas's bars; the Map's take them when it is built."""
+        from dynamix.shell.wavelet_bar import (DEFAULT_SCALE_STYLE, DEFAULT_WAVELET_STYLE,
+                                               merged_style)
+
+        stored = load_settings().view_options.get("bar_style")
+        stored = stored if isinstance(stored, dict) else {}
+        self._bar_styles = {
+            "wavelet": merged_style(DEFAULT_WAVELET_STYLE, stored.get("wavelet") or {}),
+            "scale": merged_style(DEFAULT_SCALE_STYLE, stored.get("scale") or {})}
+        for item in (self.canvas.wavelet_bar, self.canvas.wavelet_cascade):
+            item.set_style(self._bar_styles["wavelet"])
+            item.styleChanged.connect(lambda s: self._on_bar_style_changed("wavelet", s))
+        self.canvas.set_scale_bar_style(self._bar_styles["scale"])
+        self.canvas.scaleBarStyleChanged.connect(
+            lambda s: self._on_bar_style_changed("scale", s))
+
+    def _on_bar_style_changed(self, kind: str, style: dict) -> None:
+        """A bar's menu changed its style: every bar of that kind follows, the labels re-read
+        in the chosen units, and the choice is remembered."""
+        self._bar_styles[kind] = dict(style)
+        options = dict(load_settings().view_options)
+        stored = dict(options.get("bar_style") or {})
+        stored[kind] = dict(style)
+        options["bar_style"] = stored
+        update_settings(view_options=options)
+        if kind == "wavelet":
+            items = [self.canvas.wavelet_bar, self.canvas.wavelet_cascade]
+            if self.map_view is not None:
+                items.append(self.map_view.wavelet_bar)
+            for item in items:
+                item.set_style(style)
+            profile, _label = self._wavelet_bar_state
+            self._wavelet_bar_state = (profile, self._bar_label(profile) if profile else "")
+            self.canvas.set_wavelet_profile(*self._canvas_bar_state())
+            self._feed_cascade()
+            self._feed_map_bar()
+        else:
+            self.canvas.set_scale_bar_style(style)
+            if self.map_view is not None:
+                self.map_view.scale_bar.set_style(style)
+                self.map_view._update_scale_bar()
+            self._update_scale_bar()
+
+    def _in_bar_units(self, length_px: float) -> tuple:
+        """A pixel length as the wavelet bars show it: the field's physical length in the
+        bars' units choice."""
+        value, unit = self._physical_length(length_px)
+        return in_units(value, unit, self._bar_styles["wavelet"]["units"], length_px=length_px)
+
+    def _bar_label(self, profile) -> str:
+        from dynamix.core.wavelet_profiles import format_length
+
+        if not np.isfinite(profile.lambda_px):
+            return "no band"
+        label = format_length(*self._in_bar_units(profile.lambda_px))
+        if profile.broad:
+            label += " · broad"
+        if profile.off_ladder:
+            label += " · off ladder"
+        return label
 
     def _remember_bar(self, key: str, sub, offset) -> None:
         """A bar was dragged: its offset goes into ``view_options[key]`` (under ``sub`` when
@@ -9051,15 +9127,7 @@ both ``Canvas`` signals report the
         if profile is None:
             return None, ""
         self._bar_device = (device, dict(params or {}))
-        if np.isfinite(profile.lambda_px):
-            label = format_length(*self._physical_length(profile.lambda_px))
-            if profile.broad:
-                label += " · broad"
-            if profile.off_ladder:
-                label += " · off ladder"
-        else:
-            label = "no band"
-        return profile, label
+        return profile, self._bar_label(profile)
 
     def _physical_length(self, length_px: float) -> tuple:
         """A length in pixels of the active layer's field as ``(value, unit)`` through
@@ -9126,7 +9194,7 @@ both ``Canvas`` signals report the
         def label(p):
             if not np.isfinite(p.lambda_px):
                 return f"r {p.scale_px:g} px · no band"
-            return f"r {p.scale_px:g} px · λ* {format_length(*self._physical_length(p.lambda_px))}"
+            return f"r {p.scale_px:g} px · λ* {format_length(*self._in_bar_units(p.lambda_px))}"
 
         shown = shown_level(self.layer)
         if shown is None:

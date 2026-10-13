@@ -13,6 +13,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.geo.placement import field_crs, image_transform, reproject_for_display
+from dynamix.shell.units import in_units
 from dynamix.shell.canvas import (ARROW_COLOR, Canvas, _arrow_segments, hline_polylines,
                                   lod_stride, nice_round_scalebar)
 
@@ -199,7 +200,8 @@ class MapView(QtWidgets.QWidget):
         if per_unit and per_unit > 0:
             _label, metres = nice_round_scalebar(width * per_unit)
             size = metres / per_unit
-            text = f"{metres / 1000:g} km" if metres >= 1000 else f"{metres:g} m"
+            value, unit = in_units(metres, "m", self.scale_bar.style()["units"])
+            text = f"{value:g} {unit}"
         else:
             label, size = nice_round_scalebar(width)
             text = f"{label} px"

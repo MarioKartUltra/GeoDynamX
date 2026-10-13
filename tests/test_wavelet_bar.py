@@ -196,3 +196,39 @@ def test_the_wtmm_knob_names_the_smoother_and_the_bar_names_the_analyser(clean_r
     assert "g3" in labels["mexican"] and "g1" in labels["gaussian"]
     assert "g3" in wtmm_profile("mexican", 8.0).family and "θ" in wtmm_profile("mexican", 8.0).family
     assert "g1" in wtmm_profile("gaussian", 8.0).family
+
+
+def _action(menu, *path):
+    """The QAction reached by menu titles then an action text."""
+    node = menu
+    for title in path[:-1]:
+        node = next(a.menu() for a in node.actions() if a.menu() is not None and a.text() == title)
+    return next(a for a in node.actions() if a.text() == path[-1])
+
+
+def test_the_bars_carry_a_style_with_a_right_click_menu(qtbot):
+    from dynamix.shell.wavelet_bar import DEFAULT_WAVELET_STYLE, WaveletCascade
+
+    w = _view(qtbot)
+    bar = WaveletBar()
+    bar.setParentItem(w.getViewBox())
+    bar.set_profile(_profile(20.0), "20 m", 1.0)
+    assert bar.style() == DEFAULT_WAVELET_STYLE and bar.style()["units"] == "auto"
+    seen = []
+    bar.styleChanged.connect(seen.append)
+    menu = bar.context_menu()
+    _action(menu, "Units", "km").trigger()
+    assert bar.style()["units"] == "km" and seen[-1]["units"] == "km"
+    _action(menu, "Outline").trigger()
+    assert bar.style()["outline"] is False
+    _action(menu, "Line width", "bold").trigger()
+    assert bar.style()["width"] == "bold"
+    bar.set_style({"color": "#ff00ff"})
+    assert bar.style()["color"] == "#ff00ff" and bar.colour().name() == "#ff00ff"
+    c = WaveletCascade()
+    c.set_style({"color": "#00ffff", "outline": False})
+    assert c.style()["color"] == "#00ffff" and c.colour().name() == "#00ffff"
+    scale = DraggableScaleBar(size=100, suffix="m")
+    scale.set_style({"color": "#ff0000"})
+    assert scale.bar.pen().color().name() == "#ff0000" and scale.style()["color"] == "#ff0000"
+    assert _action(scale.context_menu(), "Units", "m") is not None
