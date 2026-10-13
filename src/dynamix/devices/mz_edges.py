@@ -165,6 +165,12 @@ class MZEdges:
         Output("argument", "raster", lazy=True, label="argument", per_level=True),
     )
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The quadratic-spline wavelet of the level at scale 2^level (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import mz_profile
+
+        return mz_profile(int(round(np.log2(float(scale_px)))))
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         from dynamix.core import mz_edges
 

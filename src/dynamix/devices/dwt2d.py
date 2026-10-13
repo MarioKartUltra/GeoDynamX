@@ -93,6 +93,12 @@ class DWT2D:
             out += dwt.cycle_unshift(dwt.inverse(c, name), shift)
         return dwt.quarter(out / max(1, spins), ny, nx)
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The bank's wavelet at the level whose scale is 2^level (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import dwt_profile
+
+        return dwt_profile(params["wavelet"], int(round(np.log2(float(scale_px)))))
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         from dynamix.devices.decompose import _result
         from dynamix.devices.ssa2d import _store

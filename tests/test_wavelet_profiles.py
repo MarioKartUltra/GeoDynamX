@@ -110,3 +110,68 @@ def test_the_devices_route_their_own_params(clean_registry):
     hmap = wp.profile_for("holder_map", {"wavelet": "gaussian", "beta": 1.0, "q_tsallis": 1.5},
                           res, 0)
     assert hmap.lambda_px / 6.0 == pytest.approx(np.pi * np.sqrt(2), rel=0.01)
+
+
+def test_mz_levels_converge_to_the_continuum_constant_and_fine_levels_are_off_ladder():
+    cs = [wp.mz_profile(j).lambda_px / 2.0 ** j for j in range(1, 7)]
+    assert cs[0] == pytest.approx(1.0, rel=0.02) and cs[5] == pytest.approx(1.8595, rel=0.01)
+    assert wp.mz_profile(1).off_ladder and wp.mz_profile(2).off_ladder
+    assert not wp.mz_profile(3).off_ladder
+
+
+def test_cdf_profiles_are_the_ricker_or_the_gaussian_derivative_at_sigma():
+    marr = wp.cdf_profile("marr", 4.0)
+    assert marr.lambda_px == pytest.approx(np.pi * np.sqrt(2) * 4.0, rel=1e-3)
+    assert marr.psi[np.argmin(np.abs(marr.x_px))] == pytest.approx(1.0)
+    mz = wp.cdf_profile("mz", 4.0)
+    assert mz.lambda_px == pytest.approx(2 * np.pi * 4.0, rel=1e-3)
+    assert np.allclose(mz.psi, -mz.psi[::-1], atol=1e-9)
+
+
+def test_dwt_bank_levels_scale_by_two_and_level_one_is_off_ladder():
+    p2, p3 = wp.dwt_profile("sym7", 2), wp.dwt_profile("sym7", 3)
+    assert p3.lambda_px == pytest.approx(2 * p2.lambda_px, rel=0.02)
+    assert p3.lambda_px / 8.0 == pytest.approx(1.46, rel=0.02)
+    assert wp.dwt_profile("sym7", 1).off_ladder and not p3.off_ladder
+
+
+def test_tang_you_profile_is_the_gradient_of_theta():
+    p = wp.tang_you_profile("tang_you", 6.0)
+    assert np.allclose(p.psi, -p.psi[::-1], atol=1e-6) and np.isfinite(p.lambda_px)
+    assert 2.0 < p.lambda_px / 6.0 < 8.0
+
+
+def test_the_dyadic_and_skeleton_devices_route_their_levels(clean_registry):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    mz = wp.profile_for("mz_edges", {}, {"scales": np.array([2.0, 4.0, 8.0]), "_scale_idx": 2}, 0)
+    assert mz.lambda_px == pytest.approx(wp.mz_profile(3).lambda_px)
+    dwt = wp.profile_for("dwt2d", {"wavelet": "sym7"}, {"scales": np.array([2.0, 4.0, 8.0])}, 2)
+    assert dwt.lambda_px == pytest.approx(wp.dwt_profile("sym7", 3).lambda_px)
+    cdf = wp.profile_for("cdf_edges", {"edge_mode": "marr"}, {"scales": np.array([1.0, 2.0, 4.0])}, 2)
+    assert cdf.lambda_px == pytest.approx(np.pi * np.sqrt(2) * 4.0, rel=1e-3)
+    sk = wp.profile_for("wavelet_skeleton", {"wavelet": "tang_you"}, {"scales": np.array([6.0])}, 0)
+    assert sk.lambda_px == pytest.approx(wp.tang_you_profile("tang_you", 6.0).lambda_px)
+
+
+def test_a_plane_wave_peaks_where_lambda_reads_its_wavelength(clean_registry):
+    """The acceptance of the spec (§9): the scale with the largest mean WTMM modulus has λ* = L."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+
+    register_builtin_devices()
+    L = 24.0
+    y, x = np.mgrid[0:128, 0:128]
+    from dynamix.core.rasterfield import RasterField
+
+    wave = np.cos(2 * np.pi * x / L) + 0.05 * np.cos(2 * np.pi * y / 61.0)
+    field = RasterField._from_bare_array(wave, "wave", name="wave")
+    dev = get_device("wtmm2d")
+    params = {**defaults_for(dev), "wavelet": "gaussian", "n_oct": 4, "n_voice": 8,
+              "fracint_alpha": 0.0}
+    res = dev.compute(field, params)
+    strengths = [float(np.mean(np.asarray(ext["mod"]))) if len(ext["mod"]) else 0.0
+                 for ext in res["extrema"]]
+    a = float(np.asarray(res["scales"])[int(np.argmax(strengths))])
+    assert wp.lambda_px("wtmm2d", params, a) == pytest.approx(L, rel=2 ** (1 / 8) - 1 + 0.05)

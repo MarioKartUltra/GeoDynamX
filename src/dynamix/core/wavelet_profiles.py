@@ -226,3 +226,122 @@ def multiaffine_profile(wavelet: str, r: float, *, beta: float = 1.0, q_tsallis:
              "frac_gaussian": f"fractional order n = {fn:g}"}.get(name, name)
     return Profile(x, psi, r, float(lam) * r if np.isfinite(lam) else float("nan"),
                    f"{label} (multiaffine)", broad=octaves > 4.0, extra=extra)
+
+
+# -- the dyadic families (their own 1-D cascades) and the CDF and Tang-You kernels ------------
+
+#: The Mallat-Zhong quadratic-spline wavelet's continuum constant λ*/s (the peak of
+#: |ω sinc⁴(ω/4)| solves tan(ω/4) = ω/3); fine levels fall short of it (level 1 peaks at Nyquist).
+_MZ_CONTINUUM = 1.8595228751967214
+#: A dyadic level whose own constant is this far off the asymptotic one is off the ladder.
+_OFF_LADDER_TOL = 0.05
+
+
+def _dilate(taps: np.ndarray, step: int) -> np.ndarray:
+    """``taps`` with ``step - 1`` zeros between them (the à trous filter at that level)."""
+    out = np.zeros((taps.size - 1) * step + 1)
+    out[::step] = taps
+    return out
+
+
+def _cascade(h: np.ndarray, g: np.ndarray, level: int) -> np.ndarray:
+    """The impulse response of the level-``level`` (1-based) band of an à trous cascade:
+    ``g`` dilated 2^(level-1) after ``h`` dilated 2^(level-2) ... down to ``h`` itself."""
+    resp = _dilate(np.asarray(g, dtype=np.float64), 2 ** (level - 1))
+    for j in range(level - 1, 0, -1):
+        resp = np.convolve(resp, _dilate(np.asarray(h, dtype=np.float64), 2 ** (j - 1)))
+    return resp
+
+
+def _peak_wavelength(resp: np.ndarray) -> float:
+    """λ in pixels of a 1-D filter's spectral peak (cycles per pixel; a separable filter's own
+    transform, which is allowed), parabolically refined."""
+    n = int(max(8192, 16 * resp.size))
+    spec = np.abs(np.fft.rfft(resp, n=n))
+    k = np.arange(spec.size) / n
+    lam, _octaves = _band(2.0 * np.pi * k, spec)      # _band works in angular κ at r = 1
+    return float(lam)
+
+
+def mz_profile(level: int) -> Profile:
+    """The Mallat-Zhong quadratic-spline wavelet at dyadic level ``level`` (scale 2^level), as
+    the transform's own à trous cascade applies it (``mzlib.TAPS``)."""
+    from dynamix.core.mzlib import TAPS
+
+    def taps(d: dict) -> np.ndarray:
+        lo = min(d)
+        out = np.zeros(max(d) - lo + 1)
+        for k, v in d.items():
+            out[k - lo] = v
+        return out
+
+    level = int(level)
+    resp = _cascade(taps(TAPS["h"]), taps(TAPS["g"]), level)
+    x = np.arange(resp.size, dtype=np.float64) - np.argmax(np.abs(resp))
+    x, psi = _normalised(x, resp)
+    lam = _peak_wavelength(resp)
+    scale = 2.0 ** level
+    c = lam / scale
+    return Profile(x, psi, scale, lam, f"Mallat-Zhong quadratic spline, level {level}",
+                   off_ladder=abs(c / _MZ_CONTINUUM - 1.0) > _OFF_LADDER_TOL,
+                   extra={"a": scale, "c_level": c, "c_continuum": _MZ_CONTINUUM})
+
+
+def _bank_filters(bank: str) -> tuple[np.ndarray, np.ndarray]:
+    import pywt
+
+    w = pywt.Wavelet(bank)
+    return np.asarray(w.dec_lo, dtype=np.float64), np.asarray(w.dec_hi, dtype=np.float64)
+
+
+def _bank_asymptotic_c(bank: str) -> float:
+    h, g = _bank_filters(bank)
+    return _peak_wavelength(_cascade(h, g, 8)) / 2.0 ** 8
+
+
+def dwt_profile(bank: str, level: int) -> Profile:
+    """A PyWavelets bank's level-``level`` wavelet (scale 2^level) as its own cascade applies
+    it; level 1 of every bank peaks at Nyquist and is off the ladder."""
+    h, g = _bank_filters(bank)
+    level = int(level)
+    resp = _cascade(h, g, level)
+    x = np.arange(resp.size, dtype=np.float64) - np.argmax(np.abs(resp))
+    x, psi = _normalised(x, resp)
+    lam = _peak_wavelength(resp)
+    scale = 2.0 ** level
+    c, c_inf = lam / scale, _bank_asymptotic_c(bank)
+    return Profile(x, psi, scale, lam, f"{bank} ψ, level {level}",
+                   off_ladder=abs(c / c_inf - 1.0) > _OFF_LADDER_TOL,
+                   extra={"a": scale, "c_level": c, "c_asymptotic": c_inf})
+
+
+def cdf_profile(edge_mode: str, sigma: float) -> Profile:
+    """The CDF evolution's edge detector at σ (= 2^k): the 2-D Mexican hat's section for the
+    ``marr`` mode (the Im channel is a Ricker scale space), the Gaussian first derivative for
+    the ``mz`` mode (grad-Re maxima); λ* = 2πσ/√m with m = 2 or 1."""
+    sigma = float(sigma)
+    u = np.linspace(-6.0, 6.0, 481)
+    if edge_mode == "marr":
+        psi, m, label = (2.0 - u * u) * np.exp(-u * u / 2.0), 2, "Mexican hat (CDF Im channel)"
+    else:
+        psi, m, label = -u * np.exp(-u * u / 2.0), 1, "Gaussian derivative (CDF grad-Re)"
+    x, psi = _normalised(u * sigma, psi)
+    return Profile(x, psi, sigma, 2.0 * np.pi * sigma / np.sqrt(m), label,
+                   extra={"a": sigma, "sigma": sigma})
+
+
+def tang_you_profile(kernel: str, s: float) -> Profile:
+    """The gradient wavelet ∂θ/∂x of the skeleton device's smoothing kernel at support radius
+    s (its section), with λ* from the k_x slice of θ's 2-D transform times k."""
+    from dynamix.core.wavelet_skeleton import theta_kernel
+
+    s = float(s)
+    n = 2 * int(np.ceil(2.5 * s)) + 1
+    theta = np.fft.fftshift(theta_kernel((1, n), s, kernel)[0])
+    x = np.arange(n, dtype=np.float64) - n // 2
+    x, psi = _normalised(x, np.gradient(theta, x))
+    big = 1024
+    spec = np.abs(np.fft.fft2(theta_kernel((big, big), s, kernel))[0, : big // 2 + 1])
+    k = np.arange(spec.size) / big
+    lam, _octaves = _band(2.0 * np.pi * k, k * spec)
+    return Profile(x, psi, s, float(lam), f"{kernel} gradient wavelet", extra={"a": s})

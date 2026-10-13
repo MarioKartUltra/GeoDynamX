@@ -72,6 +72,12 @@ class WaveletSkeleton:
               soft_min=0.3, soft_max=0.7, units="", label="Pair dom."),
     )
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The gradient wavelet of the smoothing kernel at support s (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import tang_you_profile
+
+        return tang_you_profile(params.get("wavelet", "tang_you"), scale_px)
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         import numpy as np
 

@@ -118,6 +118,12 @@ class CDFEdges:
                Output("im_scale", "raster", lazy=True, label="Im at σ", per_level=True),
                Output("snapshots", "raster", lazy=True, label="snapshots", row=False))
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The edge detector's kernel at σ = ``scale_px`` (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import cdf_profile
+
+        return cdf_profile(params.get("edge_mode", "mz"), scale_px)
+
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         import numpy as np
 
