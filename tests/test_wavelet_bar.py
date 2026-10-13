@@ -158,3 +158,25 @@ def test_the_cascade_keeps_its_centre_when_the_ladder_widens(qtbot):
     x0 = c.scenePos().x()
     c.set_profiles([measure_profile("gaussian", r) for r in (2.0, 4.0, 8.0, 16.0)], ("2", "16"), 0)
     assert c.scenePos().x() == pytest.approx(x0)
+
+
+def test_the_curves_amplitude_grows_with_their_width_on_screen(qtbot):
+    """Zoomed out the curve keeps its floor height; zoomed in it stays proportional to its own
+    width on screen (never a long flat line at pixel level), each cascade level at its own."""
+    from dynamix.core.wavelet_profiles import measure_profile
+    from dynamix.shell.wavelet_bar import CURVE_ASPECT, CURVE_HEIGHT_PX, WaveletCascade
+
+    w = _view(qtbot)
+    bar = WaveletBar()
+    bar.setParentItem(w.getViewBox())
+    bar.set_profile(_profile(20.0), "20 m", 1.0)
+    assert bar.amplitude_px() == CURVE_HEIGHT_PX                        # the floor
+    w.getViewBox().setRange(xRange=(0, 30), yRange=(0, 20), padding=0)  # 20x in
+    assert bar.amplitude_px() == pytest.approx(CURVE_ASPECT * bar.curve_width_px())
+    assert bar.amplitude_px() > CURVE_HEIGHT_PX
+    c = WaveletCascade()
+    c.setParentItem(w.getViewBox())
+    c.set_profiles([measure_profile("gaussian", r) for r in (2.0, 4.0, 8.0)], ("2 px", "8 px"), 1)
+    amps, widths = c.amplitudes_px(), c.widths_px()
+    assert amps[2] == pytest.approx(CURVE_ASPECT * widths[2])
+    assert amps[2] > amps[0] >= CURVE_HEIGHT_PX

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The wavelet scale bar: the analysing wavelet's section at the level on show, drawn to scale
-on the image (its width in data units), a screen-constant height, a dimension bracket exactly
+on the image (its width in data units), its height a fixed share of that width on screen above a
+floor (so a zoom keeps the curve's proportions instead of stretching it flat), a dimension bracket exactly
 λ* wide carrying the label with the physical length, green over a black stroke. Anchored to a
 corner of the view in screen pixels, so it never clips, and draggable; the Map's distance bar
 drags the same way. Display only."""
@@ -13,7 +14,8 @@ from PySide6 import QtCore, QtGui
 
 from dynamix.shell.canvas import ANALYZER_COLOR
 
-CURVE_HEIGHT_PX = 28.0          # the curve's peak-to-peak excursion on screen
+CURVE_HEIGHT_PX = 28.0          # the curve's smallest peak-to-peak excursion on screen
+CURVE_ASPECT = 0.25             # and, zoomed in, its excursion as a share of its width on screen
 BRACKET_GAP_PX = 6.0            # between the curve's lowest point and the bracket
 TICK_PX = 5.0                   # the bracket's end ticks
 TAIL_FRACTION = 0.01            # the curve stops where |ψ| falls below this of its peak
@@ -103,6 +105,7 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         self._bracket = QtCore.QLineF()
         self._rect = QtCore.QRectF()
         self._curve_x_px = np.empty(0)
+        self._amplitude = CURVE_HEIGHT_PX
         self._font = QtGui.QFont()
         self._font.setBold(True)
         self._font.setPointSizeF(10.0)
@@ -158,19 +161,13 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             return
         self.prepareGeometryChange()
         k = self._px_per_data() * self._dx_data             # screen px per image pixel
-        x, psi = np.asarray(p.x_px, dtype=np.float64), np.asarray(p.psi, dtype=np.float64)
-        peak = float(np.max(np.abs(psi))) if psi.size else 0.0
-        keep = np.abs(psi) >= TAIL_FRACTION * peak if peak > 0 else np.zeros(psi.shape, bool)
-        if np.isfinite(p.lambda_px):
-            keep &= np.abs(x) <= CAP_LAMBDAS * p.lambda_px
-        self._curve_x_px = x[keep]
-        xs, ys = self._curve_x_px * k, -0.5 * CURVE_HEIGHT_PX * psi[keep]
+        xs, ys, self._curve_x_px, self._amplitude = _section(p, k)
         self._curve = QtGui.QPainterPath()
         if xs.size:
             self._curve.moveTo(xs[0], ys[0])
             for xi, yi in zip(xs[1:], ys[1:]):
                 self._curve.lineTo(xi, yi)
-        y_bracket = 0.5 * CURVE_HEIGHT_PX + BRACKET_GAP_PX
+        y_bracket = 0.5 * self._amplitude + BRACKET_GAP_PX
         half = 0.5 * p.lambda_px * k if np.isfinite(p.lambda_px) else 0.0
         self._bracket = QtCore.QLineF(-half, y_bracket, half, y_bracket)
         self._text = QtGui.QPainterPath()
@@ -190,6 +187,12 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
 
     def curve_x_px(self) -> np.ndarray:
         return self._curve_x_px
+
+    def curve_width_px(self) -> float:
+        return float(self._curve.boundingRect().width())
+
+    def amplitude_px(self) -> float:
+        return float(self._amplitude)
 
     # -- QGraphicsItem ----------------------------------------------------------------------
     def boundingRect(self) -> QtCore.QRectF:
@@ -248,14 +251,18 @@ class DraggableScaleBar(_Drag, pg.ScaleBar):
 
 
 def _section(profile, k: float):
-    """``(x_screen, y_screen, x_px)`` of a profile's drawn section: |ψ| ≥ 1 % of its peak and
-    |x| ≤ 2λ*, at ``k`` screen pixels per image pixel."""
+    """``(x_screen, y_screen, x_px, amplitude)`` of a profile's drawn section: |ψ| ≥ 1 % of its
+    peak and |x| ≤ 2λ*, at ``k`` screen pixels per image pixel; the amplitude is CURVE_ASPECT of
+    the section's width on screen, never below CURVE_HEIGHT_PX."""
     x, psi = np.asarray(profile.x_px, dtype=np.float64), np.asarray(profile.psi, dtype=np.float64)
     peak = float(np.max(np.abs(psi))) if psi.size else 0.0
     keep = np.abs(psi) >= TAIL_FRACTION * peak if peak > 0 else np.zeros(psi.shape, bool)
     if np.isfinite(profile.lambda_px):
         keep &= np.abs(x) <= CAP_LAMBDAS * profile.lambda_px
-    return x[keep] * k, -0.5 * CURVE_HEIGHT_PX * psi[keep], x[keep]
+    xs = x[keep] * k
+    width = float(xs.max() - xs.min()) if xs.size else 0.0
+    amplitude = max(CURVE_HEIGHT_PX, CURVE_ASPECT * width)
+    return xs, -0.5 * amplitude * psi[keep], x[keep], amplitude
 
 
 class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
@@ -274,6 +281,7 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         self.shown = 0
         self._paths: list = []
         self._widths: list = []
+        self._amps: list = []
         self._brackets: list = []
         self._texts: list = []
         self._rect = QtCore.QRectF()
@@ -319,10 +327,11 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             return
         self.prepareGeometryChange()
         k = self._px_per_data()
-        self._paths, self._widths = [], []
+        self._paths, self._widths, self._amps = [], [], []
         rect = QtCore.QRectF()
         for p in self._profiles:
-            xs, ys, _x_px = _section(p, k)
+            xs, ys, _x_px, amp = _section(p, k)
+            self._amps.append(amp)
             path = QtGui.QPainterPath()
             if xs.size:
                 path.moveTo(xs[0], ys[0])
@@ -333,7 +342,7 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             rect = rect.united(path.boundingRect())
         metrics = QtGui.QFontMetricsF(self._font)
         self._brackets, self._texts = [], []
-        y = 0.5 * CURVE_HEIGHT_PX + BRACKET_GAP_PX
+        y = 0.5 * max(self._amps) + BRACKET_GAP_PX
         for p, label in zip((self._profiles[0], self._profiles[-1]), self.labels):
             half = 0.5 * p.lambda_px * k if np.isfinite(p.lambda_px) else 0.0
             self._brackets.append(QtCore.QLineF(-half, y, half, y))
@@ -350,6 +359,9 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
 
     def widths_px(self) -> list:
         return list(self._widths)
+
+    def amplitudes_px(self) -> list:
+        return list(self._amps)
 
     def boundingRect(self) -> QtCore.QRectF:
         return QtCore.QRectF(self._rect)

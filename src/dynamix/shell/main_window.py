@@ -7761,7 +7761,7 @@ both ``Canvas`` signals report the
         # The wavelet bars: the analysing wavelet of this landing's device at the level on
         # show. First, so the Transport's reading and the multifractal axis read the same λ*.
         self._wavelet_bar_state = self._bar_state(renderable, result)
-        self.canvas.set_wavelet_profile(*self._wavelet_bar_state)
+        self.canvas.set_wavelet_profile(*self._canvas_bar_state())
         self._feed_cascade()
         self._refresh_topology_panel()
         self._refresh_skeleton_button()
@@ -9089,6 +9089,15 @@ both ``Canvas`` signals report the
             return self._physical_length(lam) if np.isfinite(lam) else None
 
         return of
+
+    def _canvas_bar_state(self) -> tuple:
+        """The Raster canvas's single wavelet bar: the landing's wavelet, except for a
+        microcanonical tool, whose cascade draws its whole ladder on that canvas and whose view
+        shows h rather than wavelet coefficients; the Map's bar and the Transport's reading keep
+        ``_wavelet_bar_state``."""
+        if self._bar_device is not None and self._bar_device[0] in _CASCADE_DEVICES:
+            return None, ""
+        return self._wavelet_bar_state
 
     def _cascade_state(self) -> tuple:
         """``(profiles, (label_min, label_max), shown)`` of the active layer's microcanonical

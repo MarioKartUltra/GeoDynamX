@@ -619,3 +619,15 @@ def test_the_chain_grouping_selects_the_dominant_chains_on_the_views(geo_window,
     construction.select_views_check.setChecked(False)                     # off: the views keep theirs
     construction._gpct_spin.setValue(construction._gpct_spin.value() + 20.0)
     assert win._group_palette.selection() == {(lid, int(i)) for i in np.flatnonzero(dom2)}
+
+
+def test_a_microcanonical_tool_shows_its_cascade_and_no_single_bar_on_the_raster(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "holder_measure")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    assert win.canvas.wavelet_cascade.isVisible()
+    assert not win.canvas.wavelet_bar.isVisible()                 # the view shows h, not coefficients
+    assert win._wavelet_bar_state[0] is not None                  # the Transport and the Map still read λ*
