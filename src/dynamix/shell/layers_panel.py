@@ -130,12 +130,18 @@ class LayersPanel(QtWidgets.QWidget):
 
     def refresh(self) -> None:
         current = self.current_id()
+        collapsed = {nid for nid, it in self._items.items()
+                     if it.childCount() and not it.isExpanded()}
         self._building = True
         self.tree.clear()
         self._items.clear()
         for node in self._stack.root.children:
             self._add(None, node)
         self.tree.expandAll()
+        for nid in collapsed:                       # a group the user folded stays folded
+            item = self._items.get(nid)
+            if item is not None:
+                item.setExpanded(False)
         item = self._items.get(current)
         if item is not None:
             self.tree.setCurrentItem(item)

@@ -150,3 +150,12 @@ def test_a_name_click_after_a_keyboard_eye_toggle_selects(qtbot):
     qtbot.mouseClick(p.tree.viewport(), QtCore.Qt.LeftButton,
                      pos=p.tree.visualItemRect(item).center())
     assert seen == ["prod:1"]
+
+
+def test_a_collapsed_group_stays_collapsed_across_a_refresh(qtbot):
+    s, p = _panel(qtbot)
+    p.item_for("ds:src0").setExpanded(False)
+    s.insert(Group("grp:3", "new"), "root", 0)
+    s.insert(Row("ext:5", "extrema"), "grp:3", 0)
+    p.refresh()
+    assert not p.item_for("ds:src0").isExpanded() and p.item_for("grp:3").isExpanded()
