@@ -125,6 +125,7 @@ class MapView(QtWidgets.QWidget):
         #: linear CRS or frame, 0.0 for pixel axes (no ground distance).
         self._unit_metres = 1.0
         self._selected_row = None
+        self._fallback_row = None
         self._overlay_items: list = []
         self.extrema_style = {"colour": "modulus", "mode": "linear", "q": 1.0,
                               "subpixel": False, "ticks": True, "heads": False}
@@ -570,8 +571,11 @@ class MapView(QtWidgets.QWidget):
         picked.setVisible(True)
 
     # -- interaction --------------------------------------------------------------------------
-    def set_selected_row(self, row_id) -> None:
+    def set_selected_row(self, row_id, fallback=None) -> None:
+        """The row the readout reads: ``row_id`` when it is drawn, else ``fallback`` (a
+        layer's dataset row, for a layer with no product row)."""
         self._selected_row = row_id
+        self._fallback_row = fallback
 
     def _row_at(self, x, y):
         """The topmost visible raster row whose image covers map point ``(x, y)``."""
@@ -583,13 +587,16 @@ class MapView(QtWidgets.QWidget):
         """Map coordinates, and the selected row's PAINTED value there (a display value: the
         LUT input of a plain raster; the Raster tab reads exact native values)."""
         text = f"{x:.10g}, {y:.10g}"
-        item = self._items.get(self._selected_row)
-        if item is not None and item.isVisible() and item.image is not None:
+        for rid in (self._selected_row, self._fallback_row):
+            item = self._items.get(rid)
+            if item is None or not item.isVisible() or item.image is None:
+                continue
             p = item.mapFromView(QtCore.QPointF(x, y))
             i, j = int(np.floor(p.x())), int(np.floor(p.y()))
             img = item.image
             if img.ndim == 2 and 0 <= i < img.shape[0] and 0 <= j < img.shape[1]:
-                text += f"  ·  {self._selected_row} = {img[i, j]:.6g}"
+                text += f"  ·  {rid} = {img[i, j]:.6g}"
+            break
         return text
 
     def _on_mouse_moved(self, pos) -> None:

@@ -381,3 +381,11 @@ def test_the_warp_cache_holds_one_entry_per_row_and_prunes_with_the_row(qtbot):
     assert not v._warp_cache and "src:a" not in v._painters and "chn:1" in v._chain_rows
     v.show_stack([], lambda rid: None)
     assert not v._chain_rows
+
+
+def test_the_readout_falls_back_to_the_dataset_row(qtbot):
+    v = _view(qtbot)
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                 lambda rid: RowContent("raster", field=_utm(), style=STYLE))
+    v.set_selected_row("prod:1", fallback="src:a")
+    assert "src:a = " in v._readout_at(500105.0, 4399905.0)

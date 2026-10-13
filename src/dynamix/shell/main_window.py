@@ -4671,7 +4671,8 @@ both ``Canvas`` signals report the
         if self.layers_panel is not None:
             self.layers_panel.highlight_layer(layer.layer_id)
         if self.map_view is not None:
-            self.map_view.set_selected_row(f"prod:{layer.layer_id}")
+            self.map_view.set_selected_row(f"prod:{layer.layer_id}",
+                                           fallback=f"src:{layer.source_id}")
         # ``_names``/``_params`` are freshly, legitimately populated from THIS layer's own recipe
         # (even if that chain happens to be empty) -- whatever inert ``load_field`` last wiped
         # them for is no longer what they hold, so the next auto-run open must not reseed over a
@@ -9181,7 +9182,8 @@ both ``Canvas`` signals report the
                                            self._row_content)
         self.map_view.set_overlays(**self._map_overlays())
         if self.layer is not None:
-            self.map_view.set_selected_row(f"prod:{self.layer.layer_id}")
+            self.map_view.set_selected_row(f"prod:{self.layer.layer_id}",
+                                           fallback=f"src:{self.layer.source_id}")
         if self.layers_panel is not None:
             self.layers_panel.set_reasons(reasons)
 
