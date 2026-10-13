@@ -130,7 +130,12 @@ class MultifractalWindow(QtWidgets.QDialog):
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,
                  forward_note: str = "", parent=None, physical_of_log2a=None,
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
-                 extrema_mods=None, scales=None):
+                 extrema_mods=None, scales=None, dh_hist=None,
+                 source: str = "canonical (Arneodo WTMM)"):
+        #: The histogram construction ``(h, D, dD)`` of an h-map result, drawn beside the
+        #: canonical points; None without one.
+        self._dh_hist = tuple(dh_hist) if dh_hist is not None else None
+        self._source = str(source)
         #: The maxima's moduli per scale and the scales (px) they sit at, for the cascade's
         #: cumulants under the fit window; None leaves the c(q) panel to the fit's own curve.
         self._extrema_mods = ([np.asarray(m, dtype=np.float64) for m in extrema_mods]
@@ -152,7 +157,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # the same choice SkeletonDialog/ProfileDialog made and for the same reason.
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
-        self.setWindowTitle("Multifractal spectrum — canonical (Arneodo WTMM)")
+        self.setWindowTitle(f"Multifractal spectrum — {self._source}")
 
         self._hd_by_choice = {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
         self._filtered_tables = (hd_std, hd_cmax)
@@ -403,6 +408,19 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._pt_scan_qstar_line = pg.InfiniteLine(angle=90, movable=False,
                                                    pen=pg.mkPen(RESTRAINED_DARK.amber))
         self._pt_scan_plot.addItem(self._pt_scan_qstar_line)
+
+        # An h-map result's histogram construction (eq. 21, the eq. 39 bars) beside the points.
+        d_plot = self._spectrum_plots["D"]
+        self._dh_hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
+        d_plot.addItem(self._dh_hist_err)
+        self._dh_hist_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.4), connect="finite",
+                                              name="microcanonical histogram")
+        d_plot.addItem(self._dh_hist_curve)
+        if self._dh_hist is not None:
+            h, D, dD = (np.asarray(a, dtype=np.float64) for a in self._dh_hist)
+            self._dh_hist_curve.setData(h, D)
+            self._dh_hist_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
+                                      height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
 
         # Row 3: the specific heat c(q) = -q² τ'' off the fit (points), the cumulant expansion's
         # curve from the maxima moduli, and the log-normal reference c₂ q² (the workbook's

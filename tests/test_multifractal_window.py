@@ -387,3 +387,20 @@ def test_a_focus_mode_shows_the_power_means_their_lines_meeting_at_the_marked_fo
     rows = window._family_items_by_table["tau_qa"]                      # rebuilt with the mode
     np.testing.assert_allclose(rows[nz[0]].yData, hd["tau_qa"][nz[0]], atol=1e-12)
     assert not window._focus_markers["tau_qa"].isVisible() and not window._L_lines["tau_qa"].isVisible()
+
+
+def test_the_histogram_construction_rides_on_the_dh_panel_and_the_source_titles(qtbot):
+    h = np.linspace(0.0, 1.0, 20)
+    D = 2.0 - 8.0 * (h - 0.5) ** 2
+    dD = np.full(20, 0.05)
+    window = MultifractalWindow(*_pair(), dh_hist=(h, D, dD), source="moments over the projections")
+    qtbot.addWidget(window)
+    x, y = window._dh_hist_curve.getData()
+    np.testing.assert_allclose(x, h)
+    np.testing.assert_allclose(y, D)
+    assert "moments over the projections" in window.windowTitle()
+    bare = MultifractalWindow(*_pair())
+    qtbot.addWidget(bare)
+    xb, _ = bare._dh_hist_curve.getData()
+    assert xb is None or xb.size == 0
+    assert "canonical" in bare.windowTitle()

@@ -3292,10 +3292,18 @@ both ``Canvas`` signals report the
         mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
         if not mods or len(mods) != len(extrema) or scales is None or len(scales) != len(mods):
             mods, scales = None, None
+        dh_hist = None
+        if result.get("h_map") is not None:
+            from dynamix.core.microcanonical import dh_histogram_errors
+
+            h, D, dD, _counts = dh_histogram_errors(np.asarray(result["h_map"]))
+            dh_hist = (h, D, dD) if h.size else None
         window = MultifractalWindow(hd_std, hd_cmax, eta_seed=eta_seed, forward_note=note,
                                     parent=self, physical_of_log2a=self._physical_of_log2a(),
                                     log2_L=self._log2_extent(result), all_tables=all_tables,
-                                    filter_note=filter_note, extrema_mods=mods, scales=scales)
+                                    filter_note=filter_note, extrema_mods=mods, scales=scales,
+                                    dh_hist=dh_hist,
+                                    source=result.get("hd_source") or "canonical (Arneodo WTMM)")
         self._multifractal_window = window
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
@@ -3446,12 +3454,20 @@ both ``Canvas`` signals report the
         shape = result.get("_shape")
         log2_L = (float(np.log2(min(int(shape[0]), int(shape[1]))))
                   if shape is not None and len(shape) >= 2 else None)
+        gh_field = None
+        if h_map is not None:
+            field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
+            values = getattr(field, "values", None)
+            if values is not None and np.ndim(values) == 2:
+                gh_field = np.asarray(values)
         window = SpectrumWindow(
-            hd_std, hd_cmax, chains=chains, scales=scales, h_map=h_map,
+            hd_std, hd_cmax, chains=chains, scales=scales if scales is not None
+            else result.get("scales"), h_map=h_map,
             h_map_estimator=str(params.get("estimator", "")),
             eta_seed=eta_seed, forward_note=note,
             min_chain_len=int(params.get("min_chain_len", 2)),
-            log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note)
+            log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
+            dh_curves=result.get("dh_curves"), gh_field=gh_field)
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)

@@ -198,3 +198,24 @@ def test_q_knob_warns_where_the_kernel_misbehaves():
         assert multi.derived_reading("q_tsallis", -0.5, None, dict(pa, wavelet="g2")) == ""
         assert meas.derived_reading("r_min", 1.0, None, pm) == ""       # r1 has its own line
         assert meas.derived_reading("kappa", 8.0, None, pm) is None
+
+
+def test_the_microcanonical_tools_carry_the_moment_tables_and_the_per_scale_curves():
+    """Turiel 2006's M method on the projections every run already computes: the partition
+    tables the fitter reads (one table, both keys), the source named, and the per-scale
+    histogram curves of the 2008 test (ii); D(0) = d by construction."""
+    from dynamix.core import spectra
+
+    field = _field(n=48)
+    res = HolderMeasure().compute(field, defaults_for(HolderMeasure()))
+    hd = res["hd_std"]
+    assert res["hd_cmax"] is hd and res["hd_source"].startswith("moments")
+    assert hd["tau_qa"].shape == (len(hd["q_list"]), len(res["scales"]))
+    fit = spectra.fit_spectra(hd, float(hd["log2_scales"][0]), float(hd["log2_scales"][-1]))
+    assert np.isfinite(fit["tau"]).all()
+    assert fit["D"][list(hd["q_list"]).index(0.0)] == pytest.approx(2.0, abs=0.05)
+    assert len(res["dh_curves"]) == len(res["scales"])
+    multi = HolderMultiaffine().compute(field, defaults_for(HolderMultiaffine()))
+    assert "hd_std" in multi and len(multi["dh_curves"]) == len(multi["scales"])
+    old = HolderMap().compute(field, defaults_for(HolderMap()))
+    assert "hd_std" in old and "dh_curves" in old

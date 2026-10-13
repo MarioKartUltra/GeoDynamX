@@ -42,13 +42,13 @@ import numpy as np
 import dataclasses
 import functools
 
-from dynamix.devices.holder_map import field_values_2d
+from dynamix.devices.holder_map import MOMENT_SOURCE, field_values_2d, projection_tables
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 
 
-def method_arrays(vals, method: str, params: dict, progress=None):
+def method_arrays(vals, method: str, params: dict, progress=None, extras=None):
     """``(h_map, r2_map, scales)`` for one METHOD (``"multiaffine"`` | ``"measure"``) under
     the split params — the split tools' engine, shared verbatim by the band-reconstruction
     variants so the h-map a band is picked from is the h-map the reconstruction uses.
@@ -75,6 +75,9 @@ def method_arrays(vals, method: str, params: dict, progress=None):
         T = mc.ricker_projections(vals, scales, progress=per_scale, **kw)
     else:
         T = mc.measure_projections(mc.gradient_measure(vals), scales, progress=per_scale, **kw)
+    if extras is not None:
+        # The moment route and the per-scale histograms ride on the stack already in hand.
+        extras["hd"], extras["dh_curves"] = projection_tables(T, scales)
     if progress is not None:
         progress("holder estimate", 0.7)
     if punctual:
@@ -429,10 +432,13 @@ def band_output(device_name: str, name: str, values, result: dict, params: dict,
 
 def _compute(device, method: str, field, params: dict, progress=None) -> dict:
     vals = field_values_2d(field, device.name)
-    h_map, r2_map, scales = method_arrays(vals, method, params, progress)
+    extras: dict = {}
+    h_map, r2_map, scales = method_arrays(vals, method, params, progress, extras)
     return {
         "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
         "scales": scales, "params": keyed_params(device, params),
+        "hd_std": extras["hd"], "hd_cmax": extras["hd"], "hd_source": MOMENT_SOURCE,
+        "dh_curves": extras["dh_curves"],
         "_frame": getattr(field, "frame", None), "_shape": vals.shape,
     }
 

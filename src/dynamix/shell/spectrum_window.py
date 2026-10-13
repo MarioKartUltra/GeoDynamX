@@ -68,7 +68,7 @@ class SpectrumWindow(QtWidgets.QDialog):
                  h_map_estimator: str = "", eta_seed: float = 0.0,
                  forward_note: str = "", min_chain_len: int = 2,
                  log2_L: "float | None" = None, parent=None, all_tables=None,
-                 filter_note: str = ""):
+                 filter_note: str = "", dh_curves=None, gh_field=None):
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
         self.setWindowTitle("Singularity spectrum — construction")
@@ -95,14 +95,21 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._fit: dict | None = None
         self._grouping: "np.ndarray | None" = None
 
-        # The histogram half is static -- one compute at construction (precompute posture).
+        # The histogram construction: eq. 21 with the eq. 39 bars, over the bins and the
+        # resolution the controls choose (recomputed from the h-map, cheap); the per-scale
+        # curves (Turiel 2008 test ii) come precomputed with the result; the gradient
+        # histogram (GH) is computed from the field on request.
+        self._h_map = np.asarray(h_map) if h_map is not None else None   # its own dtype: the same bins
+        self._dh_curves = list(dh_curves) if dh_curves else []
+        self._gh_field = np.asarray(gh_field, dtype=np.float64) if gh_field is not None else None
+        self._bins = 80
+        self._r0_choice = "1/√N"
         self._hist: "tuple | None" = None
+        self._hist_dD = None
         self._hist_label = ""
         if h_map is not None:
-            from dynamix.core.microcanonical import dh_histogram
-            h_centers, D = dh_histogram(np.asarray(h_map))
-            if h_centers.size:
-                self._hist = (h_centers, D)
+            self._compute_hist()
+            if self._hist is not None:
                 self._hist_label = "microcanonical histogram (eq. 21)"
                 if h_map_estimator == "punctual":
                     # Pont/Turiel/Perez-Vicente 2006: the single-scale estimator linearizes
@@ -219,6 +226,31 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._hull_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self._hull_check)
 
+        # The histogram construction's own controls, with an h-map to build it from.
+        self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None
+        if self._h_map is not None:
+            controls.addWidget(QtWidgets.QLabel("bins"))
+            self.bins_spin = QtWidgets.QSpinBox()
+            self.bins_spin.setRange(10, 400)
+            self.bins_spin.setValue(self._bins)
+            self.bins_spin.valueChanged.connect(lambda _v: self._on_hist_controls_changed())
+            controls.addWidget(self.bins_spin)
+            controls.addWidget(QtWidgets.QLabel("r₀"))
+            self.r0_combo = QtWidgets.QComboBox()
+            self.r0_combo.addItem("1/√N")
+            if self._scales is not None and self._scales.size:
+                self.r0_combo.addItem("r_min/L")
+            self.r0_combo.currentTextChanged.connect(lambda _t: self._on_hist_controls_changed())
+            controls.addWidget(self.r0_combo)
+            self.per_scale_check = QtWidgets.QCheckBox("per-scale histograms")
+            self.per_scale_check.setEnabled(bool(self._dh_curves))
+            self.per_scale_check.toggled.connect(self._on_per_scale_toggled)
+            controls.addWidget(self.per_scale_check)
+            self.gh_check = QtWidgets.QCheckBox("gradient histogram (GH)")
+            self.gh_check.setEnabled(self._gh_field is not None)
+            self.gh_check.toggled.connect(self._on_gh_toggled)
+            controls.addWidget(self.gh_check)
+
         for w in (self._table_combo, self._lo_spin, self._hi_spin, self._eta_spin,
                   self._hull_check):
             w.setEnabled(has_hd)
@@ -312,10 +344,17 @@ class SpectrumWindow(QtWidgets.QDialog):
             pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine, width=1.6),
             connect="finite", name="Legendre hull of fitted τ(q)")
         self._plot.addItem(self._hull_curve)
-        if self._hist is not None:
-            hist_curve = pg.PlotDataItem(*self._hist, pen=pg.mkPen(Q_COLD, width=1.4),
-                                         connect="finite", name=self._hist_label)
-            self._plot.addItem(hist_curve)
+        self._hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
+        self._plot.addItem(self._hist_err)
+        self._hist_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.4), connect="finite",
+                                           name=self._hist_label or None)
+        self._plot.addItem(self._hist_curve)
+        self._scale_curves: list = []
+        gh_pen = pg.mkPen(RESTRAINED_DARK.amber, width=1.2, style=QtCore.Qt.DotLine)
+        self._gh_curve = pg.PlotDataItem(pen=gh_pen, connect="finite",
+                                         name="gradient histogram (GH)")
+        self._plot.addItem(self._gh_curve)
+        self._update_hist_items()
         self._dom_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.2),
                                           connect="finite", name="dominant chains")
         self._non_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.2),
@@ -326,6 +365,69 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._plot.addItem(self._peak_text)
 
         self.resize(950, 700)
+
+    # -- the histogram construction ---------------------------------------------------------
+    def _r0_rel(self) -> "float | None":
+        """The resolution eq. 21 divides by: the paper's 1/sqrt(N), or the finest scale over
+        the field's extent."""
+        from dynamix.core.microcanonical import relative_scale
+
+        if self._r0_choice == "r_min/L" and self._scales is not None and self._scales.size:
+            r = relative_scale(float(self._scales[0]), self._h_map.shape)
+            return r if 0.0 < r < 1.0 else None
+        return None
+
+    def _compute_hist(self) -> None:
+        from dynamix.core.microcanonical import dh_histogram_errors
+
+        h, D, dD, _counts = dh_histogram_errors(self._h_map, r0_rel=self._r0_rel(),
+                                                n_bins=self._bins)
+        self._hist = (h, D) if h.size else None
+        self._hist_dD = dD if h.size else None
+
+    def _update_hist_items(self) -> None:
+        if self._hist is None:
+            self._hist_curve.setData([], [])
+            self._hist_err.setData(x=np.zeros(0), y=np.zeros(0), height=np.zeros(0))
+            return
+        h, D = self._hist
+        self._hist_curve.setData(h, D)
+        height = np.where(np.isfinite(self._hist_dD), 2.0 * self._hist_dD, 0.0)
+        self._hist_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0), height=height)
+
+    def _on_hist_controls_changed(self) -> None:
+        self._bins = int(self.bins_spin.value())
+        self._r0_choice = self.r0_combo.currentText()
+        self._compute_hist()
+        self._update_hist_items()
+        if self.gh_check is not None and self.gh_check.isChecked():
+            self._on_gh_toggled(True)
+
+    def _on_per_scale_toggled(self, checked: bool) -> None:
+        """The construction at every resolution of the stack (Turiel 2008 test ii): on a
+        multifractal the curves coincide."""
+        if checked and not self._scale_curves:
+            n = max(len(self._dh_curves), 1)
+            for i, (r_rel, h, D) in enumerate(self._dh_curves):
+                colour = pg.mkColor(Q_COLD)
+                colour.setAlpha(70 + int(150 * i / n))
+                curve = pg.PlotDataItem(h, D, pen=pg.mkPen(colour, width=1.0), connect="finite",
+                                        name=f"histogram at r = {r_rel:.3g} L")
+                self._plot.addItem(curve)
+                self._scale_curves.append(curve)
+        for curve in self._scale_curves:
+            curve.setVisible(bool(checked))
+
+    def _on_gh_toggled(self, checked: bool) -> None:
+        """Turiel 2006's gradient histogram, the crude fast construction from the field."""
+        if not checked or self._gh_field is None:
+            self._gh_curve.setData([], [])
+            return
+        from dynamix.core.microcanonical import gradient_histogram_spectrum
+
+        h, D, _dD = gradient_histogram_spectrum(self._gh_field, r0_rel=self._r0_rel(),
+                                                n_bins=self._bins)
+        self._gh_curve.setData(h, D)
 
     # -- recompute --------------------------------------------------------------------------
     def _recompute(self) -> None:

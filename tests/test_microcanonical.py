@@ -703,3 +703,80 @@ def test_reconstruction_fills_holes_for_the_transform_and_restores_them():
     r2 = mc.BandReconstructor(f, h, max_dim=32).reconstruct(-1.0, 1.0)      # decimated by 2
     assert r2.shape == (32, 32)
     assert np.isnan(r2[holes[::2, ::2]]).all() and np.isfinite(r2[~holes[::2, ::2]]).all()
+
+
+# ------------------------------------------------------ the moment route and the histogram construction
+
+def _monofractal_T(H=0.6, n=48, n_sc=6, seed=1):
+    """Projections |T(x, r)| = c(x) r^H with a random prefactor c(x): a monofractal whose
+    all-pixel moments scale as r^{qH} exactly."""
+    rng = np.random.default_rng(seed)
+    scales = np.geomspace(1.0, 16.0, n_sc)
+    c = np.exp(rng.normal(0.0, 0.3, (n, n)))
+    T = np.stack([c * r ** H for r in scales]).astype(np.float64)
+    return T, scales
+
+
+def test_partition_tables_over_all_pixels_follow_the_wtmm_conventions():
+    """Turiel 2006's M method on the projections, in the app's sum convention: the moments
+    over every pixel, with the a^{-d} decimation that the WTMM's maxima count carries, so a
+    monofractal reads tau(q) = qH - d, h(q) = H, D(q) = d, and the tables carry the WTMM
+    schema the fitter reads."""
+    from dynamix.core import spectra
+
+    T, scales = _monofractal_T(H=0.6)
+    q = np.array([-2.0, -1.0, 0.0, 1.0, 2.0, 3.0])
+    hd = mc.partition_tables(T, scales, q, d=2.0)
+    for key in ("q_list", "scales", "log2_scales", "N_a", "tau_qa", "h_qa", "D_qa",
+                "sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
+        assert key in hd
+    assert hd["tau_qa"].shape == (q.size, scales.size)
+    assert np.isfinite(hd["sigma_tau_qa"]).all() and (hd["sigma_h_qa"] >= 0).all()
+    np.testing.assert_allclose(hd["N_a"], T[0].size * (scales[0] / scales) ** 2)
+    fit = spectra.fit_spectra(hd, 0.0, 4.0)
+    np.testing.assert_allclose(fit["tau"], 0.6 * q - 2.0, atol=1e-9)
+    np.testing.assert_allclose(fit["h"], 0.6, atol=1e-9)
+    np.testing.assert_allclose(fit["D"], 2.0, atol=1e-9)
+    T[2, 3, 4] = np.nan                                 # a pixel without support is left out
+    hd2 = mc.partition_tables(T, scales, q, d=2.0)
+    assert np.isfinite(hd2["tau_qa"]).all()
+
+
+def test_dh_histogram_errors_are_the_binomial_bars_of_turiel_2006():
+    """Eq. 39: dD(h) = 3 / (sqrt(N_h) |ln r0|), the 99 % interval of a binomial bin count."""
+    rng = np.random.default_rng(0)
+    h_map = rng.normal(0.3, 0.1, (64, 64))
+    full = (float(h_map.min()), float(h_map.max()))
+    h, D, dD, counts = mc.dh_histogram_errors(h_map, n_bins=20, h_range=full)
+    h0, D0 = mc.dh_histogram(h_map, n_bins=20, h_range=full)
+    np.testing.assert_allclose(h, h0)
+    np.testing.assert_allclose(D, D0, equal_nan=True)
+    r0 = 1.0 / np.sqrt(h_map.size)
+    ok = counts > 0
+    np.testing.assert_allclose(dD[ok], 3.0 / (np.sqrt(counts[ok]) * abs(np.log(r0))))
+    assert counts.sum() == h_map.size and np.isnan(dD[~ok]).all()
+
+
+def test_per_scale_histograms_give_one_curve_per_scale_at_its_own_resolution():
+    """Turiel 2008 test (ii): the construction at each resolution r_k, from the punctual
+    exponents at that scale with log r_k; on a monofractal the curves collapse: every one
+    peaks at D = d and at the same h (the punctual estimator reads h relative to the mean)."""
+    T, scales = _monofractal_T(H=0.6, n=64)
+    curves = mc.per_scale_histograms(T, scales, n_bins=30)
+    assert len(curves) == scales.size
+    peaks = []
+    for (r_rel, h, D), r in zip(curves, scales):
+        assert r_rel == pytest.approx(mc.relative_scale(r, (64, 64)))
+        assert np.nanmax(D) == pytest.approx(2.0)
+        peaks.append(h[np.nanargmax(D)])
+    assert max(peaks) - min(peaks) < 0.15
+
+
+def test_gradient_histogram_spectrum_is_the_gh_method():
+    """Turiel 2006 GH: h = log(|grad s| / <|grad s|>) / log r0 at the finest scale, then the
+    histogram formula; D <= d with equality at the mode, with the binomial bars."""
+    rng = np.random.default_rng(2)
+    field = np.cumsum(np.cumsum(rng.normal(size=(96, 96)), axis=0), axis=1)
+    h, D, dD = mc.gradient_histogram_spectrum(field, n_bins=40)
+    assert h.size == 40 and np.nanmax(D) == pytest.approx(2.0)
+    assert np.all(D[np.isfinite(D)] <= 2.0 + 1e-12) and np.isfinite(dD[np.isfinite(D)]).all()

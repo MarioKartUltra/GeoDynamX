@@ -856,3 +856,117 @@ def reconstruct_from_msc(signal: np.ndarray, msc_mask: np.ndarray, *,
     psnr = 10.0 * np.log10(span ** 2 / max(mse, 1e-30))
     rel_err = float(np.sqrt(mse) / max(span, 1e-30))
     return recon.astype(np.float32), psnr, rel_err
+
+
+# ------------------------------------------------------- the moment route and the histogram bars
+
+def partition_tables(T, scales, q_list, *, d: float = 2.0, chunk: int = 1 << 18) -> dict:
+    """Turiel 2006's moment (M) method on the projections ``T`` (n_sc, ny, nx): the moments of
+    |T(x, r)| over EVERY pixel with support, as the partition tables the fitter reads (the
+    schema of ``wtmm_ebsd.partition.build_hd_from_chains``). The app's convention sums over
+    r^-d-decimated boxes, as the WTMM's maxima count does, so Z(q, r) = (r0/r)^d Σ_x |T|^q and a
+    monofractal reads tau(q) = qH - d, h(q) = H, D(q) = d, with D = q h - tau per scale. Pixels
+    are not independent beyond the kernel's footprint: the effective count N (r0/r)^d is the
+    tables' N_a and enters the sigmas."""
+    T = np.asarray(T, dtype=np.float64)
+    scales = np.asarray(scales, dtype=np.float64)
+    q = np.asarray(q_list, dtype=np.float64)
+    n_q, n_sc = q.size, scales.size
+    ln2 = np.log(2.0)
+    tau, h, D = (np.full((n_q, n_sc), np.nan) for _ in range(3))
+    s_tau, s_h, s_D = (np.full((n_q, n_sc), np.nan) for _ in range(3))
+    N_a = np.zeros(n_sc)
+    decim = (scales[0] / scales) ** d
+    for k in range(n_sc):
+        m = T[k].ravel()
+        m = m[np.isfinite(m) & (m > 0)]
+        n = m.size
+        if n == 0:
+            continue
+        Zq, ZqL, Z2q, ZqL2 = (np.zeros(n_q) for _ in range(4))
+        for start in range(0, n, chunk):
+            ln_m = np.log(m[start:start + chunk])
+            mq = np.exp(q[:, None] * ln_m[None, :])
+            Zq += mq.sum(axis=1)
+            ZqL += (mq * ln_m[None, :]).sum(axis=1)
+            Z2q += (mq * mq).sum(axis=1)
+            ZqL2 += (mq * ln_m[None, :] ** 2).sum(axis=1)
+        n_eff = n * decim[k]
+        N_a[k] = n_eff
+        tau[:, k] = np.log(Zq * decim[k]) / ln2
+        h[:, k] = ZqL / (Zq * ln2)
+        D[:, k] = q * h[:, k] - tau[:, k]
+        mean_q = Zq / n
+        var_pix = np.maximum(Z2q / n - mean_q ** 2, 0.0)
+        s_sv = np.sqrt(var_pix / n_eff) / np.maximum(mean_q * ln2, 1e-300)
+        s_tau[:, k] = np.sqrt(s_sv ** 2 + (1.0 / np.sqrt(n_eff) / ln2) ** 2)
+        n_tilted = np.where(Z2q > 0, Zq * Zq / np.maximum(Z2q, 1e-300), 1.0) * decim[k]
+        var_logm = np.maximum(ZqL2 / np.maximum(Zq, 1e-300)
+                              - (ZqL / np.maximum(Zq, 1e-300)) ** 2, 0.0)
+        s_h[:, k] = np.sqrt(var_logm / np.maximum(n_tilted, 1.0)) / ln2
+        s_D[:, k] = np.sqrt(q ** 2 * s_h[:, k] ** 2 + s_tau[:, k] ** 2)
+    return {"q_list": q, "scales": scales, "log2_scales": np.log2(scales), "N_a": N_a,
+            "tau_qa": tau, "h_qa": h, "D_qa": D,
+            "sigma_tau_qa": s_tau, "sigma_h_qa": s_h, "sigma_D_qa": s_D}
+
+
+def dh_histogram_errors(h_map: np.ndarray, *, r0_rel: "float | None" = None, d: float = 2.0,
+                        n_bins: int = 80, h_range=None):
+    """:func:`dh_histogram` with its bars: ``(h_centers, D, dD, counts)``. Turiel 2006 §7.3,
+    eq. 39 -- each bin's count is binomial, so at 99 % confidence
+    dD(h) = 3 / (sqrt(N_h) |ln r0|); NaN where the bin is empty."""
+    h_valid = np.asarray(h_map)[np.isfinite(h_map)].ravel()
+    if h_valid.size < 10:
+        return np.array([]), np.array([]), np.array([]), np.array([])
+    if r0_rel is None:
+        r0_rel = 1.0 / np.sqrt(np.asarray(h_map).size)
+    if not 0.0 < r0_rel < 1.0:
+        raise ValueError(f"r0_rel must be the RELATIVE resolution in (0, 1), got {r0_rel!r}")
+    if h_range is None:
+        h_range = (np.percentile(h_valid, 1), np.percentile(h_valid, 99))
+    counts, edges = np.histogram(h_valid, bins=n_bins, range=h_range)
+    h_centers = 0.5 * (edges[:-1] + edges[1:])
+    density = counts / np.diff(edges) / counts.sum()      # numpy's density, the same floats
+    with np.errstate(divide="ignore", invalid="ignore"):
+        D = d - np.log(density / density.max()) / np.log(r0_rel)
+        dD = 3.0 / (np.sqrt(counts) * abs(np.log(r0_rel)))
+    D[counts == 0] = np.nan
+    dD[counts == 0] = np.nan
+    return h_centers, D, dD, counts.astype(np.int64)
+
+
+def per_scale_histograms(T, scales, *, n_bins: int = 80, d: float = 2.0) -> list:
+    """Turiel 2008 test (ii): the histogram construction at each resolution of the stack --
+    the punctual exponents at scale r_k (:func:`singularity_map_point`) and eq. 21 with that
+    scale's own log r_k. ``[(r_rel, h_centers, D), ...]``, one per scale; a scale beyond the
+    field (r_rel >= 1) gives empty arrays. On a multifractal the curves coincide."""
+    T = np.asarray(T, dtype=np.float64)
+    out = []
+    for k, r in enumerate(np.asarray(scales, dtype=np.float64)):
+        r_rel = relative_scale(float(r), T[k].shape)
+        if not 0.0 < r_rel < 1.0:
+            out.append((r_rel, np.array([]), np.array([])))
+            continue
+        h_k = singularity_map_point(T[k], r_rel)
+        h_c, D = dh_histogram(np.asarray(h_k, dtype=np.float64), r0_rel=r_rel, d=d,
+                              n_bins=n_bins)
+        out.append((r_rel, h_c, D))
+    return out
+
+
+def gradient_histogram_spectrum(field, *, r0_rel: "float | None" = None, d: float = 2.0,
+                                n_bins: int = 80, h_range=None):
+    """Turiel 2006's gradient histogram (GH) method: the log-normalised gradient
+    h(x) = log(|grad s|(x) / <|grad s|>) / log r0 at the finest scale stands in for the
+    exponent (eq. 20-21), then the histogram formula with the eq. 39 bars:
+    ``(h_centers, D, dD)``."""
+    vals = np.asarray(field, dtype=np.float64)
+    grad = gradient_measure(vals)
+    pos = np.isfinite(grad) & (grad > 0)
+    if r0_rel is None:
+        r0_rel = 1.0 / np.sqrt(vals.size)
+    h_tilde = np.full(vals.shape, np.nan)
+    h_tilde[pos] = np.log(grad[pos] / grad[pos].mean()) / np.log(r0_rel)
+    h_c, D, dD, _counts = dh_histogram_errors(h_tilde, r0_rel=r0_rel, d=d, n_bins=n_bins,
+                                              h_range=h_range)
+    return h_c, D, dD

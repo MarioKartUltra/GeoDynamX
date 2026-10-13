@@ -46,7 +46,20 @@ def field_values_2d(field, device_name: str):
     return vals
 
 
-def holder_arrays(vals, params: dict, progress=None):
+MOMENT_SOURCE = "moments over the projections (Turiel 2006, M method)"
+
+
+def projection_tables(T, scales) -> tuple:
+    """The moment route's partition tables (Turiel 2006's M method over every pixel of the
+    projections a run already holds, the fitter's own schema) and the per-scale histogram
+    curves of Turiel 2008's test (ii): ``(hd, curves)``."""
+    from dynamix.core import microcanonical as mc
+    from dynamix.core.wtmm_backend import DEFAULT_Q
+
+    return mc.partition_tables(T, scales, DEFAULT_Q), mc.per_scale_histograms(T, scales)
+
+
+def holder_arrays(vals, params: dict, progress=None, extras=None):
     """``(h_map, r2_map, scales)`` for the shared estimator/wavelet/scale params -- the one
     engine both ``holder_map`` and ``band_recon`` run."""
     import numpy as np
@@ -68,6 +81,8 @@ def holder_arrays(vals, params: dict, progress=None):
         T = mc.measure_projections(mc.gradient_measure(vals), scales,
                                    wavelet=params["wavelet"], beta=params["beta"],
                                    q_tsallis=params["q_tsallis"], progress=per_scale)
+    if extras is not None:
+        extras["hd"], extras["dh_curves"] = projection_tables(T, scales)
     if progress is not None:
         progress("holder regression", 0.7)
     h_map, r2_map = mc.singularity_map_regression(T, scales, r2_min=0.0)
@@ -149,10 +164,13 @@ class HolderMap:
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         vals = field_values_2d(field, self.name)
-        h_map, r2_map, scales = holder_arrays(vals, params, progress)
+        extras: dict = {}
+        h_map, r2_map, scales = holder_arrays(vals, params, progress, extras)
         return {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": scales, "params": dict(params),
+            "hd_std": extras["hd"], "hd_cmax": extras["hd"], "hd_source": MOMENT_SOURCE,
+            "dh_curves": extras["dh_curves"],
             "_frame": getattr(field, "frame", None), "_shape": vals.shape,
         }
 

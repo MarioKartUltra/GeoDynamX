@@ -186,3 +186,37 @@ def test_filtered_tables_carry_their_note_and_a_switch_to_all_chains(qtbot):
     plain = SpectrumWindow(hd_std, hd_cmax)
     qtbot.addWidget(plain)
     assert "filtered" not in plain.windowTitle() and plain.all_chains_check is None
+
+
+def test_the_histogram_construction_has_bars_bins_resolution_per_scale_curves_and_gh(qtbot):
+    from dynamix.core import microcanonical as mc
+
+    rng = np.random.default_rng(0)
+    h_map = rng.normal(0.4, 0.1, (64, 64))
+    field = np.cumsum(np.cumsum(rng.normal(size=(64, 64)), axis=0), axis=1)
+    scales = np.array([1.0, 2.0, 4.0])
+    T = np.stack([np.exp(rng.normal(0.0, 0.3, (64, 64))) * r ** 0.5 for r in scales])
+    curves = mc.per_scale_histograms(T, scales, n_bins=30)
+    window = SpectrumWindow(h_map=h_map, scales=scales, dh_curves=curves, gh_field=field)
+    qtbot.addWidget(window)
+    assert window.bins_spin.value() == 80 and window.r0_combo.currentText() == "1/√N"
+    h, D, dD, _counts = mc.dh_histogram_errors(h_map, n_bins=80)
+    x, y = window._hist_curve.getData()
+    np.testing.assert_allclose(x, h)
+    np.testing.assert_allclose(y, D, equal_nan=True)
+    np.testing.assert_allclose(window._hist_err.opts["height"], np.where(np.isfinite(dD), 2 * dD, 0.0))
+    window.bins_spin.setValue(40)
+    assert window._hist_curve.getData()[0].size == 40
+    window.r0_combo.setCurrentText("r_min/L")
+    _h2, D2, _dD2, _ = mc.dh_histogram_errors(h_map, n_bins=40,
+                                              r0_rel=mc.relative_scale(1.0, (64, 64)))
+    np.testing.assert_allclose(window._hist_curve.getData()[1], D2, equal_nan=True)
+    assert not window.per_scale_check.isChecked() and len(window._scale_curves) == 0
+    window.per_scale_check.setChecked(True)
+    assert len(window._scale_curves) == 3 and all(c.isVisible() for c in window._scale_curves)
+    window.per_scale_check.setChecked(False)
+    assert not any(c.isVisible() for c in window._scale_curves)
+    assert not window.gh_check.isChecked()
+    window.gh_check.setChecked(True)
+    _gh_h, gh_D, _gh_dD = mc.gradient_histogram_spectrum(field, n_bins=40)
+    np.testing.assert_allclose(window._gh_curve.getData()[1], gh_D, equal_nan=True)
