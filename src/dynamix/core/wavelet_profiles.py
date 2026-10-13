@@ -263,6 +263,15 @@ def _peak_wavelength(resp: np.ndarray) -> float:
     return float(lam)
 
 
+def _cubic_bspline_derivative(t: np.ndarray) -> np.ndarray:
+    """d/dt of the centred cubic B-spline (support |t| < 2): piecewise quadratic, odd."""
+    t = np.asarray(t, dtype=np.float64)
+    u = np.abs(t)
+    inner = -2.0 * u + 1.5 * u * u
+    outer = -0.5 * (2.0 - u) ** 2
+    return np.sign(t) * np.where(u <= 1.0, inner, np.where(u < 2.0, outer, 0.0))
+
+
 def mz_profile(level: int) -> Profile:
     """The Mallat-Zhong quadratic-spline wavelet at dyadic level ``level`` (scale 2^level), as
     the transform's own à trous cascade applies it (``mzlib.TAPS``)."""
@@ -277,10 +286,13 @@ def mz_profile(level: int) -> Profile:
 
     level = int(level)
     resp = _cascade(taps(TAPS["h"]), taps(TAPS["g"]), level)
-    x = np.arange(resp.size, dtype=np.float64) - np.argmax(np.abs(resp))
-    x, psi = _normalised(x, resp)
     lam = _peak_wavelength(resp)
     scale = 2.0 ** level
+    # The section is the wavelet itself, psi = theta' with theta(x) = 2 B3(2x) the cubic-spline
+    # smoother (psi_hat = i w (sin(w/4)/(w/4))^4), dilated to the level's scale -- the a trous
+    # taps are its samples and at the fine levels too few of them to draw.
+    x = np.linspace(-scale, scale, max(129, 16 * int(scale) + 1))
+    x, psi = _normalised(x, _cubic_bspline_derivative(2.0 * x / scale))
     c = lam / scale
     return Profile(x, psi, scale, lam, f"Mallat-Zhong quadratic spline, level {level}",
                    off_ladder=abs(c / _MZ_CONTINUUM - 1.0) > _OFF_LADDER_TOL,

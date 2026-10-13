@@ -205,3 +205,20 @@ def test_holder_map_profile_follows_its_estimator(clean_registry):
     assert measure.lambda_px / 6.0 == pytest.approx(np.pi * np.sqrt(2), rel=0.01)
     assert multi.lambda_px / 6.0 == pytest.approx(np.pi, rel=0.01)
     assert measure.psi.min() >= -1e-9 and multi.psi.min() < -0.05      # a kernel, a hat
+
+
+def test_the_mz_section_is_the_continuum_quadratic_spline_at_the_levels_scale():
+    """The bar draws the Mallat-Zhong wavelet itself -- psi = theta' with theta the cubic-spline
+    smoother, support |x| <= 2^level, antisymmetric, positive left of centre like g1 -- sampled
+    finely even at level 1, where the a trous filter has two taps; lambda* stays the level's."""
+    for level in (1, 3):
+        p = wp.mz_profile(level)
+        s = 2.0 ** level
+        assert p.x_px.size >= 65 and p.x_px.min() == pytest.approx(-s) and p.x_px.max() == pytest.approx(s)
+        i = np.argmax(p.psi)
+        assert p.x_px[i] < 0 and p.psi[i] == pytest.approx(1.0)
+        np.testing.assert_allclose(p.psi, -p.psi[::-1], atol=1e-12)            # antisymmetric
+        assert p.psi[np.argmin(np.abs(p.x_px))] == pytest.approx(0.0, abs=1e-12)
+        assert p.psi[0] == pytest.approx(0.0, abs=1e-12)                        # compact support
+    assert wp.mz_profile(1).lambda_px == pytest.approx(2.0, rel=0.02)           # the level's own
+    assert wp.mz_profile(1).off_ladder and not wp.mz_profile(3).off_ladder
