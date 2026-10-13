@@ -83,6 +83,24 @@ def _q_color(i: int, n: int) -> tuple:
 FAMILY_TABLES = (("tau_qa", "log₂ Z(q,a)"), ("h_qa", "H(q,a)"), ("D_qa", "D(q,a)"))
 
 
+class PhysicalAxis(pg.AxisItem):
+    """A top axis whose ticks sit at the panel's log₂ a positions and read the physical
+    length λ* there (the wavelet scale bar's conversion); a scale without a band reads blank."""
+
+    def __init__(self, physical, orientation: str = "top", **kw) -> None:
+        super().__init__(orientation, **kw)
+        self._physical = physical
+
+    def tickStrings(self, values, scale, spacing):
+        from dynamix.core.wavelet_profiles import format_length
+
+        out = []
+        for v in values:
+            got = self._physical(float(v))
+            out.append(format_length(*got) if got is not None else "")
+        return out
+
+
 class MultifractalWindow(QtWidgets.QDialog):
     """Interactive canonical (Arneodo WTMM) spectrum fitter over ``hd_std``/``hd_cmax``."""
 
@@ -92,7 +110,11 @@ class MultifractalWindow(QtWidgets.QDialog):
     scaleWindowChanged = QtCore.Signal(float, float)
 
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,
-                 forward_note: str = "", parent=None):
+                 forward_note: str = "", parent=None, physical_of_log2a=None):
+        #: ``log2 a -> (length, unit) | None``: λ* of the analysing wavelet at that scale in
+        #: the field's physical unit (the wavelet scale bar's own conversion), for a top axis
+        #: on the three family panels and the fit window's readout; None leaves them out.
+        self._physical = physical_of_log2a
         # Qt.Window, not the QDialog default -- a real, independently resizable top-level window,
         # the same choice SkeletonDialog/ProfileDialog made and for the same reason.
         super().__init__(parent, QtCore.Qt.Window)
@@ -192,6 +214,10 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(RESTRAINED_DARK.ground)
         layout.addWidget(self._glw, 1)
+        #: The fit window in log₂ a and, through ``physical_of_log2a``, in physical length.
+        self.range_label = QtWidgets.QLabel("")
+        self.range_label.setProperty("reading", "true")
+        layout.addWidget(self.range_label)
 
         # Row 0: the THREE partition-function families (Z, H, D vs log2 a -- the books' top
         # row), each carrying a mirrored copy of the fit window so click-and-drag works on any
@@ -206,6 +232,9 @@ class MultifractalWindow(QtWidgets.QDialog):
             plot = self._glw.addPlot(row=0, col=col)
             plot.setLabel("bottom", "log₂ a")
             plot.setLabel("left", ylabel)
+            if self._physical is not None:
+                plot.setAxisItems({"top": PhysicalAxis(self._physical)})
+                plot.showAxis("top")
             region = pg.LinearRegionItem(values=span, orientation="vertical",
                                          brush=pg.mkBrush(band),
                                          pen=pg.mkPen(RESTRAINED_DARK.amber))
@@ -316,8 +345,19 @@ class MultifractalWindow(QtWidgets.QDialog):
             for item, visible in zip(items, mask):
                 item.setVisible(bool(visible))
 
+    def _range_text(self, lo: float, hi: float) -> str:
+        from dynamix.core.wavelet_profiles import format_length
+
+        text = f"fit window: log₂ a {lo:.2f} – {hi:.2f}"
+        if self._physical is not None:
+            ends = [self._physical(v) for v in (lo, hi)]
+            if all(e is not None for e in ends):
+                text += f"  ·  {format_length(*ends[0])} – {format_length(*ends[1])}"
+        return text
+
     def _refit(self) -> None:
         lo, hi = self._region.getRegion()
+        self.range_label.setText(self._range_text(float(lo), float(hi)))
         self._fit = spectra.fit_spectra(
             self._current_hd(), float(lo), float(hi),
             eta=self._eta_spin.value(), frame=self._frame_combo.currentText())

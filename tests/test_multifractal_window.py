@@ -212,3 +212,14 @@ def test_scale_window_changes_are_broadcast(qtbot):
     window.scaleWindowChanged.connect(lambda lo, hi: seen.append((lo, hi)))
     window.set_scale_window(2.0, 6.0)
     assert seen and seen[-1] == (2.0, 6.0)
+
+
+def test_a_physical_top_axis_and_the_range_readout(qtbot):
+    hd_std, hd_cmax = _pair()
+    window = MultifractalWindow(hd_std, hd_cmax,
+                                physical_of_log2a=lambda v: (2.0 ** v * 14.1, "m"))
+    qtbot.addWidget(window)
+    axis = window._family_plots["tau_qa"].getAxis("top")
+    assert axis.isVisible() and axis.tickStrings([3.0], 1.0, 1.0) == ["113 m"]
+    window.set_scale_window(2.0, 4.0)
+    assert "56.4 m" in window.range_label.text() and "226 m" in window.range_label.text()

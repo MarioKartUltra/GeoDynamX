@@ -3246,7 +3246,7 @@ both ``Canvas`` signals report the
         if self._multifractal_window is not None:
             self._multifractal_window.close()
         window = MultifractalWindow(hd_std, hd_cmax, eta_seed=eta_seed, forward_note=note,
-                                    parent=self)
+                                    parent=self, physical_of_log2a=self._physical_of_log2a())
         self._multifractal_window = window
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window drives an open
         # construction window; connected on whichever of the two opens second.
@@ -8954,6 +8954,7 @@ both ``Canvas`` signals report the
         from dynamix.shell.units import physical
 
         device, params = renderable.analysis_device, renderable.analysis_params
+        self._bar_device = None                      # the multifractal axis follows the bar
         if not device or not isinstance(result, dict):
             return None, ""
         layers = result.get("extrema") or []
@@ -8965,16 +8966,9 @@ both ``Canvas`` signals report the
             return None, ""
         if profile is None:
             return None, ""
+        self._bar_device = (device, dict(params or {}))
         if np.isfinite(profile.lambda_px):
-            field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
-            value, unit = physical(profile.lambda_px, field)
-            if unit.upper().startswith("EPSG:"):        # a bare code: PROJ names its unit
-                from dynamix.geo.placement import crs_metres
-
-                named = crs_metres(unit)
-                if named is not None and named[0] is not None:
-                    value, unit = value * named[0], named[1]
-            label = format_length(value, unit)
+            label = format_length(*self._physical_length(profile.lambda_px))
             if profile.broad:
                 label += " · broad"
             if profile.off_ladder:
@@ -8982,6 +8976,37 @@ both ``Canvas`` signals report the
         else:
             label = "no band"
         return profile, label
+
+    def _physical_length(self, length_px: float) -> tuple:
+        """A length in pixels of the active layer's field as ``(value, unit)`` through
+        ``shell.units.physical``; a bare EPSG code gets its unit from PROJ."""
+        from dynamix.shell.units import physical
+
+        field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
+        value, unit = physical(length_px, field)
+        if unit.upper().startswith("EPSG:"):
+            from dynamix.geo.placement import crs_metres
+
+            named = crs_metres(unit)
+            if named is not None and named[0] is not None:
+                value, unit = value * named[0], named[1]
+        return value, unit
+
+    def _physical_of_log2a(self):
+        """``log2 a -> (λ* in the field's unit, unit) | None`` for the active layer's device,
+        the multifractal window's physical axis; None when no wavelet is on show."""
+        from dynamix.core.wavelet_profiles import lambda_px
+
+        device_params = getattr(self, "_bar_device", None)
+        if not device_params or self.field is None:
+            return None
+        device, params = device_params
+
+        def of(log2a: float):
+            lam = lambda_px(device, params, 2.0 ** float(log2a))
+            return self._physical_length(lam) if np.isfinite(lam) else None
+
+        return of
 
     @staticmethod
     def _axis_step(field) -> float:
