@@ -167,7 +167,8 @@ class WaveletBar(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             self._curve.moveTo(xs[0], ys[0])
             for xi, yi in zip(xs[1:], ys[1:]):
                 self._curve.lineTo(xi, yi)
-        y_bracket = 0.5 * self._amplitude + BRACKET_GAP_PX
+        # The bracket hangs under the curve's lowest point (a Gaussian never dips below its base).
+        y_bracket = (self._curve.boundingRect().bottom() if xs.size else 0.0) + BRACKET_GAP_PX
         half = 0.5 * p.lambda_px * k if np.isfinite(p.lambda_px) else 0.0
         self._bracket = QtCore.QLineF(-half, y_bracket, half, y_bracket)
         self._text = QtGui.QPainterPath()
@@ -342,7 +343,7 @@ class WaveletCascade(_Drag, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             rect = rect.united(path.boundingRect())
         metrics = QtGui.QFontMetricsF(self._font)
         self._brackets, self._texts = [], []
-        y = 0.5 * max(self._amps) + BRACKET_GAP_PX
+        y = max((p.boundingRect().bottom() for p in self._paths), default=0.0) + BRACKET_GAP_PX
         for p, label in zip((self._profiles[0], self._profiles[-1]), self.labels):
             half = 0.5 * p.lambda_px * k if np.isfinite(p.lambda_px) else 0.0
             self._brackets.append(QtCore.QLineF(-half, y, half, y))
