@@ -4,8 +4,8 @@
 λ*, the bandpass peak wavelength (1/k*, k* where |ψ̂| peaks along the analysing direction, k in
 cycles per pixel). Under the app's normalisation ψ̂_a(k) = ψ̂(ak), so λ* is a constant per
 family times the device's own scale parameter: log-log slopes are untouched and "matched
-scales" means the same length in every family. The design and the per-family constants:
-``docs/specs/2026-10-13-wavelet-scale-bar-design.md`` §3.
+scales" means the same length in every family. The per-family constants are pinned in
+``tests/test_wavelet_profiles.py`` against the kernels' own Fourier forms.
 
 A wavelet-bearing device implements ``wavelet_profile(params, scale_px, level) -> Profile``;
 :func:`profile_for` dispatches to it. λ* is never read off an FFT of the drawn 1-D section (by

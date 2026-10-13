@@ -146,9 +146,12 @@ EXTRACTED = {
 #: anisotropy: Arneodo, Decoster & Roux 2000's WTMMM angle statistics (P_a(A), the gradient
 #: plane, M | A-sector pdfs); the app's own module, pinned in tests/test_orientation.py.
 #: wtmm_levels: the app's own module, importing one scale's cwt pieces from the wtmm_backend copy.
+#: wavelet_profiles: every wavelet's section and its λ* (the bandpass peak wavelength), the
+#: scale bar's and the physical scale axis's one authority; the per-family constants are
+#: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
 NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
-              "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton",
+              "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton", "wavelet_profiles",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
               "bus", "orientation", "anisotropy", "wtmm_levels", "dwt"]

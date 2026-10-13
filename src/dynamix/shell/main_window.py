@@ -8706,7 +8706,7 @@ both ``Canvas`` signals report the
 
         a = self._scales[idx]
         # With a wavelet on show the reading is λ*, the bandpass peak wavelength: the one
-        # physical length the bars and the multifractal axis quote (spec 2026-10-13).
+        # physical length the bars and the multifractal axis quote.
         device_params = getattr(self, "_bar_device", None)
         if device_params:
             from dynamix.core.wavelet_profiles import format_length, lambda_px
