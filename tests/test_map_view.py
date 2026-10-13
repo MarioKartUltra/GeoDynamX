@@ -114,6 +114,7 @@ def _ext_result():
     return {"extrema": [ext], "chains": chains, "_shape": (40, 50)}
 
 
+@pytest.mark.skip(reason="extrema draw as one image on their grid, a pixel per maximum, as the Raster tab draws them (test_extrema_are_one_image_*)")
 def test_extrema_are_unconnected_blocks_with_xsmurf_ticks(qtbot):
     v = _view(qtbot)
     field = _utm()
@@ -246,6 +247,7 @@ def test_an_unchanged_row_is_not_repainted(qtbot, monkeypatch):
     assert painted == [1, 1]
 
 
+@pytest.mark.skip(reason="extrema draw as one image on their grid, a pixel per maximum, as the Raster tab draws them (test_extrema_are_one_image_*)")
 def test_a_copy_of_the_result_with_the_same_extrema_is_not_redrawn(qtbot):
     """A lazy output landing hands over a copy of the result around the same extrema."""
     v = _view(qtbot)
@@ -263,6 +265,7 @@ def test_a_copy_of_the_result_with_the_same_extrema_is_not_redrawn(qtbot):
     assert calls == []
 
 
+@pytest.mark.skip(reason="extrema draw as one image on their grid, a pixel per maximum, as the Raster tab draws them (test_extrema_are_one_image_*)")
 def test_group_colours_and_modulus_colours_mix_per_point(qtbot):
     v = _view(qtbot)
     res = _ext_result()
@@ -273,3 +276,63 @@ def test_group_colours_and_modulus_colours_mix_per_point(qtbot):
                  lambda rid: RowContent("extrema", result=res, grid_field=_utm()))
     brushes = v._vectors["ext:1"][0].data["brush"]
     assert len(brushes) == 3
+
+
+def test_extrema_are_one_image_a_pixel_per_maximum_with_xsmurf_ticks(qtbot):
+    """Panning stays as quick as on the Raster tab: the maxima are one image on their grid."""
+    v = _view(qtbot)
+    field = _utm()
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=_ext_result(), scale_idx=0,
+                                        grid_field=field))
+    blocks, ticks = v._vectors["ext:1"]
+    lit = np.argwhere(blocks.image[..., 3] > 0)            # image axes are (col, row)
+    assert sorted(map(tuple, lit)) == [(10, 5), (11, 5), (30, 20)]
+    r = blocks.mapRectToView(blocks.boundingRect())
+    assert (r.left(), r.right()) == pytest.approx((500000.0, 500500.0))
+    tx, ty = ticks.getData()
+    # third maximum: arg = pi/2 (down the image = south), length 3 + 30 * 4/4 = 33 px = 330 m
+    assert ty[5] == pytest.approx(ty[4] - 330.0) and tx[5] == pytest.approx(tx[4])
+
+
+def test_extrema_images_colour_by_group_over_modulus(qtbot):
+    v = _view(qtbot)
+    v.extrema_style = {**v.extrema_style, "colour": "group"}
+    res = _ext_result()
+    res["chains"] = [{"x": np.array([10]), "y": np.array([5]), "mod": np.array([1.0]),
+                      "tags": [], "group_color": (255, 0, 0)}]
+    from dynamix.geo.extrema_draw import group_rgb
+
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=res, grid_field=_utm()))
+    img = v._vectors["ext:1"][0].image
+    want = group_rgb(res["chains"], 0, np.array([10, 11, 30]), np.array([5, 5, 20]))
+    for (c, r), g in zip([(10, 5), (11, 5), (30, 20)], want):
+        if g[0] >= 0:
+            assert tuple(img[c, r, :3]) == tuple(g)
+        assert img[c, r, 3] == 255
+
+
+def test_extrema_images_are_not_redrawn_for_a_copy_of_the_result(qtbot):
+    v = _view(qtbot)
+    field, res = _utm(), _ext_result()
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0), (Row("chn:1", "chains"), True, 1.0)],
+                 lambda rid: RowContent("extrema" if rid.startswith("ext") else "chains",
+                                        result=res, grid_field=field))
+    blocks, trail = v._vectors["ext:1"][0], v._vectors["chn:1"][0]
+    calls = []
+    blocks.setImage = lambda *a, **k: calls.append("ext")
+    trail.setData = lambda *a, **k: calls.append("chn")
+    copy = {**res, "raster_out": np.zeros((40, 50))}
+    v.update_row("ext:1", RowContent("extrema", result=copy, grid_field=field))
+    v.update_row("chn:1", RowContent("chains", result=copy, grid_field=field))
+    assert calls == []
+
+
+def test_subpixel_extrema_keep_their_squares(qtbot):
+    v = _view(qtbot)
+    v.extrema_style = {**v.extrema_style, "subpixel": True}
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=_ext_result(), grid_field=_utm()))
+    xs, _ys = v._vectors["ext:1"][0].getData()
+    assert len(xs) == 3

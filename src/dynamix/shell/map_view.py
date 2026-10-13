@@ -292,6 +292,46 @@ class MapView(QtWidgets.QWidget):
         _frame, x_axis, y_axis = result_grid(content.result, content.grid_field)
         return x_axis, y_axis
 
+    def _extrema_items(self, row_id, image_mode):
+        """An extrema row's (blocks, ticks): blocks an image or a scatter, rebuilt when the
+        row changes between the two."""
+        want = pg.ImageItem if image_mode else pg.ScatterPlotItem
+        items = self._vectors.get(row_id)
+        if items is not None and not isinstance(items[0], want):
+            for it in items:
+                self.view.removeItem(it)
+            items = None
+        if items is None:
+            items = (want(), pg.PlotDataItem(connect="pairs"))
+            for it in items:
+                self.view.addItem(it)
+            self._vectors[row_id] = items
+        return items
+
+    @staticmethod
+    def _extrema_image(result, s, ext, cols, rows, mod, st, nx, ny) -> np.ndarray:
+        """``(nx, ny, 4)`` RGBA, indexed (column, row): each maximum lights its own cell,
+        coloured by modulus (viridis), by its chain's group, or white."""
+        from dynamix.geo.extrema_draw import group_rgb, modulus_scalars
+
+        n = len(cols)
+        if st["colour"] == "flat":
+            rgb = np.full((n, 3), 255, dtype=np.uint8)
+        else:
+            lut = pg.colormap.get("viridis").getLookupTable(nPts=256)[:, :3]
+            k = (modulus_scalars(mod, st["mode"], st["q"]) * 255).astype(int)
+            rgb = np.asarray(lut, dtype=np.uint8)[np.clip(k, 0, 255)]
+            if st["colour"] == "group":
+                own = group_rgb(result.get("chains"), s, cols, rows)
+                grouped = own[:, 0] >= 0
+                rgb[grouped] = own[grouped].astype(np.uint8)
+        img = np.zeros((nx, ny, 4), dtype=np.uint8)
+        ci = np.clip(np.rint(cols).astype(np.intp), 0, nx - 1)
+        ri = np.clip(np.rint(rows).astype(np.intp), 0, ny - 1)
+        img[ci, ri, :3] = rgb
+        img[ci, ri, 3] = 255
+        return img
+
     def _vector_items(self, row_id, n):
         items = self._vectors.get(row_id)
         if items is None:
@@ -341,7 +381,21 @@ class MapView(QtWidgets.QWidget):
         x_axis, y_axis = self._grid(content)
         bx, by = self._to_map(content.grid_field, *to_axes(cols, rows, x_axis, y_axis))
         mod = np.asarray(ext.get("mod", np.ones(len(cols))))
-        if st["colour"] == "flat":
+        # On its own grid in the map's CRS the maxima are one image, a pixel per maximum, as
+        # the Raster tab draws them: a single texture to pan. Subpixel placement, or a grid
+        # the Map reprojects, keeps one square per maximum.
+        image_mode = (not st["subpixel"] and len(x_axis) > 1 and len(y_axis) > 1
+                      and (self._crs is None
+                           or field_crs(content.grid_field) in (None, self._crs)))
+        blocks, ticks = self._extrema_items(row_id, image_mode)
+        if image_mode:
+            blocks.setImage(self._extrema_image(result, s, ext, cols, rows, mod, st,
+                                                len(x_axis), len(y_axis)), autoLevels=False)
+            dx = (float(x_axis[-1]) - float(x_axis[0])) / (len(x_axis) - 1)
+            dy = (float(y_axis[-1]) - float(y_axis[0])) / (len(y_axis) - 1)
+            blocks.setTransform(QtGui.QTransform(dx, 0.0, 0.0, dy, float(x_axis[0]) - 0.5 * dx,
+                                                 float(y_axis[0]) - 0.5 * dy))
+        elif st["colour"] == "flat":
             brushes = pg.mkBrush(255, 255, 255)
         else:
             if st["colour"] == "group":
@@ -357,9 +411,10 @@ class MapView(QtWidgets.QWidget):
                     key = tuple(int(v) for v in rgb[i])
                     brushes[i] = own.setdefault(key, pg.mkBrush(*key))
             brushes = list(brushes)
-        pixel = abs(float(x_axis[1] - x_axis[0])) if len(x_axis) > 1 else 1.0
-        blocks, ticks = self._vector_items(row_id, 2)
-        blocks.setData(x=bx, y=by, symbol="s", size=pixel, pxMode=False, pen=None, brush=brushes)
+        if not image_mode:
+            pixel = abs(float(x_axis[1] - x_axis[0])) if len(x_axis) > 1 else 1.0
+            blocks.setData(x=bx, y=by, symbol="s", size=pixel, pxMode=False, pen=None,
+                           brush=brushes)
         if st["ticks"] and "arg" in ext:
             c1, r1 = tick_ends(cols, rows, ext["arg"], mod, float(np.max(np.abs(mod))))
             ex, ey = self._to_map(content.grid_field, *to_axes(c1, r1, x_axis, y_axis))
