@@ -107,6 +107,15 @@ def linear_unit_to_m(crs_or_provenance) -> tuple[float | None, str]:
     return factor, "m"
 
 
+def physical(length_px: float, field) -> tuple[float, str]:
+    """A length in pixels of ``field`` as ``(value, unit)`` through :func:`px_to_metres`; pixels
+    when the field has no pixel size to convert with (never a fabricated factor)."""
+    per_px, unit = px_to_metres(field)
+    if per_px is None:
+        return float(length_px), "px"
+    return float(length_px) * per_px, unit
+
+
 def _native_px_size(field) -> float | None:
     """Pixel size straight off the field's own x-axis, in whatever unit the axis is already
     expressed in -- the exact computation ``MainWindow._px_to_unit`` used before this module

@@ -119,6 +119,12 @@ class WTMM2D:
     outputs = (Output("modulus", "raster", lazy=True, label="modulus", per_level=True),
                Output("argument", "raster", lazy=True, label="argument", per_level=True))
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The analysing wavelet's section and λ* at ``scale_px`` (the wavelet scale bar)."""
+        from dynamix.core.wavelet_profiles import wtmm_profile
+
+        return wtmm_profile(params["wavelet"], scale_px)
+
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         from dynamix.core.wtmm_backend import run_wtmm2d
 
