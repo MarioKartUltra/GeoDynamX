@@ -396,3 +396,17 @@ def test_an_unresolvable_map_crs_does_not_raise(qtbot):
     qtbot.addWidget(v)
     v.set_map_crs("not a crs")
     assert v._unit_metres == 1.0
+
+
+def test_a_reference_layer_is_one_item_with_its_parts_separated(qtbot):
+    from dynamix.geo.vectors import Feature, VectorLayer
+
+    v = _view(qtbot)
+    layer = VectorLayer(name="r", kind="polyline", crs="EPSG:32613", bounds=(0, 0, 5, 5),
+                        features=[Feature(parts=[np.array([[0.0, 0.0], [1.0, 1.0]]),
+                                                 np.array([[2.0, 2.0], [3.0, 3.0]])]),
+                                  Feature(parts=[np.array([[4.0, 4.0], [5.0, 5.0]])])])
+    v.set_overlays(references=[layer])
+    assert len(v._overlay_items) == 1
+    x, _y = v._overlay_items[0].getData()
+    assert len(x) == 8 and np.isnan(x).sum() == 2

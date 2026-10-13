@@ -1308,6 +1308,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.map_view = None          # the Map view, built on first use (_ensure_map_view)
         self._prod_memo: dict = {}    # layer_id -> (raster, result, field, product field)
         self._bus_plane_memo: dict = {}   # (bus layer_id, n) -> (stack, sends text, plane)
+        self._ref_map_cache: dict = {}    # ref_id -> (layer, map CRS, the layer in that CRS)
         self.layers_panel = None      # the Layers section, built with the right panel
         self._stack_near: dict = {}   # a fork's row -> the row it was forked from (placement)
         self._footprints: list = []   # dynamix.geo.footprints records (data browser)
@@ -4465,6 +4466,7 @@ both ``Canvas`` signals report the
         self._out_keys = {}
         self._prod_memo = {}
         self._bus_plane_memo = {}
+        self._ref_map_cache = {}
         self._out_request = None
         self._out_held = None
         self._recon_run = None
@@ -9304,10 +9306,15 @@ both ``Canvas`` signals report the
             for rec in self.project.reference_layers:
                 layer = self._reference_layers.get(rec.ref_id)
                 if rec.visible and layer is not None:
-                    try:
-                        refs.append(to_crs(layer, self.project.map_crs))
-                    except Exception:                                # noqa: BLE001
-                        pass                      # an unplaceable reference stays off the map
+                    crs = self.project.map_crs
+                    cached = self._ref_map_cache.get(rec.ref_id)
+                    if cached is None or cached[0] is not layer or cached[1] != crs:
+                        try:
+                            cached = (layer, crs, to_crs(layer, crs))
+                        except Exception:                            # noqa: BLE001
+                            continue              # an unplaceable reference stays off the map
+                        self._ref_map_cache[rec.ref_id] = cached
+                    refs.append(cached[2])
         points = []
         for layer in self.project.layers:
             if self._is_point_layer(layer) and layer.visible and self.project.map_crs:

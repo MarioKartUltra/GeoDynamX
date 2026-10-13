@@ -446,3 +446,20 @@ def test_file_axes_of_a_sample_anchored_stride_field_start_at_its_first_sample()
     axes = MainWindow._file_axes(f)
     assert (axes.x_axis[0], axes.x_axis[1], len(axes.x_axis)) == (100.0, 110.0, 20)
     assert (axes.y_axis[0], axes.y_axis[1]) == (200.0, 190.0)
+
+
+def test_a_reference_layer_is_reprojected_once_per_map_crs(geo_window, monkeypatch):
+    import dynamix.geo.vectors as gv
+    from dynamix.geo.vectors import Feature, VectorLayer
+
+    win = geo_window
+    layer = VectorLayer(name="r", kind="polyline", crs="EPSG:4326", bounds=(0, 0, 1, 1),
+                        features=[Feature(parts=[np.array([[-105.0, 39.7], [-104.9, 39.8]])])])
+    rec = win.project.add_reference_layer("mem:ref", name="r")
+    win._reference_layers[rec.ref_id] = layer
+    calls = []
+    real = gv.to_crs
+    monkeypatch.setattr(gv, "to_crs", lambda l, c: (calls.append(1), real(l, c))[1])
+    win._map_overlays()
+    win._map_overlays()
+    assert calls == [1]

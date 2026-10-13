@@ -632,12 +632,19 @@ class MapView(QtWidgets.QWidget):
             self.view.addItem(item)
             self._overlay_items.append(item)
         for layer in references:
+            xs, ys = [], []                   # one item per layer, its parts NaN-separated
             for feature in layer.features:
                 for part in feature.parts:
-                    item = pg.PlotDataItem(part[:, 0], part[:, 1], pen=pg.mkPen("#cccccc"))
-                    item.setZValue(top)
-                    self.view.addItem(item)
-                    self._overlay_items.append(item)
+                    part = np.asarray(part, dtype=np.float64)
+                    xs.extend([*part[:, 0], np.nan])
+                    ys.extend([*part[:, 1], np.nan])
+            if not xs:
+                continue
+            item = pg.PlotDataItem(np.asarray(xs[:-1]), np.asarray(ys[:-1]), connect="finite",
+                                   pen=pg.mkPen("#cccccc"))
+            item.setZValue(top)
+            self.view.addItem(item)
+            self._overlay_items.append(item)
         for x, y in points:
             item = pg.ScatterPlotItem(x=x, y=y, size=4)
             item.setZValue(top)
