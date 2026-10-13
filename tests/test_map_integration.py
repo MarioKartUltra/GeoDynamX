@@ -597,3 +597,25 @@ def test_a_v_trail_colour_turns_the_trails_on_and_isolated_maxima_toggle(geo_win
     assert not win.canvas.isolated_raster_item.isVisible()        # isolated maxima hidden by default
     win._on_display_style_changed("show_isolated", True)
     assert win.canvas.isolated_raster_item.isVisible() and win.right_panel.isolated_check.isChecked()
+
+
+def test_the_chain_grouping_selects_the_dominant_chains_on_the_views(geo_window, qtbot):
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "wtmm2d")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    win._on_dh_button_clicked()
+    construction = win._spectrum_construction_window
+    lid = win.layer.layer_id
+    dom = construction.current_grouping()
+    assert dom is not None and construction.select_views_check.isChecked()
+    assert win._group_palette.selection() == {(lid, int(i)) for i in np.flatnonzero(dom)}
+    construction._gpct_spin.setValue(construction._gpct_spin.value() - 20.0)   # a retune follows
+    dom2 = construction.current_grouping()
+    assert not np.array_equal(dom, dom2)
+    assert win._group_palette.selection() == {(lid, int(i)) for i in np.flatnonzero(dom2)}
+    construction.select_views_check.setChecked(False)                     # off: the views keep theirs
+    construction._gpct_spin.setValue(construction._gpct_spin.value() + 20.0)
+    assert win._group_palette.selection() == {(lid, int(i)) for i in np.flatnonzero(dom2)}

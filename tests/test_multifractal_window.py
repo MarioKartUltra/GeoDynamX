@@ -260,3 +260,34 @@ def test_filtered_tables_carry_their_note_and_a_switch_to_all_chains(qtbot):
     plain = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(plain)
     assert "filtered" not in plain.windowTitle() and plain.all_chains_check is None
+
+
+def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot):
+    """A log-normal tau(q) = c1 q - c2 q^2/2 has c(q) = c2 q^2; the cumulant curve comes from
+    the maxima moduli (ln|T| ~ N(c1 ln a, v0 - c2 ln a)) inside the fit window, with the
+    log-normal reference c2 q^2 beside it; without moduli only the fit's own curve draws."""
+    q = np.linspace(-3.0, 3.0, 25)
+    hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
+    rng = np.random.default_rng(3)
+    scales = hd["scales"]
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 20000))
+            for a in scales]
+    window = MultifractalWindow(hd, hd, extrema_mods=mods, scales=scales)
+    qtbot.addWidget(window)
+    x, y = window._cq_curve.getData()
+    np.testing.assert_allclose(y, 0.3 * x ** 2, atol=1e-6)
+    c = window.current_cumulants()
+    np.testing.assert_allclose(c["c1"], 0.7, atol=0.03)
+    np.testing.assert_allclose(c["c2"], 0.3, atol=0.03)
+    xl, yl = window._cq_ln_curve.getData()
+    np.testing.assert_allclose(yl, c["c2"] * xl ** 2)
+    xc, yc = window._cq_cum_curve.getData()
+    np.testing.assert_allclose(yc, spectra.cumulant_heat(c, xc))
+    assert "c₂" in window._cq_label.text()
+    window._region.setRegion((0.0, 0.5))                       # one scale inside: no fit
+    assert np.isnan(window.current_cumulants()["c2"])
+    bare = MultifractalWindow(hd, hd)
+    qtbot.addWidget(bare)
+    assert bare.current_cumulants() is None
+    xb, _ = bare._cq_cum_curve.getData()
+    assert xb is None or len(xb) == 0

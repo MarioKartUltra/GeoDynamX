@@ -115,7 +115,14 @@ class MultifractalWindow(QtWidgets.QDialog):
 
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,
                  forward_note: str = "", parent=None, physical_of_log2a=None,
-                 log2_L: "float | None" = None, all_tables=None, filter_note: str = ""):
+                 log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
+                 extrema_mods=None, scales=None):
+        #: The maxima's moduli per scale and the scales (px) they sit at, for the cascade's
+        #: cumulants under the fit window; None leaves the c(q) panel to the fit's own curve.
+        self._extrema_mods = ([np.asarray(m, dtype=np.float64) for m in extrema_mods]
+                              if extrema_mods is not None else None)
+        self._scales_px = np.asarray(scales, dtype=np.float64) if scales is not None else None
+        self._cumulants: dict | None = None
         #: log2 of the field extent, the focus anchor the focus fit modes need; None leaves
         #: them unavailable.
         self._log2_L = float(log2_L) if log2_L is not None else None
@@ -156,6 +163,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         """The last :func:`~dynamix.core.spectra.fit_spectra` result, over the FULL q_list
         (the q-subrange spins mask the display only -- see the module docstring)."""
         return self._fit
+
+    def current_cumulants(self) -> dict | None:
+        """The cascade's cumulants (:func:`~dynamix.core.spectra.cascade_cumulants`) under the
+        current fit window, in the fit's frame; None without maxima moduli."""
+        return self._cumulants
 
     def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
         """Programmatic region set -- same path as a drag (fires the live re-fit)."""
@@ -241,6 +253,10 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._pt_label = QtWidgets.QLabel("")
         self._pt_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
         controls.addWidget(self._pt_label)
+        #: The cascade's cumulants c₁..c₄ under the fit window (the c(q) panel's readout).
+        self._cq_label = QtWidgets.QLabel("")
+        self._cq_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        controls.addWidget(self._cq_label)
 
         #: What the forward transform actually multiplied in -- display only, derived by the
         #: caller (see the module docstring's eta/frame section). Muted: context, not a control.
@@ -348,11 +364,29 @@ class MultifractalWindow(QtWidgets.QDialog):
                                                    pen=pg.mkPen(RESTRAINED_DARK.amber))
         self._pt_scan_plot.addItem(self._pt_scan_qstar_line)
 
+        # Row 3: the specific heat c(q) = -q² τ'' off the fit (points), the cumulant expansion's
+        # curve from the maxima moduli, and the log-normal reference c₂ q² (the workbook's
+        # specific-heat figure).
+        self._cq_plot = self._glw.addPlot(row=3, col=0, colspan=3)
+        self._cq_plot.setLabel("bottom", "q")
+        self._cq_plot.setLabel("left", "c(q) = −q² τ″")
+        self._cq_plot.addLegend(offset=(-10, 10))
+        self._cq_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5, symbolPen=None,
+                                         symbolBrush=RESTRAINED_DARK.ink, name="fit")
+        self._cq_plot.addItem(self._cq_curve)
+        self._cq_cum_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6),
+                                             name="cumulant expansion")
+        self._cq_plot.addItem(self._cq_cum_curve)
+        self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink_muted,
+                                                         style=QtCore.Qt.DotLine),
+                                            name="log-normal c₂q²")
+        self._cq_plot.addItem(self._cq_ln_curve)
+
         # Click-to-set q* on either panel: ln-q abscissa on the left panel, plain q on the scan
         # (the workbook's exact gesture pair, cell 49).
         self._glw.scene().sigMouseClicked.connect(self._on_scene_clicked)
 
-        self.resize(1150, 950)
+        self.resize(1150, 1100)
 
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:
@@ -428,6 +462,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._update_spectrum_plots()
         self._update_phase_transition()
         self._update_convexity_marker()
+        self._update_specific_heat()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
     def _update_spectrum_plots(self) -> None:
@@ -488,6 +523,32 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._pt_label.setText(
             f"sₗ={pt['slope_L']:.3f}  sᵣ={pt['slope_R']:.3f}  Δs={pt['ds']:.3f}"
             + (f"  ·  auto q*={best:.2f}" if np.isfinite(best) else ""))
+
+    def _update_specific_heat(self) -> None:
+        """c(q) off the CURRENT fit's tau(q), and -- with maxima moduli -- the cascade's
+        cumulants under the fit window, brought into the fit's frame (the original frame takes
+        the forward lift η back out of c₁ exactly as the fit takes η q out of τ)."""
+        fit = self._fit
+        if fit is None:
+            return
+        q = np.asarray(fit["q_list"], dtype=np.float64)
+        mask = self._q_mask(q)
+        heat = spectra.specific_heat(q, fit["tau"])
+        self._cq_curve.setData(q[mask], heat[mask])
+        if self._extrema_mods is None or self._scales_px is None:
+            return
+        lo, hi = self._region.getRegion()
+        c = spectra.cascade_cumulants(self._extrema_mods, self._scales_px, float(lo), float(hi))
+        if fit.get("frame") == "original":
+            c["c1"] -= float(fit.get("eta", 0.0))
+        self._cumulants = c
+        shown = q[mask & np.isfinite(q)]
+        grid = np.linspace(shown.min(), shown.max(), 200) if shown.size else q
+        self._cq_cum_curve.setData(grid, spectra.cumulant_heat(c, grid))
+        self._cq_ln_curve.setData(grid, c["c2"] * grid ** 2)
+        self._cq_label.setText(
+            f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
+            f"  ·  R²min={c['r2']:.2f}")
 
     def _update_convexity_marker(self) -> None:
         fit = self._fit

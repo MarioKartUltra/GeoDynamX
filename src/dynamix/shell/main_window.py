@@ -3285,10 +3285,16 @@ both ``Canvas`` signals report the
         eta_seed, note = _eta_note_of(result)
         if self._multifractal_window is not None:
             self._multifractal_window.close()
+        # The maxima's moduli per scale feed the c(q) panel's cumulants; only a result whose
+        # every scale carries them (the WTMM family) hands them over.
+        extrema, scales = result.get("extrema") or [], result.get("scales")
+        mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
+        if not mods or len(mods) != len(extrema) or scales is None or len(scales) != len(mods):
+            mods, scales = None, None
         window = MultifractalWindow(hd_std, hd_cmax, eta_seed=eta_seed, forward_note=note,
                                     parent=self, physical_of_log2a=self._physical_of_log2a(),
                                     log2_L=self._log2_extent(result), all_tables=all_tables,
-                                    filter_note=filter_note)
+                                    filter_note=filter_note, extrema_mods=mods, scales=scales)
         self._multifractal_window = window
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
@@ -3452,6 +3458,8 @@ both ``Canvas`` signals report the
             fit_lo, fit_hi = self._multifractal_window._region.getRegion()
             window.set_scale_window(float(fit_lo), float(fit_hi))
             window.set_fit_mode(self._multifractal_window._fitmode_combo.currentText())
+        window.groupingChanged.connect(self._on_chain_grouping)
+        window.broadcast_grouping()
         window.show()
         window.raise_()
         window.activateWindow()
@@ -4361,6 +4369,16 @@ both ``Canvas`` signals report the
             return
         lid = self.layer.layer_id
         self._group_palette.apply_picks([(lid, int(i)) for i in indices], "replace")
+
+    def _on_chain_grouping(self, dominant) -> None:
+        """``SpectrumWindow.groupingChanged`` -> the dominant chains become the shared selection
+        (``GroupPalette.apply_picks(op="replace")``, the skeleton dialog's gesture), so the Raster
+        and Map views colour them."""
+        if self.layer is None:
+            return
+        lid = self.layer.layer_id
+        picks = [(lid, int(i)) for i in np.flatnonzero(np.asarray(dominant, dtype=bool))]
+        self._group_palette.apply_picks(picks, "replace")
 
     def _push_skeleton_selection(self) -> None:
         """The OTHER half of the bidirectional sync ("Scene selection changes

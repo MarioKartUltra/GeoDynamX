@@ -429,3 +429,56 @@ def focus_regression(X, Y, *, x0_min: float, weights=None,
         "y0": best["y0"], "sse": best["sse"], "sse_naive": sse_naive,
         "mse_q": best["mse_q"], "branch": branch,
     }
+
+
+# ----------------------------------------------------------------------------- specific heat
+
+def specific_heat(q_list, tau) -> np.ndarray:
+    """The specific heat c(q) = -q² d²τ/dq² (Beck & Schlögl 1993 eq. 3; Klamut et al. 2020
+    eq. 14) by second-order finite differences over the finite points of τ(q); a row whose τ is
+    not finite comes back NaN. A log-normal cascade (τ quadratic in q) gives c₂ q² exactly."""
+    q = np.asarray(q_list, dtype=np.float64)
+    t = np.asarray(tau, dtype=np.float64)
+    out = np.full(q.shape, np.nan)
+    ok = np.isfinite(q) & np.isfinite(t)
+    if ok.sum() < 3:
+        return out
+    qf = q[ok]
+    d2 = np.gradient(np.gradient(t[ok], qf, edge_order=2), qf, edge_order=2)
+    out[ok] = -qf ** 2 * d2
+    return out
+
+
+def cumulant_heat(cumulants: dict, q_list) -> np.ndarray:
+    """c(q) from a cascade's cumulants: the expansion τ(q) = c₁q - c₂q²/2 + c₃q³/6 - c₄q⁴/24
+    has τ'' = -c₂ + c₃q - c₄q²/2, so c(q) = -q² τ''. A missing order counts as zero; a NaN one
+    (no fit) makes the whole curve NaN."""
+    q = np.asarray(q_list, dtype=np.float64)
+    c2, c3, c4 = (float(cumulants.get(k) if cumulants.get(k) is not None else 0.0)
+                  for k in ("c2", "c3", "c4"))
+    return -q ** 2 * (-c2 + c3 * q - c4 * q ** 2 / 2.0)
+
+
+def cascade_cumulants(mods_per_scale, scales_px, log2_a_min: float, log2_a_max: float, *,
+                      max_order: int = 4) -> dict:
+    """The cascade's cumulants c₁..c₄ from the per-scale moduli of the maxima: the n-th cumulant
+    of ln|T| regressed on ln a over the scales inside the fit window (log2 a, the fitter's
+    window), through the vendored ``wtmm.dupont_venugopal.fit_venugopal_cumulants`` (whose cₙ is
+    the raw slope), with the cascade's alternating signs: c₁ = +s₁ (the mean of ln|T| grows with
+    ln a), c₂ = -s₂ (the variance grows towards SMALL scales), c₃ = +s₃, c₄ = -s₄. Returns
+    ``{"c1".."c4", "r2"}`` (the worst per-order R²); NaN when fewer than two scales fall inside
+    the window."""
+    from dynamix._vendor.wtmm.dupont_venugopal import fit_venugopal_cumulants
+
+    ln_a = np.log(np.asarray(scales_px, dtype=np.float64))
+    samples = {}
+    for i, mods in enumerate(mods_per_scale):
+        m = np.asarray(mods, dtype=np.float64)
+        samples[i] = np.log(m[np.isfinite(m) & (m > 0)])
+    ln2 = np.log(2.0)
+    fit = fit_venugopal_cumulants(samples, ln_a, max_order=max_order,
+                                  scale_range=(float(log2_a_min) * ln2, float(log2_a_max) * ln2))
+    signs = (1.0, -1.0, 1.0, -1.0)
+    out = {f"c{n}": signs[n - 1] * float(fit[f"c{n}"]) for n in range(1, max_order + 1)}
+    out["r2"] = float(fit["r2"])
+    return out

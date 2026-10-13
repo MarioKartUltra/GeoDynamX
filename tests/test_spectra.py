@@ -429,3 +429,45 @@ def test_focus_falls_back_gracefully_on_a_tiny_window():
     out = spectra.fit_spectra(hd, 0.0, 3.0, fit_mode="focus", log2_L=8.0)  # 4 scales < 5
     assert out["focus"]["branch"] == "unavailable"
     assert np.all(np.isfinite(out["tau"]))          # the naive tau still stands
+
+
+# ----------------------------------------------------------------------------- specific heat
+
+def test_specific_heat_of_a_log_normal_tau_is_c2_q_squared():
+    """tau(q) = c1 q - c2 q^2/2 has c(q) = -q^2 tau'' = c2 q^2 exactly; NaN rows are left out
+    of the derivative and come back NaN."""
+    q = np.linspace(-4.0, 4.0, 33)
+    tau = 0.7 * q - 0.3 * q ** 2 / 2
+    np.testing.assert_allclose(spectra.specific_heat(q, tau), 0.3 * q ** 2, atol=1e-9)
+    tau_nan = tau.copy()
+    tau_nan[[0, 5]] = np.nan
+    heat = spectra.specific_heat(q, tau_nan)
+    assert np.isnan(heat[0]) and np.isnan(heat[5])
+    np.testing.assert_allclose(heat[10:], 0.3 * q[10:] ** 2, atol=1e-9)
+
+
+def test_cumulant_heat_follows_the_cumulant_expansion():
+    """c(q) = -q^2 (-c2 + c3 q - c4 q^2/2); a missing order counts as zero."""
+    q = np.linspace(-2.0, 2.0, 9)
+    np.testing.assert_allclose(spectra.cumulant_heat({"c2": 0.3}, q), 0.3 * q ** 2)
+    c = {"c1": 0.7, "c2": 0.3, "c3": 0.05, "c4": -0.02}
+    np.testing.assert_allclose(spectra.cumulant_heat(c, q),
+                               -q ** 2 * (-0.3 + 0.05 * q + 0.02 * q ** 2 / 2))
+
+
+def test_cascade_cumulants_recover_a_log_normal_cascade_in_the_fit_window():
+    """ln|T| per scale ~ N(h ln a, v0 - c2 ln a): the cumulants are c1 = h and c2 (the variance
+    GROWS towards small scales, so the slope of Var(ln|T|) against ln a is -c2), c3 = c4 = 0;
+    only the scales inside the log2 window count."""
+    rng = np.random.default_rng(7)
+    scales = 2.0 ** np.arange(1, 8, dtype=np.float64)          # 2 .. 128 px
+    ln_a = np.log(scales)
+    mods = [np.exp(rng.normal(0.6 * la, np.sqrt(3.0 - 0.3 * la), 40000)) for la in ln_a]
+    mods[-1] = mods[-1] * 1e6                                   # outside the window: ignored
+    c = spectra.cascade_cumulants(mods, scales, 1.0, 6.0)
+    np.testing.assert_allclose(c["c1"], 0.6, atol=0.02)
+    np.testing.assert_allclose(c["c2"], 0.3, atol=0.03)
+    np.testing.assert_allclose(c["c3"], 0.0, atol=0.05)
+    np.testing.assert_allclose(c["c4"], 0.0, atol=0.1)
+    assert 0.0 <= c["r2"] <= 1.0                               # the worst order: c3/c4 have no slope
+    assert np.isnan(spectra.cascade_cumulants(mods[:1], scales[:1], 1.0, 6.0)["c2"])

@@ -122,6 +122,12 @@ class SpectrumWindow(QtWidgets.QDialog):
         """The latest dominant/non-dominant membership, or None without chains."""
         return self._grouping
 
+    def broadcast_grouping(self) -> None:
+        """Emit :attr:`groupingChanged` with the current membership while the strip's "Select on
+        views" box is checked -- a no-op without chains or with the box off."""
+        if self._grouping is not None and self.select_views_check.isChecked():
+            self.groupingChanged.emit(self._grouping)
+
     def _on_all_chains_toggled(self, checked: bool) -> None:
         std, cmax = self._all_tables if checked else self._filtered_tables
         self._hd_by_choice = {"sup (cmax)": cmax, "no-sup (std)": std}
@@ -265,6 +271,10 @@ class SpectrumWindow(QtWidgets.QDialog):
             #: The workbook's own gate on the expensive half (subset partition builds).
             self._gspectra_check = QtWidgets.QCheckBox("Group spectra")
             group.addWidget(self._gspectra_check)
+            #: The dominant chains become the shared selection (the views colour them).
+            self.select_views_check = QtWidgets.QCheckBox("Select on views")
+            self.select_views_check.setChecked(True)
+            group.addWidget(self.select_views_check)
             self._gcount_label = QtWidgets.QLabel("")
             self._gcount_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
             group.addWidget(self._gcount_label)
@@ -276,6 +286,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._gmode_combo.currentIndexChanged.connect(lambda _i: self._recompute())
             self._gsup_check.toggled.connect(lambda _c: self._recompute())
             self._gspectra_check.toggled.connect(lambda _c: self._recompute())
+            self.select_views_check.toggled.connect(lambda _c: self.broadcast_grouping())
             self._group_controls = [self._gscale_spin]
 
         self._glw = pg.GraphicsLayoutWidget()
@@ -376,7 +387,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._grouping = dom
         self._gcount_label.setText(f"{int(dom.sum())} dominant / {dom.size}")
         if changed:
-            self.groupingChanged.emit(dom)
+            self.broadcast_grouping()
         if not self._gspectra_check.isChecked():
             self._dom_curve.setData([], [])
             self._non_curve.setData([], [])
