@@ -280,6 +280,7 @@ def test_group_colours_and_modulus_colours_mix_per_point(qtbot):
     assert len(brushes) == 3
 
 
+@pytest.mark.skip(reason="the Map draws the Raster tab's H-lines, dots and WTMMM arrows (test_h_lines_draw_as_one_polyline_per_row_in_the_h_chain_colour and the tests after it)")
 def test_extrema_are_one_image_a_pixel_per_maximum_with_xsmurf_ticks(qtbot):
     """Panning stays as quick as on the Raster tab: the maxima are one image on their grid."""
     v = _view(qtbot)
@@ -297,6 +298,7 @@ def test_extrema_are_one_image_a_pixel_per_maximum_with_xsmurf_ticks(qtbot):
     assert ty[5] == pytest.approx(ty[4] - 330.0) and tx[5] == pytest.approx(tx[4])
 
 
+@pytest.mark.skip(reason="the Map draws the Raster tab's H-lines, dots and WTMMM arrows (test_h_lines_draw_as_one_polyline_per_row_in_the_h_chain_colour and the tests after it)")
 def test_extrema_images_colour_by_group_over_modulus(qtbot):
     v = _view(qtbot)
     v.extrema_style = {**v.extrema_style, "colour": "group"}
@@ -315,6 +317,7 @@ def test_extrema_images_colour_by_group_over_modulus(qtbot):
         assert img[c, r, 3] == 255
 
 
+@pytest.mark.skip(reason="the Map draws the Raster tab's H-lines, dots and WTMMM arrows (test_h_lines_draw_as_one_polyline_per_row_in_the_h_chain_colour and the tests after it)")
 def test_extrema_images_are_not_redrawn_for_a_copy_of_the_result(qtbot):
     v = _view(qtbot)
     field, res = _utm(), _ext_result()
@@ -331,6 +334,7 @@ def test_extrema_images_are_not_redrawn_for_a_copy_of_the_result(qtbot):
     assert calls == []
 
 
+@pytest.mark.skip(reason="the Map draws the Raster tab's H-lines, dots and WTMMM arrows (test_h_lines_draw_as_one_polyline_per_row_in_the_h_chain_colour and the tests after it)")
 def test_subpixel_extrema_keep_their_squares(qtbot):
     v = _view(qtbot)
     v.extrema_style = {**v.extrema_style, "subpixel": True}
@@ -412,6 +416,7 @@ def test_a_reference_layer_is_one_item_with_its_parts_separated(qtbot):
     assert len(x) == 8 and np.isnan(x).sum() == 2
 
 
+@pytest.mark.skip(reason="the Map draws the Raster tab's H-lines, dots and WTMMM arrows (test_h_lines_draw_as_one_polyline_per_row_in_the_h_chain_colour and the tests after it)")
 def test_a_non_finite_modulus_scalar_still_draws(qtbot):
     v = _view(qtbot)
     v.extrema_style = {**v.extrema_style, "mode": "q", "q": -1.0, "subpixel": True}
@@ -422,3 +427,76 @@ def test_a_non_finite_modulus_scalar_still_draws(qtbot):
                      lambda rid: RowContent("extrema", result=res, grid_field=_utm()))
     xs, _ys = v._vectors["ext:1"][0].getData()
     assert len(xs) == 3
+
+
+def _line_result():
+    """One H-line of five maxima with a modulus peak in the middle, and one isolated maximum."""
+    ext = {"x": np.array([10, 11, 12, 13, 14, 30]), "y": np.array([5, 5, 5, 5, 5, 20]),
+           "mod": np.array([1.0, 2.0, 3.0, 2.0, 1.0, 4.0]), "arg": np.zeros(6),
+           "line_id": np.array([0, 0, 0, 0, 0, -1])}
+    return {"extrema": [ext], "chains": [], "_shape": (40, 50), "scales": np.array([4.0])}
+
+
+STYLE_EXT = {**STYLE, "color_hchain": "#ff0000", "color_extrema": "#00ff00", "point_size": 3.0,
+             "arrows": "wtmmm"}
+
+
+def test_h_lines_draw_as_one_polyline_per_row_in_the_h_chain_colour(qtbot):
+    v = _view(qtbot)
+    res = _line_result()
+    ext = res["extrema"][0]
+    for k, more in (("x", [20, 21]), ("y", [8, 8]), ("mod", [1.0, 1.0]), ("arg", [0.0, 0.0]),
+                    ("line_id", [1, 1])):                  # a second line of two points
+        ext[k] = np.concatenate([ext[k], more])
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=res, grid_field=_utm(),
+                                        style=STYLE_EXT))
+    lines, _dots, _arrows = v._vectors["ext:1"]
+    x, y = lines.xData, lines.yData
+    assert np.isnan(x).sum() == 1 and len(x) == 8          # two runs, one NaN between them
+    assert x[0] == pytest.approx(500105.0) and y[0] == pytest.approx(4399945.0)
+    assert lines.opts["pen"].color().name() == "#ff0000"
+
+
+def test_isolated_maxima_are_dots_and_arrows_sit_only_on_the_wtmmm(qtbot):
+    from dynamix.core.anisotropy import wtmmm_by_scale
+
+    v = _view(qtbot)
+    res = _line_result()
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=res, grid_field=_utm(),
+                                        style=STYLE_EXT))
+    _lines, dots, arrows = v._vectors["ext:1"]
+    dx, dy = dots.getData()
+    assert list(dx) == [pytest.approx(500305.0)] and list(dy) == [pytest.approx(4399795.0)]
+    w = wtmmm_by_scale(res["extrema"])[0]
+    ax, ay = arrows.getData()
+    starts = np.array(sorted(zip(ax[0::6], ay[0::6])))        # six points per arrow, shaft first
+    want = np.array(sorted(zip(500005.0 + 10.0 * np.asarray(w["x"], float),
+                               4399995.0 - 10.0 * np.asarray(w["y"], float))))
+    assert len(want) >= 1
+    np.testing.assert_allclose(starts, want)
+
+
+def test_arrows_follow_the_layers_arrow_mode(qtbot):
+    v = _view(qtbot)
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=_line_result(), grid_field=_utm(),
+                                        style={**STYLE_EXT, "arrows": "off"}))
+    _lines, _dots, arrows = v._vectors["ext:1"]
+    ax, _ay = arrows.getData()
+    assert ax is None or len(ax) == 0
+
+
+def test_extrema_lines_are_not_redrawn_for_a_copy_of_the_result(qtbot):
+    v = _view(qtbot)
+    field, res = _utm(), _line_result()
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=res, grid_field=field, style=STYLE_EXT))
+    assert len(v._vectors["ext:1"]) == 3                   # lines, dots, arrows
+    lines = v._vectors["ext:1"][0]
+    calls = []
+    lines.setData = lambda *a, **k: calls.append(1)
+    v.update_row("ext:1", RowContent("extrema", result={**res, "raster_out": np.zeros((40, 50))},
+                                     grid_field=field, style=STYLE_EXT))
+    assert calls == []

@@ -13,7 +13,8 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.geo.placement import field_crs, image_transform, reproject_for_display
-from dynamix.shell.canvas import Canvas, lod_stride, nice_round_scalebar
+from dynamix.shell.canvas import (ARROW_COLOR, Canvas, _arrow_segments, hline_polylines,
+                                  lod_stride, nice_round_scalebar)
 
 MAX_DIM = 2048
 #: Ground metres in one degree along the equator (WGS84 semi-major axis).
@@ -135,7 +136,9 @@ class MapView(QtWidgets.QWidget):
         self._selected_row = None
         self._fallback_row = None
         self._overlay_items: list = []
-        self.extrema_style = {"colour": "modulus", "mode": "linear", "q": 1.0,
+        #: ``blocks`` False draws an extrema row as the Raster tab does (H-line polylines, dots,
+        #: arrows at the WTMMM); True draws xsmurf's blocks image, which the other keys style.
+        self.extrema_style = {"blocks": False, "colour": "modulus", "mode": "linear", "q": 1.0,
                               "subpixel": False, "ticks": True, "heads": False}
         self.plot.scene().sigMouseMoved.connect(self._on_mouse_moved)
         self.plot.scene().sigMouseClicked.connect(self._on_clicked)
@@ -416,15 +419,108 @@ class MapView(QtWidgets.QWidget):
         tx, ty = transform(crs, self._crs, list(np.asarray(x)), list(np.asarray(y)))
         return np.asarray(tx), np.asarray(ty)
 
+    def _line_items(self, row_id):
+        """An extrema row's (H-lines, isolated dots, arrows), rebuilt when the row changes
+        from the blocks drawing."""
+        items = self._vectors.get(row_id)
+        if items is not None and not (len(items) == 3 and isinstance(items[0], pg.PlotDataItem)):
+            for it in items:
+                self.view.removeItem(it)
+            items = None
+        if items is None:
+            items = (pg.PlotDataItem(connect="finite"), pg.ScatterPlotItem(pxMode=True),
+                     pg.PlotDataItem(connect="pairs", pen=pg.mkPen(ARROW_COLOR, width=1.2)))
+            for it in items:
+                self.view.addItem(it)
+            self._vectors[row_id] = items
+        return items
+
+    def _to_map_nan(self, field, x, y):
+        """:meth:`_to_map` for NaN-separated polylines: the separators stay NaN."""
+        x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+        ok = np.isfinite(x) & np.isfinite(y)
+        if ok.all():
+            return self._to_map(field, x, y)
+        mx, my = np.full(x.shape, np.nan), np.full(y.shape, np.nan)
+        if ok.any():
+            mx[ok], my[ok] = self._to_map(field, x[ok], y[ok])
+        return mx, my
+
     def _draw_extrema(self, row_id, content, opacity, z) -> None:
-        from dynamix.geo.extrema_draw import (block_positions, group_rgb, modulus_scalars,
-                                              tick_ends, to_axes)
+        """An extrema row as the Raster tab draws it: every H-line a polyline in the layer's
+        H-chain colour, isolated maxima as dots, and arrows along the argument at the WTMMM
+        (or at every maximum, or none: the layer's own arrow mode)."""
+        from dynamix.geo.extrema_draw import to_axes
 
         result, s = content.result, content.scale_idx
         levels = result.get("extrema") or []
         if not levels:
             self._hide(row_id, "no extrema")
             return
+        if self.extrema_style.get("blocks"):
+            self._draw_extrema_blocks(row_id, content, opacity, z)
+            return
+        ext = levels[min(s, len(levels) - 1)]
+        style = content.style or {}
+        mode = style.get("arrows", "wtmmm")
+        signature = (ext, int(s), content.grid_field, result.get("_roi_axes"), mode,
+                     repr(sorted(style.items())), self._crs)
+        items = self._line_items(row_id)
+        if self._unchanged(row_id, signature, list(items)):
+            self._settle(items, opacity, z)
+            return
+        lines, dots, arrows = items
+        x_axis, y_axis = self._grid(content)
+        shape = tuple(result.get("_shape") or (len(y_axis), len(x_axis)))[:2]
+        hx, hy = hline_polylines(ext, shape)
+        lines.setData(*self._to_map_nan(content.grid_field, *to_axes(hx, hy, x_axis, y_axis)),
+                      pen=pg.mkPen(style.get("color_hchain", "#ebebeb")))
+        n = len(ext["x"])
+        iso = np.asarray(ext.get("line_id", np.full(n, -1))) == -1
+        cx = np.asarray(ext.get("x_sub", ext["x"]), dtype=np.float64)[iso]
+        cy = np.asarray(ext.get("y_sub", ext["y"]), dtype=np.float64)[iso]
+        dx, dy = self._to_map(content.grid_field, *to_axes(cx, cy, x_axis, y_axis))
+        dots.setData(x=dx, y=dy, pen=None, size=float(style.get("point_size", 3.0)),
+                     brush=pg.mkBrush(style.get("color_extrema", "#c8c8c8")))
+        ax, ay = self._arrow_xy(result, ext, s, mode, x_axis, y_axis, content.grid_field)
+        arrows.setData(ax, ay)
+        self._settle(items, opacity, z)
+        self._drawn[row_id] = signature
+
+    def _arrow_xy(self, result, ext, s, mode, x_axis, y_axis, grid_field):
+        """Map coordinates of the argument arrows at the WTMMM (``mode`` ``"wtmmm"``) or at
+        every maximum (``"all"``): the Raster tab's own length law, half the scale (capped)
+        at full strength down to 30 % for the weakest modulus."""
+        from dynamix.core.anisotropy import wtmmm_by_scale
+        from dynamix.geo.extrema_draw import to_axes
+
+        if mode == "off":
+            return [], []
+        pts = wtmmm_by_scale([ext])[0] if mode == "wtmmm" else ext
+        px = np.asarray(pts.get("x_sub", pts["x"]), dtype=np.float64)
+        py = np.asarray(pts.get("y_sub", pts["y"]), dtype=np.float64)
+        if px.size == 0:
+            return [], []
+        arg = np.asarray(pts.get("arg", np.zeros(px.size)), dtype=np.float64)
+        mod = np.asarray(pts.get("mod", np.ones(px.size)), dtype=np.float64)
+        scales = result.get("scales")
+        a_idx = int(result.get("_scale_idx", s))
+        a = (float(np.asarray(scales)[a_idx])
+             if scales is not None and 0 <= a_idx < len(scales) else 4.0)
+        ref = float(np.nanpercentile(mod, 95)) if mod.size else 1.0
+        base = float(np.clip(0.5 * a, 1.5, 12.0))
+        lengths = base * (0.3 + 0.7 * np.clip(mod / (ref if ref > 0 else 1.0), 0.0, 1.0))
+        xs, ys = _arrow_segments(px, py, arg, lengths)
+        return self._to_map(grid_field, *to_axes(xs, ys, x_axis, y_axis))
+
+    def _draw_extrema_blocks(self, row_id, content, opacity, z) -> None:
+        """The xsmurf drawing: every maximum its own block, an argument tick from each,
+        coloured by modulus or chain group (``extrema_style["blocks"]``)."""
+        from dynamix.geo.extrema_draw import (block_positions, group_rgb, modulus_scalars,
+                                              tick_ends, to_axes)
+
+        result, s = content.result, content.scale_idx
+        levels = result.get("extrema") or []
         ext = levels[min(s, len(levels) - 1)]
         st = self.extrema_style
         # The extrema themselves, not the result dict around them: a lazy output landing hands

@@ -8937,7 +8937,7 @@ both ``Canvas`` signals report the
                 "raster_opacity": ro,
                 "vector_opacity": max(eo if ev else 0.0, co if cv else 0.0),
                 "show_raster": rv, "show_extrema": ev, "show_chains": cv,
-                "show_outline": show_outline, "extrema_style": "blocks"}
+                "show_outline": show_outline, "extrema_style": "polylines"}
 
     def _arrangement_shown(self) -> bool:
         """Whether the Vector/Globe scene is the centre view on screen."""
@@ -9103,7 +9103,7 @@ both ``Canvas`` signals report the
             return self._product_content(layer, result, field)
         idx = 0 if len(result.get("extrema") or [None]) == 1 else int(result.get("_scale_idx", 0))
         return RowContent("extrema" if kind == "ext" else "chains", result=result,
-                          scale_idx=idx, grid_field=field)
+                          scale_idx=idx, grid_field=field, style=_display_style_of(layer))
 
     def _product_content(self, layer, result, field):
         """A layer's product row: the raster its Show puts up, placed where the Raster tab

@@ -187,7 +187,7 @@ def test_stack_flags_for_the_3d_entries(geo_window, qtbot):
     stack.node(f"ext:{child.layer_id}").visible = False
     flags = win._stack_entry_flags(child)
     assert flags["show_extrema"] is False and flags["show_chains"] is True
-    assert flags["extrema_style"] == "blocks" and flags["rank"] >= 0
+    assert flags["extrema_style"] == "polylines" and flags["rank"] >= 0
     stack.node(f"chn:{child.layer_id}").visible = False
     assert win._stack_entry_flags(child) is None or not win._stack_entry_flags(child)["show_chains"]
 
