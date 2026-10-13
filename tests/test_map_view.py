@@ -500,3 +500,12 @@ def test_extrema_lines_are_not_redrawn_for_a_copy_of_the_result(qtbot):
     v.update_row("ext:1", RowContent("extrema", result={**res, "raster_out": np.zeros((40, 50))},
                                      grid_field=field, style=STYLE_EXT))
     assert calls == []
+
+
+def test_h_lines_take_the_layers_line_width(qtbot):
+    v = _view(qtbot)
+    v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                 lambda rid: RowContent("extrema", result=_line_result(), grid_field=_utm(),
+                                        style={**STYLE_EXT, "line_width": 2.5}))
+    lines = v._vectors["ext:1"][0]
+    assert lines.opts["pen"].widthF() == pytest.approx(2.5)

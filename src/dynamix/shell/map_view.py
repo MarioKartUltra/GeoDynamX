@@ -474,7 +474,8 @@ class MapView(QtWidgets.QWidget):
         shape = tuple(result.get("_shape") or (len(y_axis), len(x_axis)))[:2]
         hx, hy = hline_polylines(ext, shape)
         lines.setData(*self._to_map_nan(content.grid_field, *to_axes(hx, hy, x_axis, y_axis)),
-                      pen=pg.mkPen(style.get("color_hchain", "#ebebeb")))
+                      pen=pg.mkPen(style.get("color_hchain", "#ebebeb"),
+                                   width=float(style.get("line_width", 1.0))))
         n = len(ext["x"])
         iso = np.asarray(ext.get("line_id", np.full(n, -1))) == -1
         cx = np.asarray(ext.get("x_sub", ext["x"]), dtype=np.float64)[iso]
