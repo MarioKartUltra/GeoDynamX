@@ -516,11 +516,13 @@ class MultifractalWindow(QtWidgets.QDialog):
                           if key == "tau_qa" and self._power_mean_view() else label)
             n_q = table.shape[0]
             for i in range(n_q):
-                item = pg.PlotDataItem(log2_s, table[i], pen=pg.mkPen(_q_color(i, n_q)),
+                # The data as points, the fit the only line (the EBSD figures' look).
+                item = pg.PlotDataItem(log2_s, table[i], pen=None, symbol="o", symbolSize=4,
+                                       symbolPen=None, symbolBrush=_q_color(i, n_q),
                                        connect="finite")
                 plot.addItem(item)
                 self._family_items_by_table[key].append(item)
-                line = pg.PlotDataItem(pen=pg.mkPen((*_q_color(i, n_q), 150), width=1),
+                line = pg.PlotDataItem(pen=pg.mkPen(_q_color(i, n_q), width=1.2),
                                        connect="finite")
                 plot.addItem(line)
                 self._family_lines_by_table[key].append(line)

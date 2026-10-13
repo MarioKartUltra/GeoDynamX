@@ -459,3 +459,14 @@ def test_other_methods_ride_as_sources_with_a_show_menu(qtbot):
     qtbot.addWidget(hist_only)
     assert "histogram · C" in hist_only._source_items
     assert hist_only._source_items["histogram · C"]["curves"]["dh"].getData()[0].size == 5
+
+
+def test_the_family_rows_are_markers_and_the_fit_lines_solid(qtbot):
+    """The EBSD figures' look: the data as points, the per-q best-fit line the only line, so
+    the fit is visible over real data."""
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    row = window._family_items_by_table["tau_qa"][1]
+    assert row.opts["symbol"] == "o" and row.opts["pen"] is None
+    line = window._family_lines_by_table["tau_qa"][1]
+    assert line.opts["pen"].color().alpha() == 255 and line.opts["pen"].widthF() >= 1.2
