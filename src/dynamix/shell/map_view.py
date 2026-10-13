@@ -23,6 +23,14 @@ _M_PER_DEG = np.pi * 6378137.0 / 180.0
 _BRUSHES: list = []
 
 
+def _colour_index(scalars) -> np.ndarray:
+    """[0, 1] modulus scalars as indices into a 256-entry table; a non-finite scalar (a zero
+    modulus under a negative power) lands on an end of the table instead of outside it."""
+    k = np.nan_to_num(np.asarray(scalars, dtype=np.float64) * 255, nan=0.0, posinf=255.0,
+                      neginf=0.0)
+    return np.clip(k.astype(int), 0, 255)
+
+
 def _viridis_brushes() -> np.ndarray:
     """The 256 viridis brushes, built once, as an object array a per-point index picks from."""
     if not _BRUSHES:
@@ -374,8 +382,8 @@ class MapView(QtWidgets.QWidget):
             rgb = np.full((n, 3), 255, dtype=np.uint8)
         else:
             lut = pg.colormap.get("viridis").getLookupTable(nPts=256)[:, :3]
-            k = (modulus_scalars(mod, st["mode"], st["q"]) * 255).astype(int)
-            rgb = np.asarray(lut, dtype=np.uint8)[np.clip(k, 0, 255)]
+            k = _colour_index(modulus_scalars(mod, st["mode"], st["q"]))
+            rgb = np.asarray(lut, dtype=np.uint8)[k]
             if st["colour"] == "group":
                 own = group_rgb(result.get("chains"), s, cols, rows)
                 grouped = own[:, 0] >= 0
@@ -457,7 +465,7 @@ class MapView(QtWidgets.QWidget):
                 rgb = group_rgb(result.get("chains"), s, cols, rows)
             else:
                 rgb = np.full((len(cols), 3), -1)
-            k = (modulus_scalars(mod, st["mode"], st["q"]) * 255).astype(int)
+            k = _colour_index(modulus_scalars(mod, st["mode"], st["q"]))
             brushes = _viridis_brushes()[k]            # one brush per colour, indexed per point
             grouped = np.flatnonzero(rgb[:, 0] >= 0)
             if grouped.size:

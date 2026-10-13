@@ -410,3 +410,15 @@ def test_a_reference_layer_is_one_item_with_its_parts_separated(qtbot):
     assert len(v._overlay_items) == 1
     x, _y = v._overlay_items[0].getData()
     assert len(x) == 8 and np.isnan(x).sum() == 2
+
+
+def test_a_non_finite_modulus_scalar_still_draws(qtbot):
+    v = _view(qtbot)
+    v.extrema_style = {**v.extrema_style, "mode": "q", "q": -1.0, "subpixel": True}
+    res = _ext_result()
+    res["extrema"][0]["mod"] = np.array([0.0, 2.0, 4.0])
+    with np.errstate(divide="ignore"):
+        v.show_stack([(Row("ext:1", "extrema"), True, 1.0)],
+                     lambda rid: RowContent("extrema", result=res, grid_field=_utm()))
+    xs, _ys = v._vectors["ext:1"][0].getData()
+    assert len(xs) == 3
