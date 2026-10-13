@@ -305,6 +305,17 @@ def test_the_extent_crosses_a_map_crs(geo_window, qtbot):
     assert (mx, my) == pytest.approx((lon, lat), abs=1e-4)
 
 
+def test_the_opacity_slider_fades_the_map_row_as_it_moves(geo_window, qtbot):
+    win = geo_window
+    child = _roi_child(win, qtbot, "holder_measure")
+    win._set_center_view("map")
+    rid = f"prod:{child.layer_id}"
+    win.layers_panel.select_row(rid)
+    win.layers_panel.opacity_slider.setValue(30)
+    assert win.map_view._items[rid].opacity() == pytest.approx(0.3)
+    assert win.project.layer_stack.node(rid).opacity == pytest.approx(0.3)
+
+
 from test_bus_shell import _Route, three_datasets  # noqa: F401,E402
 from tests.test_shell_window import stub_devices, window  # noqa: F401,E402
 

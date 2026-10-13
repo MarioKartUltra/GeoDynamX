@@ -1506,9 +1506,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel.add_section("Transect", self._transect_panel)
         from dynamix.shell.layers_panel import LayersPanel
 
-        self.layers_panel = LayersPanel(self.project.layer_stack, self._row_label)
+        height = load_settings().view_options.get("layers_height")
+        self.layers_panel = LayersPanel(self.project.layer_stack, self._row_label,
+                                        **({"height": int(height)}
+                                           if isinstance(height, (int, float)) else {}))
         self.right_panel.add_section("Layers", self.layers_panel, first=True)
         self.layers_panel.stackChanged.connect(self._on_stack_changed)
+        self.layers_panel.opacityChanged.connect(self._on_stack_opacity)
+        self.layers_panel.heightChanged.connect(
+            lambda h: update_settings(view_options={**load_settings().view_options,
+                                                    "layers_height": int(h)}))
         self.layers_panel.rowSelected.connect(self._on_layers_row_selected)
         self.layers_panel.zoomRequested.connect(self._on_layers_zoom)
         self._refresh_panel_relevance()
@@ -9275,6 +9282,15 @@ both ``Canvas`` signals report the
                     x, y = transform("EPSG:4326", self.project.map_crs, list(ps.lon), list(ps.lat))
                     points.append((np.asarray(x), np.asarray(y)))
         return {"references": refs, "points": points}
+
+    def _on_stack_opacity(self) -> None:
+        """A slider tick in the Layers panel: the Map's rows take their new opacity at once;
+        the release re-syncs everything (``stackChanged``)."""
+        if self.map_view is None or self._center_stack.currentWidget() is not self.map_view:
+            return
+        for row, visible, opacity in self.project.layer_stack.drawn(include_hidden=True):
+            if visible:
+                self.map_view.set_row_opacity(row.id, opacity)
 
     def _on_stack_changed(self) -> None:
         changed = False

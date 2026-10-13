@@ -26,6 +26,8 @@ def test_the_tree_shows_groups_and_rows_top_first(qtbot):
     assert top.text(0) == "dem" and [top.child(i).text(0) for i in range(2)] == ["h(x)", "dem"]
 
 
+@pytest.mark.skip(reason="one opacity slider for the selected row "
+                         "(test_the_eye_and_the_opacity_slider_write_the_stack)")
 def test_the_eye_and_opacity_write_the_stack(qtbot):
     s, p = _panel(qtbot)
     with qtbot.waitSignal(p.stackChanged):
@@ -81,3 +83,45 @@ def test_an_eye_click_selects_nothing(qtbot):
     item.setCheckState(0, QtCore.Qt.Unchecked)        # the release on the check box
     p.tree.itemClicked.emit(item, 0)
     assert seen == []
+
+
+def test_rows_carry_an_eye_and_a_name_only(qtbot):
+    _s, p = _panel(qtbot)
+    assert p.tree.columnCount() == 1 and p.tree.isHeaderHidden()
+    assert p.tree.itemWidget(p.item_for("prod:1"), 0) is None
+
+
+def test_the_eye_and_the_opacity_slider_write_the_stack(qtbot):
+    s, p = _panel(qtbot)
+    with qtbot.waitSignal(p.stackChanged):
+        p.item_for("prod:1").setCheckState(0, QtCore.Qt.Unchecked)
+    assert s.node("prod:1").visible is False
+    p.select_row("prod:1")
+    assert p.opacity_slider.isEnabled() and p.opacity_slider.value() == 100
+    with qtbot.waitSignal(p.opacityChanged):
+        p.opacity_slider.setValue(40)
+    assert s.node("prod:1").opacity == 0.4
+    assert p.item_for("prod:1").text(0) == "h(x)  40%" and p.opacity_label.text() == "40%"
+    p.select_row("src:src0")
+    assert p.opacity_slider.value() == 100                      # it follows the selection
+
+
+def test_up_and_down_move_the_selected_row_in_its_group(qtbot):
+    s, p = _panel(qtbot)
+    p.select_row("src:src0")
+    with qtbot.waitSignal(p.stackChanged):
+        p.up_button.click()
+    assert [c.id for c in s.node("ds:src0").children] == ["src:src0", "prod:1"]
+    assert p.current_id() == "src:src0"
+    p.down_button.click()
+    assert [c.id for c in s.node("ds:src0").children] == ["prod:1", "src:src0"]
+    p.down_button.click()                                       # already last: stays
+    assert [c.id for c in s.node("ds:src0").children] == ["prod:1", "src:src0"]
+
+
+def test_the_grip_resizes_the_list(qtbot):
+    _s, p = _panel(qtbot)
+    p.set_tree_height(360)
+    assert p.tree.height() == 360
+    p.set_tree_height(10)
+    assert p.tree.height() >= 100

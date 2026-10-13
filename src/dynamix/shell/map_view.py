@@ -222,6 +222,12 @@ class MapView(QtWidgets.QWidget):
         elif content.kind == "chains":
             self._draw_chains(row_id, content, opacity, z)
 
+    def set_row_opacity(self, row_id, opacity: float) -> None:
+        """Fade a drawn row's items to ``opacity`` (a layer-stack slider tick)."""
+        for item in (self._items.get(row_id), *self._vectors.get(row_id, ())):
+            if item is not None:
+                item.setOpacity(opacity)
+
     def _hide(self, row_id, reason) -> None:
         if reason:
             self._reasons[row_id] = reason
