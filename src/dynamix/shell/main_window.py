@@ -7659,7 +7659,7 @@ both ``Canvas`` signals report the
             # uncached by DESIGN, so resolving IT here would be the GUI-thread catch-up compute
             # this method's docstring forbids. But §5e also says "filter edits stay live against
             # the last run" -- so instead of dropping the edit (which leaves filters dead,
-            # 'slaved to Run'), re-resolve the HYBRID: the last-run committed transforms
+            # tied to Run), re-resolve the HYBRID: the last-run committed transforms
             # (cached -> no compute) + the CURRENT filters. Only once a run exists to hybridize
             # against, and only when the thread is free (an in-flight landing re-resolves anyway)
             # or holds an output job while the committed tail is cached.
