@@ -544,3 +544,44 @@ def test_the_cumulant_spectrum_overlay_follows_the_fitted_cumulants(qtbot):
     table_window = MultifractalWindow(hd2, hd2, scales=scales)
     qtbot.addWidget(table_window)
     assert table_window.current_cumulants()["c2"] == pytest.approx(c["c2"], rel=1e-9)
+
+
+# ------------------------------------------------------------------ the window never fights the screen
+
+def test_the_control_strip_never_sets_the_window_width(qtbot):
+    """The strip's labels change text with every fit (the focus readout, the two-segment
+    readout); a one-row strip let them raise the window's minimum width past the screen and
+    Qt widened the window on its own. The strip wraps, the readouts clip, and a window the
+    user shrank stays shrunk through fit-mode switches and region drags."""
+    hd_std, hd_cmax = _pair()
+    window = MultifractalWindow(hd_std, hd_cmax, log2_L=9.0)
+    qtbot.addWidget(window)
+    window.show()
+    # The bound is a small laptop's usable width, not a pixel count: the strip's widgets grow
+    # with the app theme's font (874 px with it, 760 without), and the one-row strip was 1361.
+    assert window.minimumSizeHint().width() < 1000
+    window.resize(1000, 700)
+    qtbot.wait(10)
+    assert window.size().width() == 1000
+    for mode in ("fixed focus", "focus", "naive"):
+        window._fitmode_combo.setCurrentText(mode)
+        qtbot.wait(10)
+        assert (window.size().width(), window.size().height()) == (1000, 700), mode
+    lo, hi = window._region.getRegion()
+    window._region.setRegion((lo + 0.3 * (hi - lo), hi - 0.2 * (hi - lo)))
+    window.bershadskii_check.setChecked(True)
+    window.cumulant_check.setChecked(True)
+    qtbot.wait(10)
+    assert (window.size().width(), window.size().height()) == (1000, 700)
+    assert window.minimumSizeHint().width() < 1000
+
+
+def test_the_fitter_opens_inside_its_screen(qtbot):
+    from PySide6 import QtGui
+
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.wait(10)
+    avail = (window.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()
+    assert window.size().width() <= avail.width() and window.size().height() <= avail.height()

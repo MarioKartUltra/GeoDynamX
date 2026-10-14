@@ -391,7 +391,10 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._peak_text = pg.TextItem(color=RESTRAINED_DARK.ink, anchor=(0.5, 1.2))
         self._plot.addItem(self._peak_text)
 
-        self.resize(950, 700)
+        from dynamix.shell.window_fit import fit_to_screen, remember_geometry
+
+        fit_to_screen(self, 950, 700)
+        remember_geometry(self, "spectrum")
 
     # -- the histogram construction ---------------------------------------------------------
     def _r0_rel(self) -> "float | None":

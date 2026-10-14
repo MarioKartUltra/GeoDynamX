@@ -60,6 +60,10 @@ class Settings:
     #: the least-recent unpinned output levels are evicted; a marked level is pinned and rides
     #: above it. Anything that is not a positive int falls back to 2 GB.
     output_cache_bytes: int = 2_000_000_000
+    #: Where each floating window was left, ``{key: [x, y, w, h]}`` in screen pixels
+    #: (``dynamix.shell.window_fit.remember_geometry``); a saved geometry that lands on no
+    #: screen is ignored on restore.
+    window_geometry: dict[str, list[int]] = dataclasses.field(default_factory=dict)
 
 def settings_path() -> Path:
     env = os.environ.get("DYNAMIX_SETTINGS_PATH")
@@ -114,6 +118,7 @@ def load_settings() -> Settings:
         open_max_pixels=_positive_int(d.get("open_max_pixels"), 64_000_000),
         compute_precision=compute_precision,
         output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
+        window_geometry=_dict_of_int_lists(d.get("window_geometry")),
     )
 
 def _positive_int(value, default: int) -> int:

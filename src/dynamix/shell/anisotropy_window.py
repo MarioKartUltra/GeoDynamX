@@ -38,7 +38,9 @@ class AnisotropyWindow(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent, QtCore.Qt.Window)
         self.setWindowTitle("Anisotropy — WTMMM angle statistics")
-        self.resize(1180, 460)
+        from dynamix.shell.window_fit import fit_to_screen
+
+        fit_to_screen(self, 1180, 460)
         self._result = None
         self._field = None
         self._offset = (0.0, 0.0)
@@ -70,10 +72,16 @@ class AnisotropyWindow(QtWidgets.QWidget):
         for w in (self.pdf_plot, self.plane_plot, self.sector_plot):
             plots.addWidget(w, 1)
         outer.addLayout(plots, 1)
-        outer.addWidget(QtWidgets.QLabel(
+        caption = QtWidgets.QLabel(
             "Arnéodo, Decoster & Roux 2000, §6: a FLAT P_a(A) means isotropic scaling; the "
             "gradient-plane cloud is round when isotropic; identical sector pdfs mean M and A "
-            "are independent (the spectrum carries no direction)."))
+            "are independent (the spectrum carries no direction).")
+        # A one-line caption set the window's minimum width past a laptop screen; wrapping it
+        # with an ignored width policy lets the plots decide the width.
+        caption.setWordWrap(True)
+        caption.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
+                              QtWidgets.QSizePolicy.Policy.Preferred)
+        outer.addWidget(caption)
         self.frame_combo.currentIndexChanged.connect(self.refresh)
         self.scale_spin.valueChanged.connect(self.refresh)
         self.bins_spin.valueChanged.connect(self.refresh)

@@ -69,7 +69,9 @@ def main(argv=None) -> int:
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     apply_theme(app, RESTRAINED_DARK)
     win = MainWindow()
-    win.resize(1400, 860)
+    from dynamix.shell.window_fit import fit_to_screen
+
+    fit_to_screen(win, 1400, 860)
     win.show()
     win.open_path(raster)
 

@@ -265,8 +265,7 @@ class MultifractalWindow(QtWidgets.QDialog):
                 "focus fitting needs the field extent (log2 L) -- open from a computed result")
         self._fitmode_combo.currentTextChanged.connect(self._on_fit_mode_changed)
         controls.addWidget(self._fitmode_combo)
-        self._focus_readout = QtWidgets.QLabel("")
-        controls.addWidget(self._focus_readout)
+        self._focus_readout = QtWidgets.QLabel("")          # shown on the readouts line below
 
         # The families' abscissa: log₂ a in pixels, or log₂ of the physical λ* in the bars' unit.
         controls.addWidget(QtWidgets.QLabel("x"))
@@ -288,6 +287,11 @@ class MultifractalWindow(QtWidgets.QDialog):
             action.toggled.connect(lambda checked, n=name: self._on_source_toggled(n, checked))
         self.show_button.setMenu(self.show_menu)
         controls.addWidget(self.show_button)
+        # The strip wraps onto a second row here: one row of everything had a minimum width
+        # wider than a laptop screen, and a window can never be narrower than its layout.
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        controls = QtWidgets.QHBoxLayout()
         # Eq. 21 pinned to this fit's D₀ = -tau(0) instead of d, to compare shapes.
         self.pin_check = QtWidgets.QCheckBox("pin peak to D₀")
         self.pin_check.setEnabled(self._dh_hist is not None)
@@ -340,22 +344,28 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._qstar_spin.valueChanged.connect(lambda _v: self._update_phase_transition())
         controls.addWidget(self._qstar_spin)
 
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
         #: The two-segment fit's live numbers -- slope_L / slope_R / ds + the scan's best q*.
         self._pt_label = QtWidgets.QLabel("")
         self._pt_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
-        controls.addWidget(self._pt_label)
         #: The cascade's cumulants c₁..c₄ under the fit window (the c(q) panel's readout).
         self._cq_label = QtWidgets.QLabel("")
         self._cq_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
-        controls.addWidget(self._cq_label)
-
         #: What the forward transform actually multiplied in -- display only, derived by the
         #: caller (see the module docstring's eta/frame section). Muted: context, not a control.
         self._forward_label = QtWidgets.QLabel(forward_note)
         self._forward_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
-        controls.addStretch(1)
-        controls.addWidget(self._forward_label)
-        layout.addLayout(controls)
+        # The readouts' texts change with every fit; on their own line, wrapping, with an
+        # ignored width policy, they can never raise the window's minimum width.
+        readouts = QtWidgets.QHBoxLayout()
+        for label in (self._focus_readout, self._pt_label, self._cq_label, self._forward_label):
+            label.setWordWrap(True)
+            label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
+                                QtWidgets.QSizePolicy.Policy.Preferred)
+            readouts.addWidget(label, 1)
+        layout.addLayout(readouts)
 
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(RESTRAINED_DARK.ground)
@@ -533,7 +543,10 @@ class MultifractalWindow(QtWidgets.QDialog):
         # (the workbook's exact gesture pair, cell 49).
         self._glw.scene().sigMouseClicked.connect(self._on_scene_clicked)
 
-        self.resize(1150, 1000)
+        from dynamix.shell.window_fit import fit_to_screen, remember_geometry
+
+        fit_to_screen(self, 1150, 1000)
+        remember_geometry(self, "multifractal")
 
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:
