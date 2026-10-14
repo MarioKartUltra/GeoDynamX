@@ -1301,6 +1301,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.wavelet_bar.moved.connect(
             lambda off: self._remember_bar("wavelet_bar", "raster", off))
         self._wavelet_bar_state = (None, "")      # (Profile, label) of the active landing
+        # (device, params) behind that bar, set at a landing; read by the Map view, which a
+        # launch restoring the Map builds before anything has landed.
+        self._bar_device = None
         #: Every layer's latest landed result, for the fitter's other-method sources.
         self._landed_results: dict = {}
         self._load_bar_styles()

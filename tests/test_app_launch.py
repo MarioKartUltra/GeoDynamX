@@ -47,3 +47,17 @@ def test_open_path_reads_a_geotiff_window_of_the_configured_size(tmp_path, monke
     except RuntimeError:
         pass
     assert seen["window_size"] == 1024
+
+
+def test_the_map_view_can_be_the_first_view_before_any_landing(qtbot, clean_registry):
+    """A launch that restores the Map as the centre view builds the map view before any
+    result has landed; the bars' state must exist from construction (the Dock launch at
+    7213f4c died here with an AttributeError on ``_bar_device``)."""
+    from dynamix.shell.main_window import MainWindow
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    assert window._canvas_bar_state() == (None, "")
+    window._ensure_map_view()
+    window._set_center_view("map")
+    assert window.map_view is not None
