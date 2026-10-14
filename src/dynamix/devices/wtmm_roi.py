@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.device import Output
+from dynamix.devices.wtmm import SMOOTHER_PARAMS, smoother_params
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
 
@@ -55,8 +56,8 @@ class WTMM2DROI:
     #: WINDOW, not a wavelet or a linking rule), so they land in the trailing unlabeled group
     #: ``workflow_zone.DeviceBox`` builds for params no entry names.
     param_groups = {
-        "PRE": ("wavelet", "a_min", "n_oct", "n_voice", "smooth", "fracint_alpha",
-                "interpolate", "detector"),
+        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth",
+                "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude"),
     }
     params = (
@@ -71,8 +72,9 @@ class WTMM2DROI:
         # (Param.__post_init__ rejects a soft_min below the hard min).
         Param("a_min", ParamKind.FLOAT, default=1.0, min=MIN_A_MIN, max=16.0,
               soft_min=MIN_A_MIN, soft_max=4.0, units="", label="aₘᵢₙ"),
-        Param("wavelet", ParamKind.CHOICE, default="mexican",
-              choices=("mexican", "gaussian"), label="Wavelet"),
+        # The smoother θ and its parameters: wtmm2d's own declarations (the registry's names
+        # must match between parent and ROI child, so these are shared rather than mirrored).
+        *SMOOTHER_PARAMS,
         # Mirrors wtmm2d's declaration: the ROI path APPLIES the lift (``run_wtmm2d_roi`` reads
         # ``resolved["fracint_alpha"]``), so the knob must be declared and carried here, or a
         # parent tuned off the default silently loses it on every ROI child.
@@ -121,7 +123,7 @@ class WTMM2DROI:
         """The analysing wavelet's section and λ* at ``scale_px`` (the wavelet scale bar)."""
         from dynamix.core.wavelet_profiles import wtmm_profile
 
-        return wtmm_profile(params["wavelet"], scale_px)
+        return wtmm_profile(params["wavelet"], scale_px, smoother_params(params))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         from dynamix.core.rasterfield import geotiff_info
@@ -150,6 +152,7 @@ class WTMM2DROI:
             "n_voice": params["n_voice"],
             "a_min": params["a_min"],
             "wavelet": params["wavelet"],
+            "smoother_params": smoother_params(params),
             "fracint_alpha": params["fracint_alpha"],
             "interpolate": params["interpolate"],
             "detector": params["detector"],
@@ -208,8 +211,9 @@ class WTMM2DROI:
             progress(f"{name} scale {idx + 1}/{n}", 0.0)
         one = run_wtmm2d_roi_level(
             source, (info["height"], info["width"]), (r0, c0, h, w),
-            {k: params[k] for k in ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha",
-                                    "detector")},
+            dict({k: params[k] for k in ("n_oct", "n_voice", "a_min", "wavelet",
+                                         "fracint_alpha", "detector")},
+                 smoother_params=smoother_params(params)),
             idx, boundary=roi["boundary"])
         grid = RasterField.from_geotiff_window(source, row_off=r0, col_off=c0, height=h,
                                                width=w)
@@ -240,7 +244,7 @@ class WTMM2DROI:
         finest = compute_scales2d(1, 1, a_min=float(value))[0]
         sigma = sigma_px(finest)
         wavelet = (params or {}).get("wavelet", "mexican")     # this device's own param default
-        lam = lambda_peak_px(finest, wavelet, 1)
+        lam = lambda_peak_px(finest, wavelet, 1, smoother_params(params or {}))
         px, unit = px_to_metres(field)
         if px is None or unit == "px":
             return f"σ ≈ {sigma:.1f} px · λ {lam:.1f} px"

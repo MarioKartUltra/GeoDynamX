@@ -14,8 +14,39 @@ from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
 
 #: The params a per-scale output reads: the scale grid, the wavelet, the lift and the detector
-#: (which picks the cwt call the analysis made).
+#: (which picks the cwt call the analysis made); the smoother's own parameters ride beside them
+#: as the backend's ``smoother_params`` (:func:`smoother_params`).
 _LEVEL_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "detector")
+
+#: The smoother knobs beside the ``wavelet`` choice: for each registry smoother outside the
+#: Gaussian pair, (the device's param name, the registry's key).
+_SMOOTHER_KNOBS = {"frac_bspline": ("alpha", "alpha"), "q_gaussian": ("q_tsallis", "q")}
+
+#: The smoother choice and its two parameters, shared with the ROI device. The choice names
+#: the smoothing function θ; the analysing wavelets are its gradient components: g3 for the
+#: Mexican hat, g1 for the Gaussian, ∂θ for the fractional B-spline (degree α) and the
+#: q-Gaussian (Tsallis q), each parameter shown with its own smoother.
+SMOOTHER_PARAMS = (
+    Param("wavelet", ParamKind.CHOICE, default="mexican",
+          choices=("mexican", "gaussian", "frac_bspline", "q_gaussian"), label="Smoother θ",
+          choice_labels=("mexican (ψ = g3)", "gaussian (ψ = g1)",
+                         "fractional B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)")),
+    Param("alpha", ParamKind.FLOAT, default=3.0, min=1.0, max=8.0, soft_min=2.0, soft_max=4.0,
+          units="", label="α (degree)", active_when=("wavelet", ("frac_bspline",))),
+    Param("q_tsallis", ParamKind.FLOAT, default=1.5, min=0.05, max=1.95, soft_min=0.5,
+          soft_max=1.8, units="", label="q (Tsallis)", active_when=("wavelet", ("q_gaussian",))),
+)
+
+
+def smoother_params(params: dict) -> dict | None:
+    """The backend's ``smoother_params`` for the chosen θ: ``{"alpha": α}`` for the fractional
+    B-spline, ``{"q": q}`` for the q-Gaussian, ``None`` for the Gaussian pair."""
+    knob = _SMOOTHER_KNOBS.get(params.get("wavelet", "mexican"))
+    if knob is None:
+        return None
+    name, key = knob
+    default = next(p.default for p in SMOOTHER_PARAMS if p.name == name)
+    return {key: float(params.get(name, default))}
 
 
 class WTMM2D:
@@ -40,15 +71,15 @@ class WTMM2D:
     #: lines ACROSS scales (cheap by comparison, but still part of this Transform -- xsmurf's own
     #: ``chains2d`` has no separate cache seam from the CWT/extrema stages the way a Filter would).
     #: ``workflow_zone.DeviceBox`` renders one labeled column-group per entry, in THIS param order
-    #: -- not ``params`` tuple order -- so the pairing below (wavelet+a_min, n_oct+n_voice, smooth
-    #: alone; min_chain_len+thresh, dist2_max+box_ratio, similitude alone) is a deliberate
-    #: two-per-column layout, not an accident of dict iteration. ``similitude`` joins CHAINING:
-    #: it is the third linking kwarg in the exact same ``chains2d`` call
-    #: as ``box_ratio``/``dist2_max`` (dynamix/core/wtmm_backend.py), so a group named CHAINING that
-    #: omitted it was incomplete, not merely conservative.
+    #: -- not ``params`` tuple order -- so the pairing below (wavelet+a_min, alpha+q_tsallis (one
+    #: shown at a time), n_oct+n_voice, smooth alone; min_chain_len+thresh, dist2_max+box_ratio,
+    #: similitude alone) is a deliberate two-per-column layout, not an accident of dict
+    #: iteration. ``similitude`` joins CHAINING: it is the third linking kwarg in the exact same
+    #: ``chains2d`` call as ``box_ratio``/``dist2_max`` (dynamix/core/wtmm_backend.py), so a
+    #: group named CHAINING that omitted it was incomplete, not merely conservative.
     param_groups = {
-        "PRE": ("wavelet", "a_min", "n_oct", "n_voice", "smooth", "dither", "fracint_alpha",
-                "interpolate", "detector"),
+        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth", "dither",
+                "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude"),
     }
     params = (
@@ -56,11 +87,8 @@ class WTMM2D:
         Param("n_voice", ParamKind.INT, default=4, min=1, max=64, label="Voices/octave"),
         Param("a_min", ParamKind.FLOAT, default=1.0, min=0.01, max=64.0,
               soft_min=0.5, soft_max=4.0, units="", label="aₘᵢₙ"),
-        # The choice names the smoothing function θ; the analysing wavelets are its gradient
-        # components, g3 for the Mexican hat and g1 for the Gaussian.
-        Param("wavelet", ParamKind.CHOICE, default="mexican",
-              choices=("mexican", "gaussian"), label="Smoother θ",
-              choice_labels=("mexican (ψ = g3)", "gaussian (ψ = g1)")),
+        # The smoother θ and its parameters (module level, shared with the ROI device).
+        *SMOOTHER_PARAMS,
         # The M-Z devices' seeded half-LSB dither, on the WTMM path: it breaks up processing
         # noise before chaining. Applied by THIS device to a CLONE of the field (the backend is
         # a verbatim EQSelect copy and rejects unknown params); fails toward no-op when no
@@ -126,7 +154,7 @@ class WTMM2D:
         """The analysing wavelet's section and λ* at ``scale_px`` (the wavelet scale bar)."""
         from dynamix.core.wavelet_profiles import wtmm_profile
 
-        return wtmm_profile(params["wavelet"], scale_px)
+        return wtmm_profile(params["wavelet"], scale_px, smoother_params(params))
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
         from dynamix.core.wtmm_backend import run_wtmm2d
@@ -151,6 +179,7 @@ class WTMM2D:
                 "n_voice": params["n_voice"],
                 "a_min": params["a_min"],
                 "wavelet": params["wavelet"],
+                "smoother_params": smoother_params(params),
                 "min_chain_len": params["min_chain_len"],
                 "smooth": params["smooth"],
                 "thresh": params["thresh"],
@@ -215,7 +244,8 @@ class WTMM2D:
         idx = int(np.clip(0 if level is None else int(level), 0, n - 1))
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 0.0)
-        one = run_wtmm2d_level(values, {k: params[k] for k in _LEVEL_KEYS}, idx)
+        one = run_wtmm2d_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
+                                            smoother_params=smoother_params(params)), idx)
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 1.0)
         raster = one["mod"] if name == "modulus" else one["arg"]
@@ -255,8 +285,9 @@ class WTMM2D:
             lsb = measure_lsb(values)
             if lsb:
                 values = _dithered(values, lsb)
-        res = run_wtmm2d_roi_on_window(values, real, int(r0),
-                                       int(h), int(w), {k: params[k] for k in self._ROI_KEYS},
+        res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
+                                       dict({k: params[k] for k in self._ROI_KEYS},
+                                            smoother_params=smoother_params(params)),
                                        progress=progress)
         res = dict(res)
         res["_frame"] = getattr(window_field, "frame", None)
@@ -273,7 +304,8 @@ class WTMM2D:
 
         return run_wtmm2d_preview(field, {
             "n_oct": params["n_oct"], "n_voice": params["n_voice"], "a_min": params["a_min"],
-            "wavelet": params["wavelet"], "thresh": params["thresh"],
+            "wavelet": params["wavelet"], "smoother_params": smoother_params(params),
+            "thresh": params["thresh"],
             "min_chain_len": params["min_chain_len"], "smooth": params["smooth"],
             "dist2_max": params["dist2_max"], "box_ratio": params["box_ratio"],
             "similitude": params["similitude"], "fracint_alpha": params["fracint_alpha"],
@@ -302,7 +334,7 @@ class WTMM2D:
         finest = compute_scales2d(1, 1, a_min=float(value))[0]
         sigma = sigma_px(finest)
         wavelet = (params or {}).get("wavelet", "mexican")     # this device's own param default
-        lam = lambda_peak_px(finest, wavelet, 1)
+        lam = lambda_peak_px(finest, wavelet, 1, smoother_params(params or {}))
         px, unit = px_to_metres(field)
         if px is None or unit == "px":
             return f"σ ≈ {sigma:.1f} px · λ {lam:.1f} px"
