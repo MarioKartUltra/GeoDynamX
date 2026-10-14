@@ -806,3 +806,26 @@ def test_wtmm2d_is_l1_normalized_at_a_cusp(wavelet, h):
     upper = slice(len(scales) // 2, None)
     slope = np.polyfit(np.log(scales[upper]), np.log(peak[upper]), 1)[0]
     assert slope == pytest.approx(h, abs=0.03)
+
+
+@pytest.mark.parametrize("wavelet,params", _REGISTRY, ids=[w for w, _ in _REGISTRY])
+@pytest.mark.parametrize("h", [0.3, 0.6])
+def test_registry_smoothers_read_a_deterministic_cusp(wavelet, params, h):
+    """The same cusp |x − x0|^h for the registry's smoothers: the maxima-line modulus scales as
+    a^h (L1 normalisation, θ̂(0) = 1 for every θ), read over the upper half of the ladder. The
+    field is 512² here: the q-Gaussian's ρ⁻⁴ tails at q = 1.5 and the bandlimited q-Meyer's
+    ringing tails reach a 256² field's edge at the top scales (local slopes 0.16 and 0.36 there
+    for q = 1.5 against 0.29 and 0.60 through the middle of the ladder; 0.30 and 0.60 at 512²)."""
+    from dynamix.core import wtmm_backend as wb
+
+    n = 512
+    y, x = np.indices((n, n)) - n // 2
+    rho = np.hypot(x, y)
+    scales = wb.compute_scales2d(4, 4, a_min=1.0)
+    mod = np.asarray(wb._cwt2d_numpy((rho ** h).astype(np.float32), scales, pad=256,
+                                     wavelet=wavelet, params=params, verbose=False)["mod"])
+    ring = rho <= 0.9 * scales[:, None, None] + 2
+    peak = np.array([mod[i][ring[i]].max() for i in range(len(scales))])
+    upper = slice(len(scales) // 2, None)
+    slope = np.polyfit(np.log(scales[upper]), np.log(peak[upper]), 1)[0]
+    assert slope == pytest.approx(h, abs=0.03)
