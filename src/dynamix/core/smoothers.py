@@ -157,11 +157,10 @@ def _frac_hat_factory(alpha: float):
     return theta_hat
 
 
-def _central_row(theta_hat, deriv_order: int, n: int = 1024) -> tuple:
+def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 16.0) -> tuple:
     """The x-axis section in σ units, |u| ≤ 6, from the central row of the 2-D inverse
-    transform of (i s_x)^m θ̂ on a fine grid (σ/16 over ±n/32 σ), for a kernel that is not
-    separable or has no closed form."""
-    du = 1.0 / 16.0
+    transform of (i s_x)^m θ̂ on a fine grid (step ``du`` σ over ±n·du/2 σ), for a kernel that
+    is not separable or has no closed form."""
     kappa = np.fft.fftfreq(n, d=du)                          # cycles per σ
     kx, ky = np.meshgrid(kappa, kappa)
     sx, sy = np.pi * np.sqrt(2.0) * kx, np.pi * np.sqrt(2.0) * ky   # s = k a = κ (a/σ)
@@ -176,8 +175,13 @@ def _central_row(theta_hat, deriv_order: int, n: int = 1024) -> tuple:
 
 @functools.lru_cache(maxsize=64)
 def _frac_section_u(alpha: float, deriv_order: int) -> tuple:
-    """The fractional B-spline's section, computed once per order (not separable)."""
-    return _central_row(_frac_hat_factory(alpha), deriv_order)
+    """The fractional B-spline's section, computed once per order (not separable). Below α = 3
+    the spectrum decays slowly (ψ̂ ~ ‖ω‖^(1−γ)) and the grid's Nyquist truncation rings between
+    the knots, so the grid is four times finer there; the spikes and jumps AT the knots are the
+    function itself (its Green's-function derivative ρ^(γ−3)), not the grid."""
+    fine = float(alpha) < 3.0
+    return _central_row(_frac_hat_factory(alpha), deriv_order, n=4096 if fine else 1024,
+                        du=1.0 / 64.0 if fine else 1.0 / 16.0)
 
 
 def _frac_section_factory(alpha: float):

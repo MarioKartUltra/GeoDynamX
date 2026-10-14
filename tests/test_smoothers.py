@@ -159,3 +159,16 @@ def test_the_q_meyer_smoother_is_a_bandlimited_isotropic_taper_matched_to_the_ga
     for bad in (0.0, 2.0):
         with pytest.raises(ValueError, match="q"):
             sm.smoother("q_meyer", {"q": bad})
+
+
+def test_the_fractional_sections_below_alpha_three_do_not_ring_between_the_knots():
+    # Below α = 3 the spectrum decays as ‖ω‖^(1−γ) and a σ/16 inverse-FFT grid rings between the
+    # knots (Gibbs); the section is drawn on a four-times finer grid there. The jumps and spikes AT
+    # the knots (ρ^(γ−3)) remain: they are the function.
+    for alpha, bound in ((2.5, 0.003), (2.0, 0.006)):
+        s = sm.smoother("frac_bspline", {"alpha": alpha})
+        x, y = s.section(8.0, 1)
+        u = x / (8.0 * sm._SIGMA_PER_SCALE)
+        h = np.sqrt(12.0 / (alpha + 1.0))
+        between = (u > 0.3 * h) & (u < 0.7 * h)             # away from the knots at 0 and h
+        assert np.std(np.diff(y[between])) < bound, alpha
