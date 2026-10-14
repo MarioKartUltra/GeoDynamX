@@ -528,12 +528,35 @@ the smoothing $\sigma$). The wavelet is the derivative of the smoothing function
 modulus maxima of $\psi$ are the edges of $\theta$-smoothed data.}
 \end{figure}
 
+\paragraph{The smoothing function.} \texttt{wavelet} names $\theta$; the analyzing wavelet
+is always its gradient. Four smoothers share one scale convention (a nominal scale $a$ is a
+real-space $\sigma=a/(\pi\sqrt2)$) and one Fourier construction, every derivative filter being
+$(\mathrm{i}s_x)^p(\mathrm{i}s_y)^q\,\hat\theta(s)$ with $s=a\,k$: the \emph{Gaussian}
+($\psi=g_1$) and the \emph{Mexican hat} $|k|^2\hat G$ ($\psi=g_3$), the two xsmurf kernels; the
+\emph{fractional B-spline} of degree $\alpha$, taken in its isotropic polyharmonic form (Van De
+Ville, Blu \& Unser 2005: $\hat\theta=(V(\omega)/\|\omega\|^2)^{(\alpha+1)/2}$ with the
+localization $V=4\sin^2\tfrac{\omega_1}{2}+4\sin^2\tfrac{\omega_2}{2}-\tfrac83\sin^2\tfrac{\omega_1}{2}\sin^2\tfrac{\omega_2}{2}$,
+isotropic to fourth order, where a separable spline would bias the gradient directions the
+WTMM reads), its knot spacing chosen so its width matches the Gaussian's at the same $a$; and
+the \emph{q-Gaussian} $e_q(-\rho^2/2\sigma^2)$ through its radial q-Fourier transform
+(Borges et al.), the same kernel the microcanonical tools offer, $q\to1$ being the Gaussian
+exactly. In two dimensions the fractional $\psi$ is continuous for $\alpha>2$ (the knob allows
+$\alpha\ge1$ for exploration, default 3) and the q-Gaussian has finite mass for $q<2$; its
+variance diverges from $q=5/3$, so its scale is matched by the parameter $\sigma$, never by the
+variance. The wavelet scale bar and the $a_{\min}$ reading draw each smoother's own section and
+locate its band peak $\lambda^*$ numerically ($\lambda^*$ of the fractional spline at $\alpha=3$
+is the Gaussian's within 3\,\%; the q-Gaussian's tails lengthen it above $q=1$ and shorten it
+below). The two new smoothers run on the device (mlx) on Apple Silicon and on FFTW3 elsewhere,
+exactly as the pair does; the three engines agree to float32 tolerance.
+
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{n\_oct} (Octaves) & 3 & $[1,12]$ & scale range: $a$ spans \texttt{n\_oct} octaves above $a_{\min}$ \\
 \texttt{n\_voice} & 4 & $[1,64]$ & scales per octave (grid density) \\
 \texttt{a\_min} ($a_{\min}$) & 1.0 & $[0.01,64]$ px & finest analyzed scale \\
-\texttt{wavelet} & mexican & mexican / gaussian & CWT kernel (Mexican hat $=$ LoG; gaussian $=$ gradient pair) \\
+\texttt{wavelet} (Smoother $\theta$) & mexican & mexican / gaussian / frac\_bspline / q\_gaussian & the smoothing function; $\psi$ is its gradient: $g_3$, $g_1$, $\partial\theta_\alpha$, $\partial\theta_q$ \\
+\texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the fractional B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
+\texttt{q\_tsallis} ($q$) & 1.5 & $(0,2)$ & Tsallis $q$ of the q-Gaussian (shown with \texttt{q\_gaussian}); $q\to1$ is the Gaussian \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither for quantized rasters \\
 \texttt{fracint\_alpha} ($\eta$) & 1.0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$) \\
 \texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
@@ -569,7 +592,8 @@ longitude/latitude grid. A dataset without a CRS (a sensor swath, a pixel grid) 
 pixel frame only.
 
 \subsection{\tool{WTMM 2D, ROI}{wtmm2d\_roi} --- WTMM over one ROI window}
-The parent's WTMM re-pointed at a native-resolution window: the knobs of \dev{wtmm2d} plus
+The parent's WTMM re-pointed at a native-resolution window: the knobs of \dev{wtmm2d}
+(the smoother and its $\alpha$ / $q$ included, declared once for both) plus
 the window itself. Used by the overview
 drill-down: draw an ROI on the decimated whole-extent, compute native.
 
