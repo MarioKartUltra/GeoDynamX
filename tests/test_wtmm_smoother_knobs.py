@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The WTMM devices' smoother knob: the registry's names, their parameters, the readings, and
-the same scaling exponent from every smoother (spec 2026-10-14 §9)."""
+the same scaling exponent from every smoother (the smoothers design spec, §9)."""
 from __future__ import annotations
 
 import numpy as np
