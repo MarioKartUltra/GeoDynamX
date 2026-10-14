@@ -44,7 +44,10 @@ an inverse FFT of the actual pipeline filters (``_build_wavelet_filters_numpy``)
 oracle, not this docstring, is the ground truth.
 
 Adding a wavelet is one ``_Kernel`` entry per (smoothing, deriv_order) pair: a profile
-callable in ``u = x/sigma`` units and its outer-extremum position in sigma units.
+callable in ``u = x/sigma`` units and its outer-extremum position in sigma units. The
+smoothers outside the Gaussian pair (``dynamix.core.smoothers``: the fractional B-spline, the
+q-Gaussian) come through the same three helpers with their ``params``; the registry owns
+their sections and band peaks, this module their σ convention.
 
 xsmurf provenance (the primary tree ``xsmurf`` lacks ``tcl_library/``, so the Tcl
 citations below are the byte-identical copy at ``xSmurfMetal/xsmurf``, confirmed
@@ -135,12 +138,23 @@ def sigma_px(scale: float) -> float:
     return float(scale) * SIGMA_PER_SCALE_EXACT
 
 
-def analyzing_names(smoothing: str) -> tuple[str, str]:
+def _registry_smoother(smoothing: str, params):
+    """The registry's smoother for a name outside the Gaussian pair; ``None`` for the pair."""
+    if str(smoothing) in _NAMES:
+        return None
+    from dynamix.core.smoothers import NAMES, smoother
+
+    if str(smoothing) not in NAMES:
+        raise ValueError(f"unknown smoothing {smoothing!r}; expected one of {NAMES}")
+    return smoother(str(smoothing), params)
+
+
+def analyzing_names(smoothing: str, params: dict | None = None) -> tuple[str, str]:
     """``(theta_name, psi_name)`` display names for a smoothing function."""
-    try:
-        return _NAMES[str(smoothing)]
-    except KeyError:
-        raise ValueError(f"unknown smoothing {smoothing!r}; expected one of {sorted(_NAMES)}")
+    sm = _registry_smoother(smoothing, params)
+    if sm is not None:
+        return sm.theta_name, sm.psi_name
+    return _NAMES[str(smoothing)]
 
 
 def outer_extremum_sigma(smoothing: str, deriv_order: int) -> float:
@@ -148,11 +162,18 @@ def outer_extremum_sigma(smoothing: str, deriv_order: int) -> float:
     return _KERNELS[(str(smoothing), int(deriv_order))].outer_extremum_u
 
 
-def lambda_peak_px(scale: float, smoothing: str, deriv_order: int = 1) -> float:
+def lambda_peak_px(scale: float, smoothing: str, deriv_order: int = 1,
+                   params: dict | None = None) -> float:
     """Bandpass peak wavelength in px: 2*pi*sigma/sqrt(m) for a |k|^m exp(-s^2|k|^2)
     filter -- the per-wavelet number the readings quote (an outer-extremum footprint orders
     the wavelets backwards; lambda is the metric with an operational meaning). Raises
-    ValueError for a pure-lowpass entry (m = 0): a smoother has no bandpass wavelength."""
+    ValueError for a pure-lowpass entry (m = 0): a smoother has no bandpass wavelength.
+    The registry's smoothers locate the peak of |s|^m θ̂ numerically."""
+    sm = _registry_smoother(smoothing, params)
+    if sm is not None:
+        if int(deriv_order) == 0:
+            raise ValueError(f"({smoothing!r}, 0) is pure lowpass: no bandpass wavelength")
+        return sm.lambda_px(scale, int(deriv_order))
     m = _KERNELS[(str(smoothing), int(deriv_order))].bandpass_m
     if m == 0:
         raise ValueError(f"({smoothing!r}, {deriv_order}) is pure lowpass: no bandpass wavelength")
@@ -160,11 +181,15 @@ def lambda_peak_px(scale: float, smoothing: str, deriv_order: int = 1) -> float:
 
 
 def kernel_section(scale: float, smoothing: str, deriv_order: int,
-                   n_points: int = 256) -> tuple[np.ndarray, np.ndarray]:
+                   n_points: int = 256, params: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Sample the section over its own support: +-(outer + 3) sigma, at least +-4 sigma.
 
     Returns ``(x_px, y)`` -- x in true pixel units, amplitude unnormalized (the canvas
-    normalizes display height itself; see ``wavelet_bar_scale_factor``)."""
+    normalizes display height itself; see ``wavelet_bar_scale_factor``). The registry's
+    smoothers sample their own sections (the 2-D kernel's central row)."""
+    sm = _registry_smoother(smoothing, params)
+    if sm is not None:
+        return sm.section(scale, int(deriv_order), int(n_points))
     entry = _KERNELS[(str(smoothing), int(deriv_order))]
     span_u = max(entry.outer_extremum_u + 3.0, 4.0)
     sig = sigma_px(scale)

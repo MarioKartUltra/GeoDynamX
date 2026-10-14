@@ -300,3 +300,32 @@ def test_the_mz_bar_draws_the_fractional_spline_at_its_order():
         assert p6.lambda_px / 2.0 ** 6 == pytest.approx(2.0 * np.pi / _mz_continuum_omega(alpha), rel=0.02)
         assert not p6.off_ladder and wp.mz_profile(1, alpha=alpha).off_ladder
         assert "α" in p6.family
+
+
+def test_the_wtmm_profile_reads_the_registry_for_the_new_smoothers():
+    p = wp.wtmm_profile("q_gaussian", 8.0, {"q": 1.0})
+    assert p.lambda_px == pytest.approx(8.0 * np.sqrt(2.0), rel=1e-3)
+    assert np.max(np.abs(p.psi)) == pytest.approx(1.0) and np.allclose(p.psi, -p.psi[::-1], atol=1e-9)
+    assert "∂θ_q" in p.family and "q-Gaussian q = 1" in p.family
+    f = wp.wtmm_profile("frac_bspline", 8.0, {"alpha": 3.0})
+    assert "∂θ_α" in f.family and "α = 3" in f.family and not f.off_ladder and not f.broad
+    g = wp.wtmm_profile("gaussian", 8.0)
+    assert "g1" in g.family                                                    # the pair as before
+
+
+@pytest.mark.parametrize("name,params", [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5})])
+def test_a_plane_wave_peaks_where_the_registry_lambda_reads_its_wavelength(name, params):
+    """The acceptance of the smoothers spec (§9): the scale with the largest mean modulus has
+    λ* = L for the new smoothers too, through the backend and scale_units alone."""
+    from dynamix.core.scale_units import lambda_peak_px
+    from dynamix.core.wtmm_backend import PythonWTMMBackend, compute_scales2d
+
+    L = 24.0
+    y, x = np.mgrid[0:128, 0:128]
+    wave = np.cos(2 * np.pi * x / L) + 0.05 * np.cos(2 * np.pi * y / 61.0)
+    scales = compute_scales2d(4, 8)
+    out = PythonWTMMBackend().cwt2d(wave, scales, wavelet=name, smoother_params=params,
+                                    _engine="numpy")
+    strengths = out["mod"].reshape(len(scales), -1).mean(axis=1)
+    a = float(scales[int(np.argmax(strengths))])
+    assert lambda_peak_px(a, name, 1, params=params) == pytest.approx(L, rel=2 ** (1 / 8) - 1 + 0.05)

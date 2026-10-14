@@ -49,15 +49,16 @@ def _normalised(x, psi) -> tuple[np.ndarray, np.ndarray]:
     return x, psi / peak if peak > 0 else psi
 
 
-def wtmm_profile(smoothing: str, a: float) -> Profile:
+def wtmm_profile(smoothing: str, a: float, params: dict | None = None) -> Profile:
     """The WTMM analysing wavelet ψ (``deriv_order`` 1) at nominal scale ``a``: the true 2-D
-    section from :mod:`dynamix.core.scale_units`, and its λ* = 2πσ/√m."""
+    section from :mod:`dynamix.core.scale_units`, and its λ* = 2πσ/√m (the registry's
+    smoothers: their own section and numerical peak, with ``params``)."""
     from dynamix.core.scale_units import (analyzing_names, kernel_section, lambda_peak_px,
                                           sigma_px)
 
-    x, psi = _normalised(*kernel_section(float(a), smoothing, 1))
-    theta_name, psi_name = analyzing_names(smoothing)
-    return Profile(x, psi, float(a), lambda_peak_px(float(a), smoothing, 1),
+    x, psi = _normalised(*kernel_section(float(a), smoothing, 1, params=params))
+    theta_name, psi_name = analyzing_names(smoothing, params)
+    return Profile(x, psi, float(a), lambda_peak_px(float(a), smoothing, 1, params),
                    f"WTMM ψ {psi_name} = ∇θ (θ {smoothing}, {theta_name})",
                    extra={"a": float(a), "sigma": sigma_px(float(a)), "theta": theta_name})
 

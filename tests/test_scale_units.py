@@ -171,3 +171,27 @@ def test_no_bare_scale_times_pixel_size_in_shell():
         if any(p.search(text) for p in _OFFENDER_PATTERNS):
             offenders.append(py.name)
     assert offenders == []
+
+
+# -- the registry's smoothers through the same three helpers -----------------------------------
+
+def test_registry_smoothers_have_sections_names_and_lambda_through_scale_units():
+    s = 8.0
+    lam_g = lambda_peak_px(s, "gaussian", 1)
+    for name, params in (("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5})):
+        x, y = kernel_section(s, name, 1, n_points=1001, params=params)
+        assert x[0] < 0 < x[-1] and np.allclose(y, -y[::-1], atol=1e-9)        # ψ_x is odd
+        lam = lambda_peak_px(s, name, 1, params=params)
+        assert lambda_peak_px(2 * s, name, 1, params=params) == pytest.approx(2 * lam, rel=1e-3)
+    # Matched σ: the fractional B-spline at α = 3 reads the Gaussian's λ* within 5 %. The
+    # q-Gaussian's tails order its band: heavier than the Gaussian's above q = 1 (longer λ*),
+    # compact below (shorter).
+    assert lambda_peak_px(s, "frac_bspline", 1, params={"alpha": 3.0}) == pytest.approx(lam_g, rel=0.05)
+    assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 1.5}) > 1.2 * lam_g
+    assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 0.5}) < 0.85 * lam_g
+    assert analyzing_names("q_gaussian", {"q": 1.0}) == ("q-Gaussian q = 1", "∂θ_q")
+    assert analyzing_names("frac_bspline", {"alpha": 3.0})[1] == "∂θ_α"
+    assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 1.0}) == pytest.approx(
+        lambda_peak_px(s, "gaussian", 1), rel=1e-3)                            # q → 1 is the Gaussian
+    with pytest.raises(ValueError):
+        kernel_section(s, "frac_bspline", 1, params={"alpha": 0.5})
