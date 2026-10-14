@@ -16,6 +16,7 @@ filter its own cascade. Pure numpy/scipy/pywt: no Qt.
 from __future__ import annotations
 
 import dataclasses
+import functools
 
 import numpy as np
 
@@ -152,6 +153,16 @@ def _q_width(wavelet, q_family, q, q_pairing, q_beta):
     return float(q_beta)
 
 
+@functools.lru_cache(maxsize=64)
+def _frac_measure_band(frac_n: float) -> tuple:
+    """The fractional envelope's Littlewood-Paley band at unit scale: a numerical Hankel
+    transform that depends on n alone, computed once per order (a cascade asks for it at
+    every level on every knob tick)."""
+    kap = np.linspace(0.02, 2.0 * np.pi, 3000)
+    k_hat = _hankel_slice(lambda rho: np.exp(-0.5 * rho ** float(frac_n)), kap)
+    return _band(kap, kap * np.gradient(k_hat, kap))
+
+
 def measure_profile(wavelet: str, r: float, *, beta: float = 1.0, q_tsallis: float = 1.5,
                     frac_n: float = 2.0, q_pairing: str = "fixed", q_beta: float = 0.5) -> Profile:
     """The measure route's positive kernel at r (its section), with λ* of its Littlewood-Paley
@@ -176,12 +187,11 @@ def measure_profile(wavelet: str, r: float, *, beta: float = 1.0, q_tsallis: flo
         lam, octaves = float("nan"), 0.0
     else:
         if wavelet == "frac_gaussian":
-            kap = np.linspace(0.02, 2.0 * np.pi, 3000)
-            k_hat = _hankel_slice(lambda rho: np.exp(-0.5 * rho ** float(frac_n)), kap)
+            lam, octaves = _frac_measure_band(round(float(frac_n), 9))
         else:
             kap, k_hat = _fourier_slice("measure", wavelet, beta, q, frac_n, None, qb, 1.0)
-        lp = kap * np.gradient(k_hat, kap)
-        lam, octaves = _band(kap, lp)
+            lp = kap * np.gradient(k_hat, kap)
+            lam, octaves = _band(kap, lp)
     extra = {"a": r, "band_octaves": octaves}
     if wavelet == "q_gaussian":
         extra["q"] = q

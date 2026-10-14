@@ -232,3 +232,24 @@ def test_the_bars_carry_a_style_with_a_right_click_menu(qtbot):
     scale.set_style({"color": "#ff0000"})
     assert scale.bar.pen().color().name() == "#ff0000" and scale.style()["color"] == "#ff0000"
     assert _action(scale.context_menu(), "Units", "m") is not None
+
+
+def test_a_bar_wider_than_the_view_drags_without_flipping(qtbot):
+    """Zoomed in past the bar's extent, the edge clamp cannot satisfy both edges: the bar used
+    to flip between two positions on every drag step. A bar wider than the view keeps its
+    centre inside the view instead and moves with the pointer."""
+    w = _view(qtbot)
+    bar = WaveletBar()
+    bar.setParentItem(w.getViewBox())
+    bar.set_profile(_profile(20.0), "20 m", 1.0)
+    w.getViewBox().setRange(xRange=(290, 310), yRange=(190, 203), padding=0)      # 30x in
+    qtbot.wait(20)
+    assert bar.boundingRect().width() > w.getViewBox().width()
+    xs = []
+    for _ in range(4):
+        bar.drag_by(10.0, 0.0)
+        xs.append(bar.pos().x())
+    assert all(b - a > 0 for a, b in zip(xs, xs[1:]))                 # monotone, no flipping
+    inside = w.getViewBox().boundingRect()
+    centre = bar.mapRectToParent(bar.boundingRect()).center().x()
+    assert inside.left() <= centre <= inside.right()

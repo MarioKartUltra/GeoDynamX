@@ -157,8 +157,17 @@ class _Drag:
         mine = self.mapRectToParent(self.boundingRect())
         if mine.isEmpty() or inside.isEmpty():
             return 0.0, 0.0
-        dx = max(0.0, inside.left() - mine.left()) - max(0.0, mine.right() - inside.right())
-        dy = max(0.0, inside.top() - mine.top()) - max(0.0, mine.bottom() - inside.bottom())
+
+        def shift(lo, hi, in_lo, in_hi):
+            # An item larger than the view cannot keep both edges inside: it keeps its centre
+            # inside instead (the edge rule would flip it between two positions).
+            if hi - lo > in_hi - in_lo:
+                centre = 0.5 * (lo + hi)
+                return min(max(centre, in_lo), in_hi) - centre
+            return max(0.0, in_lo - lo) - max(0.0, hi - in_hi)
+
+        dx = shift(mine.left(), mine.right(), inside.left(), inside.right())
+        dy = shift(mine.top(), mine.bottom(), inside.top(), inside.bottom())
         return dx, dy
 
     def place(self) -> None:

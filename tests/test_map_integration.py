@@ -684,8 +684,7 @@ def test_a_microcanonical_result_opens_the_fitter_on_its_moment_tables(geo_windo
     from dynamix.model.device import defaults_for, get_device
 
     win = geo_window
-    desc = [{"device": "holder_measure",
-             "params": {**defaults_for(get_device("holder_measure")), "spectra": True}}]
+    desc = [{"device": "holder_measure", "params": defaults_for(get_device("holder_measure"))}]
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win.strips.set_steps(desc, field=win.field)
         win._on_chain_edited(desc)

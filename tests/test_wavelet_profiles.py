@@ -253,3 +253,17 @@ def test_the_dwt_and_tang_you_sections_are_continuous_at_the_finest_levels():
     ty = wp.tang_you_profile("tang_you", 2.0)
     assert np.diff(ty.x_px).max() <= 2.0 / 16.0 + 1e-9
     np.testing.assert_allclose(ty.psi, -ty.psi[::-1], atol=1e-6)            # odd, like g1
+
+
+def test_the_fractional_gaussians_band_constant_is_computed_once_per_order():
+    """The measure route's fractional envelope needs a numerical Hankel transform for its
+    lambda* constant, which depends on n alone: a ladder of six levels must not pay it six
+    times (a knob tick redraws the whole cascade)."""
+    import time
+
+    wp.measure_profile("frac_gaussian", 1.0, frac_n=1.7)            # the one computation
+    t0 = time.time()
+    profiles = [wp.measure_profile("frac_gaussian", r, frac_n=1.7) for r in (1.0, 2.0, 4.0, 8.0, 16.0, 32.0)]
+    assert time.time() - t0 < 1.0
+    ratios = [p.lambda_px / p.scale_px for p in profiles]
+    np.testing.assert_allclose(ratios, ratios[0], rtol=1e-12)        # one constant, every level
