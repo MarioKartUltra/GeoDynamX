@@ -161,10 +161,15 @@ def measure_profile(wavelet: str, r: float, *, beta: float = 1.0, q_tsallis: flo
 
     r, q, beta = float(r), float(q_tsallis), float(beta)
     qb = _q_width(wavelet, "q_gaussian", q, q_pairing, q_beta)
-    n = 2 * int(np.ceil((16.0 if wavelet in ("lorentzian", "q_gaussian") else 8.0) * r)) + 1
-    n = min(n, 8193)
-    section = np.fft.fftshift(_radial_kernel((1, n), r, wavelet, beta, q, frac_n, q_beta=qb)[0])
-    x = np.arange(n, dtype=np.float64) - n // 2
+    # The continuous section, sampled at r/16 (the kernel is smooth at every scale; the pixel
+    # step would draw a kinked polyline at the smallest ones): the kernel at r/step in units
+    # of the step is the same kernel on a finer grid.
+    reach = 16.0 if wavelet in ("lorentzian", "q_gaussian") else 8.0
+    step = max(r / 16.0, 1.0 / 64.0)
+    n = min(2 * int(np.ceil(reach * r / step)) + 1, 8193)
+    section = np.fft.fftshift(_radial_kernel((1, n), r / step, wavelet, beta, q, frac_n,
+                                             q_beta=qb)[0])
+    x = (np.arange(n, dtype=np.float64) - n // 2) * step
     x, psi = _normalised(x, section)
     no_band = (wavelet == "lorentzian" and beta <= 1.0) or (wavelet == "q_gaussian" and q >= 2.0)
     if no_band:
@@ -210,8 +215,9 @@ def multiaffine_profile(wavelet: str, r: float, *, beta: float = 1.0, q_tsallis:
     elif alias is not None:
         wavelet = alias
     u0 = _frac_u0(fn) if wavelet == "frac_gaussian" else None
-    n = min(2 * int(np.ceil(10.0 * r)) + 1, 8193)
-    x = np.arange(n, dtype=np.float64) - n // 2
+    step = max(r / 16.0, 1.0 / 64.0)
+    n = min(2 * int(np.ceil(10.0 * r / step)) + 1, 8193)
+    x = (np.arange(n, dtype=np.float64) - n // 2) * step
     x, psi = _normalised(x, _marr_kernel(x * x, r, wavelet, beta, q, fn, u0, stretch))
     kap, k_hat = _fourier_slice("marr", wavelet, beta, q, fn, u0, qb, stretch)
     lam, octaves = _band(kap, k_hat)

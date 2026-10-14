@@ -222,3 +222,19 @@ def test_the_mz_section_is_the_continuum_quadratic_spline_at_the_levels_scale():
         assert p.psi[0] == pytest.approx(0.0, abs=1e-12)                        # compact support
     assert wp.mz_profile(1).lambda_px == pytest.approx(2.0, rel=0.02)           # the level's own
     assert wp.mz_profile(1).off_ladder and not wp.mz_profile(3).off_ladder
+
+
+def test_the_measure_and_multiaffine_sections_are_sampled_finely_at_the_smallest_scales():
+    """The bar draws the kernel's continuous section, sampled at r/16 at least (never at the
+    pixel step, which at r = 1 px draws a kinked polyline): the Gaussian reads exp(-x^2/2) at
+    half a pixel, the Ricker crosses zero at r."""
+    p = wp.measure_profile("gaussian", 1.0)
+    assert np.diff(p.x_px).max() <= 1.0 / 16.0 + 1e-12
+    i = np.argmin(np.abs(p.x_px - 0.5))
+    assert p.psi[i] == pytest.approx(np.exp(-0.125), abs=2e-3)
+    big = wp.measure_profile("gaussian", 64.0)
+    assert np.diff(big.x_px).max() <= 4.0 + 1e-12 and big.x_px.size <= 8193
+    m = wp.multiaffine_profile("g2", 1.0)
+    assert np.diff(m.x_px).max() <= 1.0 / 16.0 + 1e-12
+    assert m.psi[np.argmin(np.abs(m.x_px - 1.0))] == pytest.approx(0.0, abs=5e-2)
+    assert m.psi[np.argmin(np.abs(m.x_px))] == pytest.approx(1.0)
