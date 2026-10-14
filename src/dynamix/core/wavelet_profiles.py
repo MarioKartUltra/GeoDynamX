@@ -288,9 +288,44 @@ def _cubic_bspline_derivative(t: np.ndarray) -> np.ndarray:
     return np.sign(t) * np.where(u <= 1.0, inner, np.where(u < 2.0, outer, 0.0))
 
 
-def mz_profile(level: int) -> Profile:
-    """The Mallat-Zhong quadratic-spline wavelet at dyadic level ``level`` (scale 2^level), as
-    the transform's own à trous cascade applies it (``mzlib.TAPS``)."""
+@functools.lru_cache(maxsize=64)
+def _mz_continuum_constant(alpha: float) -> float:
+    """λ*/2^j of the fractional Mallat-Zhong wavelet in the continuum: the peak of
+    w |sinc(w/4)|^(alpha+1) solves tan(w/4) = (alpha+1) w / (4 alpha); alpha = 3 gives
+    1.8595 (tan(w/4) = w/3)."""
+    lo, hi = 1e-3, 2.0 * np.pi - 1e-3
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if np.tan(mid / 4.0) - (alpha + 1.0) * mid / (4.0 * alpha) < 0.0:
+            lo = mid
+        else:
+            hi = mid
+    return float(2.0 * np.pi / (0.5 * (lo + hi)))
+
+
+def _mz_level_lambda(level: int, alpha: float) -> float:
+    """λ* of the fractional cascade's level-``level`` band: the two-tap derivative filter at
+    2^(level-1) behind the sign-preserving fractional refinement filters below it (the à trous
+    product in frequency), its spectral peak."""
+    from dynamix.core.mz_edges import _hf_frac
+    from dynamix.core.mzlib import TAPS
+
+    w = np.linspace(1e-3, np.pi, 16384)
+    resp = sum(v * np.exp(-1j * k * w * 2.0 ** (level - 1)) for k, v in TAPS["g"].items())
+    for j in range(level - 1):
+        resp = resp * _hf_frac(w * 2.0 ** j, float(alpha))
+    lam, _octaves = _band(w, np.abs(resp))
+    return float(lam)
+
+
+def mz_profile(level: int, alpha: float = 3.0) -> Profile:
+    """The Mallat-Zhong wavelet at dyadic level ``level`` (scale 2^level): the quadratic spline
+    (``alpha = 3``) as the transform's own à trous cascade applies it (``mzlib.TAPS``), or the
+    fractional B-spline of order ``alpha`` (its sign-preserving fractional cascade). The section
+    is the wavelet itself, psi_alpha = theta_alpha' with theta_alpha(x) = 2 beta*^alpha(2x) the
+    symmetric fractional B-spline, from the exact series (``frac_bspline_exact``: no inverse
+    transform, so alpha = 1's box pair carries no ringing), dilated to the level's scale."""
+    from dynamix.core.frac_bspline_exact import beta_star_derivative
     from dynamix.core.mzlib import TAPS
 
     def taps(d: dict) -> np.ndarray:
@@ -300,19 +335,25 @@ def mz_profile(level: int) -> Profile:
             out[k - lo] = v
         return out
 
-    level = int(level)
-    resp = _cascade(taps(TAPS["h"]), taps(TAPS["g"]), level)
-    lam = _peak_wavelength(resp)
+    level, alpha = int(level), float(alpha)
     scale = 2.0 ** level
-    # The section is the wavelet itself, psi = theta' with theta(x) = 2 B3(2x) the cubic-spline
-    # smoother (psi_hat = i w (sin(w/4)/(w/4))^4), dilated to the level's scale -- the a trous
-    # taps are its samples and at the fine levels too few of them to draw.
-    x = np.linspace(-scale, scale, max(129, 16 * int(scale) + 1))
-    x, psi = _normalised(x, _cubic_bspline_derivative(2.0 * x / scale))
+    if alpha == 3.0:
+        lam = _peak_wavelength(_cascade(taps(TAPS["h"]), taps(TAPS["g"]), level))
+        c_continuum = _MZ_CONTINUUM
+        reach = 1.0                          # theta_3's support is |2x/scale| <= 2
+        family = f"Mallat-Zhong quadratic spline, level {level}"
+    else:
+        lam = _mz_level_lambda(level, alpha)
+        c_continuum = _mz_continuum_constant(alpha)
+        reach = 1.5                          # the algebraic tails of a fractional order
+        family = f"Mallat-Zhong fractional spline α = {alpha:g}, level {level}"
+    x = np.linspace(-reach * scale, reach * scale, max(129, int(16 * reach * scale) + 1))
+    x, psi = _normalised(x, beta_star_derivative(2.0 * x / scale, alpha))
     c = lam / scale
-    return Profile(x, psi, scale, lam, f"Mallat-Zhong quadratic spline, level {level}",
-                   off_ladder=abs(c / _MZ_CONTINUUM - 1.0) > _OFF_LADDER_TOL,
-                   extra={"a": scale, "c_level": c, "c_continuum": _MZ_CONTINUUM})
+    return Profile(x, psi, scale, lam, family,
+                   off_ladder=abs(c / c_continuum - 1.0) > _OFF_LADDER_TOL,
+                   extra={"a": scale, "c_level": c, "c_continuum": c_continuum,
+                          "alpha": alpha})
 
 
 def _bank_filters(bank: str) -> tuple[np.ndarray, np.ndarray]:

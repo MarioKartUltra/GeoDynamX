@@ -267,3 +267,36 @@ def test_the_fractional_gaussians_band_constant_is_computed_once_per_order():
     assert time.time() - t0 < 1.0
     ratios = [p.lambda_px / p.scale_px for p in profiles]
     np.testing.assert_allclose(ratios, ratios[0], rtol=1e-12)        # one constant, every level
+
+
+def _mz_continuum_omega(alpha):
+    """The peak of w |sinc(w/4)|^(alpha+1): tan(w/4) = (alpha+1) w / (4 alpha)."""
+    lo, hi = 1e-3, 2.0 * np.pi - 1e-3
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        if np.tan(mid / 4.0) - (alpha + 1.0) * mid / (4.0 * alpha) < 0:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def test_the_mz_bar_draws_the_fractional_spline_at_its_order():
+    """mz_edges' fractional B-spline: the bar's section is psi_alpha = theta_alpha' from the
+    exact series (alpha = 1 the box pair, no ringing), alpha = 3 the classical path exactly,
+    and lambda* the level's own from the fractional cascade's response, which at the coarse
+    levels lands on the continuum constant 2 pi / w*, tan(w*/4) = (alpha+1) w*/(4 alpha)."""
+    box = wp.mz_profile(1, alpha=1.0)
+    inside = (np.abs(box.x_px) < 0.95) & (np.abs(box.x_px) > 0.05)   # the jump at 0 is 0
+    assert np.allclose(np.abs(box.psi[inside]), 1.0, atol=1e-9)
+    assert np.allclose(box.psi[np.abs(box.x_px) > 1.05], 0.0, atol=1e-9)
+    assert box.extra["alpha"] == 1.0 and np.isfinite(box.lambda_px)
+    same, ref = wp.mz_profile(2, alpha=3.0), wp.mz_profile(2)
+    np.testing.assert_allclose(same.psi, ref.psi, atol=1e-9)
+    assert same.lambda_px == pytest.approx(ref.lambda_px, rel=1e-3)
+    assert ref.lambda_px / 4.0 == pytest.approx(2.0 * np.pi / _mz_continuum_omega(3.0), rel=0.1)
+    for alpha in (1.5, 2.0, 4.0):
+        p6 = wp.mz_profile(6, alpha=alpha)
+        assert p6.lambda_px / 2.0 ** 6 == pytest.approx(2.0 * np.pi / _mz_continuum_omega(alpha), rel=0.02)
+        assert not p6.off_ladder and wp.mz_profile(1, alpha=alpha).off_ladder
+        assert "α" in p6.family

@@ -34,6 +34,16 @@ from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 
 _LASTWAVE = ("algorithm", ("lastwave",))
+_FRACTIONAL = ("wavelet", ("frac_bspline",))
+
+
+def _engine(params: dict) -> str:
+    """The engine a run uses. The fractional B-spline's refinement filter is an infinite
+    impulse response, so it runs the Fourier (printed) engine on the torus whatever Algorithm
+    says -- its reconstruction is the Fourier synthesis pair, never LastWave's FIR."""
+    if params.get("wavelet") == "frac_bspline":
+        return "printed"
+    return str(params.get("algorithm", "lastwave"))
 _PRINTED = ("algorithm", ("printed",))
 _RECON = "reconstruction"
 
@@ -59,7 +69,7 @@ class MZEdges:
     def produces(params: dict) -> tuple:
         """The LastWave engine stamps a per-point α on every level; the printed one
         does not."""
-        if params.get("algorithm") == "lastwave":
+        if _engine(params) == "lastwave":
             return (EXTREMA, ALPHA)
         return (EXTREMA,)
 
@@ -68,6 +78,13 @@ class MZEdges:
               soft_min=2, soft_max=6, label="Levels J"),
         Param("algorithm", ParamKind.CHOICE, default="lastwave",
               choices=("lastwave", "printed"), label="Algorithm"),
+        # Unser & Blu's symmetric fractional B-spline as the smoother: theta_alpha' is the
+        # wavelet (one vanishing moment, as Mallat-Zhong's); alpha >= 1 so the derivative is a
+        # function (alpha = 1 the box pair, 3 the classical quadratic spline).
+        Param("wavelet", ParamKind.CHOICE, default="mz_spline",
+              choices=("mz_spline", "frac_bspline"), label="Wavelet"),
+        Param("alpha", ParamKind.FLOAT, default=3.0, min=1.0, max=8.0, soft_min=1.0,
+              soft_max=5.0, label="α", active_when=_FRACTIONAL),
         # LastWave's transform is periodic: "mirror" runs it on the field's 2N mirror and crops,
         # "periodic" on the field as given.
         Param("border", ParamKind.CHOICE, default="mirror", choices=("mirror", "periodic"),
@@ -166,17 +183,19 @@ class MZEdges:
     )
 
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
-        """The quadratic-spline wavelet of the level at scale 2^level (the wavelet scale bar)."""
+        """The level's wavelet at scale 2^level (the wavelet scale bar): the quadratic spline,
+        or the fractional B-spline's at its order."""
         from dynamix.core.wavelet_profiles import mz_profile
 
-        return mz_profile(int(round(np.log2(float(scale_px)))))
+        alpha = float(params.get("alpha", 3.0)) if params.get("wavelet") == "frac_bspline" else 3.0
+        return mz_profile(int(round(np.log2(float(scale_px)))), alpha=alpha)
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         from dynamix.core import mz_edges
 
         values = np.asarray(field.values)
         mz_edges._require_finite(values, "M–Z edge detection")
-        if params["algorithm"] == "lastwave":
+        if _engine(params) == "lastwave":
             bundle = self._lastwave(values, params, progress)
         else:
             # Always the full coarse channel: the thumbnail is derived from it on request, and
@@ -186,10 +205,12 @@ class MZEdges:
                 params["n_levels"],
                 coarse="full",
                 dither=params["dither"],
+                wavelet=params.get("wavelet", "mz_spline"),
+                alpha=float(params.get("alpha", 3.0)),
                 interpolate=params["interpolate"],
                 progress=progress,
             )
-        bundle["algorithm"] = params["algorithm"]
+        bundle["algorithm"] = _engine(params)
         bundle["chains"] = []
         bundle["params"] = dict(params)
         bundle["_frame"] = field.frame
@@ -257,7 +278,7 @@ class MZEdges:
             recon = fetch("recon")
             return {"raster": (values - recon["raster"]).astype(np.float32),
                     "diag": recon["diag"]}
-        if params["algorithm"] == "lastwave":
+        if _engine(params) == "lastwave":
             return self._lastwave_output(name, values, result, params, fetch=fetch,
                                          progress=progress, cancel=cancel, keeps=keeps)
         from dynamix.core import mz_edges
@@ -337,7 +358,7 @@ class MZEdges:
         idx = int(np.clip(0 if level is None else int(level), 0, J - 1))
         l = idx + 1
         diag = {"level": idx, "scale_px": float(2 ** l)}
-        if params["algorithm"] == "lastwave":
+        if _engine(params) == "lastwave":
             from dynamix.core import mz_lastwave as lw
             from dynamix.core.mz_lastwave.detect import _g1_factor
 
@@ -389,7 +410,7 @@ class MZEdges:
     def filter_overrides(self, params: dict, level: int) -> dict:
         """``{step key: params}`` the chain's filters use at ``level`` (the engine's
         ``level_keeps``): the level's own settings with Per-level filters on, none otherwise."""
-        if params.get("algorithm") != "lastwave" or not params.get("per_level"):
+        if _engine(params) != "lastwave" or not params.get("per_level"):
             return {}
         from dynamix.core.mz_lastwave import select
 
@@ -403,7 +424,7 @@ class MZEdges:
         ``own`` level is the filters' result itself."""
         layers = result.get("extrema") or []
         idx = result.get("_scale_idx")
-        if (params.get("algorithm") != "lastwave" or "_lastwave" not in raw or idx is None
+        if (_engine(params) != "lastwave" or "_lastwave" not in raw or idx is None
                 or len(layers) != 1):
             return result
         from dynamix.core.mz_lastwave import select
@@ -451,7 +472,7 @@ class MZEdges:
         impulse reach at the coarsest level (``mz_edges.mz_impulse_reach``) + 2 px for the
         bilinear NMS probes and the subpixel refinement."""
         J = int(params["n_levels"])
-        if params["algorithm"] == "lastwave":
+        if _engine(params) == "lastwave":
             return _lastwave_margin(J, bool(params["colocate_l1"]))
         from dynamix.core.mz_edges import mz_impulse_reach
 

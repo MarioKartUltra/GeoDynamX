@@ -24,7 +24,8 @@ from dynamix.model.param import ParamKind
 
 NY, NX, J = 96, 80, 3
 
-_NAMES = ["n_levels", "algorithm", "border", "colocate_l1", "dither", "interpolate",
+_NAMES = ["n_levels", "algorithm", "wavelet", "alpha", "border", "colocate_l1", "dither",
+          "interpolate",
           "recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode",
           "recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
           "alpha_fallback", "show"]
@@ -88,9 +89,9 @@ def test_param_names_order_defaults_and_sections(builtins):
     dev = get_device("mz_edges")
     by = {p.name: p for p in dev.params}
     assert [p.name for p in dev.params] == _NAMES
-    assert "wavelet" not in by and "alpha" not in by
+    assert by["wavelet"].default == "mz_spline" and by["alpha"].default == 3.0
     assert defaults_for(dev) == {
-        "n_levels": 4, "algorithm": "lastwave", "border": "mirror", "colocate_l1": False,
+        "n_levels": 4, "algorithm": "lastwave", "wavelet": "mz_spline", "alpha": 3.0, "border": "mirror", "colocate_l1": False,
         "dither": False, "interpolate": False, "recon_live": False, "kappa": 1.0, "clip": False,
         "run_mode": "converge", "iterations": 20, "tolerance": 1e-3, "coarse": "full",
         "mode": "separable", "recon_levels": "", "per_level": False, "near_radius": 1,
@@ -115,7 +116,8 @@ def test_param_names_order_defaults_and_sections(builtins):
     assert all(p.section == "" for p in dev.params if p.name not in _SECTION_KNOBS)
     assert {p.name for p in dev.params if p.view} == set(_SECTION_KNOBS) | {"show"}
     assert set(keyed_params(dev, defaults_for(dev))) == {
-        "n_levels", "algorithm", "border", "colocate_l1", "dither", "interpolate"}
+        "n_levels", "algorithm", "wavelet", "alpha", "border", "colocate_l1", "dither",
+        "interpolate"}
 
 
 def test_a_knob_that_does_not_apply_to_the_algorithm_says_so(builtins):

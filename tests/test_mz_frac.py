@@ -166,27 +166,36 @@ def test_preview_refuses_fractional_bundles_with_a_pointed_message():
     assert img.shape == f.shape
 
 
-def test_the_device_offers_the_spline_alone(clean_registry):
-    """The fractional order is a core capability (the tests above); the mz_edges device runs
-    the dyadic spline in both of its engines and declares no wavelet or order knob."""
+def test_the_device_offers_the_fractional_spline_as_a_knob(clean_registry):
+    """The mz_edges device offers the fractional B-spline again: Wavelet frac_bspline with
+    its order alpha runs the fractional forward (the printed engine's torus), stamps the
+    wavelet and order on the bundle and declares no per-point alpha; the default stays the
+    authors' dyadic spline."""
     from dynamix.core.frames import LocalFrame
     from dynamix.core.rasterfield import RasterField
     from dynamix.devices.mz_edges import MZEdges
     from dynamix.model.device import defaults_for, validate_params
 
-    names = {p.name for p in MZEdges.params}
-    assert "wavelet" not in names and "alpha" not in names
+    names = [p.name for p in MZEdges.params]
+    assert "wavelet" in names and "alpha" in names
     dev = MZEdges()
-    for knob in ({"wavelet": "frac_bspline"}, {"alpha": 2.0}):
-        with pytest.raises(ValueError, match="unknown parameter"):
-            validate_params(dev, dict(defaults_for(dev), **knob))
+    defaults = defaults_for(dev)
+    assert defaults["wavelet"] == "mz_spline" and defaults["alpha"] == 3.0
+    with pytest.raises(ValueError):
+        validate_params(dev, dict(defaults, alpha=0.5))             # the derivative needs alpha >= 1
 
     f = fbm2d(64, 0.5, seed=11)
     field = RasterField(name="f", values=f, frame=LocalFrame(),
                         x_axis=np.arange(64, dtype=np.float64),
                         y_axis=np.arange(64, dtype=np.float64))
-    res = dev.compute(field, dict(defaults_for(dev), n_levels=3, algorithm="printed"))
-    assert res["wavelet"] == "mz_spline"                 # the printed algorithm's own stamp
+    frac = dev.compute(field, dict(defaults, n_levels=3, wavelet="frac_bspline", alpha=2.0))
+    assert frac["wavelet"] == "frac_bspline" and frac["alpha"] == 2.0
+    assert frac["algorithm"] == "printed" and len(frac["extrema"]) == 3
+    assert "alpha" not in frac["extrema"][0]
+    bar = dev.wavelet_profile(dict(defaults, wavelet="frac_bspline", alpha=2.0), 2.0, 1)
+    assert bar.extra["alpha"] == 2.0
+    printed = dev.compute(field, dict(defaults, n_levels=3, algorithm="printed"))
+    assert printed["wavelet"] == "mz_spline"                 # the printed algorithm's own stamp
 
 
 # ------------------------------------------- theta_alpha(0): the slow tail

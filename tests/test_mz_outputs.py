@@ -92,7 +92,8 @@ def _close32(got, want) -> None:
 def test_param_order_choices_and_view_only_knobs(builtins):
     dev = get_device("mz_edges")
     by = {p.name: p for p in dev.params}
-    assert [p.name for p in dev.params] == ["n_levels", "algorithm", "border", "colocate_l1",
+    assert [p.name for p in dev.params] == ["n_levels", "algorithm", "wavelet", "alpha",
+                                            "border", "colocate_l1",
                                             "dither", "interpolate", "recon_live", "kappa",
                                             "clip", "run_mode", "iterations", "tolerance",
                                             "coarse", "mode", "recon_levels", "per_level",
@@ -109,8 +110,8 @@ def test_param_order_choices_and_view_only_knobs(builtins):
     assert by["coarse"].choices == ("full", "thumbnail")
     assert {p.name for p in dev.params if p.view} == set(_VIEW)
     params = {p.name: p.default for p in dev.params}
-    assert set(keyed_params(dev, params)) == {"n_levels", "algorithm", "border", "colocate_l1",
-                                              "dither", "interpolate"}
+    assert set(keyed_params(dev, params)) == {"n_levels", "algorithm", "wavelet", "alpha",
+                                              "border", "colocate_l1", "dither", "interpolate"}
 
 
 def test_declared_outputs(builtins):
@@ -291,13 +292,14 @@ def test_a_thumbnail_coarse_on_a_non_divisible_grid_refuses_the_recon(builtins, 
     assert resolve_output(layer, field, cache, "recon_edges_only")["raster"].shape == (60, 60)
 
 
-def test_the_fractional_order_left_the_device_and_stays_in_the_core(builtins):
-    """The device offers the spline alone; the fractional-order core still reconstructs."""
+def test_the_fractional_order_is_back_on_the_device_through_the_fourier_engine(builtins):
+    """The device offers the fractional B-spline again; its refinement filter has no compact
+    support, so analysis and reconstruction run the Fourier engine, never LastWave's FIR."""
     dev = get_device("mz_edges")
-    for knob in ({"wavelet": "frac_bspline"}, {"alpha": 2.5}):
-        with pytest.raises(ValueError, match="unknown parameter"):
-            validate_params(dev, {"n_levels": 3, **knob})
+    params = validate_params(dev, {"n_levels": 3, "wavelet": "frac_bspline", "alpha": 2.5})
     field = _synthetic()
+    bundle = dev.compute(field, params)
+    assert bundle["algorithm"] == "printed" and bundle["wavelet"] == "frac_bspline"
     img, diag = mz.reconstruct(field.values,
                                mz.analyze(field.values, 3, wavelet="frac_bspline", alpha=2.5))
     assert diag["wavelet"] == "frac_bspline"

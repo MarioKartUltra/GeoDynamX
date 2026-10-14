@@ -42,12 +42,13 @@ def test_registered_and_transform(mz):
 
 def test_param_surface(mz):
     names = [p.name for p in mz.params]
-    assert names == ["n_levels", "algorithm", "border", "colocate_l1", "dither",
-                     "interpolate", "recon_live", "kappa", "clip", "run_mode", "iterations",
+    assert names == ["n_levels", "algorithm", "wavelet", "alpha", "border", "colocate_l1",
+                     "dither", "interpolate", "recon_live", "kappa", "clip", "run_mode", "iterations",
                      "tolerance", "coarse", "mode", "recon_levels", "per_level",
                      "near_radius", "alpha_check", "alpha_tol", "alpha_fallback", "show"]
     defaults = {p.name: p.default for p in mz.params}
-    assert defaults == {"n_levels": 4, "algorithm": "lastwave", "border": "mirror",
+    assert defaults == {"n_levels": 4, "algorithm": "lastwave", "wavelet": "mz_spline",
+                        "alpha": 3.0, "border": "mirror",
                         "colocate_l1": False, "dither": False, "interpolate": False,
                         "recon_live": False, "kappa": 1.0, "clip": False, "run_mode": "converge",
                         "iterations": 20, "tolerance": 1e-3, "coarse": "full",
@@ -93,7 +94,7 @@ def test_compute_bundle_over_fbm(mz, fbm64):
     assert len(res["mz_maxima"]) == params["n_levels"]
     assert res["_shape"] == field.values.shape
     assert res["_frame"] is field.frame
-    assert "wavelet" not in res["params"] and "alpha" not in res["params"]
+    assert res["params"]["wavelet"] == "mz_spline" and res["params"]["alpha"] == 3.0
     assert res["wavelet"] == "mz_spline"                  # the printed algorithm's spline
     assert res["algorithm"] == "printed"
     assert res["scales"].dtype == np.float64
