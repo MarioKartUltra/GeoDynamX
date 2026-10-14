@@ -228,6 +228,7 @@ class SpectrumWindow(QtWidgets.QDialog):
 
         # The histogram construction's own controls, with an h-map to build it from.
         self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None
+        self.boxcount_check = self.pin_check = None
         if self._h_map is not None:
             controls.addWidget(QtWidgets.QLabel("bins"))
             self.bins_spin = QtWidgets.QSpinBox()
@@ -250,6 +251,15 @@ class SpectrumWindow(QtWidgets.QDialog):
             self.gh_check.setEnabled(self._gh_field is not None)
             self.gh_check.toggled.connect(self._on_gh_toggled)
             controls.addWidget(self.gh_check)
+            # Eq. 20 across resolutions, no pinning: the level sets' box-counting dimensions.
+            self.boxcount_check = QtWidgets.QCheckBox("box-counting across r (eq. 20)")
+            self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
+            controls.addWidget(self.boxcount_check)
+            # Eq. 21 with the fit's own D₀ = -tau(0) in place of d, to compare shapes.
+            self.pin_check = QtWidgets.QCheckBox("pin peak to D₀ of the fit")
+            self.pin_check.setEnabled(has_hd)
+            self.pin_check.toggled.connect(lambda _c: self._update_hist_items())
+            controls.addWidget(self.pin_check)
 
         for w in (self._table_combo, self._lo_spin, self._hi_spin, self._eta_spin,
                   self._hull_check):
@@ -354,6 +364,11 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._gh_curve = pg.PlotDataItem(pen=gh_pen, connect="finite",
                                          name="gradient histogram (GH)")
         self._plot.addItem(self._gh_curve)
+        self._box_err = pg.ErrorBarItem(pen=pg.mkPen(Q_WARM), beam=0.0)
+        self._plot.addItem(self._box_err)
+        self._box_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.4), connect="finite",
+                                          name="box-counting across r (eq. 20)")
+        self._plot.addItem(self._box_curve)
         self._update_hist_items()
         self._dom_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.2),
                                           connect="finite", name="dominant chains")
@@ -385,15 +400,51 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._hist = (h, D) if h.size else None
         self._hist_dD = dD if h.size else None
 
+    def _pin_shift(self) -> float:
+        """Eq. 21 pinned to the fit's D₀ = -tau(0) instead of d: a constant shift of the
+        histogram curve; 0 when the pin is off or the fit has no q = 0."""
+        if self.pin_check is None or not self.pin_check.isChecked() or self._fit is None:
+            return 0.0
+        q = np.asarray(self._fit["q_list"], dtype=np.float64)
+        at0 = np.flatnonzero(q == 0.0)
+        if at0.size == 0:
+            return 0.0
+        tau0 = float(np.asarray(self._fit["tau"])[at0[0]])
+        return (-tau0 - 2.0) if np.isfinite(tau0) else 0.0
+
     def _update_hist_items(self) -> None:
+        if not hasattr(self, "_hist_curve"):
+            return
         if self._hist is None:
             self._hist_curve.setData([], [])
             self._hist_err.setData(x=np.zeros(0), y=np.zeros(0), height=np.zeros(0))
             return
         h, D = self._hist
-        self._hist_curve.setData(h, D)
+        shift = self._pin_shift()
+        self._hist_curve.setData(h, D + shift)
         height = np.where(np.isfinite(self._hist_dD), 2.0 * self._hist_dD, 0.0)
-        self._hist_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0), height=height)
+        self._hist_err.setData(x=h, y=np.where(np.isfinite(D), D + shift, 0.0), height=height)
+        name = self._hist_label + (f" — pinned to D₀ = {2.0 + shift:.2f}" if shift else "")
+        self._hist_curve.opts["name"] = name
+        legend = getattr(self._plot, "legend", None)
+        if legend is not None:
+            try:
+                legend.getLabel(self._hist_curve).setText(name)
+            except Exception:                                        # noqa: BLE001
+                pass
+
+    def _on_boxcount_toggled(self, checked: bool) -> None:
+        if not checked:
+            self._box_curve.setData([], [])
+            self._box_err.setData(x=np.zeros(0), y=np.zeros(0), height=np.zeros(0))
+            return
+        from dynamix.core.microcanonical import box_counting_spectrum
+
+        # Coarser bins than the histogram's: a thin bin is a sparse set below its spacing.
+        h, D, dD = box_counting_spectrum(self._h_map, n_bins=max(8, self._bins // 4))
+        self._box_curve.setData(h, D)
+        self._box_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
+                              height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
 
     def _on_hist_controls_changed(self) -> None:
         self._bins = int(self.bins_spin.value())
@@ -402,6 +453,8 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._update_hist_items()
         if self.gh_check is not None and self.gh_check.isChecked():
             self._on_gh_toggled(True)
+        if self.boxcount_check is not None and self.boxcount_check.isChecked():
+            self._on_boxcount_toggled(True)
 
     def _on_per_scale_toggled(self, checked: bool) -> None:
         """The construction at every resolution of the stack (Turiel 2008 test ii): on a
@@ -472,6 +525,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             else:
                 self._hull_curve.setData([], [])
         self._update_grouping()
+        self._update_hist_items()
 
     def _update_grouping(self) -> None:
         if self._chains is None or self._current_hd() is None or self._scales is None:

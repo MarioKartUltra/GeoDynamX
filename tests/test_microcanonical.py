@@ -780,3 +780,20 @@ def test_gradient_histogram_spectrum_is_the_gh_method():
     h, D, dD = mc.gradient_histogram_spectrum(field, n_bins=40)
     assert h.size == 40 and np.nanmax(D) == pytest.approx(2.0)
     assert np.all(D[np.isfinite(D)] <= 2.0 + 1e-12) and np.isfinite(dD[np.isfinite(D)]).all()
+
+
+def test_box_counting_spectrum_reads_each_level_sets_own_dimension():
+    """Turiel 2008 eq. 20 across resolutions, no normalisation: the number of r-boxes meeting
+    the set {h in bin} scales as r^-D(h); a bin filling the plane reads 2, one on a line 1, one
+    at a point 0, with the regression's own bars."""
+    h_map = np.full((256, 256), 0.5)
+    h_map[100, :] = 1.5                       # a line
+    h_map[40, 40] = 2.5                       # a point
+    h, D, dD = mc.box_counting_spectrum(h_map, n_bins=3, h_range=(0.0, 3.0),
+                                        box_sizes=(1, 2, 4, 8, 16))
+    np.testing.assert_allclose(h, [0.5, 1.5, 2.5])
+    np.testing.assert_allclose(D, [2.0, 1.0, 0.0], atol=0.05)
+    assert np.all(np.isfinite(dD)) and np.all(dD >= 0)
+    empty = mc.box_counting_spectrum(np.full((64, 64), 0.5), n_bins=4, h_range=(0.0, 2.0),
+                                     box_sizes=(1, 2, 4, 8, 16))
+    assert np.isnan(empty[1][[0, 2, 3]]).all() and empty[1][1] == pytest.approx(2.0, abs=0.05)

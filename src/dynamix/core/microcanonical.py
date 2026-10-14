@@ -970,3 +970,59 @@ def gradient_histogram_spectrum(field, *, r0_rel: "float | None" = None, d: floa
     h_c, D, dD, _counts = dh_histogram_errors(h_tilde, r0_rel=r0_rel, d=d, n_bins=n_bins,
                                               h_range=h_range)
     return h_c, D, dD
+
+
+def box_counting_spectrum(h_map, *, n_bins: int = 20, h_range=None,
+                          box_sizes=(4, 8, 16, 32, 64, 128)):
+    """Turiel 2008 eq. 20 across resolutions with no normalisation at the mode: for each h bin
+    the number of r-boxes meeting the set {h in bin} scales as r^-D(h), so D(h) is minus the
+    slope of log N_r against log r over the box sizes and dD its standard error. The peak lands
+    where the data put it (d when the modal exponent fills the plane, less when it does not),
+    so the curve compares with a canonical D(h) -- within two biases a finite map imposes: a bin
+    is a sparse scatter below its own mean spacing (boxes smaller than that count pixels, and
+    the slope reads low), and boxes large enough to meet every bin saturate at d; hence the
+    coarse bins and the 4 px floor by default. NaN where a bin is empty or fewer than three
+    sizes hold a box; sizes above a quarter of the shorter side are left out:
+    ``(h_centers, D, dD)``."""
+    h = np.asarray(h_map, dtype=np.float64)
+    finite = np.isfinite(h)
+    vals = h[finite]
+    if h.ndim != 2 or vals.size < 10:
+        return np.array([]), np.array([]), np.array([])
+    if h_range is None:
+        h_range = (np.percentile(vals, 1), np.percentile(vals, 99))
+    edges = np.linspace(float(h_range[0]), float(h_range[1]), int(n_bins) + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    idx = np.digitize(h, edges) - 1
+    idx[h == edges[-1]] = n_bins - 1                  # the right edge belongs to the last bin
+    idx[~finite | (idx < 0) | (idx >= n_bins)] = -1
+    ny, nx = h.shape
+    sizes = [int(r) for r in box_sizes if int(r) <= min(ny, nx) // 4]
+    counts = np.zeros((len(sizes), n_bins))
+    for si, r in enumerate(sizes):
+        if r == 1:
+            counts[si] = np.bincount(idx[idx >= 0], minlength=n_bins)[:n_bins]
+            continue
+        cy, cx = ny // r * r, nx // r * r
+        blocks = idx[:cy, :cx].reshape(cy // r, r, cx // r, r).transpose(0, 2, 1, 3)
+        blocks = blocks.reshape(-1, r * r)
+        present = np.zeros((blocks.shape[0], n_bins), dtype=bool)
+        rows = np.repeat(np.arange(blocks.shape[0]), r * r)
+        cols = blocks.ravel()
+        ok = cols >= 0
+        present[rows[ok], cols[ok]] = True
+        counts[si] = present.sum(axis=0)
+    D = np.full(n_bins, np.nan)
+    dD = np.full(n_bins, np.nan)
+    log_r = np.log(np.asarray(sizes, dtype=np.float64))
+    for b in range(n_bins):
+        ok = counts[:, b] > 0
+        if ok.sum() < 3:
+            continue
+        x, y = log_r[ok], np.log(counts[ok, b])
+        xc = x - x.mean()
+        slope = float((xc * y).sum() / (xc * xc).sum())
+        resid = y - (slope * xc + y.mean())
+        D[b] = -slope
+        dD[b] = float(np.sqrt((resid ** 2).sum() / (x.size - 2) / (xc * xc).sum()))
+    return centers, D, dD

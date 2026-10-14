@@ -148,8 +148,10 @@ class MultifractalWindow(QtWidgets.QDialog):
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,
                  forward_note: str = "", parent=None, physical_of_log2a=None,
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
-                 extrema_mods=None, scales=None, dh_hist=None,
+                 extrema_mods=None, scales=None, dh_hist=None, dh_box=None,
                  source: str = "canonical (Arneodo WTMM)", sources=None):
+        #: The box-counting construction ``(h, D, dD)`` of an h-map result (eq. 20 across r).
+        self._dh_box = tuple(dh_box) if dh_box is not None else None
         #: Other methods' results drawn beside the primary's, each a dict with ``name`` and
         #: ``hd_std``/``hd_cmax`` and/or ``dh_hist``; the Show menu toggles each.
         self._sources = [dict(s) for s in (sources or [])]
@@ -282,6 +284,11 @@ class MultifractalWindow(QtWidgets.QDialog):
             action.toggled.connect(lambda checked, n=name: self._on_source_toggled(n, checked))
         self.show_button.setMenu(self.show_menu)
         controls.addWidget(self.show_button)
+        # Eq. 21 pinned to this fit's D₀ = -tau(0) instead of d, to compare shapes.
+        self.pin_check = QtWidgets.QCheckBox("pin peak to D₀")
+        self.pin_check.setEnabled(self._dh_hist is not None)
+        self.pin_check.toggled.connect(lambda _c: self._update_dh_hist())
+        controls.addWidget(self.pin_check)
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -460,11 +467,17 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._dh_hist_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.4), connect="finite",
                                               name="microcanonical histogram")
         d_plot.addItem(self._dh_hist_curve)
-        if self._dh_hist is not None:
-            h, D, dD = (np.asarray(a, dtype=np.float64) for a in self._dh_hist)
-            self._dh_hist_curve.setData(h, D)
-            self._dh_hist_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
-                                      height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
+        self._dh_box_err = pg.ErrorBarItem(pen=pg.mkPen(Q_WARM), beam=0.0)
+        d_plot.addItem(self._dh_box_err)
+        self._dh_box_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.4), connect="finite",
+                                             name="box-counting across r")
+        d_plot.addItem(self._dh_box_curve)
+        if self._dh_box is not None:
+            h, D, dD = (np.asarray(a, dtype=np.float64) for a in self._dh_box)
+            self._dh_box_curve.setData(h, D)
+            self._dh_box_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
+                                     height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
+        self._update_dh_hist()
 
         # Row 3: the specific heat c(q) = -q² τ'' off the fit (points), the cumulant expansion's
         # curve from the maxima moduli, and the log-normal reference c₂ q² (the workbook's
@@ -819,6 +832,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._update_specific_heat()
         self._update_fit_lines()
         self._refit_sources()
+        self._update_dh_hist()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
     def _update_spectrum_plots(self) -> None:
@@ -879,6 +893,23 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._pt_label.setText(
             f"sₗ={pt['slope_L']:.3f}  sᵣ={pt['slope_R']:.3f}  Δs={pt['ds']:.3f}"
             + (f"  ·  auto q*={best:.2f}" if np.isfinite(best) else ""))
+
+    def _update_dh_hist(self) -> None:
+        """The histogram construction on the D(h) panel, shifted to this fit's D₀ = -tau(0)
+        when the pin is on (eq. 21 with D₀ in place of d)."""
+        if self._dh_hist is None:
+            return
+        h, D, dD = (np.asarray(a, dtype=np.float64) for a in self._dh_hist)
+        shift = 0.0
+        if self.pin_check.isChecked() and self._fit is not None:
+            q = np.asarray(self._fit["q_list"], dtype=np.float64)
+            at0 = np.flatnonzero(q == 0.0)
+            if at0.size:
+                tau0 = float(np.asarray(self._fit["tau"])[at0[0]])
+                shift = (-tau0 - 2.0) if np.isfinite(tau0) else 0.0
+        self._dh_hist_curve.setData(h, D + shift)
+        self._dh_hist_err.setData(x=h, y=np.where(np.isfinite(D), D + shift, 0.0),
+                                  height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
 
     def _update_specific_heat(self) -> None:
         """c(q) off the CURRENT fit's tau(q), and -- with maxima moduli -- the cascade's

@@ -470,3 +470,24 @@ def test_the_family_rows_are_markers_and_the_fit_lines_solid(qtbot):
     assert row.opts["symbol"] == "o" and row.opts["pen"] is None
     line = window._family_lines_by_table["tau_qa"][1]
     assert line.opts["pen"].color().alpha() == 255 and line.opts["pen"].widthF() >= 1.2
+
+
+def test_the_box_counting_curve_and_the_pin_to_d0_ride_on_the_fitters_dh_panel(qtbot):
+    h = np.linspace(0.0, 1.0, 20)
+    D = 2.0 - 8.0 * (h - 0.5) ** 2
+    dD = np.full(20, 0.05)
+    box = (h, D - 0.3, dD)
+    window = MultifractalWindow(*_pair(), dh_hist=(h, D, dD), dh_box=box)
+    qtbot.addWidget(window)
+    np.testing.assert_allclose(window._dh_box_curve.getData()[1], D - 0.3)
+    assert not window.pin_check.isChecked()
+    window.pin_check.setChecked(True)
+    fit = window.current_fit()
+    d0 = -float(np.asarray(fit["tau"])[list(fit["q_list"]).index(0.0)])
+    np.testing.assert_allclose(window._dh_hist_curve.getData()[1], D + (d0 - 2.0))
+    window._region.setRegion((1.0, 5.0))                        # the pin follows the fit
+    fit2 = window.current_fit()
+    d0b = -float(np.asarray(fit2["tau"])[list(fit2["q_list"]).index(0.0)])
+    np.testing.assert_allclose(window._dh_hist_curve.getData()[1], D + (d0b - 2.0))
+    window.pin_check.setChecked(False)
+    np.testing.assert_allclose(window._dh_hist_curve.getData()[1], D)

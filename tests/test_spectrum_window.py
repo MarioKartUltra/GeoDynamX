@@ -220,3 +220,30 @@ def test_the_histogram_construction_has_bars_bins_resolution_per_scale_curves_an
     window.gh_check.setChecked(True)
     _gh_h, gh_D, _gh_dD = mc.gradient_histogram_spectrum(field, n_bins=40)
     np.testing.assert_allclose(window._gh_curve.getData()[1], gh_D, equal_nan=True)
+
+
+def test_box_counting_and_pin_to_d0_in_the_construction_window(qtbot):
+    from dynamix.core import microcanonical as mc
+    from dynamix.core import spectra
+
+    rng = np.random.default_rng(1)
+    h_map = rng.normal(0.4, 0.1, (64, 64))
+    hd_std, hd_cmax = _pair()
+    window = SpectrumWindow(hd_std, hd_cmax, h_map=h_map, log2_L=6.0)
+    qtbot.addWidget(window)
+    assert not window.boxcount_check.isChecked() and window._box_curve.getData()[0] is None
+    window.boxcount_check.setChecked(True)
+    hb, Db, _dDb = mc.box_counting_spectrum(h_map, n_bins=20)       # coarser bins than the histogram
+    x, y = window._box_curve.getData()
+    np.testing.assert_allclose(x, hb)
+    np.testing.assert_allclose(y, Db, equal_nan=True)
+    h, D, _dD, _c = mc.dh_histogram_errors(h_map, n_bins=80)
+    assert not window.pin_check.isChecked()
+    window.pin_check.setChecked(True)
+    fit = window.current_fit()
+    d0 = -float(np.asarray(fit["tau"])[list(fit["q_list"]).index(0.0)])
+    np.testing.assert_allclose(window._hist_curve.getData()[1], D + (d0 - 2.0), equal_nan=True)
+    assert "D₀" in window._hist_curve.name()
+    hist_only = SpectrumWindow(h_map=h_map)
+    qtbot.addWidget(hist_only)
+    assert not hist_only.pin_check.isEnabled()
