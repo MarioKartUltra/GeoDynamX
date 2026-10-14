@@ -112,6 +112,71 @@ def test_cwt2d_numpy_all_derivs_parity(fbm64):
     for k in ("dx", "dy", "dxx", "dxy", "dyy"):
         np.testing.assert_allclose(alt[k], ref[k], rtol=1e-3, atol=1e-5)
 
+
+# -- the registry's smoothers through the transform, on every engine --------------------------
+
+_REGISTRY = [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5})]
+
+
+@pytest.mark.parametrize("wavelet,params", _REGISTRY, ids=[w for w, _ in _REGISTRY])
+def test_cwt2d_registry_smoothers_run_on_fftw_as_on_numpy(fbm64, wavelet, params):
+    # The numpy loop takes the fft_policy backend: FFTW3 and numpy's FFT give the same field.
+    b = PythonWTMMBackend()
+    scales = compute_scales2d(2, 3)
+    ref = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, _engine="numpy")
+    assert ref["mod"].shape == (6, 64, 64) and np.all(np.isfinite(ref["mod"]))
+    assert ref["mod"].max() > 0
+    alt = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, _engine="fftw")
+    np.testing.assert_allclose(alt["mod"], ref["mod"], rtol=1e-3, atol=1e-5)
+
+
+@pytest.mark.parametrize("wavelet,params", _REGISTRY, ids=[w for w, _ in _REGISTRY])
+def test_cwt2d_registry_smoothers_on_device_match_the_numpy_loop(fbm64, wavelet, params):
+    # The app's own mlx loop (the vendored loop's structure with the registry's filters) agrees
+    # with the numpy loop to float32 tolerance, for the gradient and for all nine derivatives.
+    pytest.importorskip("mlx.core")
+    b = PythonWTMMBackend()
+    scales = compute_scales2d(1, 2)
+    ref = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, derivs="all",
+                  _engine="numpy")
+    dev = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, derivs="all",
+                  _engine="mlx")
+    for k in ("mod", "dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"):
+        np.testing.assert_allclose(dev[k], ref[k], rtol=1e-3, atol=1e-5, err_msg=k)
+
+
+def test_cwt2d_q_gaussian_at_q_one_is_the_gaussian_smoother(fbm64):
+    b = PythonWTMMBackend()
+    scales = compute_scales2d(1, 2)
+    ref = b.cwt2d(fbm64, scales, wavelet="gaussian", _engine="numpy")
+    alt = b.cwt2d(fbm64, scales, wavelet="q_gaussian", smoother_params={"q": 1.0},
+                  _engine="numpy")
+    np.testing.assert_allclose(alt["mod"], ref["mod"], rtol=1e-4, atol=1e-6)
+
+
+def test_cwt2d_registry_smoother_refuses_a_bad_parameter_before_dispatch(fbm64):
+    # Default engine on purpose (mlx where present): the parameter check sits at the entry.
+    b = PythonWTMMBackend()
+    with pytest.raises(ValueError, match="alpha"):
+        b.cwt2d(fbm64, compute_scales2d(1, 1), wavelet="frac_bspline",
+                smoother_params={"alpha": 0.5})
+
+
+def test_run_wtmm2d_takes_a_registry_smoother_and_keys_its_parameter(tmp_path, fbm64):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.core.wtmm_backend import run_wtmm2d
+    rf = RasterField(name="fsmooth", values=fbm64, frame=LocalFrame(units="px"),
+                     x_axis=np.arange(64.0), y_axis=np.arange(64.0))
+    base = {"n_oct": 1, "n_voice": 2, "wavelet": "frac_bspline"}
+    r1 = run_wtmm2d(rf, dict(base, smoother_params={"alpha": 3.0}), out_dir=tmp_path)
+    assert np.asarray(r1["hd_std"]["tau_qa"]).size > 0
+    r2 = run_wtmm2d(rf, dict(base, smoother_params={"alpha": 2.0}), out_dir=tmp_path)
+    assert "cwt" not in r2["cache_hits"]
+    r3 = run_wtmm2d(rf, dict(base, smoother_params={"alpha": 3.0}), out_dir=tmp_path)
+    assert "cwt" in r3["cache_hits"]
+
+
 def test_tensor_svd_3x2_parity(fbm64):
     pytest.importorskip("mlx.core")
     from dynamix._vendor.wtmm_ebsd.cwt2d import tensor_svd_3x2 as ref_svd

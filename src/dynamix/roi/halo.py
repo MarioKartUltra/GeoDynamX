@@ -390,7 +390,8 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
     window, _info = _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata)
     follow = resolved["detector"] == "follow"
     cwt = get_backend("python").cwt2d(window, [a], wavelet=resolved["wavelet"],
-                                      pad=resolved["pad"], derivs="all" if follow else "first")
+                                      pad=resolved["pad"], derivs="all" if follow else "first",
+                                      smoother_params=resolved["smoother_params"])
     cwt = _apply_fracint2d({"mod": cwt["mod"], "arg": cwt["arg"]}, [a],
                            resolved["fracint_alpha"])
     crop = (slice(margin, margin + h), slice(margin, margin + w))
@@ -425,7 +426,8 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
             missing_mask = info["missing"][margin:margin + h, margin:margin + w].copy()
         follow = resolved["detector"] == "follow"
         cwt = backend.cwt2d(window, [a], wavelet=resolved["wavelet"], pad=resolved["pad"],
-                            derivs="all" if follow else "first")
+                            derivs="all" if follow else "first",
+                            smoother_params=resolved["smoother_params"])
         if follow:
             from dynamix.core.follow2d import kapa_fields
             kapa, kapap = kapa_fields(cwt, 0)

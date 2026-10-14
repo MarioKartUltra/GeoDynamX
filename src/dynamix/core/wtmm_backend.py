@@ -124,8 +124,12 @@ def compute_scales2d(n_oct: int, n_voice: int, a_min: float = 1.0) -> np.ndarray
     return (a_min * (2.0 ** exponents) * norm).reshape(-1).astype(np.float64)
 
 
+#: The derivative stacks the transform computes, in the vendored order.
+_DERIVATIVE_NAMES = ("dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy")
+
+
 def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
-                                  wavelet: str = "gaussian") -> dict:
+                                  wavelet: str = "gaussian", params: "dict | None" = None) -> dict:
     """Fourier-domain derivative filters at one scale (numpy transcription).
 
     Exact transcription of ``wtmm_ebsd.cwt2d._build_wavelet_filters_f32``,
@@ -135,6 +139,10 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
     wavelet or ``smoother = |k|^2 * gauss`` (the "mexican" smoother) for
     'mexican' -- transcribed as explicit real/imaginary parts (not via
     complex exponentiation) to match the reference bit-for-bit in structure.
+
+    Any other name is one of :data:`dynamix.core.smoothers.NAMES`: its θ̂ is evaluated on
+    the grid and the nine filters follow the same rule (:func:`smoothers.derivative_filters`);
+    ``params`` are that smoother's parameters (``alpha``, ``q``).
     """
     sx = (kx * scale).astype(np.float32)
     sy = (ky * scale).astype(np.float32)
@@ -158,7 +166,11 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
             "dyyy": to_complex(zero, -sy * sy * sy * k2 * gauss),
         }
     if wavelet != "gaussian":
-        raise ValueError(f"unknown wavelet {wavelet!r}; expected 'gaussian' or 'mexican'")
+        from dynamix.core.smoothers import NAMES, derivative_filters, smoother
+        if wavelet not in NAMES:
+            raise ValueError(f"unknown wavelet {wavelet!r}; expected one of {NAMES}")
+        sm = smoother(wavelet, params)
+        return derivative_filters(sx, sy, sm.theta_hat(sx, sy), _DERIVATIVE_NAMES)
     return {
         "dx":   to_complex(zero,                    sx * gauss),
         "dy":   to_complex(zero,                    sy * gauss),
@@ -173,7 +185,8 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
 
 
 def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "first",
-                  wavelet: str = "gaussian", verbose: bool = True, fft=None) -> dict:
+                  wavelet: str = "gaussian", verbose: bool = True, fft=None,
+                  params: "dict | None" = None) -> dict:
     """Numpy/FFT transcription of ``wtmm_ebsd.cwt2d.cwt_2d_f32``.
 
     Signature-compatible with the ``mlx`` original so either engine can be
@@ -183,7 +196,8 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     :func:`_build_wavelet_filters_numpy`), same modulus/argument
     computation, same crop back to the input shape, float32 outputs.
 
-    Parameters mirror ``cwt_2d_f32`` exactly; see that docstring.
+    Parameters mirror ``cwt_2d_f32`` exactly; see that docstring. ``params`` are the
+    smoother's parameters for the registry's names (:func:`_build_wavelet_filters_numpy`).
     """
     image = np.asarray(image)
     ny, nx = image.shape
@@ -208,7 +222,7 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     result["mod"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
     result["arg"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
     for i, scale in enumerate(scales):
-        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet)
+        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet, params=params)
         for name in names:
             conv = _F.ifft2(image_fft * filters[name])
             result[name][i] = conv.real.astype(np.float32)[crop]
@@ -217,6 +231,50 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
         result["arg"][i] = np.arctan2(dy_s, dx_s).astype(np.float32)
         if verbose and (i % max(1, n_scales // 4) == 0 or i == n_scales - 1):
             print(f"  Scale {i}/{n_scales - 1}: a={scale:.1f}")
+    return result
+
+
+def _cwt2d_mlx(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "first",
+               wavelet: str = "gaussian", verbose: bool = True,
+               params: "dict | None" = None) -> dict:
+    """The vendored ``cwt_2d_f32`` loop on the device with the registry's filters.
+
+    Same reflect padding, wavenumber grids, one ``fft2`` of the padded image, per scale
+    one ``ifft2`` per derivative, same modulus/argument and crop, float32 outputs. The
+    filters come from :func:`_build_wavelet_filters_numpy` on the host (θ̂ of the
+    fractional B-spline and the q-Gaussian are host formulas) and are moved to the device
+    per scale; the products and inverse transforms run there. Every ``mx.eval`` precedes a
+    host read so an mlx error raises instead of aborting inside the buffer read.
+    """
+    import mlx.core as mx
+
+    image = np.asarray(image)
+    ny, nx = image.shape
+    padded = np.pad(image, pad, mode="reflect").astype(np.float32)
+    ny_p, nx_p = padded.shape
+    crop = (slice(pad, pad + ny), slice(pad, pad + nx))
+    kx_np = np.fft.fftfreq(nx_p).astype(np.float32)
+    ky_np = np.fft.fftfreq(ny_p).astype(np.float32)
+    kx, ky = np.meshgrid(kx_np, ky_np)
+    image_fft = mx.fft.fft2(mx.array(padded))
+
+    names = ["dx", "dy"] if derivs == "first" else list(_DERIVATIVE_NAMES)
+    n_scales = len(scales)
+    result = {n: np.zeros((n_scales, ny, nx), dtype=np.float32) for n in names}
+    result["mod"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
+    result["arg"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
+    for i, scale in enumerate(scales):
+        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet, params=params)
+        for name in names:
+            conv = mx.fft.ifft2(image_fft * mx.array(filters[name]))
+            mx.eval(conv)
+            result[name][i] = np.array(conv.real)[crop]
+        dx_s, dy_s = result["dx"][i], result["dy"][i]
+        result["mod"][i] = np.sqrt(dx_s * dx_s + dy_s * dy_s)
+        result["arg"][i] = np.arctan2(dy_s, dx_s).astype(np.float32)
+        if verbose and (i % max(1, n_scales // 4) == 0 or i == n_scales - 1):
+            print(f"  Scale {i}/{n_scales - 1}: a={scale:.1f}")
+    mx.eval()
     return result
 
 
@@ -921,7 +979,8 @@ class PythonWTMMBackend:
     name = "python"
 
     def cwt2d(self, field, scales, *, wavelet: str = "gaussian", pad: int = 32,
-              derivs: str = "first", _engine: "str | None" = None) -> dict:
+              derivs: str = "first", smoother_params: "dict | None" = None,
+              _engine: "str | None" = None) -> dict:
         """2D continuous wavelet transform.
 
         Parameters
@@ -931,13 +990,19 @@ class PythonWTMMBackend:
             the FFT (see the module NaN-policy docstring).
         scales : sequence of float
             Wavelet scales in pixels (e.g. from :func:`compute_scales2d`).
-        wavelet : {"gaussian", "mexican"}
-            Any other value raises ``ValueError`` -- checked here, before engine
-            dispatch, because the ``mlx`` engine calls ``wtmm_ebsd.cwt2d.cwt_2d_f32``
-            directly and never touches :func:`_build_wavelet_filters_numpy`.
+        wavelet : str
+            One of :data:`dynamix.core.smoothers.NAMES`. "gaussian" and "mexican" run on
+            the vendored loops; the other names run on the app's own loops
+            (:func:`_cwt2d_mlx` on the device, :func:`_cwt2d_numpy` otherwise). Any other
+            value raises ``ValueError`` -- checked here, before engine dispatch, because the
+            ``mlx`` engine calls ``wtmm_ebsd.cwt2d.cwt_2d_f32`` directly and never touches
+            :func:`_build_wavelet_filters_numpy`.
         pad : int
             Reflect-pad width in pixels.
-        _engine : {None, "mlx", "numpy"}
+        smoother_params : dict or None
+            The registry smoother's parameters (``{"alpha": ...}``, ``{"q": ...}``);
+            validated here before dispatch; ignored by the Gaussian pair.
+        _engine : {None, "mlx", "fftw", "numpy"}
             Private test hook. ``None`` (default) auto-selects ``mlx`` when
             importable, else the numpy fallback. ``"mlx"`` forces the mlx
             engine and raises ``ImportError`` if mlx is unavailable.
@@ -958,8 +1023,12 @@ class PythonWTMMBackend:
             fill_value = field[finite].mean() if finite.any() else 0.0
             field = np.where(finite, field, fill_value)
 
-        if wavelet not in ("gaussian", "mexican"):
-            raise ValueError(f"unknown wavelet {wavelet!r}; expected 'gaussian' or 'mexican'")
+        from dynamix.core.smoothers import NAMES, smoother as _smoother
+        if wavelet not in NAMES:
+            raise ValueError(f"unknown wavelet {wavelet!r}; expected one of {NAMES}")
+        registry = wavelet not in ("gaussian", "mexican")
+        if registry:
+            _smoother(wavelet, smoother_params)       # the parameter check, before dispatch
 
         engine = _engine
         if engine is None:
@@ -972,19 +1041,23 @@ class PythonWTMMBackend:
 
         if engine == "mlx":
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
-            from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
-            raw = cwt_2d_f32(field, scales, pad=pad, derivs=derivs,
-                              wavelet=wavelet, verbose=False)
+            if registry:
+                raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
+                                 wavelet=wavelet, verbose=False, params=smoother_params)
+            else:
+                from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
+                raw = cwt_2d_f32(field, scales, pad=pad, derivs=derivs,
+                                  wavelet=wavelet, verbose=False)
         elif engine == "fftw":
             from dynamix.core import fft_policy
             be = fft_policy.active()
             if be.name != "pyfftw":
                 be = fft_policy.make("pyfftw", 32)
             raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
-                                wavelet=wavelet, verbose=False, fft=be)
+                                wavelet=wavelet, verbose=False, fft=be, params=smoother_params)
         elif engine == "numpy":
             raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
-                                wavelet=wavelet, verbose=False)
+                                wavelet=wavelet, verbose=False, params=smoother_params)
         else:
             raise ValueError(f"unknown cwt2d engine {engine!r}")
 
@@ -1923,6 +1996,10 @@ _WTMM2D_PARAM_DEFAULTS = {
     # gkapa/gkapap formulas and the discretization).
     "detector": "nms",
     "use_wavelet_hessian": True,
+    # The registry smoother's parameters (dynamix.core.smoothers: {"alpha": ...} for
+    # frac_bspline, {"q": ...} for q_gaussian); None for the Gaussian pair, which leaves the
+    # pair's cache keys as they were.
+    "smoother_params": None,
 }
 
 _WTMM2D_CACHE_DIRNAME = "wtmm_cache"
@@ -2277,6 +2354,8 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         "a_min": resolved["a_min"], "n_oct": resolved["n_oct"],
         "n_voice": resolved["n_voice"], "pad": resolved["pad"],
     }
+    if resolved["smoother_params"] is not None:
+        cwt_key["smoother_params"] = tuple(sorted(resolved["smoother_params"].items()))
     if follow:
         # The follow variant carries kappa/kappa' alongside mod/arg -- a DIFFERENT stage
         # content, so it must never collide with a plain-nms cwt cache entry.
@@ -2285,7 +2364,8 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
     def compute_cwt():
         if not follow:
             return backend.cwt2d(field.values, scales, wavelet=resolved["wavelet"],
-                                 pad=resolved["pad"])
+                                 pad=resolved["pad"],
+                                 smoother_params=resolved["smoother_params"])
         # Follow needs the nine derivative stacks per scale. One engine call per scale keeps
         # the transient footprint at eleven single-scale rasters (all-scales derivs='all' on a
         # 4096^2 field would be ~GBs); kappa/kappa' come out of one fused numba pass and the
@@ -2295,7 +2375,8 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         mod = arg = kapa = kapap = None
         for si, a in enumerate(scales):
             one = backend.cwt2d(field.values, [a], wavelet=resolved["wavelet"],
-                                pad=resolved["pad"], derivs="all")
+                                pad=resolved["pad"], derivs="all",
+                                smoother_params=resolved["smoother_params"])
             if mod is None:
                 ny, nx = one["mod"].shape[1:]
                 mod = np.empty((n_sc, ny, nx), dtype=np.float32)
@@ -2587,7 +2668,8 @@ def run_wtmm2d_preview(field, params: dict, *, backend=None) -> dict:
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])[:1]
     follow = resolved["detector"] == "follow"
     cwt = backend.cwt2d(field.values, scales, wavelet=resolved["wavelet"],
-                        pad=resolved["pad"], derivs="all" if follow else "first")
+                        pad=resolved["pad"], derivs="all" if follow else "first",
+                        smoother_params=resolved["smoother_params"])
     if follow:
         from dynamix.core.follow2d import kapa_fields
         kapa, kapap = kapa_fields(cwt, 0)
