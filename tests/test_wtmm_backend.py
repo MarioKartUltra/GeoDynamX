@@ -115,7 +115,8 @@ def test_cwt2d_numpy_all_derivs_parity(fbm64):
 
 # -- the registry's smoothers through the transform, on every engine --------------------------
 
-_REGISTRY = [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5})]
+_REGISTRY = [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5}),
+             ("q_mexican", {"q": 1.5}), ("q_meyer", {"q": 1.0})]
 
 
 @pytest.mark.parametrize("wavelet,params", _REGISTRY, ids=[w for w, _ in _REGISTRY])

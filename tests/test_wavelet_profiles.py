@@ -313,7 +313,8 @@ def test_the_wtmm_profile_reads_the_registry_for_the_new_smoothers():
     assert "g1" in g.family                                                    # the pair as before
 
 
-@pytest.mark.parametrize("name,params", [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5})])
+@pytest.mark.parametrize("name,params", [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5}),
+                                         ("q_mexican", {"q": 1.5}), ("q_meyer", {"q": 1.0})])
 def test_a_plane_wave_peaks_where_the_registry_lambda_reads_its_wavelength(name, params):
     """The acceptance of the smoothers spec (§9): the scale with the largest mean modulus has
     λ* = L for the new smoothers too, through the backend and scale_units alone."""

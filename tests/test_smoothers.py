@@ -91,3 +91,71 @@ def test_the_polyharmonic_smoother_is_isotropic_to_fourth_order():
     assert coarse > 0
     assert 12.0 < coarse / fine < 20.0
     assert fine < 1e-3
+
+
+# -- the q-Mexican hat (θ = −Δθ_q, ψ = q-g3) and the q-Meyer smoother -------------------------
+
+def test_the_q_mexican_hat_at_q_one_is_the_mexican_pair_and_its_bounds_hold():
+    kx, ky, sx, sy = _grid()
+    s = sm.smoother("q_mexican", {"q": 1.0})
+    ref = _build_wavelet_filters_numpy(kx, ky, 5.0, wavelet="mexican")
+    got = sm.derivative_filters(sx, sy, s.theta_hat(sx, sy), NAMES)
+    for key in NAMES:
+        np.testing.assert_allclose(got[key], ref[key], rtol=1e-6, atol=1e-7)
+    assert "q-g3" in s.psi_name and "q-Mexican" in s.theta_name
+    # the smoother is |s|² θ̂_q: the q-Gaussian's transform times the Laplacian's symbol
+    g = sm.smoother("q_gaussian", {"q": 1.5}).theta_hat(sx, sy)
+    s2 = sx.astype(np.float64) ** 2 + sy.astype(np.float64) ** 2
+    np.testing.assert_allclose(sm.smoother("q_mexican", {"q": 1.5}).theta_hat(sx, sy), s2 * g,
+                               rtol=1e-12, atol=1e-12)
+    with pytest.raises(ValueError, match="2/3"):
+        sm.smoother("q_mexican", {"q": 0.5})           # q-g3 would jump at the support's edge
+    with pytest.raises(ValueError, match="q"):
+        sm.smoother("q_mexican", {"q": 2.0})
+
+
+def test_the_q_mexican_sections_are_the_closed_forms_and_reduce_to_the_mexican_at_q_one():
+    a = 8.0
+    sigma = a * sm._SIGMA_PER_SCALE
+    s1 = sm.smoother("q_mexican", {"q": 1.0})
+    x, th = s1.section(a, 0)
+    u = x / sigma
+    np.testing.assert_allclose(th / np.abs(th).max(), (2.0 - u * u) * np.exp(-u * u / 2.0) / 2.0,
+                               atol=1e-9)
+    x, psi = s1.section(a, 1)
+    g3 = (u ** 3 - 4.0 * u) * np.exp(-u * u / 2.0)
+    np.testing.assert_allclose(psi / np.abs(psi).max(), g3 / np.abs(g3).max(), atol=1e-9)
+    # q = 1.5: ψ odd, θ even; λ* barely moves (the |s|² symbol fixes the band more than the
+    # envelope's tails do: 1.5 % longer than the Mexican's √(2/3) a, measured)
+    s = sm.smoother("q_mexican", {"q": 1.5})
+    x, psi = s.section(a, 1)
+    np.testing.assert_allclose(psi, -psi[::-1], atol=1e-9 * np.abs(psi).max())
+    x, th = s.section(a, 0)
+    np.testing.assert_allclose(th, th[::-1], atol=1e-9 * np.abs(th).max())
+    assert s1.lambda_px(a) == pytest.approx(np.sqrt(2.0 / 3.0) * a, rel=1e-3)
+    assert s1.lambda_px(a) < s.lambda_px(a) < 1.1 * s1.lambda_px(a)
+
+
+def test_the_q_meyer_smoother_is_a_bandlimited_isotropic_taper_matched_to_the_gaussian():
+    a = 8.0
+    s1 = sm.smoother("q_meyer", {"q": 1.0})
+    r = np.linspace(0.0, 4.0, 4001)
+    f = s1.theta_hat(r, np.zeros_like(r))
+    assert f[0] == pytest.approx(1.0) and f.min() >= 0.0 and f.max() <= 1.0 + 1e-12
+    assert np.all(np.diff(f) <= 1e-12)                                   # monotone taper
+    assert f[-1] == 0.0 and f[np.searchsorted(r, 0.3)] == pytest.approx(1.0)   # flat band, then 0
+    diag = s1.theta_hat(r / np.sqrt(2.0), r / np.sqrt(2.0))
+    np.testing.assert_allclose(diag, f, atol=1e-12)                      # radial
+    assert s1.lambda_px(a) == pytest.approx(np.sqrt(2.0) * a, rel=2e-3)  # matched at q = 1
+    for q in (0.5, 1.5):
+        s = sm.smoother("q_meyer", {"q": q})
+        g = s.theta_hat(r, np.zeros_like(r))
+        assert g[0] == pytest.approx(1.0) and g.min() >= 0.0 and np.all(np.diff(g) <= 1e-12)
+        x, psi = s.section(a, 1)
+        np.testing.assert_allclose(psi, -psi[::-1], atol=1e-9 * np.abs(psi).max())
+        lam = s.lambda_px(a)
+        assert np.isfinite(lam) and 0.5 * a < lam < 3.0 * a and lam != pytest.approx(s1.lambda_px(a), rel=1e-3)
+    assert "q-Meyer" in s1.theta_name and "∂θ" in s1.psi_name
+    for bad in (0.0, 2.0):
+        with pytest.raises(ValueError, match="q"):
+            sm.smoother("q_meyer", {"q": bad})

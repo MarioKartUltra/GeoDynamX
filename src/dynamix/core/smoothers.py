@@ -27,6 +27,13 @@ Smoothers:
   Finite mass in 2-D only for q < 2; a continuous ψ at the compact support's edge (q < 1) needs
   q > 0; the 2-D variance diverges from q = 5/3, so the scale is matched by the parameter σ,
   never by the variance.
+- ``q_mexican``: −Δ of that q-Gaussian smoother, |s|² θ̂_q, the q analogue of the Mexican pair
+  (ψ = q-g3, in closed form by the chain rule on e_q; Borges's own index is q_B = 2 − 1/q).
+  2/3 < q < 2: the q-g3 carries e_q^(3q−2), which must vanish at the support's edge.
+- ``q_meyer``: Meyer's radial scaling-function taper with cos(π/2·ν) replaced by the q-cosine
+  cos_q(x₀ ν) of Borges et al. 2004 (x₀ its first zero) — the generalization their closing
+  remark leaves open. Bandlimited and isotropic; the dilation is fixed at q = 1 so that the
+  band peak equals the Gaussian g1's, and q moves it. 0 < q < 2.
 """
 from __future__ import annotations
 
@@ -38,7 +45,7 @@ import numpy as np
 
 __all__ = ["NAMES", "Smoother", "derivative_filters", "smoother"]
 
-NAMES = ("gaussian", "mexican", "frac_bspline", "q_gaussian")
+NAMES = ("gaussian", "mexican", "frac_bspline", "q_gaussian", "q_mexican", "q_meyer")
 
 #: Real-space Gaussian σ per unit nominal scale, the backend's convention (scale_units).
 _SIGMA_PER_SCALE = 1.0 / (np.pi * np.sqrt(2.0))
@@ -150,12 +157,11 @@ def _frac_hat_factory(alpha: float):
     return theta_hat
 
 
-@functools.lru_cache(maxsize=64)
-def _frac_section_u(alpha: float, deriv_order: int) -> tuple:
-    """The x-axis section in σ units, from the central row of the 2-D inverse transform of
-    (i s_x)^m θ̂ on a fine grid, computed once per order (the kernel is not separable)."""
-    theta_hat = _frac_hat_factory(alpha)
-    n, du = 1024, 1.0 / 16.0                                  # ±32 σ at σ/16
+def _central_row(theta_hat, deriv_order: int, n: int = 1024) -> tuple:
+    """The x-axis section in σ units, |u| ≤ 6, from the central row of the 2-D inverse
+    transform of (i s_x)^m θ̂ on a fine grid (σ/16 over ±n/32 σ), for a kernel that is not
+    separable or has no closed form."""
+    du = 1.0 / 16.0
     kappa = np.fft.fftfreq(n, d=du)                          # cycles per σ
     kx, ky = np.meshgrid(kappa, kappa)
     sx, sy = np.pi * np.sqrt(2.0) * kx, np.pi * np.sqrt(2.0) * ky   # s = k a = κ (a/σ)
@@ -163,7 +169,15 @@ def _frac_section_u(alpha: float, deriv_order: int) -> tuple:
     row = np.fft.ifft2(filt)[0]
     y = np.real(np.fft.fftshift(row))[1:]                    # drop −n/2: a grid symmetric about 0
     u = (np.arange(1, n) - n // 2) * du
+    keep = np.abs(u) <= 6.0
+    u, y = u[keep], y[keep]
     return u, y / np.abs(y).max()
+
+
+@functools.lru_cache(maxsize=64)
+def _frac_section_u(alpha: float, deriv_order: int) -> tuple:
+    """The fractional B-spline's section, computed once per order (not separable)."""
+    return _central_row(_frac_hat_factory(alpha), deriv_order)
 
 
 def _frac_section_factory(alpha: float):
@@ -218,6 +232,106 @@ def _q_section_factory(q: float):
     return section
 
 
+# -- the q-Mexican hat: −Δ of the q-Gaussian smoother, its analyser the q-g3 ---------------
+
+def _q_mexican_hat_factory(q: float):
+    envelope = _q_hat_factory(q)
+
+    def theta_hat(sx, sy):
+        return (sx * sx + sy * sy) * envelope(sx, sy)
+    return theta_hat
+
+
+def _q_mexican_section_factory(q: float):
+    """Closed forms by the chain rule on e_q (each derivative of e_q^a gives a·e_q^(a+q−1)):
+    θ = −Δ e_q(−ρ²/2σ²) = (2/σ²) e_q^q − q (ρ²/σ⁴) e_q^(2q−1) and, along x,
+    ψ_x = ∂_x θ = (q x/σ⁴) [(2q − 1)(x²/σ²) e_q^(3q−2) − 4 e_q^(2q−1)]; at q = 1 the Mexican
+    pair's (2 − u²)e^(−u²/2) and (u³ − 4u)e^(−u²/2). The exponents stay positive for q > 2/3,
+    which keeps ψ continuous at the compact support's edge below q = 1."""
+    def section(scale, deriv_order, n_points):
+        sigma = float(scale) * _SIGMA_PER_SCALE
+        x = np.linspace(-6.0 * sigma, 6.0 * sigma, max(int(n_points), 513))
+        e = _e_q(-x * x / (2.0 * sigma * sigma), q)
+        if deriv_order == 0:
+            return x, (2.0 / sigma ** 2) * e ** q - q * (x * x / sigma ** 4) * e ** (2.0 * q - 1.0)
+        return x, (q * x / sigma ** 4) * ((2.0 * q - 1.0) * (x * x / sigma ** 2) * e ** (3.0 * q - 2.0)
+                                          - 4.0 * e ** (2.0 * q - 1.0))
+    return section
+
+
+# -- the q-Meyer smoother: Meyer's radial taper with the q-cosine ---------------------------
+
+def _meyer_nu(x):
+    """Meyer's auxiliary polynomial ν(x) = x⁴(35 − 84x + 70x² − 20x³): 0 → 1 on [0, 1], C³ at
+    both ends."""
+    x = np.clip(x, 0.0, 1.0)
+    return x ** 4 * (35.0 - 84.0 * x + 70.0 * x * x - 20.0 * x ** 3)
+
+
+def _cos_q(x, q: float):
+    """Borges, Tsallis, Miranda & Andrade 2004 eq. (31)–(32): cos_q x = Re e_q^(ix) = ρ_q(x)
+    cos φ_q(x), ρ_q² = e_q^((1−q)x²), φ_q = arctan((1 − q)x)/(1 − q); the cosine at q = 1."""
+    if q == 1.0:
+        return np.cos(x)
+    t = (1.0 - q) * np.asarray(x, dtype=np.float64)
+    return (1.0 + t * t) ** (0.5 / (1.0 - q)) * np.cos(np.arctan(t) / (1.0 - q))
+
+
+def _cos_q_zero(q: float) -> float:
+    """The first zero of cos_q, where φ_q = π/2: x₀ = tan((1 − q)π/2)/(1 − q); π/2 at q = 1,
+    finite for 0 < q < 2. cos_q falls monotonically from 1 to 0 on [0, x₀]."""
+    if q == 1.0:
+        return np.pi / 2.0
+    return float(np.tan((1.0 - q) * np.pi / 2.0) / (1.0 - q))
+
+
+def _meyer_taper(omega, q: float):
+    """Meyer's scaling function on the radial frequency with cos(π/2·ν) replaced by cos_q(x₀ ν):
+    1 up to 2π/3, the taper to 4π/3, 0 beyond — the q-Meyer the paper's closing remark leaves
+    open, generalized along its lines."""
+    omega = np.asarray(omega, dtype=np.float64)
+    out = _cos_q(_cos_q_zero(q) * _meyer_nu(3.0 * omega / (2.0 * np.pi) - 1.0), q)
+    out = np.where(omega <= 2.0 * np.pi / 3.0, 1.0, out)
+    return np.where(omega >= 4.0 * np.pi / 3.0, 0.0, out)
+
+
+@functools.lru_cache(maxsize=1)
+def _meyer_scale() -> float:
+    """ω per unit s, fixed at q = 1 so that the Meyer analyser's band peak is the Gaussian g1's:
+    the peak of ω·taper(ω) is put at s* = 1/√2 (λ* = √2 a); the q-deformation then moves λ*."""
+    w = np.linspace(2.0 * np.pi / 3.0, 4.0 * np.pi / 3.0, 1 << 16)
+    f = w * _meyer_taper(w, 1.0)
+    i = int(np.argmax(f))
+    w_star = w[i]
+    if 0 < i < w.size - 1:
+        y0, y1, y2 = f[i - 1], f[i], f[i + 1]
+        d = y0 - 2.0 * y1 + y2
+        if d < 0:
+            w_star = w[i] + 0.5 * (y0 - y2) / d * (w[1] - w[0])
+    return float(w_star * np.sqrt(2.0))
+
+
+def _meyer_hat_factory(q: float):
+    c = _meyer_scale()
+
+    def theta_hat(sx, sy):
+        return _meyer_taper(c * np.sqrt(sx * sx + sy * sy), q)
+    return theta_hat
+
+
+@functools.lru_cache(maxsize=64)
+def _meyer_section_u(q: float, deriv_order: int) -> tuple:
+    """The q-Meyer's section (bandlimited, so no closed form), on a finer grid for its band."""
+    return _central_row(_meyer_hat_factory(q), deriv_order, n=4096)
+
+
+def _meyer_section_factory(q: float):
+    def section(scale, deriv_order, n_points):
+        u, y = _meyer_section_u(float(q), int(deriv_order))
+        return u * scale * _SIGMA_PER_SCALE, y
+    return section
+
+
 # -- the registry ----------------------------------------------------------------------------
 
 def smoother(name: str, params: dict | None = None) -> Smoother:
@@ -242,4 +356,18 @@ def smoother(name: str, params: dict | None = None) -> Smoother:
                              f"continuous psi above 0), got {q!r}")
         return Smoother("q_gaussian", f"q-Gaussian q = {q:g}", "∂θ_q", {"q": q},
                         _q_hat_factory(q), _q_section_factory(q))
+    if name == "q_mexican":
+        q = float(params.get("q", 1.5))
+        if not 2.0 / 3.0 < q < 2.0:
+            raise ValueError(f"q_mexican needs 2/3 < q < 2 (finite mass in 2-D below 2, a "
+                             f"continuous q-g3 at the support's edge above 2/3), got {q!r}")
+        return Smoother("q_mexican", f"q-Mexican hat q = {q:g}", "q-g3", {"q": q},
+                        _q_mexican_hat_factory(q), _q_mexican_section_factory(q))
+    if name == "q_meyer":
+        q = float(params.get("q", 1.5))
+        if not 0.0 < q < 2.0:
+            raise ValueError(f"q_meyer needs 0 < q < 2 (the q-cosine's first zero exists "
+                             f"there), got {q!r}")
+        return Smoother("q_meyer", f"q-Meyer q = {q:g}", "∂θ_q", {"q": q},
+                        _meyer_hat_factory(q), _meyer_section_factory(q))
     raise ValueError(f"unknown smoother {name!r}; expected one of {NAMES}")

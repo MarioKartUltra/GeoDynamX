@@ -178,7 +178,8 @@ def test_no_bare_scale_times_pixel_size_in_shell():
 def test_registry_smoothers_have_sections_names_and_lambda_through_scale_units():
     s = 8.0
     lam_g = lambda_peak_px(s, "gaussian", 1)
-    for name, params in (("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5})):
+    for name, params in (("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5}),
+                         ("q_mexican", {"q": 1.5}), ("q_meyer", {"q": 1.0})):
         x, y = kernel_section(s, name, 1, n_points=1001, params=params)
         assert x[0] < 0 < x[-1] and np.allclose(y, -y[::-1], atol=1e-9)        # ψ_x is odd
         lam = lambda_peak_px(s, name, 1, params=params)
@@ -191,6 +192,10 @@ def test_registry_smoothers_have_sections_names_and_lambda_through_scale_units()
     assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 0.5}) < 0.85 * lam_g
     assert analyzing_names("q_gaussian", {"q": 1.0}) == ("q-Gaussian q = 1", "∂θ_q")
     assert analyzing_names("frac_bspline", {"alpha": 3.0})[1] == "∂θ_α"
+    assert analyzing_names("q_mexican", {"q": 1.0})[1] == "q-g3"
+    assert lambda_peak_px(s, "q_mexican", 1, params={"q": 1.0}) == pytest.approx(
+        lambda_peak_px(s, "mexican", 1), rel=1e-3)                            # q → 1 is the Mexican
+    assert lambda_peak_px(s, "q_meyer", 1, params={"q": 1.0}) == pytest.approx(lam_g, rel=2e-3)
     assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 1.0}) == pytest.approx(
         lambda_peak_px(s, "gaussian", 1), rel=1e-3)                            # q → 1 is the Gaussian
     with pytest.raises(ValueError):
