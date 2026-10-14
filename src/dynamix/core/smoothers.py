@@ -157,8 +157,9 @@ def _frac_hat_factory(alpha: float):
     return theta_hat
 
 
-def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 16.0) -> tuple:
-    """The x-axis section in σ units, |u| ≤ 6, from the central row of the 2-D inverse
+def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 16.0,
+                 span: float = 6.0) -> tuple:
+    """The x-axis section in σ units, |u| ≤ ``span``, from the central row of the 2-D inverse
     transform of (i s_x)^m θ̂ on a fine grid (step ``du`` σ over ±n·du/2 σ), for a kernel that
     is not separable or has no closed form."""
     kappa = np.fft.fftfreq(n, d=du)                          # cycles per σ
@@ -168,7 +169,7 @@ def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 1
     row = np.fft.ifft2(filt)[0]
     y = np.real(np.fft.fftshift(row))[1:]                    # drop −n/2: a grid symmetric about 0
     u = (np.arange(1, n) - n // 2) * du
-    keep = np.abs(u) <= 6.0
+    keep = np.abs(u) <= float(span)
     u, y = u[keep], y[keep]
     return u, y / np.abs(y).max()
 
@@ -325,8 +326,10 @@ def _meyer_hat_factory(q: float):
 
 @functools.lru_cache(maxsize=64)
 def _meyer_section_u(q: float, deriv_order: int) -> tuple:
-    """The q-Meyer's section (bandlimited, so no closed form), on a finer grid for its band."""
-    return _central_row(_meyer_hat_factory(q), deriv_order, n=4096)
+    """The q-Meyer's section (bandlimited, so no closed form), on a finer grid for its band and
+    over a wider window: a bandlimited kernel rings with the period of its cut-off (about 4 σ
+    here) and decays as ρ⁻⁴, so ±12 σ shows the rings down to a percent of the main lobe."""
+    return _central_row(_meyer_hat_factory(q), deriv_order, n=4096, span=12.0)
 
 
 def _meyer_section_factory(q: float):
