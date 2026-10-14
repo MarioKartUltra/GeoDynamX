@@ -82,7 +82,8 @@ def test_the_applicability_table_reads_the_contracts(make_tables, builtins):
     after = _after(make_tables)
     topology = {"wtmm2d+chain_topology", "wtmm2d_roi+chain_topology"}
     chains = {"wtmm2d", "wtmm2d_roi"} | topology
-    extrema = chains | {"mz_edges", "mz_edges[algorithm=printed]", "wavelet_skeleton",
+    extrema = chains | {"mz_edges", "mz_edges[algorithm=printed]", "mz_edges[wavelet=frac_bspline]",
+                        "wavelet_skeleton",
                         "cdf_edges", "pm_edges"}
     for name in ("orientation_wedge", "modulus_threshold", "hline_length", "hline_modulus"):
         assert after[name] == extrema, name
