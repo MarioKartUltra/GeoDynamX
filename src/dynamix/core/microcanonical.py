@@ -876,6 +876,7 @@ def partition_tables(T, scales, q_list, *, d: float = 2.0, chunk: int = 1 << 18)
     tau, h, D = (np.full((n_q, n_sc), np.nan) for _ in range(3))
     s_tau, s_h, s_D = (np.full((n_q, n_sc), np.nan) for _ in range(3))
     N_a = np.zeros(n_sc)
+    moments = np.full((4, n_sc), np.nan)            # mean, variance, 3rd, 4th cumulant of ln T
     decim = (scales[0] / scales) ** d
     for k in range(n_sc):
         m = T[k].ravel()
@@ -884,6 +885,7 @@ def partition_tables(T, scales, q_list, *, d: float = 2.0, chunk: int = 1 << 18)
         if n == 0:
             continue
         Zq, ZqL, Z2q, ZqL2 = (np.zeros(n_q) for _ in range(4))
+        S = np.zeros(4)                              # raw power sums of ln T
         for start in range(0, n, chunk):
             ln_m = np.log(m[start:start + chunk])
             mq = np.exp(q[:, None] * ln_m[None, :])
@@ -891,6 +893,12 @@ def partition_tables(T, scales, q_list, *, d: float = 2.0, chunk: int = 1 << 18)
             ZqL += (mq * ln_m[None, :]).sum(axis=1)
             Z2q += (mq * mq).sum(axis=1)
             ZqL2 += (mq * ln_m[None, :] ** 2).sum(axis=1)
+            S += [ln_m.sum(), (ln_m ** 2).sum(), (ln_m ** 3).sum(), (ln_m ** 4).sum()]
+        mean = S[0] / n
+        var = S[1] / n - mean ** 2
+        m3 = S[2] / n - 3.0 * mean * S[1] / n + 2.0 * mean ** 3
+        m4 = S[3] / n - 4.0 * mean * S[2] / n + 6.0 * mean ** 2 * S[1] / n - 3.0 * mean ** 4
+        moments[:, k] = (mean, var, m3, m4 - 3.0 * var * var)
         n_eff = n * decim[k]
         N_a[k] = n_eff
         tau[:, k] = np.log(Zq * decim[k]) / ln2
@@ -907,7 +915,8 @@ def partition_tables(T, scales, q_list, *, d: float = 2.0, chunk: int = 1 << 18)
         s_D[:, k] = np.sqrt(q ** 2 * s_h[:, k] ** 2 + s_tau[:, k] ** 2)
     return {"q_list": q, "scales": scales, "log2_scales": np.log2(scales), "N_a": N_a,
             "tau_qa": tau, "h_qa": h, "D_qa": D,
-            "sigma_tau_qa": s_tau, "sigma_h_qa": s_h, "sigma_D_qa": s_D}
+            "sigma_tau_qa": s_tau, "sigma_h_qa": s_h, "sigma_D_qa": s_D,
+            "lnT_moments": moments}
 
 
 def dh_histogram_errors(h_map: np.ndarray, *, r0_rel: "float | None" = None, d: float = 2.0,

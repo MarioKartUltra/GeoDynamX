@@ -149,7 +149,11 @@ class MultifractalWindow(QtWidgets.QDialog):
                  forward_note: str = "", parent=None, physical_of_log2a=None,
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
                  extrema_mods=None, scales=None, dh_hist=None, dh_box=None,
-                 source: str = "canonical (Arneodo WTMM)", sources=None):
+                 source: str = "canonical (Arneodo WTMM)", sources=None, h_map=None):
+        #: The h-map, for the box-counting construction on request.
+        self._h_map = np.asarray(h_map) if h_map is not None else None
+        self._dh_legend_entries: list = []
+        self._in_dh_legend: dict = {}
         #: The box-counting construction ``(h, D, dD)`` of an h-map result (eq. 20 across r).
         self._dh_box = tuple(dh_box) if dh_box is not None else None
         #: Other methods' results drawn beside the primary's, each a dict with ``name`` and
@@ -289,6 +293,14 @@ class MultifractalWindow(QtWidgets.QDialog):
         self.pin_check.setEnabled(self._dh_hist is not None)
         self.pin_check.toggled.connect(lambda _c: self._update_dh_hist())
         controls.addWidget(self.pin_check)
+        self.boxcount_check = QtWidgets.QCheckBox("box-counting")
+        self.boxcount_check.setEnabled(self._h_map is not None)
+        self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
+        controls.addWidget(self.boxcount_check)
+        # tau, h and D(h) from the cascade's cumulants, over the fitted ones.
+        self.cumulant_check = QtWidgets.QCheckBox("cumulant spectrum")
+        self.cumulant_check.toggled.connect(lambda _c: self._update_cumulant_overlay())
+        controls.addWidget(self.cumulant_check)
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -460,18 +472,30 @@ class MultifractalWindow(QtWidgets.QDialog):
                                                    pen=pg.mkPen(RESTRAINED_DARK.amber))
         self._pt_scan_plot.addItem(self._pt_scan_qstar_line)
 
-        # An h-map result's histogram construction (eq. 21, the eq. 39 bars) beside the points.
+        # An h-map result's histogram construction (eq. 21, the eq. 39 bars) beside the points,
+        # as points; the D(h) panel carries the legend of what is drawn (_sync_dh_legend).
         d_plot = self._spectrum_plots["D"]
+        self._dh_legend = d_plot.addLegend(offset=(10, 10))
         self._dh_hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
         d_plot.addItem(self._dh_hist_err)
-        self._dh_hist_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.4), connect="finite",
-                                              name="microcanonical histogram")
+        self._dh_hist_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=4, symbolPen=None,
+                                              symbolBrush=Q_COLD)
         d_plot.addItem(self._dh_hist_curve)
         self._dh_box_err = pg.ErrorBarItem(pen=pg.mkPen(Q_WARM), beam=0.0)
         d_plot.addItem(self._dh_box_err)
-        self._dh_box_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.4), connect="finite",
-                                             name="box-counting across r")
+        self._dh_box_curve = pg.PlotDataItem(pen=None, symbol="s", symbolSize=4, symbolPen=None,
+                                             symbolBrush=Q_WARM)
         d_plot.addItem(self._dh_box_curve)
+        amber_dash = pg.mkPen(RESTRAINED_DARK.amber, width=1.4, style=QtCore.Qt.DashLine)
+        self._cum_curves = {name: pg.PlotDataItem(pen=amber_dash, connect="finite")
+                            for name in ("tau", "D", "h")}
+        for name, curve in self._cum_curves.items():
+            self._spectrum_plots[name].addItem(curve)
+        self._dh_legend_entries = [
+            (self._spectrum_curves["D"], lambda: self._source),
+            (self._dh_hist_curve, lambda: "microcanonical histogram"),
+            (self._dh_box_curve, lambda: "box-counting across r"),
+            (self._cum_curves["D"], lambda: "cumulant spectrum")]
         if self._dh_box is not None:
             h, D, dD = (np.asarray(a, dtype=np.float64) for a in self._dh_box)
             self._dh_box_curve.setData(h, D)
@@ -485,16 +509,18 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._cq_plot = self._glw.addPlot(row=2, col=3, colspan=3, viewBox=WheelAxisViewBox())
         self._cq_plot.setLabel("bottom", "q")
         self._cq_plot.setLabel("left", "c(q) = −q² τ″")
-        self._cq_plot.addLegend(offset=(-10, 10))
+        # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²
+        # (the axis label says so; the legend lives on D(h)).
+        self._cq_plot.setLabel("left", "c(q) = −q² τ″")
+        self._cq_plot.setTitle("points: fit · line: cumulant expansion · dotted: log-normal c₂q²",
+                               size="9pt", color=RESTRAINED_DARK.ink_muted)
         self._cq_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5, symbolPen=None,
-                                         symbolBrush=RESTRAINED_DARK.ink, name="fit")
+                                         symbolBrush=RESTRAINED_DARK.ink)
         self._cq_plot.addItem(self._cq_curve)
-        self._cq_cum_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6),
-                                             name="cumulant expansion")
+        self._cq_cum_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6))
         self._cq_plot.addItem(self._cq_cum_curve)
         self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink_muted,
-                                                         style=QtCore.Qt.DotLine),
-                                            name="log-normal c₂q²")
+                                                         style=QtCore.Qt.DotLine))
         self._cq_plot.addItem(self._cq_ln_curve)
 
         # The families take half the height; the 2 x 2 grid the rest (the Bershadskii row,
@@ -560,20 +586,23 @@ class MultifractalWindow(QtWidgets.QDialog):
             if self._source_table(source) is not None:
                 for name in ("tau", "D", "h"):
                     curve = pg.PlotDataItem(pen=pen, connect="finite", symbol="o", symbolSize=3,
-                                            symbolPen=None, symbolBrush=hue, name=source["name"])
+                                            symbolPen=None, symbolBrush=hue)
                     self._spectrum_plots[name].addItem(curve)
                     items["curves"][name] = curve
-                cq = pg.PlotDataItem(pen=pen, connect="finite", name=source["name"])
+                cq = pg.PlotDataItem(pen=pen, connect="finite")
                 self._cq_plot.addItem(cq)
                 items["curves"]["cq"] = cq
+                self._dh_legend_entries.append((items["curves"]["D"],
+                                                lambda n=source["name"]: n))
             if source.get("dh_hist") is not None:
                 h, D, _dD = (np.asarray(a, dtype=np.float64) for a in source["dh_hist"])
-                hist = pg.PlotDataItem(h, D, pen=pg.mkPen(hue, width=1.2,
-                                                           style=QtCore.Qt.DashLine),
-                                       connect="finite", name=f"{source['name']} (histogram)")
+                hist = pg.PlotDataItem(h, D, pen=None, symbol="o", symbolSize=3, symbolPen=None,
+                                       symbolBrush=hue)
                 self._spectrum_plots["D"].addItem(hist)
                 items["curves"]["dh"] = hist
+                self._dh_legend_entries.append((hist, lambda n=source["name"]: f"{n} (histogram)"))
             self._source_items[source["name"]] = items
+        self._sync_dh_legend()
 
     def _rebuild_source_rows(self) -> None:
         for source in self._sources:
@@ -616,11 +645,66 @@ class MultifractalWindow(QtWidgets.QDialog):
             items["curves"]["h"].setData(q[mask], np.asarray(fit["h"])[mask])
             items["curves"]["cq"].setData(q[mask], spectra.specific_heat(q, fit["tau"])[mask])
 
+    @staticmethod
+    def _drawn(item) -> bool:
+        x = getattr(item, "xData", None)
+        return item.isVisible() and x is not None and len(x) > 0
+
+    def _sync_dh_legend(self) -> None:
+        """The D(h) legend lists exactly what is drawn there: the primary, the histogram and
+        box-counting constructions, the cumulant spectrum, every source."""
+        if not hasattr(self, "_dh_legend"):
+            return
+        wanted = [(item, name_of()) for item, name_of in self._dh_legend_entries
+                  if self._drawn(item)]
+        if wanted != self._in_dh_legend.get("order"):
+            self._dh_legend.clear()
+            for item, name in wanted:
+                self._dh_legend.addItem(item, name)
+            self._in_dh_legend = {"order": wanted}
+
+    def _on_boxcount_toggled(self, checked: bool) -> None:
+        if not checked or self._h_map is None:
+            self._dh_box_curve.setData([], [])
+            self._dh_box_err.setData(x=np.zeros(0), y=np.zeros(0), height=np.zeros(0))
+        else:
+            from dynamix.core.microcanonical import box_counting_spectrum
+
+            h, D, dD = box_counting_spectrum(self._h_map)
+            self._dh_box_curve.setData(h, D)
+            self._dh_box_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
+                                     height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
+        self._sync_dh_legend()
+
+    def _update_cumulant_overlay(self) -> None:
+        """tau(q), h(q) and D(h) from the cascade's cumulants (the workbook's reconstruction,
+        c₀ = -tau(0) of the fit), drawn over the fitted ones while the box is on."""
+        on = self.cumulant_check.isChecked() and self._cumulants is not None \
+            and self._fit is not None
+        if on:
+            q = np.asarray(self._fit["q_list"], dtype=np.float64)
+            at0 = np.flatnonzero(q == 0.0)
+            on = at0.size > 0 and np.isfinite(np.asarray(self._fit["tau"])[at0[0]])
+        if not on:
+            for curve in self._cum_curves.values():
+                curve.setData([], [])
+            self._sync_dh_legend()
+            return
+        c0 = -float(np.asarray(self._fit["tau"])[at0[0]])
+        qq = q[self._q_mask(q) & np.isfinite(q)]
+        tau_c = spectra.cumulant_tau(self._cumulants, qq, c0=c0)
+        h_c = np.gradient(tau_c, qq, edge_order=2) if qq.size >= 3 else np.full(qq.size, np.nan)
+        self._cum_curves["tau"].setData(qq, tau_c)
+        self._cum_curves["h"].setData(qq, h_c)
+        self._cum_curves["D"].setData(h_c, qq * h_c - tau_c)
+        self._sync_dh_legend()
+
     def _apply_source_visibility(self, name: str) -> None:
         items = self._source_items[name]
         shown = bool(items["visible"])
         for curve in items["curves"].values():
             curve.setVisible(shown)
+        self._sync_dh_legend()
         source = next(s for s in self._sources if s["name"] == name)
         hd = self._source_table(source)
         if hd is None:
@@ -636,9 +720,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         for curve in list(self._spectrum_curves.values()) + list(self._spectrum_errbars.values()):
             curve.setVisible(shown)
         for item in (self._cq_curve, self._cq_cum_curve, self._cq_ln_curve,
-                     self._dh_hist_curve, self._dh_hist_err):
+                     self._dh_hist_curve, self._dh_hist_err, self._dh_box_curve,
+                     self._dh_box_err, *self._cum_curves.values()):
             item.setVisible(shown)
         self._update_family_visibility()
+        self._sync_dh_legend()
 
     def _on_source_toggled(self, name: str, checked: bool) -> None:
         if name == self._source:
@@ -825,6 +911,8 @@ class MultifractalWindow(QtWidgets.QDialog):
                 fam = focus.get(name) or {}
                 if fam.get("branch"):
                     text += f" · {name}: {fam['branch']}"
+            if focus.get("note"):
+                text += f" — {focus['note']}"
             self._focus_readout.setText(text)
         self._update_spectrum_plots()
         self._update_phase_transition()
@@ -833,6 +921,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._update_fit_lines()
         self._refit_sources()
         self._update_dh_hist()
+        self._update_cumulant_overlay()
+        self._sync_dh_legend()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
     def _update_spectrum_plots(self) -> None:
@@ -910,6 +1000,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._dh_hist_curve.setData(h, D + shift)
         self._dh_hist_err.setData(x=h, y=np.where(np.isfinite(D), D + shift, 0.0),
                                   height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
+        self._sync_dh_legend()
 
     def _update_specific_heat(self) -> None:
         """c(q) off the CURRENT fit's tau(q), and -- with maxima moduli -- the cascade's
@@ -922,10 +1013,14 @@ class MultifractalWindow(QtWidgets.QDialog):
         mask = self._q_mask(q)
         heat = spectra.specific_heat(q, fit["tau"])
         self._cq_curve.setData(q[mask], heat[mask])
-        if self._extrema_mods is None or self._scales_px is None:
-            return
+        hd = self._current_hd()
         lo, hi = self._region.getRegion()
-        c = spectra.cascade_cumulants(self._extrema_mods, self._scales_px, float(lo), float(hi))
+        if self._extrema_mods is not None and self._scales_px is not None:
+            c = spectra.cascade_cumulants(self._extrema_mods, self._scales_px, float(lo), float(hi))
+        elif hd.get("lnT_moments") is not None:
+            c = spectra.cumulants_from_moments(hd["lnT_moments"], hd["scales"], float(lo), float(hi))
+        else:
+            return
         if fit.get("frame") == "original":
             c["c1"] -= float(fit.get("eta", 0.0))
         self._cumulants = c

@@ -679,18 +679,25 @@ def test_a_bar_style_change_applies_everywhere_and_is_remembered(geo_window, qtb
 def test_a_microcanonical_result_opens_the_fitter_on_its_moment_tables(geo_window, qtbot):
     from test_roi_shell_flow import _drop
 
+    from dynamix.model.device import defaults_for, get_device
+
     win = geo_window
+    desc = [{"device": "holder_measure",
+             "params": {**defaults_for(get_device("holder_measure")), "spectra": True}}]
     with qtbot.waitSignal(win.resolved, timeout=60000):
-        _drop(win, qtbot, "holder_measure")
+        win.strips.set_steps(desc, field=win.field)
+        win._on_chain_edited(desc)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     assert win._active_result.get("hd_std") is not None and win._spectrum_button.isEnabled()
     win._on_spectrum_button_clicked()
     fitter = win._multifractal_window
     assert "moments" in fitter.windowTitle()
     assert fitter._dh_hist_curve.getData()[0].size > 0            # the histogram beside the points
+    assert fitter.current_cumulants() is not None                 # from the table's moments
     win._on_dh_button_clicked()
     construction = win._spectrum_construction_window
     assert construction.per_scale_check is not None and construction.gh_check is not None
+    assert construction._plot.legend.items[0][1].text.startswith("moments")
     construction.gh_check.setChecked(True)
     assert construction._gh_curve.getData()[0].size > 0
 

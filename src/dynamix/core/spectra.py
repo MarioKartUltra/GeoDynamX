@@ -91,21 +91,25 @@ def fit_spectra(hd: dict, log2_a_min: float, log2_a_max: float, *,
         # Focus regression over the PARTITION channel: fit the power-mean
         # columns Y_q = (tau_qa - log2 N_a) / q jointly through one focus (Schadner closed
         # forms; Mukli anchor), then reconstruct tau(q) = q*h_q + slope(log2 N_a) and
-        # tau(0) = slope(log2 N_a) exactly. h/D channels keep their own per-q estimators.
+        # tau(0) = slope(log2 N_a) exactly. A scale inside the window where every chain has
+        # died (N_a = 0, tau not finite) is left out of the joint fits, as a per-q fit
+        # leaves it out of its row.
         nz = q_arr != 0.0
         N_a = np.asarray(hd["N_a"], dtype=np.float64)[mask]
         tau_w = np.asarray(hd["tau_qa"], dtype=np.float64)[:, mask]
+        alive = (N_a > 0) & np.all(np.isfinite(tau_w[nz]), axis=0)
+        xa = x[alive]
         focus_info: dict = {"fit_mode": fit_mode}
-        if x.size < 5 or int(nz.sum()) < 3 or np.any(N_a <= 0) or \
-                not np.all(np.isfinite(tau_w[nz])):
+        if xa.size < 5 or int(nz.sum()) < 3:
             focus_info.update(branch="unavailable",
-                              reason="needs >= 5 finite scales, >= 3 nonzero q, N_a > 0")
+                              reason="needs >= 5 live scales (N_a > 0, finite tau) and >= 3 nonzero q")
         else:
-            log2N = np.log2(N_a)
-            s_N = float((dx * log2N).sum() / denom)
-            Ycols = ((tau_w[nz] - log2N[None, :]) / q_arr[nz, None]).T
+            dxa = xa - xa.mean()
+            log2N = np.log2(N_a[alive])
+            s_N = float((dxa * log2N).sum() / float((dxa * dxa).sum()))
+            Ycols = ((tau_w[nz][:, alive] - log2N[None, :]) / q_arr[nz, None]).T
             try:
-                f = focus_regression(x, Ycols, x0_min=float(log2_L),
+                f = focus_regression(xa, Ycols, x0_min=float(log2_L),
                                      generalized=(fit_mode == "focus"))
             except ValueError as exc:
                 focus_info.update(branch="unavailable", reason=str(exc))
@@ -118,13 +122,18 @@ def fit_spectra(hd: dict, log2_a_min: float, log2_a_max: float, *,
                                   sse=f["sse"], sse_naive=f["sse_naive"],
                                   mse_q=f["mse_q"], h_q_mean=f["h_q"],
                                   h_q_mean_naive=f["h_q_naive"], s_N=s_N)
+                if fit_mode == "focus" and f["branch"] == "fixed":
+                    focus_info["note"] = ("the free focus would sit inside the data: pinned at "
+                                          "the field extent (the fixed-focus fit)")
+                elif fit_mode == "focus" and f["branch"] == "mono":
+                    focus_info["note"] = "no finite focus: identical slopes (the monofractal limit)"
         # The canonical channels have a focus by the same argument: at a = L one maximum
         # carries the whole Boltzmann weight, so h(q, L) = log2|T(L)| for every q and
         # D(q, L) = 0. Each family is fitted through its own focus; D(q) peaks at q = 0, so
         # no ordering is enforced on it. The rows left out of a joint fit (not finite across
         # the window) keep their per-q slopes.
         for key, name, monotone in (("h_qa", "h", True), ("D_qa", "D", False)):
-            fam = _family_focus(x, np.asarray(hd[key], dtype=np.float64)[:, mask],
+            fam = _family_focus(xa, np.asarray(hd[key], dtype=np.float64)[:, mask][:, alive],
                                 float(log2_L), generalized=(fit_mode == "focus"),
                                 monotone=monotone)
             if fam is None:
@@ -577,3 +586,57 @@ def cascade_cumulants(mods_per_scale, scales_px, log2_a_min: float, log2_a_max: 
     out = {f"c{n}": signs[n - 1] * float(fit[f"c{n}"]) for n in range(1, max_order + 1)}
     out["r2"] = float(fit["r2"])
     return out
+
+
+def ln_moments(mods_per_scale) -> np.ndarray:
+    """Per scale, the mean, variance, third and fourth cumulant of ln|T| over the positive
+    finite moduli -- the moments the cascade's cumulants are regressed from, small enough to
+    travel in a partition table: ``(4, n_scales)``."""
+    out = np.full((4, len(mods_per_scale)), np.nan)
+    for k, mods in enumerate(mods_per_scale):
+        m = np.asarray(mods, dtype=np.float64)
+        x = np.log(m[np.isfinite(m) & (m > 0)])
+        if x.size == 0:
+            continue
+        mean = x.mean()
+        d = x - mean
+        var = float((d * d).mean())
+        out[:, k] = (mean, var, float((d ** 3).mean()), float((d ** 4).mean()) - 3.0 * var * var)
+    return out
+
+
+def cumulants_from_moments(moments, scales_px, log2_a_min: float, log2_a_max: float, *,
+                           max_order: int = 4) -> dict:
+    """:func:`cascade_cumulants` from per-scale moments of ln|T| (:func:`ln_moments`, or a
+    moment table's ``lnT_moments``): the n-th moment regressed on ln a over the scales inside
+    the window, with the cascade's alternating signs; ``{"c1".."c4", "r2"}`` (worst R²), NaN
+    below two scales."""
+    moments = np.asarray(moments, dtype=np.float64)[:max_order]
+    ln_a = np.log(np.asarray(scales_px, dtype=np.float64))
+    ln2 = np.log(2.0)
+    lo, hi = sorted((float(log2_a_min) * ln2, float(log2_a_max) * ln2))
+    valid = np.all(np.isfinite(moments), axis=0) & (ln_a >= lo) & (ln_a <= hi)
+    out = {f"c{n}": float("nan") for n in range(1, max_order + 1)}
+    out["r2"] = float("nan")
+    if valid.sum() < 2:
+        return out
+    signs = (1.0, -1.0, 1.0, -1.0)
+    r2_min = 1.0
+    for n in range(max_order):
+        slope, intercept = np.polyfit(ln_a[valid], moments[n, valid], 1)
+        out[f"c{n + 1}"] = signs[n] * float(slope)
+        y = moments[n, valid]
+        pred = slope * ln_a[valid] + intercept
+        ss_tot = float(((y - y.mean()) ** 2).sum())
+        r2_min = min(r2_min, 1.0 - float(((y - pred) ** 2).sum()) / max(ss_tot, 1e-30))
+    out["r2"] = float(r2_min)
+    return out
+
+
+def cumulant_tau(cumulants: dict, q_list, *, c0: float = 0.0) -> np.ndarray:
+    """tau(q) from the cascade's cumulants, tau = -c0 + c1 q - c2 q²/2 + c3 q³/6 - c4 q⁴/24
+    (the workbook's reconstruction), with c0 the support's dimension (-tau(0))."""
+    q = np.asarray(q_list, dtype=np.float64)
+    c1, c2, c3, c4 = (float(cumulants.get(k) if cumulants.get(k) is not None else 0.0)
+                      for k in ("c1", "c2", "c3", "c4"))
+    return -float(c0) + c1 * q - c2 * q ** 2 / 2.0 + c3 * q ** 3 / 6.0 - c4 * q ** 4 / 24.0

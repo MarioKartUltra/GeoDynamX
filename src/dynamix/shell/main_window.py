@@ -3318,19 +3318,17 @@ both ``Canvas`` signals report the
         mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
         if not mods or len(mods) != len(extrema) or scales is None or len(scales) != len(mods):
             mods, scales = None, None
-        dh_hist = dh_box = None
+        dh_hist = None
         if result.get("h_map") is not None:
-            from dynamix.core.microcanonical import box_counting_spectrum, dh_histogram_errors
+            from dynamix.core.microcanonical import dh_histogram_errors
 
             h, D, dD, _counts = dh_histogram_errors(np.asarray(result["h_map"]))
             dh_hist = (h, D, dD) if h.size else None
-            hb, Db, dDb = box_counting_spectrum(np.asarray(result["h_map"]))
-            dh_box = (hb, Db, dDb) if hb.size else None
         window = MultifractalWindow(hd_std, hd_cmax, eta_seed=eta_seed, forward_note=note,
                                     parent=self, physical_of_log2a=self._physical_of_log2a(),
                                     log2_L=self._log2_extent(result), all_tables=all_tables,
                                     filter_note=filter_note, extrema_mods=mods, scales=scales,
-                                    dh_hist=dh_hist, dh_box=dh_box,
+                                    dh_hist=dh_hist, h_map=result.get("h_map"),
                                     source=result.get("hd_source") or "canonical (Arneodo WTMM)",
                                     sources=self._spectrum_sources(result))
         self._multifractal_window = window
@@ -3496,7 +3494,8 @@ both ``Canvas`` signals report the
             eta_seed=eta_seed, forward_note=note,
             min_chain_len=int(params.get("min_chain_len", 2)),
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
-            dh_curves=result.get("dh_curves"), gh_field=gh_field)
+            dh_curves=result.get("dh_curves"), gh_field=gh_field,
+            source=result.get("hd_source") or "canonical (Arneodo direct)")
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)

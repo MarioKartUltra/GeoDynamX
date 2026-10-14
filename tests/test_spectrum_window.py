@@ -243,7 +243,37 @@ def test_box_counting_and_pin_to_d0_in_the_construction_window(qtbot):
     fit = window.current_fit()
     d0 = -float(np.asarray(fit["tau"])[list(fit["q_list"]).index(0.0)])
     np.testing.assert_allclose(window._hist_curve.getData()[1], D + (d0 - 2.0), equal_nan=True)
-    assert "D₀" in window._hist_curve.name()
+    assert any("D₀" in label.text for _sample, label in window._plot.legend.items)
     hist_only = SpectrumWindow(h_map=h_map)
     qtbot.addWidget(hist_only)
     assert not hist_only.pin_check.isEnabled()
+
+
+def _legend_names(plot):
+    return [label.text for _sample, label in plot.legend.items]
+
+
+def test_the_legend_lists_only_what_is_drawn_and_names_the_source(qtbot):
+    from dynamix.core import microcanonical as mc
+
+    rng = np.random.default_rng(1)
+    h_map = rng.normal(0.4, 0.1, (64, 64))
+    field = np.cumsum(np.cumsum(rng.normal(size=(64, 64)), axis=0), axis=1)
+    hd_std, hd_cmax = _pair()
+    window = SpectrumWindow(hd_std, hd_cmax, h_map=h_map, gh_field=field,
+                            source="moments over the projections (Turiel 2006, M method)")
+    qtbot.addWidget(window)
+    names = _legend_names(window._plot)
+    assert names[0] == "moments over the projections (Turiel 2006, M method)"
+    assert "microcanonical histogram (eq. 21)" in names
+    for absent in ("gradient histogram (GH)", "box-counting across r (eq. 20)",
+                   "dominant chains", "non-dominant chains", "Legendre hull of fitted τ(q)"):
+        assert absent not in names
+    window.gh_check.setChecked(True)
+    assert "gradient histogram (GH)" in _legend_names(window._plot)
+    window.gh_check.setChecked(False)
+    assert "gradient histogram (GH)" not in _legend_names(window._plot)
+    window._hull_check.setChecked(True)
+    assert "Legendre hull of fitted τ(q)" in _legend_names(window._plot)
+    # the histogram as points, the way the paper draws it
+    assert window._hist_curve.opts["symbol"] == "o" and window._hist_curve.opts["pen"] is None

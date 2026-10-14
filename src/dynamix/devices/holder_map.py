@@ -107,6 +107,7 @@ class HolderMap:
     consumes = ((FIELD,),)
     produces = (HMAP,)
     params = (
+        Param("spectra", ParamKind.BOOL, default=False, label="Moment tables (spectra)"),
         # Turiel 2008's own dichotomy, named HIS way (the Ricker is a WAVELET, the estimator
         # is the FUNCTIONAL):
         # multiaffine = |T_psi s|, the SIGNAL projected with a zero-mean wavelet (SS4.2.1;
@@ -164,15 +165,17 @@ class HolderMap:
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         vals = field_values_2d(field, self.name)
-        extras: dict = {}
+        extras: "dict | None" = {} if params.get("spectra") else None
         h_map, r2_map, scales = holder_arrays(vals, params, progress, extras)
-        return {
+        out = {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": scales, "params": dict(params),
-            "hd_std": extras["hd"], "hd_cmax": extras["hd"], "hd_source": MOMENT_SOURCE,
-            "dh_curves": extras["dh_curves"],
             "_frame": getattr(field, "frame", None), "_shape": vals.shape,
         }
+        if extras:
+            out.update(hd_std=extras["hd"], hd_cmax=extras["hd"], hd_source=MOMENT_SOURCE,
+                       dh_curves=extras["dh_curves"])
+        return out
 
     def roi_margin(self, params: dict) -> int:
         """The largest kernel's measured 2-D reach, on the route its

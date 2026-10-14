@@ -68,8 +68,14 @@ class SpectrumWindow(QtWidgets.QDialog):
                  h_map_estimator: str = "", eta_seed: float = 0.0,
                  forward_note: str = "", min_chain_len: int = 2,
                  log2_L: "float | None" = None, parent=None, all_tables=None,
-                 filter_note: str = "", dh_curves=None, gh_field=None):
+                 filter_note: str = "", dh_curves=None, gh_field=None,
+                 source: str = "canonical (Arneodo direct)"):
         super().__init__(parent, QtCore.Qt.Window)
+        #: What the canonical points are: the WTMM's direct construction, or the moment route.
+        self._source = str(source)
+        #: The legend lists what is drawn: (item, name) pairs synced after every change.
+        self._legend_entries: list = []
+        self._in_legend: dict = {}
         self.setModal(False)
         self.setWindowTitle("Singularity spectrum — construction")
         #: ``(hd_std, hd_cmax)`` over EVERY chain of the transform when the tables given are
@@ -337,7 +343,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._plot = self._glw.addPlot()
         self._plot.setLabel("bottom", "h")
         self._plot.setLabel("left", "D(h)")
-        self._plot.addLegend(offset=(10, 10))
+        self._legend = self._plot.addLegend(offset=(10, 10))
 
         muted = pg.mkPen(RESTRAINED_DARK.ink_muted)
         self._d_line = pg.InfiniteLine(
@@ -346,36 +352,42 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._plot.addItem(self._d_line)
         self._canon_err = pg.ErrorBarItem(pen=muted, beam=0.01)
         self._plot.addItem(self._canon_err)
+        # Items carry no name of their own: the legend lists what is drawn (_sync_legend).
         self._canon_curve = pg.PlotDataItem(
             pen=None, symbol="o", symbolSize=6, symbolPen=None,
-            symbolBrush=RESTRAINED_DARK.ink, name="canonical (Arneodo direct)")
+            symbolBrush=RESTRAINED_DARK.ink)
         self._plot.addItem(self._canon_curve)
         self._hull_curve = pg.PlotDataItem(
-            pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine, width=1.6),
-            connect="finite", name="Legendre hull of fitted τ(q)")
+            pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine, width=1.6), connect="finite")
         self._plot.addItem(self._hull_curve)
         self._hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
         self._plot.addItem(self._hist_err)
-        self._hist_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.4), connect="finite",
-                                           name=self._hist_label or None)
+        # The histogram's bins as points, the way the paper draws them.
+        self._hist_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=4, symbolPen=None,
+                                           symbolBrush=Q_COLD)
         self._plot.addItem(self._hist_curve)
         self._scale_curves: list = []
-        gh_pen = pg.mkPen(RESTRAINED_DARK.amber, width=1.2, style=QtCore.Qt.DotLine)
-        self._gh_curve = pg.PlotDataItem(pen=gh_pen, connect="finite",
-                                         name="gradient histogram (GH)")
+        self._gh_curve = pg.PlotDataItem(pen=None, symbol="d", symbolSize=5, symbolPen=None,
+                                         symbolBrush=RESTRAINED_DARK.amber)
         self._plot.addItem(self._gh_curve)
         self._box_err = pg.ErrorBarItem(pen=pg.mkPen(Q_WARM), beam=0.0)
         self._plot.addItem(self._box_err)
-        self._box_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.4), connect="finite",
-                                          name="box-counting across r (eq. 20)")
+        self._box_curve = pg.PlotDataItem(pen=None, symbol="s", symbolSize=4, symbolPen=None,
+                                          symbolBrush=Q_WARM)
         self._plot.addItem(self._box_curve)
-        self._update_hist_items()
-        self._dom_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.2),
-                                          connect="finite", name="dominant chains")
-        self._non_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.2),
-                                          connect="finite", name="non-dominant chains")
+        self._dom_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.2), connect="finite")
+        self._non_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.2), connect="finite")
         self._plot.addItem(self._dom_curve)
         self._plot.addItem(self._non_curve)
+        self._legend_entries = [
+            (self._canon_curve, lambda: self._source),
+            (self._hull_curve, lambda: "Legendre hull of fitted τ(q)"),
+            (self._hist_curve, lambda: self._hist_curve_name()),
+            (self._gh_curve, lambda: "gradient histogram (GH)"),
+            (self._box_curve, lambda: "box-counting across r (eq. 20)"),
+            (self._dom_curve, lambda: "dominant chains"),
+            (self._non_curve, lambda: "non-dominant chains")]
+        self._update_hist_items()
         self._peak_text = pg.TextItem(color=RESTRAINED_DARK.ink, anchor=(0.5, 1.2))
         self._plot.addItem(self._peak_text)
 
@@ -424,19 +436,36 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._hist_curve.setData(h, D + shift)
         height = np.where(np.isfinite(self._hist_dD), 2.0 * self._hist_dD, 0.0)
         self._hist_err.setData(x=h, y=np.where(np.isfinite(D), D + shift, 0.0), height=height)
-        name = self._hist_label + (f" — pinned to D₀ = {2.0 + shift:.2f}" if shift else "")
-        self._hist_curve.opts["name"] = name
-        legend = getattr(self._plot, "legend", None)
-        if legend is not None:
-            try:
-                legend.getLabel(self._hist_curve).setText(name)
-            except Exception:                                        # noqa: BLE001
-                pass
+        self._sync_legend()
+
+    def _hist_curve_name(self) -> str:
+        shift = self._pin_shift()
+        return self._hist_label + (f" — pinned to D₀ = {2.0 + shift:.2f}" if shift else "")
+
+    @staticmethod
+    def _drawn(item) -> bool:
+        x = getattr(item, "xData", None)
+        return item.isVisible() and x is not None and len(x) > 0
+
+    def _sync_legend(self) -> None:
+        """The legend lists exactly the items that are drawn, under their current names."""
+        if not hasattr(self, "_legend"):
+            return
+        entries = list(self._legend_entries) + [
+            (curve, lambda r=r_rel: f"histogram at r = {r:.3g} L")
+            for curve, (r_rel, _h, _D) in zip(self._scale_curves, self._dh_curves)]
+        wanted = [(item, name_of()) for item, name_of in entries if self._drawn(item)]
+        if wanted != self._in_legend.get("order"):
+            self._legend.clear()
+            for item, name in wanted:
+                self._legend.addItem(item, name)
+            self._in_legend = {"order": wanted}
 
     def _on_boxcount_toggled(self, checked: bool) -> None:
         if not checked:
             self._box_curve.setData([], [])
             self._box_err.setData(x=np.zeros(0), y=np.zeros(0), height=np.zeros(0))
+            self._sync_legend()
             return
         from dynamix.core.microcanonical import box_counting_spectrum
 
@@ -445,6 +474,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._box_curve.setData(h, D)
         self._box_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
                               height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
+        self._sync_legend()
 
     def _on_hist_controls_changed(self) -> None:
         self._bins = int(self.bins_spin.value())
@@ -464,23 +494,25 @@ class SpectrumWindow(QtWidgets.QDialog):
             for i, (r_rel, h, D) in enumerate(self._dh_curves):
                 colour = pg.mkColor(Q_COLD)
                 colour.setAlpha(70 + int(150 * i / n))
-                curve = pg.PlotDataItem(h, D, pen=pg.mkPen(colour, width=1.0), connect="finite",
-                                        name=f"histogram at r = {r_rel:.3g} L")
+                curve = pg.PlotDataItem(h, D, pen=pg.mkPen(colour, width=1.0), connect="finite")
                 self._plot.addItem(curve)
                 self._scale_curves.append(curve)
         for curve in self._scale_curves:
             curve.setVisible(bool(checked))
+        self._sync_legend()
 
     def _on_gh_toggled(self, checked: bool) -> None:
         """Turiel 2006's gradient histogram, the crude fast construction from the field."""
         if not checked or self._gh_field is None:
             self._gh_curve.setData([], [])
+            self._sync_legend()
             return
         from dynamix.core.microcanonical import gradient_histogram_spectrum
 
         h, D, _dD = gradient_histogram_spectrum(self._gh_field, r0_rel=self._r0_rel(),
                                                 n_bins=self._bins)
         self._gh_curve.setData(h, D)
+        self._sync_legend()
 
     # -- recompute --------------------------------------------------------------------------
     def _recompute(self) -> None:
@@ -526,6 +558,7 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self._hull_curve.setData([], [])
         self._update_grouping()
         self._update_hist_items()
+        self._sync_legend()
 
     def _update_grouping(self) -> None:
         if self._chains is None or self._current_hd() is None or self._scales is None:

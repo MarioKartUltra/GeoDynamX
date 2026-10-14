@@ -491,3 +491,56 @@ def test_the_box_counting_curve_and_the_pin_to_d0_ride_on_the_fitters_dh_panel(q
     np.testing.assert_allclose(window._dh_hist_curve.getData()[1], D + (d0b - 2.0))
     window.pin_check.setChecked(False)
     np.testing.assert_allclose(window._dh_hist_curve.getData()[1], D)
+
+
+def _names(plot):
+    return [label.text for _sample, label in plot.legend.items]
+
+
+def test_the_dh_panel_carries_the_legend_and_the_histogram_and_box_counting_as_points(qtbot):
+    rng = np.random.default_rng(2)
+    h_map = rng.normal(0.4, 0.1, (64, 64))
+    h = np.linspace(0.0, 1.0, 20)
+    D = 2.0 - 8.0 * (h - 0.5) ** 2
+    window = MultifractalWindow(*_pair(), dh_hist=(h, D, np.full(20, 0.05)), h_map=h_map,
+                                sources=[{"name": "moments · B", "hd_std": _pair()[1], "hd_cmax": _pair()[1]}])
+    qtbot.addWidget(window)
+    names = _names(window._spectrum_plots["D"])
+    assert names[0] == "canonical (Arneodo WTMM)" and "microcanonical histogram" in names
+    assert "moments · B" in names and "box-counting across r" not in names
+    assert window._dh_hist_curve.opts["symbol"] == "o" and window._dh_hist_curve.opts["pen"] is None
+    assert not window.boxcount_check.isChecked()
+    window.boxcount_check.setChecked(True)
+    assert window._dh_box_curve.getData()[0].size > 0 and "box-counting across r" in _names(window._spectrum_plots["D"])
+    window.show_menu.actions()[1].setChecked(False)
+    assert "moments · B" not in _names(window._spectrum_plots["D"])
+    assert getattr(window._cq_plot, "legend", None) is None or len(window._cq_plot.legend.items) == 0
+
+
+def test_the_cumulant_spectrum_overlay_follows_the_fitted_cumulants(qtbot):
+    from test_spectra import _focal_hd
+
+    hd, h_q, q = _focal_hd(x0=9.0, log2_N=6.0)
+    rng = np.random.default_rng(3)
+    scales = hd["scales"]
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 20000)) for a in scales]
+    window = MultifractalWindow(hd, hd, extrema_mods=mods, scales=scales)
+    qtbot.addWidget(window)
+    assert not window.cumulant_check.isChecked() and window._cum_curves["tau"].getData()[0] is None
+    window.cumulant_check.setChecked(True)
+    c = window.current_cumulants()
+    fit = window.current_fit()
+    i0 = list(fit["q_list"]).index(0.0)
+    c0 = -float(np.asarray(fit["tau"])[i0])
+    xq, tau_c = window._cum_curves["tau"].getData()
+    np.testing.assert_allclose(tau_c, spectra.cumulant_tau(c, xq, c0=c0))
+    xh, h_c = window._cum_curves["h"].getData()
+    np.testing.assert_allclose(h_c, np.gradient(spectra.cumulant_tau(c, xh, c0=c0), xh, edge_order=2), atol=1e-6)
+    xd, D_c = window._cum_curves["D"].getData()
+    np.testing.assert_allclose(D_c, xq * h_c - tau_c, atol=1e-6)
+    assert "cumulant spectrum" in _names(window._spectrum_plots["D"])
+    # the moment route brings its cumulants in the table
+    hd2 = dict(hd); hd2["lnT_moments"] = spectra.ln_moments(mods)
+    table_window = MultifractalWindow(hd2, hd2, scales=scales)
+    qtbot.addWidget(table_window)
+    assert table_window.current_cumulants()["c2"] == pytest.approx(c["c2"], rel=1e-9)

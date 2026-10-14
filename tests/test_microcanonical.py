@@ -797,3 +797,10 @@ def test_box_counting_spectrum_reads_each_level_sets_own_dimension():
     empty = mc.box_counting_spectrum(np.full((64, 64), 0.5), n_bins=4, h_range=(0.0, 2.0),
                                      box_sizes=(1, 2, 4, 8, 16))
     assert np.isnan(empty[1][[0, 2, 3]]).all() and empty[1][1] == pytest.approx(2.0, abs=0.05)
+
+
+def test_partition_tables_carry_the_per_scale_moments_of_log_t():
+    T, scales = _monofractal_T(H=0.6)
+    hd = mc.partition_tables(T, scales, np.array([0.0, 2.0]), d=2.0)
+    assert hd["lnT_moments"].shape == (4, scales.size)
+    np.testing.assert_allclose(np.diff(hd["lnT_moments"][0]), 0.6 * np.diff(np.log(scales)), atol=1e-9)

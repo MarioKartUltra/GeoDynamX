@@ -238,3 +238,18 @@ def test_the_measure_and_multiaffine_sections_are_sampled_finely_at_the_smallest
     assert np.diff(m.x_px).max() <= 1.0 / 16.0 + 1e-12
     assert m.psi[np.argmin(np.abs(m.x_px - 1.0))] == pytest.approx(0.0, abs=5e-2)
     assert m.psi[np.argmin(np.abs(m.x_px))] == pytest.approx(1.0)
+
+
+def test_the_dwt_and_tang_you_sections_are_continuous_at_the_finest_levels():
+    """A bank's level-j atom is the cascade's limit function dilated by 2^j (PyWavelets'
+    wavefun), not its handful of taps; the skeleton's gradient wavelet is the kernel's section
+    sampled at s/16. Lambda* stays the level's own (the taps' spectral peak)."""
+    p1 = wp.dwt_profile("sym7", 1)
+    assert p1.x_px.size >= 256 and np.diff(p1.x_px).max() <= 2.0 / 16.0 + 1e-9
+    assert p1.psi.max() == pytest.approx(1.0) and p1.psi.min() < -0.3     # a real wavelet shape
+    assert p1.off_ladder and p1.lambda_px == pytest.approx(2.0, rel=0.05)  # level 1 at Nyquist
+    p3 = wp.dwt_profile("sym7", 3)
+    assert np.ptp(p3.x_px) == pytest.approx(np.ptp(p1.x_px) * 4.0, rel=1e-6)   # dilated by 2^j
+    ty = wp.tang_you_profile("tang_you", 2.0)
+    assert np.diff(ty.x_px).max() <= 2.0 / 16.0 + 1e-9
+    np.testing.assert_allclose(ty.psi, -ty.psi[::-1], atol=1e-6)            # odd, like g1

@@ -207,7 +207,9 @@ def test_the_microcanonical_tools_carry_the_moment_tables_and_the_per_scale_curv
     from dynamix.core import spectra
 
     field = _field(n=48)
-    res = HolderMeasure().compute(field, defaults_for(HolderMeasure()))
+    plain = HolderMeasure().compute(field, defaults_for(HolderMeasure()))
+    assert "hd_std" not in plain and "dh_curves" not in plain        # off unless asked for
+    res = HolderMeasure().compute(field, {**defaults_for(HolderMeasure()), "spectra": True})
     hd = res["hd_std"]
     assert res["hd_cmax"] is hd and res["hd_source"].startswith("moments")
     assert hd["tau_qa"].shape == (len(hd["q_list"]), len(res["scales"]))
@@ -215,7 +217,7 @@ def test_the_microcanonical_tools_carry_the_moment_tables_and_the_per_scale_curv
     assert np.isfinite(fit["tau"]).all()
     assert fit["D"][list(hd["q_list"]).index(0.0)] == pytest.approx(2.0, abs=0.05)
     assert len(res["dh_curves"]) == len(res["scales"])
-    multi = HolderMultiaffine().compute(field, defaults_for(HolderMultiaffine()))
+    multi = HolderMultiaffine().compute(field, {**defaults_for(HolderMultiaffine()), "spectra": True})
     assert "hd_std" in multi and len(multi["dh_curves"]) == len(multi["scales"])
-    old = HolderMap().compute(field, defaults_for(HolderMap()))
+    old = HolderMap().compute(field, {**defaults_for(HolderMap()), "spectra": True})
     assert "hd_std" in old and "dh_curves" in old

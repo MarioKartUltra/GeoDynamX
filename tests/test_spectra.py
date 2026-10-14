@@ -540,3 +540,35 @@ def test_partition_fit_lines_meet_at_the_fixed_focus():
         np.testing.assert_allclose(fam["slope"], fit[name], atol=1e-12)
         np.testing.assert_allclose(fam["slope"] * x0 + fam["intercept"], y0_fam, atol=1e-8)
         assert lines["family_focus"][key] == pytest.approx((9.0, y0_fam), abs=1e-8)
+
+
+def test_the_focus_fit_drops_dead_scales_and_says_when_the_focus_was_pinned():
+    """A scale inside the window where every chain has died (N_a = 0, tau NaN) is left out of
+    the joint fit instead of making the mode unavailable; in the generalized mode a fixed
+    branch carries a note saying the interior root was infeasible."""
+    hd, h_q, q = _focal_hd(x0=9.0, log2_N=6.0)
+    hd["N_a"] = np.asarray(hd["N_a"]).copy()
+    hd["N_a"][-1] = 0
+    for key in ("tau_qa", "h_qa", "D_qa"):
+        hd[key][:, -1] = np.nan
+    out = spectra.fit_spectra(hd, 0.0, 7.0, fit_mode="fixed_focus", log2_L=9.0)
+    assert out["focus"]["branch"] == "fixed" and out["focus"]["h"]["branch"] == "fixed"
+    np.testing.assert_allclose(out["tau"][q != 0], q[q != 0] * h_q[q != 0], atol=1e-8)
+    gen = spectra.fit_spectra(hd, 0.0, 7.0, fit_mode="focus", log2_L=9.0)
+    assert gen["focus"]["branch"] == "fixed" and "note" in gen["focus"]
+
+
+def test_cumulants_from_per_scale_moments_match_the_sample_route():
+    """The moment tables carry the per-scale central moments of ln|T| (mean, variance, third,
+    fourth cumulant); the cascade's cumulants from them equal those from the samples."""
+    rng = np.random.default_rng(5)
+    scales = 2.0 ** np.arange(1, 8, dtype=np.float64)
+    mods = [np.exp(rng.normal(0.6 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 20000)) for a in scales]
+    moments = spectra.ln_moments(mods)
+    assert moments.shape == (4, scales.size)
+    a = spectra.cascade_cumulants(mods, scales, 1.0, 6.0)
+    b = spectra.cumulants_from_moments(moments, scales, 1.0, 6.0)
+    for k in ("c1", "c2", "c3", "c4", "r2"):
+        assert a[k] == pytest.approx(b[k], rel=1e-9, abs=1e-12)
+    tau = spectra.cumulant_tau({"c1": 0.7, "c2": 0.3, "c3": 0.0, "c4": 0.0}, np.array([-1.0, 0.0, 2.0]), c0=2.0)
+    np.testing.assert_allclose(tau, [-2.0 - 0.7 - 0.15, -2.0, -2.0 + 1.4 - 0.6])

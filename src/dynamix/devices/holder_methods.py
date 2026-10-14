@@ -299,6 +299,9 @@ _ESTIMATOR_AND_SCALES = (
           soft_min=4.0, soft_max=12.0, units="", label="κ = r₂/r₁"),
     Param("n_scales", ParamKind.INT, default=6, min=2, max=64,
           soft_min=4, soft_max=10, label="Scales"),
+    # The moment route's partition tables and the per-scale histogram curves ride on the
+    # run only when asked for: they cost a pass over every pixel at every scale and q.
+    Param("spectra", ParamKind.BOOL, default=False, label="Moment tables (spectra)"),
 )
 
 #: The family shape knobs: q binds only for the q-family, β only for the Lorentzians,
@@ -432,15 +435,17 @@ def band_output(device_name: str, name: str, values, result: dict, params: dict,
 
 def _compute(device, method: str, field, params: dict, progress=None) -> dict:
     vals = field_values_2d(field, device.name)
-    extras: dict = {}
+    extras: "dict | None" = {} if params.get("spectra") else None
     h_map, r2_map, scales = method_arrays(vals, method, params, progress, extras)
-    return {
+    out = {
         "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
         "scales": scales, "params": keyed_params(device, params),
-        "hd_std": extras["hd"], "hd_cmax": extras["hd"], "hd_source": MOMENT_SOURCE,
-        "dh_curves": extras["dh_curves"],
         "_frame": getattr(field, "frame", None), "_shape": vals.shape,
     }
+    if extras:
+        out.update(hd_std=extras["hd"], hd_cmax=extras["hd"], hd_source=MOMENT_SOURCE,
+                   dh_curves=extras["dh_curves"])
+    return out
 
 
 class HolderMeasure:

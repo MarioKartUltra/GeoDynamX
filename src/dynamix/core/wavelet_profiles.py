@@ -320,13 +320,20 @@ def _bank_asymptotic_c(bank: str) -> float:
 def dwt_profile(bank: str, level: int) -> Profile:
     """A PyWavelets bank's level-``level`` wavelet (scale 2^level) as its own cascade applies
     it; level 1 of every bank peaks at Nyquist and is off the ladder."""
+    import pywt
+
     h, g = _bank_filters(bank)
     level = int(level)
     resp = _cascade(h, g, level)
-    x = np.arange(resp.size, dtype=np.float64) - np.argmax(np.abs(resp))
-    x, psi = _normalised(x, resp)
     lam = _peak_wavelength(resp)
     scale = 2.0 ** level
+    # The section is the cascade's limit function (the bank's continuous wavelet) dilated by
+    # 2^level and centred on its peak; the level's taps are its samples, too few to draw at
+    # the finest levels.
+    _phi, psi_c, x_c = pywt.Wavelet(bank).wavefun(level=8)
+    psi_c, x_c = np.asarray(psi_c, dtype=np.float64), np.asarray(x_c, dtype=np.float64)
+    x = (x_c - x_c[np.argmax(np.abs(psi_c))]) * scale
+    x, psi = _normalised(x, psi_c)
     c, c_inf = lam / scale, _bank_asymptotic_c(bank)
     return Profile(x, psi, scale, lam, f"{bank} ψ, level {level}",
                    off_ladder=abs(c / c_inf - 1.0) > _OFF_LADDER_TOL,
@@ -354,9 +361,10 @@ def tang_you_profile(kernel: str, s: float) -> Profile:
     from dynamix.core.wavelet_skeleton import theta_kernel
 
     s = float(s)
-    n = 2 * int(np.ceil(2.5 * s)) + 1
-    theta = np.fft.fftshift(theta_kernel((1, n), s, kernel)[0])
-    x = np.arange(n, dtype=np.float64) - n // 2
+    step = max(s / 16.0, 1.0 / 64.0)             # the kernel's continuous section, finely sampled
+    n = min(2 * int(np.ceil(2.5 * s / step)) + 1, 8193)
+    theta = np.fft.fftshift(theta_kernel((1, n), s / step, kernel)[0])
+    x = (np.arange(n, dtype=np.float64) - n // 2) * step
     x, psi = _normalised(x, np.gradient(theta, x))
     big = 1024
     spec = np.abs(np.fft.fft2(theta_kernel((big, big), s, kernel))[0, : big // 2 + 1])
