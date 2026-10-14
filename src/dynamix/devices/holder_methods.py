@@ -299,9 +299,9 @@ _ESTIMATOR_AND_SCALES = (
           soft_min=4.0, soft_max=12.0, units="", label="κ = r₂/r₁"),
     Param("n_scales", ParamKind.INT, default=6, min=2, max=64,
           soft_min=4, soft_max=10, label="Scales"),
-    # The moment route's partition tables and the per-scale histogram curves ride on the
-    # run only when asked for: they cost a pass over every pixel at every scale and q.
-    Param("spectra", ParamKind.BOOL, default=False, label="Moment tables (spectra)"),
+    # The moment route's partition tables and the per-scale histogram curves ride on every
+    # run (a second or two beside the projections); the knob makes a run lighter.
+    Param("spectra", ParamKind.BOOL, default=True, label="Moment tables (spectra)"),
 )
 
 #: The family shape knobs: q binds only for the q-family, β only for the Lorentzians,

@@ -107,7 +107,7 @@ class HolderMap:
     consumes = ((FIELD,),)
     produces = (HMAP,)
     params = (
-        Param("spectra", ParamKind.BOOL, default=False, label="Moment tables (spectra)"),
+        Param("spectra", ParamKind.BOOL, default=True, label="Moment tables (spectra)"),
         # Turiel 2008's own dichotomy, named HIS way (the Ricker is a WAVELET, the estimator
         # is the FUNCTIONAL):
         # multiaffine = |T_psi s|, the SIGNAL projected with a zero-mean wavelet (SS4.2.1;

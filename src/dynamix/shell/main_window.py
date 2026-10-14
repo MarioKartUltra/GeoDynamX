@@ -9285,7 +9285,9 @@ both ``Canvas`` signals report the
     def _feed_map_bar(self) -> None:
         if self.map_view is None:
             return
-        profile, label = self._wavelet_bar_state
+        # The same rule as the Raster canvas: a microcanonical tool shows no single bar (and
+        # the Map has no cascade); the Transport's reading keeps the state.
+        profile, label = self._canvas_bar_state()
         field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
         self.map_view.set_wavelet_profile(profile, label, self._axis_step(field))
 

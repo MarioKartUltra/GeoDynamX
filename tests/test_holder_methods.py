@@ -207,9 +207,9 @@ def test_the_microcanonical_tools_carry_the_moment_tables_and_the_per_scale_curv
     from dynamix.core import spectra
 
     field = _field(n=48)
-    plain = HolderMeasure().compute(field, defaults_for(HolderMeasure()))
-    assert "hd_std" not in plain and "dh_curves" not in plain        # off unless asked for
-    res = HolderMeasure().compute(field, {**defaults_for(HolderMeasure()), "spectra": True})
+    lighter = HolderMeasure().compute(field, {**defaults_for(HolderMeasure()), "spectra": False})
+    assert "hd_std" not in lighter and "dh_curves" not in lighter    # the knob can switch them off
+    res = HolderMeasure().compute(field, defaults_for(HolderMeasure()))   # on by default
     hd = res["hd_std"]
     assert res["hd_cmax"] is hd and res["hd_source"].startswith("moments")
     assert hd["tau_qa"].shape == (len(hd["q_list"]), len(res["scales"]))
