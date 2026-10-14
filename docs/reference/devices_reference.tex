@@ -540,7 +540,13 @@ isotropic to fourth order, where a separable spline would bias the gradient dire
 WTMM reads), its knot spacing chosen so its width matches the Gaussian's at the same $a$; and
 the \emph{q-Gaussian} $e_q(-\rho^2/2\sigma^2)$ through its radial q-Fourier transform
 (Borges et al.), the same kernel the microcanonical tools offer, $q\to1$ being the Gaussian
-exactly. In two dimensions the fractional $\psi$ is continuous for $\alpha>2$ (the knob allows
+exactly; the \emph{q-Mexican hat}, $-\Delta$ of that q-Gaussian smoother (its analyser the
+q-$g_3$, in closed form by the chain rule on $e_q$; Borges's own index is $q_B=2-1/q$), which
+needs $q>2/3$ for a continuous analyser at the support's edge; and a \emph{q-Meyer}
+smoother, the generalization Borges et al.\ leave open in their closing remark: Meyer's
+radial scaling-function taper with $\cos(\tfrac{\pi}{2}\nu)$ replaced by $\cos_q(x_0\nu)$,
+$x_0$ the q-cosine's first zero, so it is bandlimited and isotropic, its dilation fixed at
+$q=1$ so that its band peak is the Gaussian's. In two dimensions the fractional $\psi$ is continuous for $\alpha>2$ (the knob allows
 $\alpha\ge1$ for exploration, default 3) and the q-Gaussian has finite mass for $q<2$; its
 variance diverges from $q=5/3$, so its scale is matched by the parameter $\sigma$, never by the
 variance. The wavelet scale bar and the $a_{\min}$ reading draw each smoother's own section and
@@ -554,9 +560,9 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{n\_oct} (Octaves) & 3 & $[1,12]$ & scale range: $a$ spans \texttt{n\_oct} octaves above $a_{\min}$ \\
 \texttt{n\_voice} & 4 & $[1,64]$ & scales per octave (grid density) \\
 \texttt{a\_min} ($a_{\min}$) & 1.0 & $[0.01,64]$ px & finest analyzed scale \\
-\texttt{wavelet} (Smoother $\theta$) & mexican & mexican / gaussian / frac\_bspline / q\_gaussian & the smoothing function; $\psi$ is its gradient: $g_3$, $g_1$, $\partial\theta_\alpha$, $\partial\theta_q$ \\
+\texttt{wavelet} (Smoother $\theta$) & mexican & mexican / gaussian / frac\_bspline / q\_gaussian / q\_mexican / q\_meyer & the smoothing function; $\psi$ is its gradient: $g_3$, $g_1$, $\partial\theta_\alpha$, $\partial\theta_q$, q-$g_3$, $\partial\theta_q$ \\
 \texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the fractional B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
-\texttt{q\_tsallis} ($q$) & 1.5 & $(0,2)$ & Tsallis $q$ of the q-Gaussian (shown with \texttt{q\_gaussian}); $q\to1$ is the Gaussian \\
+\texttt{q\_tsallis} ($q$) & 1.5 & $(0,2)$ & Tsallis $q$ of the three q smoothers (shown with them); $q\to1$ is the Gaussian, the Mexican hat, the Meyer; the q-Mexican hat needs $q>2/3$ \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither for quantized rasters \\
 \texttt{fracint\_alpha} ($\eta$) & 1.0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$) \\
 \texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
