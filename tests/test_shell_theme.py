@@ -147,3 +147,24 @@ def test_too_little_contrast_is_refused(tmp_path):
 
     with pytest.raises(ValueError, match="4.5"):
         Theme.from_json(_written(tmp_path, ink="#777777", panel="#666666"))
+
+
+def test_the_qss_references_svg_assets_that_exist():
+    import re
+
+    from dynamix.shell.theme import bundled_themes
+
+    for name, path in bundled_themes().items():
+        qss = generate_qss(Theme.from_json(path))
+        urls = re.findall(r'url\("([^"]+)"\)', qss)
+        assert len(urls) >= 3, name                          # the checkbox faces and the combo arrow
+        for url in urls:
+            assert url.endswith(".svg") and f"/assets/{name}/" in url, url
+            assert __import__("pathlib").Path(url).is_file(), url
+
+
+def test_package_data_ships_the_themes():
+    import pathlib
+
+    text = (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    assert "shell/themes/*.json" in text and "shell/themes/assets/*/*.svg" in text

@@ -100,6 +100,15 @@ def load_theme(name: str, user_dir=None) -> "Theme":
 RESTRAINED_DARK = Theme()
 
 
+def assets_dir(theme: Theme) -> Path:
+    """The theme's SVG assets (``themes/assets/<name>/``), as the generated QSS references them."""
+    return THEMES_DIR / "assets" / theme.name
+
+
+def _url(theme: Theme, asset: str) -> str:
+    return f'url("{(assets_dir(theme) / asset).as_posix()}")'
+
+
 def generate_qss(theme: Theme) -> str:
     """Application stylesheet from role tokens. Flat: no bevels, no gradients, no radii > 2px.
 
@@ -142,6 +151,9 @@ QLineEdit:focus {{ border: 1px solid {t.amber}; }}
 QSlider::groove:horizontal {{ background: {t.raised}; height: 3px; }}
 QSlider::handle:horizontal {{ background: {t.ink}; width: 8px; margin: -5px 0; }}
 QSlider::handle:horizontal:focus {{ background: {t.amber}; }}
+QCheckBox::indicator {{ width: 12px; height: 12px; image: {_url(t, "check_off.svg")}; }}
+QCheckBox::indicator:checked {{ image: {_url(t, "check_on.svg")}; }}
+QComboBox::down-arrow {{ image: {_url(t, "arrow_down.svg")}; width: 10px; height: 10px; }}
 """
 
 
