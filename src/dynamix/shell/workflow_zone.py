@@ -991,7 +991,11 @@ class WorkflowZone(QtWidgets.QFrame):
         ``DeviceBox`` for a ``rack=None`` entry, or one ``RackBox`` per contiguous run of entries
         sharing the same non-``None`` rack name. The descriptor list's OWN order already is the
         flattened chain order (module docstring), so grouping consecutive rack membership is all
-        this has to do."""
+        this has to do. The selected step stays selected when it survives the rebuild (the same
+        device at the same index, else the first box of that device), so the inspector's Device
+        section stays open on it; ``stepSelected`` then carries its index, or -1."""
+        kept = next(((box.step_index, box.device.name) for box in self._boxes
+                     if box.property("selected") == "true"), None)
         self._field = field
         self._clear_boxes()
         self._descriptors = [dict(d) for d in descriptors]
@@ -1013,7 +1017,19 @@ class WorkflowZone(QtWidgets.QFrame):
                 self._row.addWidget(rack_box)
                 i = j
         self._row.addStretch(1)
-        self.stepSelected.emit(-1)
+        i = self._surviving(kept)
+        if i is not None:
+            self.select(i)
+        self.stepSelected.emit(-1 if i is None else i)
+
+    def _surviving(self, kept) -> int | None:
+        """The rebuilt index of the step selected before a rebuild (``(index, device id)``), or
+        None when no box holds that device any more."""
+        if kept is None:
+            return None
+        index, name = kept
+        same = [box.step_index for box in self._boxes if box.device.name == name]
+        return index if index in same else (same[0] if same else None)
 
     def _make_box(self, i: int) -> DeviceBox:
         d = self._descriptors[i]

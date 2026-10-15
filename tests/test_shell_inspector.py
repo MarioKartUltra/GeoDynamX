@@ -41,6 +41,21 @@ def test_selecting_a_step_shows_its_knobs_and_a_layer_hides_them(qtbot, loaded):
     assert section.isHidden() and w._inspected_step is None
 
 
+def test_a_chain_rebuild_keeps_the_device_section_on_the_surviving_step(qtbot, loaded):
+    """A rebuild (a band pick, a drop, a revert) that keeps the selected step keeps the inspector
+    on it; one that drops the step closes the section."""
+    w = loaded
+    section = w.right_panel._sections["Device"]
+    w.strips.strip(0).selected.emit()
+    assert w._inspected_step == 0
+    descriptors = [{"device": ref.device, "params": dict(ref.params)} for ref in w.layer.chain.steps]
+    w.strips.set_steps(descriptors, field=w.field)
+    assert not section.isHidden() and w._inspected_step == 0
+    assert w.strips.strip(0).property("selected") == "true"
+    w.strips.set_steps([], field=w.field)
+    assert section.isHidden() and w._inspected_step is None
+
+
 def test_an_inspector_edit_takes_the_box_edit_path_and_mirrors_into_the_box(qtbot, loaded):
     w = loaded
     w.strips.strip(0).selected.emit()
