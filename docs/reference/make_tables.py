@@ -24,11 +24,12 @@ from dynamix.model.contracts import (ALPHA, CONTRACT_KEYS, CONTRACTS, FIELD, POI
 from dynamix.model.device import (DEVICES, declared_outputs, defaults_for,  # noqa: E402
                                   is_transform)
 from dynamix.model.families import FAMILY_ORDER, families_of, label_of  # noqa: E402
+from dynamix.model.origin import origin_of_device  # noqa: E402
 from dynamix.model.param import ParamKind  # noqa: E402
 
 OUT = HERE / "tables"
 #: The files this script writes; devices_reference.tex inputs each one.
-TABLES = ("families", "contracts", "declarations", "applicability", "outputs")
+TABLES = ("families", "contracts", "declarations", "applicability", "outputs", "origins")
 #: What a layer's input can be.
 _INPUTS = frozenset({FIELD, STACK, POINTS})
 #: Where a contract lives in a result when it has no top-level key of its own.
@@ -39,7 +40,7 @@ _HEADER = ("% Written by make_tables.py from the device registry: change a decla
 _SPECIAL = {"\\": r"\textbackslash{}", "_": r"\_", "&": r"\&", "%": r"\%", "#": r"\#",
             "$": r"\$", "{": r"\{", "}": r"\}", "^": r"\^{}", "~": r"\~{}",
             "<": r"\textless{}", ">": r"\textgreater{}"}
-_SPELLED = {"–": "--", "—": "---", "ö": r"\"o", "é": r"\'e", "σ": r"$\sigma$",
+_SPELLED = {"–": "--", "—": "---", "ö": r"\"o", "é": r"\'e", "ô": r"\^o", "σ": r"$\sigma$",
             "α": r"$\alpha$", "…": r"\ldots{}"}
 
 
@@ -135,6 +136,21 @@ def families_table() -> str:
     return _longtable(_p(0.2) + _p(0.74), r"\textbf{Families}: the tools the device browser "
                       "lists under each family.", "tab:families",
                       r"Family & Tools (display name \textperiodcentered{} device id)", rows)
+
+
+def origins_table() -> str:
+    """Every tool's origin (``dynamix.model.origin``): its authors, licence, kind and citation."""
+    rows = []
+    for device in [*_listed(), *_dev()]:
+        o = origin_of_device(device)
+        kind = {"first_party": "first party", "derived": "derived", "third_party": "third party"}[o.kind]
+        rows.append(f"{_name(device)} & {tex(', '.join(o.authors))} & {tex(o.license)} ({kind}) & "
+                    f"{tex(o.citation)}")
+    return _longtable(_p(0.22) + _p(0.3) + _p(0.16) + _p(0.26),
+                      r"\textbf{Origins}: who wrote each tool's code, under which licence, and the "
+                      "method it implements; a derived tool runs code ported from another program "
+                      r"(see \texttt{NOTICE}).", "tab:origins",
+                      "Tool & Authors & Licence & Citation", rows)
 
 
 def contracts_table() -> str:
@@ -269,7 +285,7 @@ def render() -> dict[str, str]:
     """Every table's text, by its name in :data:`TABLES`, from the devices registered now."""
     return {"families": families_table(), "contracts": contracts_table(),
             "declarations": declarations_table(), "applicability": applicability_table(),
-            "outputs": outputs_table()}
+            "outputs": outputs_table(), "origins": origins_table()}
 
 
 def main():

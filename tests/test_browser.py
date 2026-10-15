@@ -82,7 +82,7 @@ def test_every_palette_device_is_listed_under_each_of_its_families(qtbot, regist
 
 
 def test_a_device_row_shows_its_label_with_the_id_muted_beside_it(qtbot, registered_builtins):
-    from dynamix.model.families import display_name, label_of
+    from dynamix.model.families import display_name, label_of, tooltip_of
     from dynamix.shell.browser import DeviceBrowser
 
     browser = DeviceBrowser()
@@ -91,7 +91,7 @@ def test_a_device_row_shows_its_label_with_the_id_muted_beside_it(qtbot, registe
     assert row.text(0) == label_of(get_device("pm_edges")) != "pm_edges"
     assert row.text(1) == "pm_edges"
     assert row.foreground(1).color() == browser._muted.color()
-    assert row.toolTip(0) == display_name(get_device("pm_edges"))
+    assert row.toolTip(0) == tooltip_of(get_device("pm_edges"))
 
 
 def test_filter_row_mime_data_encodes_device_name(qtbot, registered_builtins):
@@ -299,7 +299,7 @@ def test_step_states_grey_rows_with_the_reason_and_keep_them_draggable(qtbot,
     from PySide6 import QtCore
 
     from dynamix.model.contracts import StepState
-    from dynamix.model.families import display_name, families_of
+    from dynamix.model.families import display_name, families_of, tooltip_of
     from dynamix.shell.browser import DEVICE_MIME, DeviceBrowser
 
     browser = DeviceBrowser()
@@ -311,11 +311,11 @@ def test_step_states_grey_rows_with_the_reason_and_keep_them_draggable(qtbot,
         assert row.toolTip(0) == "needs a single-band field"
         assert row.foreground(0).color() == browser._muted.color()
         assert browser.mimeData([row]).hasFormat(DEVICE_MIME)      # still draggable
-    assert browser._rows["mz_edges"][0].toolTip(0) == display_name(get_device("mz_edges"))
+    assert browser._rows["mz_edges"][0].toolTip(0) == tooltip_of(get_device("mz_edges"))
 
     browser.set_step_states({"wtmm2d": StepState(True)})
     for row in rows:
-        assert row.toolTip(0) == display_name(get_device("wtmm2d"))
+        assert row.toolTip(0) == tooltip_of(get_device("wtmm2d"))
         assert row.data(0, QtCore.Qt.ForegroundRole) is None
 
 

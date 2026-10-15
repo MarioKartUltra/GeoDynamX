@@ -18,7 +18,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model import DEVICES, is_transform
-from dynamix.model.families import FAMILY_ORDER, display_name, families_of, label_of
+from dynamix.model.families import FAMILY_ORDER, families_of, label_of, tooltip_of
 from dynamix.model.racks import rack_state
 
 #: Drag mime types a row encodes itself as. The drop target reads these back.
@@ -202,7 +202,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         item.setData(0, _MIME_ROLE, DEVICE_MIME)
         item.setData(0, _ID_ROLE, name)
         item.setForeground(1, self._muted)
-        self._tips[name] = display_name(device)
+        self._tips[name] = tooltip_of(device)
         item.setToolTip(0, self._tips[name])
         self._rows.setdefault(name, []).append(item)
 

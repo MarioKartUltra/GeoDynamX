@@ -365,6 +365,12 @@ Stack from several.
 \input{tables/contracts}
 \input{tables/declarations}
 
+Every tool carries its origin: who wrote its code, under which licence, and the paper behind the
+method. A tool marked derived runs code ported from another program, named in \texttt{NOTICE};
+the browser shows the same lines in the tool's tooltip.
+
+\input{tables/origins}
+
 \textbf{The rule.} Before the first step the layer's input is available: a Field for a
 single-band raster, a Stack for an $(n_y,n_x,n_c)$ raster with $n_c>1$, Points for a point
 set. A band row's \dev{band\_select} turns its dataset's Stack into a Field. Then, step by

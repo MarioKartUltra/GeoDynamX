@@ -11,6 +11,7 @@ import numpy as np
 
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
 from dynamix.model.device import Output
+from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.param import Param, ParamKind
 
 #: The params a per-scale output reads: the scale grid, the wavelet, the lift and the detector
@@ -65,6 +66,7 @@ class WTMM2D:
 
     name = "wtmm2d"
     label = "WTMM 2D"
+    origin = XSMURF_DERIVED
     families = ("Edge detection", "Regularity")
     consumes = ((FIELD,),)
     produces = (EXTREMA, VCHAINS)

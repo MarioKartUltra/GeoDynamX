@@ -22,14 +22,18 @@ after another Transform is refused with the shared pointed message.
 """
 from __future__ import annotations
 
+import dataclasses
+
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.model.contracts import EXTREMA, FIELD
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 
 class WaveletSkeleton:
     name = "wavelet_skeleton"
     label = "Wavelet skeleton"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Mallat & Hwang (1992), IEEE Trans. Inf. Theory 38(2), 617")
     families = ("Skeletons",)
     consumes = ((FIELD,),)
     produces = (EXTREMA,)
