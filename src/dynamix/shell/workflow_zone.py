@@ -903,6 +903,8 @@ class WorkflowZone(QtWidgets.QFrame):
 
     paramChanged = QtCore.Signal(int, str, object)
     chainEdited = QtCore.Signal(object)
+    #: A box was clicked: its step index, for the inspector; -1 when a rebuild dropped the selection.
+    stepSelected = QtCore.Signal(int)
     #: The chip-hover feedback: relayed straight from ``self.source_box.chipHovered``, so
     #: ``main_window`` has one signal to connect to ``LayerPanel.flash_row`` per zone rebuild,
     #: rather than reaching past this zone into its ``source_box`` child.
@@ -1011,6 +1013,7 @@ class WorkflowZone(QtWidgets.QFrame):
                 self._row.addWidget(rack_box)
                 i = j
         self._row.addStretch(1)
+        self.stepSelected.emit(-1)
 
     def _make_box(self, i: int) -> DeviceBox:
         d = self._descriptors[i]
@@ -1061,6 +1064,7 @@ class WorkflowZone(QtWidgets.QFrame):
     def _on_box_selected(self) -> None:
         box: DeviceBox = self.sender()
         self.select(box.step_index)
+        self.stepSelected.emit(box.step_index)
 
     def _on_box_bypass_toggled(self, checked: bool) -> None:
         # Routed through the same gate every other mutation is:
