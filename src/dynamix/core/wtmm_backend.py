@@ -1643,7 +1643,10 @@ class PythonWTMMBackend:
             field3 = np.where(finite, field3, fill)
 
         scales = np.asarray(scales, dtype=np.float64)
-        twtmm = _load_wtmm_ebsd_module("twtmm")
+        if USE_VENDORED:
+            twtmm = _load_wtmm_ebsd_module("twtmm")
+        else:
+            from dynamix.core import tensor_wtmm as twtmm
 
         svd_wtmm = twtmm.alpha_jacobian_twtmm(
             field3, scales,

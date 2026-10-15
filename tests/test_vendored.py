@@ -103,7 +103,10 @@ SURVIVORS = {
 #: Survivors a Phase B port made unreachable from the app's seams (the app runs its own code
 #: there now; the vendored module stays on disk, behind ``wtmm_backend.USE_VENDORED``, until the
 #: last port removes it).
-PORTED = {"wtmm.dupont_venugopal"}
+PORTED = {"wtmm.dupont_venugopal",
+          # port 6 (the tensor driver) was the last seam into wtmm_ebsd: the package no longer loads
+          "wtmm_ebsd", "wtmm_ebsd.chain_filters", "wtmm_ebsd.cwt2d", "wtmm_ebsd.nye",
+          "wtmm_ebsd.partition", "wtmm_ebsd.twtmm"}
 
 
 @pytest.mark.parametrize("pkg", sorted(SURVIVORS))
