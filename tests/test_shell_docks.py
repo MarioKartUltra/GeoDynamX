@@ -32,6 +32,10 @@ def test_the_default_layout_is_todays_arrangement(qtbot, clean_registry):
     assert w.docks["dock.browser"].isAncestorOf(w.browser)
     assert w.docks["dock.layers"].isAncestorOf(w.layer_list)
     assert w.docks["dock.inspector"].isAncestorOf(w.layers_panel)   # the Layers stack stays in the inspector
+    assert not w.docks["dock.layers"].isAncestorOf(w.layers_panel)
+    first = w.right_panel._column.itemAt(0).widget()
+    assert first is w.right_panel._sections["Layers"]             # and at the top of it
+    assert w.docks["dock.layers"].windowTitle() == "Processing"    # the dock holds the processing tree
     assert w.docks["dock.inspector"].isAncestorOf(w.right_panel)
     assert w.docks["dock.chain"].isAncestorOf(w._strip_scroll)   # the strips land here on first load
     chain = w.docks["dock.chain"]
@@ -108,7 +112,7 @@ def test_a_layout_whose_state_no_longer_matches_falls_back_to_the_default(qtbot,
     from dynamix.shell.settings import Settings, save_settings
 
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
-    save_settings(Settings(view_options={"layouts": {"last": {"state": "00ff00ff"}}}))
+    save_settings(Settings(view_options={"dock_state": {"state": "00ff00ff"}}))
     w = MainWindow()
     qtbot.addWidget(w)
     assert all(not w.docks[n].isHidden() for n in DOCK_NAMES)
@@ -136,3 +140,52 @@ def test_a_floating_dock_restored_off_every_screen_docks_again(qtbot, clean_regi
     dock.move(100_000, 100_000)                       # a second monitor this machine does not have
     w._redock_offscreen()
     assert not dock.isFloating()
+
+
+def test_reset_layout_targets_the_constants_even_with_an_old_settings_file(qtbot, tmp_path, monkeypatch,
+                                                                             clean_registry):
+    from dynamix.shell.main_window import _PANEL_WIDTH
+    from dynamix.shell.settings import Settings, save_settings
+
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    save_settings(Settings(splitter_sizes={"work": [180, 900, 220], "main": [700, 150]}))
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.resize(1400, 900)
+    w.show()
+    qtbot.waitExposed(w)
+    assert w.docks["dock.browser"].width() == 180                  # seeded this once
+    w.reset_layout()
+    qtbot.wait(20)
+    assert w.docks["dock.browser"].width() == _PANEL_WIDTH         # the true default, not the seed
+    w.close()                                                      # stores a dock state: the seed is spent
+    w2 = MainWindow()
+    qtbot.addWidget(w2)
+    w2.resize(1400, 900)
+    w2.show()
+    qtbot.waitExposed(w2)
+    assert w2.docks["dock.browser"].width() == _PANEL_WIDTH
+
+
+def test_closing_stores_state_and_geometry_apart_from_named_layouts(qtbot, tmp_path, monkeypatch,
+                                                                     clean_registry):
+    from dynamix.shell.settings import load_settings
+
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    w = MainWindow()
+    qtbot.addWidget(w)
+    avail = QtWidgets.QApplication.primaryScreen().availableGeometry()
+    size = QtCore.QSize(min(1000, avail.width() - 40), min(640, avail.height() - 40))   # fits the screen
+    w.resize(size)
+    w.show()
+    qtbot.waitExposed(w)
+    w.save_layout("last")                                           # a user layout named "last"
+    w.addDockWidget(QtCore.Qt.LeftDockWidgetArea, w.docks["dock.inspector"])
+    w.close()
+    opts = load_settings().view_options
+    assert set(opts["dock_state"]) == {"state", "geometry"}
+    assert "last" in opts["layouts"] and opts["layouts"]["last"]["state"] != opts["dock_state"]["state"]
+    w2 = MainWindow()
+    qtbot.addWidget(w2)
+    assert w2.dockWidgetArea(w2.docks["dock.inspector"]) == QtCore.Qt.LeftDockWidgetArea
+    assert w2._geometry_restored and w2.height() == size.height()   # the width is pinned by the 800 px offscreen screen

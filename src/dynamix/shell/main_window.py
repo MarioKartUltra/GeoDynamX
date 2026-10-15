@@ -1672,18 +1672,28 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
         from dynamix.shell.docks import build_docks, seed_sizes
 
-        left, right, chain_h = seed_sizes(load_settings().splitter_sizes, _PANEL_WIDTH,
-                                          _RIGHT_PANEL_WIDTH, BOX_HEIGHT + 28)
         self.docks = build_docks(self, browser=self._browser_column, layers=panel,
                                  inspector=self.right_panel, chain=bottom,
-                                 widths=(left, right), chain_height=chain_h)
-        #: The default arrangement, recorded before any saved layout is applied: Reset Layout's target.
+                                 widths=(_PANEL_WIDTH, _RIGHT_PANEL_WIDTH),
+                                 chain_height=BOX_HEIGHT + 28)
+        #: The default arrangement at the constants' sizes, recorded before any stored size or
+        #: layout is applied: Reset Layout's target.
         self._default_dock_state = self.saveState()
-        last = (load_settings().view_options.get("layouts") or {}).get("last")
-        if isinstance(last, dict) and last.get("state"):
-            if not self.restoreState(QtCore.QByteArray.fromHex(str(last["state"]).encode())):
-                self.reset_layout()
-            self._redock_offscreen()
+        settings = load_settings()
+        stored = settings.view_options.get("dock_state")
+        if settings.splitter_sizes and not isinstance(stored, dict):
+            # A settings file from before docks existed and no arrangement stored yet: the old
+            # splitter widths seed the docks this once; the first close stores a dock state and
+            # the splitter field is never read again (construction writes nothing).
+            left, right, chain_h = seed_sizes(settings.splitter_sizes, _PANEL_WIDTH,
+                                              _RIGHT_PANEL_WIDTH, BOX_HEIGHT + 28)
+            self.resizeDocks([self.docks["dock.browser"], self.docks["dock.inspector"]],
+                             [left, right], QtCore.Qt.Horizontal)
+            self.resizeDocks([self.docks["dock.chain"]], [chain_h], QtCore.Qt.Vertical)
+        #: True when the stored window geometry was applied: app.main then leaves the size alone.
+        self._geometry_restored = False
+        if isinstance(stored, dict) and not self._apply_dock_entry(stored):
+            self.reset_layout()
 
         # Window-scoped, so it fires wherever focus sits inside the window but never steals Space
         # from another window of the same app.
@@ -9781,8 +9791,8 @@ both ``Canvas`` signals report the
             self._sync_arrangement()
 
     def _on_layers_row_selected(self, row_id: str) -> None:
-        self._hide_device_section()
         """A row picked in the Layers panel selects its layer (a Map click does not)."""
+        self._hide_device_section()
         kind, _, rest = row_id.partition(":")
         if kind in ("prod", "ext", "chn"):
             self.layer_list.select_layer(int(rest.split(":", 1)[0]))
@@ -10307,11 +10317,32 @@ both ``Canvas`` signals report the
         layouts = load_settings().view_options.get("layouts")
         return dict(layouts) if isinstance(layouts, dict) else {}
 
+    def _dock_entry(self) -> dict:
+        """The arrangement as stored: the dock state and the window geometry, hex strings."""
+        return {"state": bytes(self.saveState().toHex()).decode(),
+                "geometry": bytes(self.saveGeometry().toHex()).decode()}
+
+    def _apply_dock_entry(self, entry: dict) -> bool:
+        """Restore a stored arrangement: False when its dock state no longer matches the dock set
+        (nothing changes then). The window geometry is applied only when it lands on a screen."""
+        state = entry.get("state")
+        if not state or not self.restoreState(QtCore.QByteArray.fromHex(str(state).encode())):
+            return False
+        geometry = entry.get("geometry")
+        if geometry and self.restoreGeometry(QtCore.QByteArray.fromHex(str(geometry).encode())):
+            screens = [s.geometry() for s in QtWidgets.QApplication.screens()]
+            if any(g.intersects(self.frameGeometry()) for g in screens):
+                self._geometry_restored = True
+        for dock in self.docks.values():
+            dock.show()
+        self._redock_offscreen()
+        return True
+
     def save_layout(self, name: str) -> None:
-        """Keep the current dock arrangement under ``name`` in the settings file (a preference,
-        never the project)."""
+        """Keep the current dock arrangement and window geometry under ``name`` in the settings
+        file (a preference, never the project)."""
         layouts = self._layouts()
-        layouts[name] = {"state": bytes(self.saveState().toHex()).decode()}
+        layouts[name] = self._dock_entry()
         update_settings(view_options={**load_settings().view_options, "layouts": layouts})
         self._rebuild_layouts_menu()
 
@@ -10319,13 +10350,7 @@ both ``Canvas`` signals report the
         """Restore the named arrangement; False when it is unknown or no longer matches the dock
         set, in which case nothing changes."""
         entry = self._layouts().get(name)
-        state = entry.get("state") if isinstance(entry, dict) else None
-        if not state or not self.restoreState(QtCore.QByteArray.fromHex(str(state).encode())):
-            return False
-        for dock in self.docks.values():
-            dock.show()
-        self._redock_offscreen()
-        return True
+        return isinstance(entry, dict) and self._apply_dock_entry(entry)
 
     def _save_layout_as(self) -> None:
         name, ok = QtWidgets.QInputDialog.getText(self, "Save layout", "Name")
@@ -10336,7 +10361,7 @@ both ``Canvas`` signals report the
         menu = self._layouts_menu
         menu.clear()
         menu.addAction("Save as…", self._save_layout_as)
-        names = [n for n in self._layouts() if n != "last"]
+        names = list(self._layouts())
         if names:
             menu.addSeparator()
         for name in names:
@@ -10366,9 +10391,9 @@ both ``Canvas`` signals report the
             # in-flight compute leaves the window fully alive, and an inspector closed by hand
             # while it waits is still the user closing it.
             self._shutting_down = True
-            layouts = dict(load_settings().view_options.get("layouts") or {})
-            layouts["last"] = {"state": bytes(self.saveState().toHex()).decode()}
-            update_settings(view_options={**load_settings().view_options, "layouts": layouts})
+            # The arrangement at closing, under its own key: a user's named layout never clashes.
+            update_settings(view_options={**load_settings().view_options,
+                                          "dock_state": self._dock_entry()})
             QtWidgets.QApplication.instance().removeEventFilter(self)
             super().closeEvent(event)
             return

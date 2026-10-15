@@ -204,6 +204,9 @@ class RightPanel(QtWidgets.QScrollArea):
         heading.setFont(font)
         layout.addWidget(heading)
         layout.addWidget(widget)
+        if not hasattr(self, "_headings"):
+            self._headings = {}
+        self._headings[title] = heading                 # retitled by set_section_title
         self._protect_from_wheel(frame)
         index = 0 if first else self._column.count() - 1     # top, or before the trailing stretch
         self._column.insertWidget(index, frame)
@@ -212,7 +215,7 @@ class RightPanel(QtWidgets.QScrollArea):
 
     def set_section_title(self, key: str, text: str) -> None:
         """Retitle a section (the Device section names the step it shows)."""
-        self._sections[key].findChildren(QtWidgets.QLabel)[0].setText(text)
+        self._headings[key].setText(text)
 
     def apply_relevance(self, relevance: dict) -> None:
         """Show only what applies: ``relevance`` maps a section TITLE or a Display-row key
