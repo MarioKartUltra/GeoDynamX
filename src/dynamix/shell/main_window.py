@@ -1254,8 +1254,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resolved.connect(self._fan_out_to_inspectors)
         # What the browser rows were last greyed for (_sync_browser_states).
         self._browser_key = None
+        # The browser has its own dock (shell/docks.py); the processing tree, the reference
+        # layers and the ROI panel share the Layers dock through this splitter.
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self._left_split.addWidget(self.browser)
         self._left_split.addWidget(self.layer_list)
         # Reference layers: interpretation over the data, listed under the layers.
         self.reference_panel = ReferencePanel()
@@ -1288,7 +1289,11 @@ class MainWindow(QtWidgets.QMainWindow):
         # buttons; the ⌘-drag remains the gestural way in.
         self.roi_tool_button = QtWidgets.QPushButton("ROI…")
         self.roi_tool_button.clicked.connect(self._on_roi_tool_clicked)
-        panel_column.addWidget(self.open_button)
+        self._browser_column = QtWidgets.QWidget()
+        browser_column = QtWidgets.QVBoxLayout(self._browser_column)
+        browser_column.setContentsMargins(0, 0, 0, 0)
+        browser_column.addWidget(self.open_button)
+        browser_column.addWidget(self.browser, 1)
         panel_column.addWidget(self._left_split, 1)
         panel_column.addWidget(self.roi_tool_button)
         panel_column.addWidget(self.roi_panel)
@@ -1549,14 +1554,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_panel_relevance()
         self.canvas.transectDrawn.connect(self._on_canvas_transect_drawn)
 
-        self._work_split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        self._work_split.setObjectName("work")
-        self._work_split.addWidget(panel)
-        self._work_split.addWidget(self._center_stack)
-        self._work_split.addWidget(self._right_panel_host)
-        self._work_split.setStretchFactor(1, 1)          # the center stack takes the growth
-        self._work_split.setChildrenCollapsible(True)     # Qt default, pinned explicitly
-
+        # The left column, the centre stack and the right panel are docks around the centre
+        # (shell/docks.py), built once the bottom row below exists.
         bottom = QtWidgets.QWidget()
         # No longer fixed height (was ``setFixedHeight(BOX_HEIGHT + 28)``) -- the rack row now
         # drags open/shut like every other zone; the QScrollArea inside still keeps the strips
@@ -1594,31 +1593,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._strip_scroll.setWidget(self._strip_host)
         bottom_row.addWidget(self._strip_scroll, 1)
 
-        self._main_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
-        self._main_split.setObjectName("main")
-        self._main_split.addWidget(self._work_split)
-        self._main_split.addWidget(bottom)
-        self._main_split.setStretchFactor(0, 1)           # the work area takes the growth
-        self._main_split.setChildrenCollapsible(True)      # Qt default, pinned explicitly
-
-        # Initial sizes: a persisted list restores only when its length still matches this
-        # splitter's pane count (a settings file from before a pane was added/removed is
-        # treated as absent rather than applied partially/wrongly). Otherwise a first-run
-        # default -- left panel near its old fixed width, right panel opened to
-        # ``_RIGHT_PANEL_WIDTH`` now that it hosts the Display section (a FRESH window must not hide the knobs moved here), rack near
-        # its old fixed height. A settings file that already has a stored size always wins --
-        # this branch only ever runs for a window that has never persisted one.
-        saved_sizes = load_settings().splitter_sizes
-        work_sizes = saved_sizes.get("work")
-        if isinstance(work_sizes, list) and len(work_sizes) == self._work_split.count():
-            self._work_split.setSizes([int(v) for v in work_sizes])
-        else:
-            self._work_split.setSizes([_PANEL_WIDTH, 10_000, _RIGHT_PANEL_WIDTH])
-        main_sizes = saved_sizes.get("main")
-        if isinstance(main_sizes, list) and len(main_sizes) == self._main_split.count():
-            self._main_split.setSizes([int(v) for v in main_sizes])
-        else:
-            self._main_split.setSizes([10_000, BOX_HEIGHT + 28])
+        # The chain row is the bottom dock; its height and the side docks' widths come from
+        # ``docks.seed_sizes`` (a settings file from before docks existed still seeds them once).
 
         # The three-view switcher -- a slim strip ABOVE the zone
         # tree (never inside it: this is chrome for CHOOSING which zone shows, not a zone of its
@@ -1685,8 +1661,21 @@ class MainWindow(QtWidgets.QMainWindow):
         self._view_switcher_buttons[self._center_view].setChecked(True)
         outer.addWidget(switcher_strip)
 
-        outer.addWidget(self._main_split)
+        outer.addWidget(self._center_stack, 1)
         self.setCentralWidget(central)
+        from dynamix.shell.docks import build_docks, seed_sizes
+
+        left, right, chain_h = seed_sizes(load_settings().splitter_sizes, _PANEL_WIDTH,
+                                          _RIGHT_PANEL_WIDTH, BOX_HEIGHT + 28)
+        self.docks = build_docks(self, browser=self._browser_column, layers=panel,
+                                 inspector=self.right_panel, chain=bottom,
+                                 widths=(left, right), chain_height=chain_h)
+        #: The default arrangement, recorded before any saved layout is applied: Reset Layout's target.
+        self._default_dock_state = self.saveState()
+        last = (load_settings().view_options.get("layouts") or {}).get("last")
+        if isinstance(last, dict) and last.get("state"):
+            if not self.restoreState(QtCore.QByteArray.fromHex(str(last["state"]).encode())):
+                self.restoreState(self._default_dock_state)
 
         # Window-scoped, so it fires wherever focus sits inside the window but never steals Space
         # from another window of the same app.
@@ -10273,8 +10262,9 @@ both ``Canvas`` signals report the
             # in-flight compute leaves the window fully alive, and an inspector closed by hand
             # while it waits is still the user closing it.
             self._shutting_down = True
-            update_settings(splitter_sizes={"work": self._work_split.sizes(),
-                                            "main": self._main_split.sizes()})
+            layouts = dict(load_settings().view_options.get("layouts") or {})
+            layouts["last"] = {"state": bytes(self.saveState().toHex()).decode()}
+            update_settings(view_options={**load_settings().view_options, "layouts": layouts})
             QtWidgets.QApplication.instance().removeEventFilter(self)
             super().closeEvent(event)
             return
