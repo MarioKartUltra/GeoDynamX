@@ -62,5 +62,5 @@ import or validate is a greyed browser row with its error; discovery runs once p
 - chain producers: `wtmm2d`, `wtmm2d_roi`, `mz_edges`, `wavelet_skeleton`, `cdf_edges`, `pm_edges`
 - chain consumers: `chain_topology`, `min_vchains`, `scale_select`, `orientation_wedge`, `modulus_threshold`, `hline_length`, `hline_modulus`, `hline_holder`, `chain_holder`, `chain_modulus`, `chain_length`, `chain_classify`, `group_paint`, `group_filter`
 - band variants: `band_recon_measure` for `holder_measure`, `band_recon_multiaffine` for `holder_multiaffine`, `band_recon` for `holder_map`
-- superseded: `holder_map` by `holder_measure`, `band_recon` by `holder_measure`, `band_recon_measure` by `holder_measure`, `band_recon_multiaffine` by `holder_multiaffine`, `tucker_havok` by `tucker_HOOI_HOSVD`, `scale_select` by the Transport
+- superseded: `holder_map` by `holder_measure`, `band_recon` by `holder_measure` or `holder_multiaffine`, `band_recon_measure` by `holder_measure`, `band_recon_multiaffine` by `holder_multiaffine`, `tucker_havok` by `tucker_HOOI_HOSVD`, `scale_select` by the Transport
 - shell-placed: `bus`, `group_paint`, `derived_vectors`

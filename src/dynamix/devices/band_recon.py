@@ -37,7 +37,8 @@ class BandRecon:
     name = "band_recon"
     capabilities = frozenset({"RegionAware"})
     role = "primary"
-    superseded_by = "holder_measure"
+    # Either microcanonical method's band output rows reconstruct what this conflated device did.
+    superseded_by = ("holder_measure", "holder_multiaffine")
     band_variant_of = "holder_map"
     band_rank = 2
     #: Superseded: listed in no family.

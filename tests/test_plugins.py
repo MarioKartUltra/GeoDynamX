@@ -83,6 +83,7 @@ def _variant(text: str) -> str:
 @pytest.mark.parametrize("declaration, word", [
     ('families = ("Labs",)\n    capabilities = frozenset({"Typo"})', "Typo"),
     ('families = ("Labs",)\n    role = "secondary"', "role"),
+    ('families = ("Labs",)\n    superseded_by = ("holder_measure", 3)', "tuple of ids"),
     ('families = ("Labs",)\n    band_variant_of = "plug_other"', "band_rank"),
     ('families = ("Labs",)\n    band_variant_of = "holder_measure"\n    band_rank = 7', "already has"),
 ])

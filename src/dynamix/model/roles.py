@@ -4,7 +4,7 @@
 
 A device declares ``role = "primary"`` (an analyzer a drop forks a sibling layer for),
 ``chain_producer = True`` (its extrema chains feed the selection filters), ``chain_consumer = True``
-(a filter that consumes those chains), ``superseded_by = "<id>"`` (a successor the palette shows
+(a filter that consumes those chains), ``superseded_by = "<id>"`` or a tuple of ids (the successors the palette shows
 instead; ``""`` when the Transport took over), ``shell_placed = True`` (only the shell places it),
 ``band_variant_of = "<analyzer>"`` with ``band_rank`` (a band reconstruction committed for that
 analyzer's band fork; rank 0 newest). Every function reads the registry as it stands, so a device
@@ -32,8 +32,9 @@ def consumer_producers() -> dict[str, tuple[str, ...]]:
     return {name: producers for name in _with("chain_consumer")}
 
 
-def superseded() -> dict[str, str]:
-    """Superseded device -> its successor (``""`` when a shell control took the job)."""
+def superseded() -> dict:
+    """Superseded device -> its successor, or a tuple of them (``""`` when a shell control took
+    the job)."""
     return {name: d.superseded_by for name, d in DEVICES.items()
             if getattr(d, "superseded_by", None) is not None}
 

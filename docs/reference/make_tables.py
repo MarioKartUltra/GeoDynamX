@@ -268,6 +268,14 @@ def outputs_table() -> str:
 PAGE = HERE / "devices_contract.md"
 
 
+def _successors(successors) -> str:
+    """``"`a`"``, ``"`a` or `b`"``, or "the Transport" for an empty successor."""
+    if not successors:
+        return "the Transport"
+    names = (successors,) if isinstance(successors, str) else tuple(successors)
+    return " or ".join(f"`{n}`" for n in names)
+
+
 def contract_page() -> str:
     """The one-page device contract (Markdown, ships): what a device declares, the capabilities by
     name with the attributes the engine probes for them, the contract names, the families and the
@@ -304,7 +312,7 @@ def contract_page() -> str:
               "- chain producers: " + ", ".join(f"`{n}`" for n in chain_producers()),
               "- chain consumers: " + ", ".join(f"`{n}`" for n in consumer_producers()),
               "- band variants: " + ", ".join(f"`{v}` for `{a}`" for a, v in band_for_analyzer().items()),
-              "- superseded: " + ", ".join(f"`{n}`" + (f" by `{s}`" if s else " by the Transport") for n, s in superseded().items()),
+              "- superseded: " + ", ".join(f"`{n}` by " + _successors(s) for n, s in superseded().items()),
               "- shell-placed: " + ", ".join(f"`{n}`" for n in shell_placed()), ""]
     return "\n".join(lines)
 

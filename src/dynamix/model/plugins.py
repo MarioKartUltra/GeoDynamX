@@ -58,11 +58,15 @@ def validate_plugin(device) -> None:
     role = getattr(device, "role", None)
     if role not in (None, "primary"):
         raise ValueError(f"role must be absent or 'primary', not {role!r}")
-    for attr in ("superseded_by", "band_variant_of"):
-        value = getattr(device, attr, None)
-        if value is not None and not isinstance(value, str):
-            raise ValueError(f"{attr} must be a device id (a string), not {value!r}")
+    successors = getattr(device, "superseded_by", None)
+    if successors is not None and not (
+            isinstance(successors, str)
+            or (isinstance(successors, tuple) and successors
+                and all(isinstance(s, str) for s in successors))):
+        raise ValueError(f"superseded_by must be a device id or a tuple of ids, not {successors!r}")
     variant_of = getattr(device, "band_variant_of", None)
+    if variant_of is not None and not isinstance(variant_of, str):
+        raise ValueError(f"band_variant_of must be a device id (a string), not {variant_of!r}")
     if variant_of:
         rank = getattr(device, "band_rank", None)
         if not isinstance(rank, int) or isinstance(rank, bool):
