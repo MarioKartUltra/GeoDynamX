@@ -83,3 +83,17 @@ def test_the_cache_salt_leaves_builtin_keys_unchanged_and_separates_user_version
     assert cache_key("wtmm2d", "s", {"a": 1}, origin="builtin") == base
     assert cache_key("wtmm2d", "s", {"a": 1}, origin=None) == base
     assert cache_key("plug", "s", {}, origin="user:aa") != cache_key("plug", "s", {}, origin="user:bb")
+
+
+def test_a_plugin_step_is_keyed_with_its_origin(tmp_path, clean_registry):
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from tests.test_engine_contracts import _field, _layer
+
+    (tmp_path / "double.py").write_text(GOOD)
+    assert discover(tmp_path, entry_group="geodynamix.tests.none")[0].error is None
+    layer = _layer(("plug_double", {"gain": 2.0}))
+    r = resolve(layer, _field(), Cache())
+    assert r.analysis_key == cache_key("plug_double", layer.source_id, {"gain": 2.0},
+                                       origin=origin_of("plug_double"))
+    assert r.analysis_key != cache_key("plug_double", layer.source_id, {"gain": 2.0})

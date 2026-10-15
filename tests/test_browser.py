@@ -58,7 +58,8 @@ def test_top_level_items_are_the_families_then_racks_then_dev(qtbot, registered_
 
     browser = DeviceBrowser()
     qtbot.addWidget(browser)
-    assert _titles(browser) == [f for f in FAMILY_ORDER if f != "Other"] + ["Racks", "Dev"]
+    # Other and Labs head nothing until a device declares them, so they get no header here.
+    assert _titles(browser) == [f for f in FAMILY_ORDER if f not in ("Other", "Labs")] + ["Racks", "Dev"]
 
 
 def test_every_palette_device_is_listed_under_each_of_its_families(qtbot, registered_builtins):
@@ -355,3 +356,29 @@ def test_scale_select_sits_in_dev_with_its_label(qtbot, registered_builtins):
     [row] = browser._rows["scale_select"]
     assert (row.text(0), row.text(1)) == ("Scale", "scale_select")
     assert "scale_select" not in _ids(_top_level(browser, "Selection: extrema"))
+
+
+def test_a_broken_plugin_is_a_greyed_row_with_its_error_and_labs_is_collapsed(qtbot, registered_builtins):
+    from PySide6 import QtCore
+
+    from dynamix.model.plugins import PluginResult
+    from dynamix.shell.browser import DeviceBrowser
+
+    class Lab:
+        name = "lab_thing"
+        params = ()
+        families = ("Labs",)
+
+        def apply(self, extrema, params):
+            return extrema
+
+    DEVICES["lab_thing"] = Lab()
+    results = [PluginResult("", "user:ab", "SyntaxError: invalid syntax", "/u/devices/broken.py")]
+    browser = DeviceBrowser(plugin_results=results)
+    qtbot.addWidget(browser)
+    dev = _top_level(browser, "Dev")
+    row = next(dev.child(i) for i in range(dev.childCount()) if dev.child(i).text(0) == "broken.py")
+    assert "SyntaxError" in row.toolTip(0)
+    assert not (row.flags() & QtCore.Qt.ItemIsDragEnabled) and not (row.flags() & QtCore.Qt.ItemIsEnabled)
+    labs = _top_level(browser, "Labs")
+    assert labs.childCount() == 1 and not labs.isExpanded()

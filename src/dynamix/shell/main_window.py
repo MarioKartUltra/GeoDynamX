@@ -73,6 +73,7 @@ from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
+from dynamix.model.plugins import discover
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
 from dynamix.model.forking import drop_states, is_primary, routing_head, ships_to
@@ -115,7 +116,7 @@ from dynamix.shell.profile_dialog import ProfileDialog
 from dynamix.shell.rack_editor import RackEditor
 from dynamix.shell.right_panel import CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
-from dynamix.shell.settings import (Settings, load_settings, racks_dir, save_settings,
+from dynamix.shell.settings import (Settings, devices_dir, load_settings, racks_dir, save_settings,
                                     update_settings)
 from dynamix.shell.skeleton_dialog import SkeletonDialog
 from dynamix.shell.surface_dialog import SurfaceDialog
@@ -934,6 +935,9 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, steps=DEFAULT_STEPS, parent=None):
         super().__init__(parent)
         register_builtin_devices()
+        #: What the user's devices folder and installed packages added, or failed to (the browser
+        #: shows a failure as a greyed row with its error).
+        self.plugin_results = discover(devices_dir())
         self.setWindowTitle(TITLE)
 
         self.cache = Cache(max_bytes=load_settings().output_cache_bytes)
@@ -1205,7 +1209,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Browser above, layer list below, in a splitter -- the design's "Left panel, sectioned:
         # browser above, layer list below". Dependency injection, not an import: the
         # browser knows nothing of MainWindow, so its "WTMM standard" preset is handed in as data.
-        self.browser = DeviceBrowser()
+        self.browser = DeviceBrowser(plugin_results=self.plugin_results)
         self.browser.set_presets({"WTMM standard": MainWindow.DEFAULT_STEPS, **PRESETS})
         # The rack rows: the built-in racks and the user's rack files (set_racks replaces the
         # rows set_presets made).

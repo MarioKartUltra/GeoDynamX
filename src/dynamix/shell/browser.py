@@ -74,7 +74,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
     #: A rack row was double-clicked: its rack's name, for the rack editor.
     rackEditRequested = QtCore.Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, plugin_results=()):
         super().__init__(parent)
         self.setHeaderHidden(True)
         self.setDragEnabled(True)
@@ -108,8 +108,20 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         for title, names in members.items():
             for name in names:
                 self._add_device_row(self._categories[title], name)
+        for result in plugin_results:
+            if result.error is None:
+                continue
+            # A plugin that failed to import or validate: its file (or entry point) as a row that
+            # cannot be dragged, the error in the tooltip, so the folder's problem is seen at once.
+            title = result.path.rsplit("/", 1)[-1] if result.path else result.origin
+            item = QtWidgets.QTreeWidgetItem(self._categories["Dev"], [title, result.name])
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsDragEnabled & ~QtCore.Qt.ItemIsEnabled)
+            item.setForeground(0, self._muted)
+            item.setToolTip(0, result.error)
         self.expandAll()
         self.collapseItem(self._categories["Dev"])
+        if "Labs" in self._categories:          # experimental devices: listed, folded away
+            self.collapseItem(self._categories["Labs"])
         #: ``(steps, layer_input, master, roi_holder)`` of the active layer, or None before one.
         self._rack_context: tuple | None = None
         self.itemDoubleClicked.connect(self._on_item_double_clicked)

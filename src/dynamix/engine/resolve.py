@@ -18,6 +18,7 @@ import numpy as np
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
 from dynamix.model.contracts import input_contract, stamp_fill, step_states
+from dynamix.model.plugins import origin_of
 from dynamix.model.device import (Output, apply_view, declared_outputs, get_device,
                                   is_transform, keyed_params, validate_params)
 
@@ -319,7 +320,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         rect = tuple(int(v) for v in layer.tags["roi.window"].split(","))
         for device, params in roi_steps:
             upstream = cache_key(device.name, sid, keyed_params(device, params),
-                                 upstream=upstream)
+                                 upstream=upstream, origin=origin_of(device.name))
 
         def _region(run=roi_steps, r=rect):
             return run_on_region(run, field, r, progress=progress, cancel=cancel)
@@ -337,7 +338,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         params = validate_params(device, ref.params)
 
         if is_transform(device):
-            key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream)
+            key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream,
+                            origin=origin_of(device.name))
 
             # A transform after the first consumes the previous result, not the raw field.
             src = field if upstream is None else result
