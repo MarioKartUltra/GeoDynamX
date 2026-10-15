@@ -82,3 +82,24 @@ def test_play_toggles_exactly_once_per_trigger_and_once_per_space_with_the_butto
     assert not tr.clock.playing                            # once, by the window's command
     QtTest.QTest.keyClick(w, QtCore.Qt.Key_Space)
     assert tr.clock.playing
+
+
+def test_the_palette_opens_on_ctrl_k_filters_and_returns_focus(qtbot, loaded):
+    from PySide6 import QtTest
+
+    w = loaded
+    with qtbot.waitActive(w, timeout=3000):
+        w.show()
+        w.activateWindow()
+    w.commands["view.palette"].trigger()
+    palette = w._palette
+    assert palette.isVisible() and palette.line.hasFocus()
+    shown = palette.filter("stub")
+    assert "device.stub_stack" in shown and all("stub" in s for s in shown)
+    assert "file.open_project" not in shown
+    palette.filter("open project")
+    assert palette.list.count() >= 1
+    assert palette.list.item(0).data(QtCore.Qt.UserRole) == "file.open_project"
+    QtTest.QTest.keyClick(palette.line, QtCore.Qt.Key_Escape)
+    assert not palette.isVisible()
+    qtbot.waitUntil(w.isActiveWindow, timeout=3000)

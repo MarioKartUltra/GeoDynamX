@@ -80,3 +80,76 @@ def _fill_analysis(window, menu) -> None:
             action.setData(f"analysis.{device.name}")
             action.triggered.connect(lambda _checked=False, n=device.name: window.add_device(n))
             sub.addAction(action)
+
+
+class CommandPalette(QtWidgets.QFrame):
+    """A popup over the window: a line edit and the enabled commands plus the registered devices,
+    filtered as you type; Enter runs the first match, Esc closes and hands focus back. Entries are
+    command ids and ``device.<name>``; a device entry takes the drop path at the end of the chain."""
+
+    def __init__(self, window, actions: dict):
+        super().__init__(window, QtCore.Qt.Popup | QtCore.Qt.FramelessWindowHint)
+        self._window, self._actions = window, actions
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(6, 6, 6, 6)
+        self.line = QtWidgets.QLineEdit()
+        self.line.setPlaceholderText("Command or device\u2026")
+        self.line.textChanged.connect(self.filter)
+        self.line.returnPressed.connect(self._run_first)
+        self.list = QtWidgets.QListWidget()
+        self.list.itemActivated.connect(lambda item: self._run(item.data(QtCore.Qt.UserRole)))
+        layout.addWidget(self.line)
+        layout.addWidget(self.list)
+        self.resize(520, 360)
+
+    def entries(self) -> list:
+        """``(entry id, text)`` for every enabled command and every registered device."""
+        out = [(cid, f"{a.text()}    {a.shortcut().toString()}".rstrip())
+               for cid, a in self._actions.items() if a.isEnabled()]
+        for name, device in sorted(DEVICES.items()):
+            out.append((f"device.{name}",
+                        f"Add {label_of(device)}  ({name}, {', '.join(families_of(device))})"))
+        return out
+
+    def filter(self, text: str) -> list:
+        """Rebuild the list with the entries whose id or text contains every word of ``text``;
+        returns the entry ids shown, in order."""
+        words = text.lower().split()
+        self.list.clear()
+        shown = []
+        for entry_id, label in self.entries():
+            hay = f"{entry_id} {label}".lower()
+            if all(w in hay for w in words):
+                item = QtWidgets.QListWidgetItem(label)
+                item.setData(QtCore.Qt.UserRole, entry_id)
+                self.list.addItem(item)
+                shown.append(entry_id)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+        return shown
+
+    def open(self) -> None:
+        self.line.clear()
+        self.filter("")
+        self.move(self._window.mapToGlobal(
+            QtCore.QPoint((self._window.width() - self.width()) // 2, 80)))
+        self.show()
+        self.line.setFocus()
+
+    def _run_first(self) -> None:
+        if self.list.count():
+            self._run(self.list.item(0).data(QtCore.Qt.UserRole))
+
+    def _run(self, entry_id: str) -> None:
+        self.hide()
+        if entry_id.startswith("device."):
+            self._window.add_device(entry_id[len("device."):])
+        else:
+            self._actions[entry_id].trigger()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == QtCore.Qt.Key_Escape:
+            self.hide()
+            self._window.activateWindow()
+            return
+        super().keyPressEvent(event)

@@ -10292,7 +10292,10 @@ both ``Canvas`` signals report the
 
     def add_device(self, name: str) -> None:
         """Place a device at the end of the active chain, as a drop would (the palette and the
-        Analysis menu)."""
+        Analysis menu). The zone exists once a raster is open; before that the status bar says so."""
+        if self.strips is None:
+            self.statusBar().showMessage("Open a raster before adding a device", 4000)
+            return
         self.strips.add_device(name)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
