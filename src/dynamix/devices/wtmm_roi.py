@@ -239,7 +239,7 @@ class WTMM2DROI:
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px
         from dynamix.core.wtmm_backend import compute_scales2d
-        from dynamix.shell.units import px_to_metres
+        from dynamix.core.units import px_to_metres
 
         finest = compute_scales2d(1, 1, a_min=float(value))[0]
         sigma = sigma_px(finest)
