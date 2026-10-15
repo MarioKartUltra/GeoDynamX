@@ -88,11 +88,14 @@ def _run(piece: str) -> dict:
         coeffs, scales1, valid = backend.cwt1d(signal, 1.0, 3, 4)
         return {"coeffs": coeffs, "scales": scales1, "valid": valid}
     if piece == "tensor":
-        res = run_wtmm2d(_field(stack), {"n_oct": 2, "n_voice": 3, "mode": "tensor"})
+        res = run_wtmm2d(_field(stack), {"n_oct": 2, "n_voice": 3, "mode": "tensor",
+                                         "fracint_alpha": 1.0})
         return {"n_chains": len(res["chains"]),
                 "chain_mod_sums": [float(np.sum(c["mod"])) for c in res["chains"]],
                 "hd_std": res["hd_std"], "hd_cmax": res["hd_cmax"]}
-    res = run_wtmm2d(_field(v), {"n_oct": 2, "n_voice": 3})
+    # eta = 1 as recorded (the default at the snapshot), pinned so a change of default leaves
+    # the goldens valid.
+    res = run_wtmm2d(_field(v), {"n_oct": 2, "n_voice": 3, "fracint_alpha": 1.0})
     if piece == "chain_filters":
         from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
                                                    ChainModulusFilter)
