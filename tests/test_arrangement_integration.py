@@ -33,7 +33,6 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 pytest.importorskip("rasterio", reason="rasterio not installed (needed by the geo fixtures)")
@@ -51,6 +50,8 @@ from tests.test_arrangement_mask import _big_field, _synthetic_chains
 from tests.test_arrangement_resolve import _geo_field
 from tests.test_arrangement_scene import _make_chain, _plotter, _result
 from tests.test_shell_window import _stub_stack
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

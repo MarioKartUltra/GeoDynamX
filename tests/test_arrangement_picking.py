@@ -21,7 +21,6 @@ from unittest.mock import Mock
 
 import numpy as np
 import pytest
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 from PySide6 import QtCore, QtWidgets
 
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
@@ -35,6 +34,8 @@ from dynamix.shell.arrangement.scene import SELECTION_COLOR, Scene
 
 from tests.test_arrangement_mask import _big_field, _synthetic_chains
 from tests.test_arrangement_scene import _geo_field, _make_chain, _plotter, _result
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def _one_chain_entry(layer_id, name, field, chain, signature=None):

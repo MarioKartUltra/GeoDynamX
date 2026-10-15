@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 import pytest
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.shell.settings import update_settings
 from tests.test_shell_window import STUB_CHAIN, _FIELD, loaded, stub_devices, window  # noqa: F401
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def test_app_boots_with_arrangement_never_built(window):

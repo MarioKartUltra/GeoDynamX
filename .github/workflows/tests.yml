@@ -1,7 +1,8 @@
 # The two test gates on the three targets: the mlx engine on Apple Silicon (macos-14 runners are
 # arm64), FFTW3 on Windows and on Linux. The gates are the ones docs describe for a developer's
-# machine: the headless set (no Qt, no pyvista) and the Qt-only set under the offscreen platform;
-# full pytest is left out because pyvista's teardown segfaults.
+# machine: the headless set (no Qt) and the Qt-only set under the offscreen platform, both without the
+# scene tests (the `pyvista` marker), which run in their own job allowed to fail because pyvista's
+# teardown segfaults on some machines.
 name: tests
 
 on:

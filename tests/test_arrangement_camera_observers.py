@@ -14,12 +14,13 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 pv.OFF_SCREEN = True
 
 from dynamix.shell.arrangement.view import install_momentum_observers  # noqa: E402
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 class _Tracker:

@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 import pytest
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 import numpy as np
-import pyvista as pv
+pv = pytest.importorskip("pyvista")
 
 from dynamix.model.layer import Layer
 from dynamix.shell.arrangement.scene import Scene
 from test_arrangement_scene import _geo_field, _make_extrema0, _plotter, _result
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def _entry(layer_id, field, result, **kw):

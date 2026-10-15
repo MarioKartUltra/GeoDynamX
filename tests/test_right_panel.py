@@ -236,7 +236,7 @@ def test_commit_reaches_the_scene_and_emits_groups_committed_when_arranged(
 # trails checkbox -- the Display-section UI that emits the five color keys.
 
 
-@pytest.mark.xfail(strict=True, reason="the colormap combo holds 94 entries since the display-colour work; the test pins 20 (failing on main, hidden until 2026-10-14 by the gates' text match on pyvista)")
+@pytest.mark.xfail(strict=True, reason="the colormap combo holds 94 entries since the display-colour work; the test pins 20 (QUESTIONS, 01 round 2)")
 def test_colormap_combo_has_20_iconed_entries(qtbot, clean_registry):
     w = MainWindow()
     qtbot.addWidget(w)

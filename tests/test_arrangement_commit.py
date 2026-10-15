@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 pv.OFF_SCREEN = True
@@ -47,6 +46,8 @@ from dynamix.shell.canvas import Canvas
 
 from tests.test_arrangement_resolve import _geo_field
 from tests.test_shell_window import _FIELD, _stub_stack
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def _chains(n=3):
