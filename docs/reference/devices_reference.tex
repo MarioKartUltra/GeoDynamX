@@ -564,7 +564,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the fractional B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
 \texttt{q\_tsallis} ($q$) & 1.5 & $(0,2)$ & Tsallis $q$ of the three q smoothers (shown with them); $q\to1$ is the Gaussian, the Mexican hat, the Meyer; the q-Mexican hat needs $q>2/3$ \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither for quantized rasters \\
-\texttt{fracint\_alpha} ($\eta$) & 1.0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$) \\
+\texttt{fracint\_alpha} ($\eta$) & 0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$; 0 leaves a chain's slope equal to its $h$) \\
 \texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
 \texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient (\texttt{follow} always refines) \\
 \texttt{min\_chain\_len} & 2 & $[1,1024]$ & discard maxima lines spanning fewer scales \\

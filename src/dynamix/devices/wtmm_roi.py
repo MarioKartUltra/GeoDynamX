@@ -77,8 +77,8 @@ class WTMM2DROI:
         *SMOOTHER_PARAMS,
         # Mirrors wtmm2d's declaration: the ROI path APPLIES the lift (``run_wtmm2d_roi`` reads
         # ``resolved["fracint_alpha"]``), so the knob must be declared and carried here, or a
-        # parent tuned off the default silently loses it on every ROI child.
-        Param("fracint_alpha", ParamKind.FLOAT, default=1.0, min=-6.0, max=6.0,
+        # parent tuned off the default silently loses it on every ROI child. Default 0, as wtmm2d.
+        Param("fracint_alpha", ParamKind.FLOAT, default=0.0, min=-6.0, max=6.0,
               soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
         # Mirrors wtmm2d's subpixel/parity knob -- an ROI child must run the same
         # refinement its parent ran, or the two are different analyses (the shared-params law).

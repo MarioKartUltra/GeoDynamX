@@ -228,7 +228,7 @@ def test_a_band_row_of_a_stack_gets_its_bands_levels(builtins):
     layer = _layer(*steps)
     out = resolve_output(layer, field, cache, "modulus", level=1)
     want = run_wtmm2d_level(stack[..., 1], {"n_oct": 2, "n_voice": 2, "a_min": 1.0,
-                                            "wavelet": "mexican", "fracint_alpha": 1.0}, 1)
+                                            "wavelet": "mexican", "fracint_alpha": 0.0}, 1)
     np.testing.assert_array_equal(out["raster"], want["mod"])
     reduced = _layer(*steps, tags={"data.bands": "b1,b2"})
     r1 = resolve(layer, field, cache)

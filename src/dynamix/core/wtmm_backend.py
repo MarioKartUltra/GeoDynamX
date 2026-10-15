@@ -1532,7 +1532,7 @@ class PythonWTMMBackend:
                  svd_modes=("sigma_max", "sigma_min", "alpha_sigma_max",
                             "alpha_sigma_min", "modL", "modT"),
                  wavelet: str = "gaussian", wavelet_hessian: str = "gaussian",
-                 use_wavelet_hessian: bool = True, fracint_alpha: float = 1.0,
+                 use_wavelet_hessian: bool = True, fracint_alpha: float = 0.0,
                  thresh: float = 1e-3, pad: int = 32, similitude: float = 0.8,
                  box_ratio: float = 1.0, dist2_max: float = 50.0,
                  min_len: int = 2, smooth: bool = True) -> dict:
@@ -1984,7 +1984,9 @@ _WTMM2D_PARAM_DEFAULTS = {
     "min_chain_len": 2,
     "q_list": DEFAULT_Q,
     "pad": 32,
-    "fracint_alpha": 1.0,
+    # No pseudo-fractional integration unless asked: with eta = 0 a chain's log2-modulus slope is
+    # its Hölder exponent itself; eta > 0 reads h + eta, which the spectrum fit undoes.
+    "fracint_alpha": 0.0,
     # Subpixel/parity knob: parabolic refinement of each NMS maximum along its gradient
     # direction (dynamix.core.subpixel). Off by default -- byte-identical pipeline.
     # Inert under detector="follow", whose crossing offset and crossing-interpolated modulus
@@ -2566,7 +2568,7 @@ def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None
     ``wavelet="gaussian"``, ``a_min=1.0``, ``n_oct=4``, ``n_voice=6``,
     ``thresh=1e-3``, ``similitude=0.8``, ``box_ratio=1.0``, ``dist2_max=50.0``,
     ``smooth=True``, ``min_chain_len=2``, ``q_list=DEFAULT_Q``, ``pad=32``,
-    ``fracint_alpha=1.0``, ``use_wavelet_hessian=True`` -- and raises ``ValueError``
+    ``fracint_alpha=0.0``, ``use_wavelet_hessian=True`` -- and raises ``ValueError``
     naming any key NOT in that set (a typo guard).
 
     ``mode="tensor"`` requires ``field.n_components == 3`` (``ValueError``

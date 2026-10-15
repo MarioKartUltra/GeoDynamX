@@ -102,10 +102,11 @@ class WTMM2D:
         Param("dither", ParamKind.BOOL, default=False, label="Dither (±½ LSB)"),
         # Pseudo-fractional integration order η (Wendt 2009; available
         # on the scalar path too, not only tensor) -- the per-scale a**η modulus lift applied
-        # right after the cached cwt stage (``wtmm_backend._apply_fracint2d``). Default 1.0 is
-        # the reference EBSD pipeline's own; 0 turns the lift off entirely. The spectrum window
-        # seeds its η shift-back from this value, so what is lifted forward is undone at the fit.
-        Param("fracint_alpha", ParamKind.FLOAT, default=1.0, min=-6.0, max=6.0,
+        # right after the cached cwt stage (``wtmm_backend._apply_fracint2d``). Default 0: no
+        # lift, so a chain's slope is its Hölder exponent; 1.0 is the reference EBSD pipeline's
+        # value. The spectrum window seeds its η shift-back from this value, so what is lifted
+        # forward is undone at the fit; the chain-Hölder filter reads the lifted slope (h + η).
+        Param("fracint_alpha", ParamKind.FLOAT, default=0.0, min=-6.0, max=6.0,
               soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
         # Parabolic refinement of each NMS maximum along its gradient direction, for xsmurf
         # parity (dynamix.core.subpixel) -- the refined MODULUS replaces mod (the xsmurf
