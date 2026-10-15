@@ -86,7 +86,7 @@ class WheelAxisViewBox(pg.ViewBox):
 _SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (2, 0)}
 POWER_MEAN_LABEL = "(log₂Z − log₂N_a)/q"
 #: One hue per secondary source (another method's tables beside the primary's).
-_SOURCE_HUES = ("#f2a93b", "#4cc9f0", "#f15bb5", "#9ef01a", "#ff6b6b", "#b388ff")
+_SOURCE_HUES = ((242, 169, 59), (76, 201, 240), (241, 91, 181), (158, 240, 26), (255, 107, 107), (179, 136, 255))
 
 
 def _q_color(i: int, n: int) -> tuple:

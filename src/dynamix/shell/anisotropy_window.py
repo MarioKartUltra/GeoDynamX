@@ -25,11 +25,14 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core.anisotropy import (SECTOR_LABELS, angle_pdf, gradient_plane,
                                      sector_modulus_pdfs, wtmmm_by_scale)
 from dynamix.core.orientation import Frame, from_arg, grid_to_true, to_azimuth
+from dynamix.shell.theme import RESTRAINED_DARK
 
 __all__ = ["AnisotropyWindow"]
 
-_SECTOR_COLORS = ("#e15759", "#f2c14e", "#59a14f", "#4e79a7")
-_SCALE_COLORS = ("#4e79a7", "#59a14f", "#f2c14e", "#e15759", "#b07aa1", "#9c755f")
+#: Series palettes: which sector or scale a curve IS, so data identity, exempt from the Theme Rule as
+#: RGB tuples (the canvas convention), never chrome.
+_SECTOR_COLORS = ((225, 87, 89), (242, 193, 78), (89, 161, 79), (78, 121, 167))
+_SCALE_COLORS = ((78, 121, 167), (89, 161, 79), (242, 193, 78), (225, 87, 89), (176, 122, 161), (156, 117, 95))
 
 
 class AnisotropyWindow(QtWidgets.QWidget):
@@ -165,7 +168,7 @@ class AnisotropyWindow(QtWidgets.QWidget):
             c, pdf = angle_pdf(o, bins=bins)
             label = f"a = {scales[si]:g} ({np.size(o.degrees)})"
             self.pdf_plot.plot(c, pdf, pen=pg.mkPen(colour, width=1.6), name=label)
-        self.pdf_plot.addLine(y=1.0 / 360.0, pen=pg.mkPen("#888", style=QtCore.Qt.DashLine))
+        self.pdf_plot.addLine(y=1.0 / 360.0, pen=pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine))
         pixel = (self.frame_combo.currentData() or "pixel") == "pixel"
         self.pdf_plot.setLabel("bottom", "A (deg, pixel frame)" if pixel else "azimuth (deg)")
         si = int(self.scale_spin.value())

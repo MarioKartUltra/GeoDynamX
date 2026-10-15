@@ -235,13 +235,18 @@ def test_commit_reaches_the_scene_and_emits_groups_committed_when_arranged(
 # trails checkbox -- the Display-section UI that emits the five color keys.
 
 
-def test_colormap_combo_has_20_iconed_entries(qtbot, clean_registry):
+def test_colormap_combo_lists_every_colormap_with_an_icon(qtbot, clean_registry):
+    from dynamix.shell.right_panel import _all_cmap_names
+
     w = MainWindow()
     qtbot.addWidget(w)
     combo = w.right_panel.cmap_combo
-    assert combo.count() == 20
-    for i in range(combo.count()):
-        assert not combo.itemIcon(i).isNull()
+    names = _all_cmap_names()
+    assert combo.count() == len(names) >= 20
+    for i, name in enumerate(names):
+        if name is None:                                   # a separator between the families
+            continue
+        assert combo.itemText(i) == name and not combo.itemIcon(i).isNull()
 
 
 def test_selecting_plasma_writes_the_tag_and_recolors_the_canvas(qtbot, loaded):

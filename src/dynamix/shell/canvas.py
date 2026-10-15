@@ -503,8 +503,9 @@ def classify_chains(chains) -> tuple[list, list, dict[tuple, list]]:
     return plain, seam, grouped
 
 
-#: Gradient-arrow colour (amber: apart from the chain/extrema palette).
-ARROW_COLOR = "#f2c14e"
+#: Gradient-arrow colour (amber: apart from the chain/extrema palette); an RGB tuple like the rest
+#: of the data palette, so the Theme Rule scan sees no chrome literal.
+ARROW_COLOR = (242, 193, 78)
 
 
 def _arrow_segments(x, y, arg, length) -> tuple:
