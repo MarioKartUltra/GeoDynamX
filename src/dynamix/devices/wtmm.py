@@ -148,7 +148,8 @@ class WTMM2D:
         # The cross-scale chainer (dynamix.core.chaining): the benchmark, xsmurf's vchain port,
         # by default; not keyed at that default, so every recipe keyed before the knob existed
         # keeps its key.
-        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench", choices=("xsmurf_bench",),
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the

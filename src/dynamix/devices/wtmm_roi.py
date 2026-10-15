@@ -103,7 +103,8 @@ class WTMM2DROI:
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
         # The cross-scale chainer, as on wtmm2d (not keyed at its default).
-        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench", choices=("xsmurf_bench",),
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.

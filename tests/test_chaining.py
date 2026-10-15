@@ -79,3 +79,35 @@ def test_run_wtmm2d_takes_the_chainer_and_refuses_an_unknown_one():
     assert res["params"]["chainer"] == DEFAULT and len(res["chains"]) > 0
     with pytest.raises(KeyError, match="nope"):
         run_wtmm2d(field, {"n_oct": 2, "n_voice": 2, "chainer": "nope"})
+
+
+@pytest.mark.parametrize("name", ["gradient_arg_horizontal", "vertical_experimental"])
+def test_the_other_chainers_return_the_chain_schema_anchored_at_the_finest_scale(name):
+    backend = get_backend("python")
+    scales = compute_scales2d(2, 2)
+    cwt = backend.cwt2d(fbm2d(64, 0.6, seed=3), scales)
+    extrema = backend.extrema2d(cwt, scales, thresh=1e-3)
+    params = {"similitude": 0.8, "box_ratio": 1.0, "dist2_max": 50.0, "min_chain_len": 2,
+              "smooth": True, "chainer": name}
+    chains = link(extrema, scales, params, backend)
+    assert chains
+    for c in chains:
+        assert set(c) == {"x", "y", "mod", "log2_mod", "log2_scales"}
+        k = len(c["mod"])
+        assert 2 <= k <= len(scales) and len(c["x"]) == len(c["y"]) == len(c["log2_scales"]) == k
+        assert c["x"].dtype == np.int64 and np.array_equal(c["log2_scales"], np.log2(scales[:k]))
+    finest = {(int(x), int(y)) for x, y in zip(*[np.asarray(e) for e in (
+        backend.single_maxima2d(extrema)[0]["x"], backend.single_maxima2d(extrema)[0]["y"])])}
+    assert all((int(c["x"][0]), int(c["y"][0])) in finest for c in chains)
+
+
+def test_the_unbanded_chainer_links_at_least_as_many_points_as_the_banded_one():
+    backend = get_backend("python")
+    scales = compute_scales2d(2, 2)
+    cwt = backend.cwt2d(fbm2d(64, 0.6, seed=3), scales)
+    extrema = backend.extrema2d(cwt, scales, thresh=1e-3)
+    params = {"similitude": 0.8, "box_ratio": 1.0, "dist2_max": 50.0, "min_chain_len": 2,
+              "smooth": True}
+    banded = link(extrema, scales, {**params, "chainer": "gradient_arg_horizontal"}, backend)
+    free = link(extrema, scales, {**params, "chainer": "vertical_experimental"}, backend)
+    assert sum(len(c["mod"]) for c in free) >= sum(len(c["mod"]) for c in banded)
