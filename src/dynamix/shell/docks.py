@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The main window's docks: a small fixed set, built here and nowhere else, with today's arrangement
-as the default layout (browser and layers left, inspector right, chain strip along the bottom)."""
+as the default layout (browser and processing tree left, inspector right, chain strip along the bottom)."""
 from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
 DOCK_NAMES = ("dock.browser", "dock.layers", "dock.inspector", "dock.chain")
-TITLES = {"dock.browser": "Devices", "dock.layers": "Layers", "dock.inspector": "Inspector",
+# dock.layers holds the processing tree; the Layers stack itself sits at the top of the Inspector,
+# so the dock reads "Processing" (its object name stays, for every layout ever saved).
+TITLES = {"dock.browser": "Devices", "dock.layers": "Processing", "dock.inspector": "Inspector",
           "dock.chain": "Chain"}
 _SIDES = QtCore.Qt.LeftDockWidgetArea | QtCore.Qt.RightDockWidgetArea
 _FREE = (QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFloatable

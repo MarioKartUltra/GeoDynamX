@@ -71,7 +71,8 @@ def main(argv=None) -> int:
     win = MainWindow()
     from dynamix.shell.window_fit import fit_to_screen
 
-    fit_to_screen(win, 1400, 860)
+    if not getattr(win, "_geometry_restored", False):      # a stored arrangement sized it already
+        fit_to_screen(win, 1400, 860)
     win.show()
     win.open_path(raster)
 

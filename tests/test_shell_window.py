@@ -878,7 +878,7 @@ def test_render_flag_without_a_path_is_a_usage_error(capsys):
 
 def test_dock_widgets_are_built_only_by_the_docks_module():
     """PRODUCT.md principle 4 as rewritten: a small fixed set of docks, built in one place."""
-    for path in Path("src/dynamix/shell").glob("*.py"):
+    for path in Path("src/dynamix/shell").rglob("*.py"):
         if path.name != "docks.py":
             assert "QDockWidget(" not in path.read_text(), path
 
