@@ -465,9 +465,9 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 1.0)
 
-    chains = backend.chains2d(extrema, scales, similitude=resolved["similitude"],
-                              box_ratio=resolved["box_ratio"], dist2_max=resolved["dist2_max"],
-                              min_len=resolved["min_chain_len"], smooth=resolved["smooth"])
+    from dynamix.core.chaining import link
+
+    chains = link(extrema, scales, resolved, backend)
     hd_std, hd_cmax = backend.partition2d(chains, scales, q_list=resolved["q_list"],
                                           min_chain_len=resolved["min_chain_len"])
 

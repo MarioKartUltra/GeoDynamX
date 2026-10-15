@@ -102,6 +102,9 @@ class WTMM2DROI:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        # The cross-scale chainer, as on wtmm2d (not keyed at its default).
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench", choices=("xsmurf_bench",),
+              label="Chainer", keyed_at_default=False),
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -164,6 +167,7 @@ class WTMM2DROI:
             "dist2_max": params["dist2_max"],
             "box_ratio": params["box_ratio"],
             "similitude": params["similitude"],
+            "chainer": params["chainer"],
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)

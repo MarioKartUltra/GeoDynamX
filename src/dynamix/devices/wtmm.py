@@ -145,6 +145,11 @@ class WTMM2D:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        # The cross-scale chainer (dynamix.core.chaining): the benchmark, xsmurf's vchain port,
+        # by default; not keyed at that default, so every recipe keyed before the knob existed
+        # keeps its key.
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench", choices=("xsmurf_bench",),
+              label="Chainer", keyed_at_default=False),
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -197,6 +202,7 @@ class WTMM2D:
                 "fracint_alpha": params["fracint_alpha"],
                 "interpolate": params["interpolate"],
                 "detector": params["detector"],
+                "chainer": params["chainer"],
             },
             progress=progress,
             cancel=cancel,
@@ -263,7 +269,7 @@ class WTMM2D:
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
-                 "similitude")
+                 "similitude", "chainer")
 
     def roi_margin(self, params: dict) -> int:
         """The coarsest scale's halo (``halo_margin``, the measured 2.5 x normalized scale) --
