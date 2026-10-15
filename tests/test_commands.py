@@ -25,7 +25,7 @@ def test_no_two_commands_share_a_default_shortcut():
 def test_every_former_shortcut_is_present_with_the_same_key():
     former = {"chain.run": "Ctrl+Return", "transport.play": "Space", "view.selection.click": "C",
               "view.selection.cycle": "V", "edit.cancel_transect": "Esc", "edit.undo_transect": "Ctrl+Z",
-              "edit.undo_rack_drop": "Shift+Ctrl+Z", "view.zoom_to_dataset": "Ctrl+0",
+              "edit.undo_rack_drop": "Ctrl+Shift+Z", "view.zoom_to_dataset": "Ctrl+0",
               "file.save_project": "Ctrl+S", "view.palette": "Ctrl+K"}
     table = by_id()
     for cid, key in former.items():
