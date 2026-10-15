@@ -6,7 +6,6 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.shell.settings import update_settings
 from tests.test_shell_window import STUB_CHAIN, _FIELD, loaded, stub_devices, window  # noqa: F401
 
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def test_app_boots_with_arrangement_never_built(window):
@@ -175,6 +174,7 @@ def test_activate_under_the_offscreen_qpa_platform_does_not_crash_and_leaves_the
 # the running app -- a freshly built scene simply starts at its own DEFAULT_MODE ("mercator").
 
 
+@pytest.mark.pyvista
 def test_arrangement_view_builds_only_a_header_when_available(qtbot):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.arrangement.view import ArrangementView
@@ -188,6 +188,7 @@ def test_arrangement_view_builds_only_a_header_when_available(qtbot):
     assert not hasattr(view, "_mode_row")      # ModeRow retired from this view's face
 
 
+@pytest.mark.pyvista
 def test_arrangement_view_header_has_one_view_options_button(qtbot):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.arrangement.view import ArrangementView
@@ -203,6 +204,7 @@ def test_arrangement_view_header_has_one_view_options_button(qtbot):
     assert buttons[0] is view._view_options_button
 
 
+@pytest.mark.pyvista
 def test_view_options_button_click_emits_view_options_requested(qtbot):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.arrangement.view import ArrangementView
@@ -216,6 +218,7 @@ def test_view_options_button_click_emits_view_options_requested(qtbot):
         view._view_options_button.click()
 
 
+@pytest.mark.pyvista
 def test_activate_adds_the_interactor_next_to_the_header_and_passes_the_theme_background(
         qtbot, monkeypatch):
     """Stubs past the offscreen-QPA segfault guard (see this file's own documented reason above,
@@ -274,6 +277,7 @@ def test_activate_adds_the_interactor_next_to_the_header_and_passes_the_theme_ba
 # stubbing needed, unlike the interactor-construction test just above.
 
 
+@pytest.mark.pyvista
 def test_camera_state_is_none_before_the_scene_is_built(qtbot):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.arrangement.view import ArrangementView
@@ -286,6 +290,7 @@ def test_camera_state_is_none_before_the_scene_is_built(qtbot):
     assert view.camera_state() is None
 
 
+@pytest.mark.pyvista
 def test_set_camera_state_reset_camera_graticule_vexag_background_no_op_before_a_scene(qtbot):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.arrangement.view import ArrangementView
@@ -315,6 +320,7 @@ def test_set_camera_state_reset_camera_graticule_vexag_background_no_op_before_a
 # ``clean_registry``/settings isolation through its own fixture chain.
 
 
+@pytest.mark.pyvista
 def test_view_options_button_opens_the_view_dialog(qtbot, window):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.view_dialog import ViewDialog
@@ -331,6 +337,7 @@ def test_view_options_button_opens_the_view_dialog(qtbot, window):
     assert window._view_dialog.isVisible()
 
 
+@pytest.mark.pyvista
 def test_view_options_button_reuses_the_same_dialog_instance(qtbot, window):
     pytest.importorskip("pyvista", reason="pyvista not installed")
 

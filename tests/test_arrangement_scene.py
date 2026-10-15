@@ -23,6 +23,7 @@ import pytest
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 pytest.importorskip("rasterio", reason="rasterio not installed (needed by the geo fixture)")
 pv.OFF_SCREEN = True
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 from dynamix.core.frames import LocalFrame
 from dynamix.core.pointset import PointSet
@@ -2060,7 +2061,6 @@ def test_surface_option_moves_extrema_and_h_lines_onto_the_surface():
 
 from dynamix.shell.arrangement.scene import _REFERENCE_PREFIX  # noqa: E402
 
-pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def _ref_entry(ref_id="ref0", kind="polygon", visible=True, native=None):

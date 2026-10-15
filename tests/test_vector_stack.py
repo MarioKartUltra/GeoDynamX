@@ -3,14 +3,14 @@
 """The 3-D scene honours the stack: rank lift, blocks with ticks (pyvista; outside the gates)."""
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
-import numpy as np
-pv = pytest.importorskip("pyvista")
+pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 
-from dynamix.model.layer import Layer
-from dynamix.shell.arrangement.scene import Scene
-from test_arrangement_scene import _geo_field, _make_extrema0, _plotter, _result
+from dynamix.model.layer import Layer  # noqa: E402  (the scene module below needs pyvista first)
+from dynamix.shell.arrangement.scene import Scene  # noqa: E402
+from test_arrangement_scene import _geo_field, _make_extrema0, _plotter, _result  # noqa: E402
 
 pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
