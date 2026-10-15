@@ -57,7 +57,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("view.dock.inspector", "Inspector", "View", checkable=True),
     Command("view.dock.chain", "Chain", "View", checkable=True),
     Command("view.reset_layout", "Reset Layout", "View"),
-    Command("view.layouts.save_as", "Save Layout As…", "View"),
+    Command("view.layouts.save_as", "Save Layout As…", "View", submenu="Layouts"),
     Command("view.palette", "Command Palette…", "View", ("Ctrl+K",)),
     Command("racks.editor", "Rack Editor…", "Racks"),
     Command("settings.auto_run", "Auto-run transforms", "Settings", checkable=True, headless=True),

@@ -150,9 +150,51 @@ def test_commands_needing_a_raster_are_disabled_and_out_of_the_palette_before_on
 
 
 def test_commands_needing_a_raster_enable_once_one_is_open(qtbot, loaded):
-    loaded.refresh_commands()
     assert loaded.commands["chain.run"].isEnabled()
     assert loaded.commands["file.export_chains"].isEnabled()
+
+
+def test_ctrl_return_runs_the_chain_as_soon_as_a_raster_is_open(qtbot, window):
+    """The enabled checks follow the window's field, not the next menu that happens to open."""
+    from PySide6 import QtTest
+
+    w = window
+    with qtbot.waitActive(w, timeout=3000):
+        w.show()
+        w.activateWindow()
+    assert not w.commands["chain.run"].isEnabled()
+    with qtbot.waitSignal(w.resolved, timeout=10000):
+        w.load_field(_FIELD, "mem:stub")
+    assert w.commands["chain.run"].isEnabled()
+    with qtbot.waitActive(w, timeout=3000):     # offscreen drops activation on a load; a desktop does not
+        w.activateWindow()
+    with qtbot.waitSignal(w.commands["chain.run"].triggered, timeout=2000):
+        QtTest.QTest.keyClick(w, QtCore.Qt.Key_Return, QtCore.Qt.ControlModifier)
+
+
+def test_the_dev_loop_knows_the_command_modules():
+    import dynamix.devloop as devloop
+
+    order = list(devloop._MODULE_ORDER)
+    assert order.index("commands") < order.index("main_window")
+    assert order.index("controller") < order.index("main_window")
+    assert devloop._DEPENDS_ON["commands"] == () and devloop._DEPENDS_ON["controller"] == ()
+    assert {"commands", "controller"} <= set(devloop._DEPENDS_ON["main_window"])
+
+
+def test_the_palette_shows_every_shortcut_and_save_layout_as_sits_in_the_layouts_submenu(qtbot, loaded):
+    w = loaded
+    w.show_palette()
+    w._palette.filter("zoom")
+    label = w._palette.list.item(0).text()
+    native = QtGui.QKeySequence.NativeText
+    for key in ("Ctrl+0", "F"):
+        assert QtGui.QKeySequence(key).toString(native) in label
+    view = w.menus["View"]
+    plain = [a.text() for a in view.actions() if a.menu() is None]
+    assert "Save Layout As…" not in plain
+    layouts = next(a.menu() for a in view.actions() if a.menu() is not None and a.menu().title() == "Layouts")
+    assert [a.text() for a in layouts.actions()].count("Save Layout As…") == 1
 
 
 def test_the_palette_filters_wtmm_to_the_wtmm_commands_and_devices(qtbot, clean_registry):
@@ -176,11 +218,19 @@ def test_the_palette_shows_native_shortcut_text_and_not_itself(qtbot, loaded):
     assert save.endswith(QtGui.QKeySequence("Ctrl+S").toString(QtGui.QKeySequence.NativeText))
 
 
-def test_a_named_layout_gets_a_slug_id_and_the_window_keeps_no_group_attribute(qtbot, loaded):
+def test_a_named_layout_gets_a_slug_id_that_never_collides_or_empties(qtbot, loaded):
     w = loaded
-    w.save_layout("My Desk 2")
-    assert "view.layouts.apply.my_desk_2" in [a.data() for a in w._layouts_menu.actions()]
-    assert not hasattr(w, "_command_groups")
+    for name in ("My Desk", "my-desk", "!!!"):
+        w.save_layout(name)
+    ids = [a.data() for a in w._layouts_menu.actions() if str(a.data()).startswith("view.layouts.apply.")]
+    assert ids == ["view.layouts.apply.my_desk", "view.layouts.apply.my_desk_2", "view.layouts.apply.layout"]
+
+
+def test_the_window_keeps_no_group_attribute(qtbot, loaded):
+    assert not hasattr(loaded, "_command_groups")
+
+
+def test_the_centre_view_switch_keeps_its_docstring():
     assert MainWindow._set_center_view.__doc__.startswith("Switch")
 
 

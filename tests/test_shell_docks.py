@@ -204,9 +204,10 @@ def test_a_tabbed_dock_stays_shown_and_checked_when_its_tab_goes_behind(qtbot, c
     w.show()
     qtbot.waitExposed(w)
     a, b = w.docks["dock.browser"], w.docks["dock.layers"]
-    w.tabifyDockWidget(a, b)
-    for front in (b, a, b):
-        front.raise_()
-        QtWidgets.QApplication.processEvents()
+    w.tabifyDockWidget(a, b)                      # b in front, a behind
+    with qtbot.waitSignal(b.visibilityChanged, timeout=2000):
+        a.raise_()                                # b goes behind: Qt reports it as a visibility change
+    with qtbot.waitSignal(a.visibilityChanged, timeout=2000):
+        b.raise_()
     assert not a.isHidden() and not b.isHidden()
     assert w.commands["view.dock.browser"].isChecked() and w.commands["view.dock.layers"].isChecked()

@@ -104,7 +104,7 @@ def _fill_analysis(window: QtWidgets.QMainWindow, menu: QtWidgets.QMenu) -> None
 
 class CommandPalette(QtWidgets.QFrame):
     """A popup over the window: a line edit and the enabled commands plus the registered devices,
-    filtered as you type; Enter runs the first match, Esc closes and hands focus back. Entries are
+    filtered as you type; Enter runs the current row, Esc closes and hands focus back. Entries are
     command ids and ``device.<name>``; a device entry takes the drop path at the end of the chain."""
 
     def __init__(self, window: QtWidgets.QMainWindow, actions: dict[str, QtGui.QAction]) -> None:
@@ -125,7 +125,8 @@ class CommandPalette(QtWidgets.QFrame):
 
     def entries(self) -> list:
         """``(entry id, text)`` for every enabled command and every registered device."""
-        out = [(cid, f"{a.text()}    {a.shortcut().toString(QtGui.QKeySequence.NativeText)}".rstrip())
+        out = [(cid, f"{a.text()}    " + ", ".join(
+                    s.toString(QtGui.QKeySequence.NativeText) for s in a.shortcuts()).rstrip())
                for cid, a in self._actions.items() if a.isEnabled() and cid != "view.palette"]
         for name, device in sorted(DEVICES.items()):
             out.append((f"device.{name}",

@@ -406,6 +406,16 @@ _CONSUMER_PRODUCERS = {name: _CHAIN_PRODUCERS for name in (
     "chain_topology", "min_vchains", "group_paint", "group_filter")}
 
 
+def _layout_slug(name: str, taken: set[str]) -> str:
+    """A layout name as a command id tail: lowercase, runs of anything else to one underscore,
+    never empty, and never one already taken in this menu (a numbered suffix)."""
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "layout"
+    slug, n = base, 2
+    while slug in taken:
+        slug, n = f"{base}_{n}", n + 1
+    return slug
+
+
 def _analyzer_fork(old_names, old_bypassed, descriptors, *,
                    root: bool = False) -> "tuple | None":
     """``(sibling_steps, shipped_parent_indices)`` for a fork, or None for an ordinary edit.
@@ -3654,15 +3664,8 @@ both ``Canvas`` signals report the
         self._repoint_bus_sends(old_path, path)
 
     def _zoom_to_dataset(self) -> None:
-        """Fit the raster view to the selected row: its ROI window when it runs on one, else
-        the raster on screen (the same framing an open does)."""
-        window = self.layer.tags.get("roi.window") if self.layer is not None else None
-        if window:
-            r, c, h, w = (int(v) for v in window.split(","))
-            self.canvas.view.setRange(xRange=(c - 0.5, c + w - 0.5),
-                                      yRange=(r - 0.5, r + h - 0.5), padding=0.02)
-            return
-        self.canvas.view.autoRange(items=[self.canvas.image_item])
+        """Fit the raster view to the selected row (``CommandController.zoom_to_dataset``)."""
+        self.controller.zoom_to_dataset()
 
     # -- band rows: removing a band from a stack dataset --------------------------------------
     def _ensure_band_layers(self, master, field) -> None:
@@ -6919,13 +6922,8 @@ both ``Canvas`` signals report the
             QtWidgets.QMessageBox.information(self, TITLE, msg)
 
     def _undo_rack_removal(self) -> None:
-        """Wrapper target for the Shift+⌘Z shortcut (see its own construction-site comment for why
-        a wrapper, not a direct connection, is needed here) -- re-reads ``self.strips`` at
-        activation time so it always reaches whichever ``WorkflowZone`` is live right now, even
-        across a rebuild. A no-op with no zone built yet (mirrors every other ``self.strips is not
-        None`` guard already in this file, e.g. :meth:`_sync_lock_ui`)."""
-        if self.strips is not None:
-            self.strips.undo_removal()
+        """Shift+Ctrl+Z (``CommandController.undo_rack_drop``)."""
+        self.controller.undo_rack_drop()
 
     # -- chain / strips --------------------------------------------------------------------
     def _set_recipe(self, names: list, params: list) -> None:
@@ -8731,7 +8729,8 @@ both ``Canvas`` signals report the
         self._drive_follower_inspectors(target)
 
     def _toggle_transport(self) -> None:
-        self.transport.play_button.toggle()
+        """Space (``CommandController.toggle_transport``)."""
+        self.controller.toggle_transport()
 
     def _scale_reading(self, idx: int) -> str:
         """The transport's scale reading: nominal a, then the kernel's real-space sigma --
@@ -9901,15 +9900,8 @@ both ``Canvas`` signals report the
         self._mask_clear_button.setVisible(in_mask)
 
     def _cycle_selection_mode(self) -> None:
-        """`v`'s own action: walks :data:`_SELECTION_MODE_CYCLE` (box -> lasso -> transect
-        -> box), skipping click entirely. Pressed while already in click mode (there is no
-        principled "next" mode to resume a cycle click was never part of), this starts the cycle
-        fresh at its first entry, box."""
-        if self._selection_mode not in _SELECTION_MODE_CYCLE:
-            self.set_selection_mode(_SELECTION_MODE_CYCLE[0])
-            return
-        i = _SELECTION_MODE_CYCLE.index(self._selection_mode)
-        self.set_selection_mode(_SELECTION_MODE_CYCLE[(i + 1) % len(_SELECTION_MODE_CYCLE)])
+        """V (``CommandController.selection_cycle``)."""
+        self.controller.selection_cycle()
 
     def _set_step_param_silently(self, slot: int, name: str, value) -> None:
         """Write a hidden param (no control) into the window's params, the strip's own params
@@ -10238,12 +10230,28 @@ both ``Canvas`` signals report the
         names = list(self._layouts())
         if names:
             menu.addSeparator()
+        taken: set[str] = set()
         for name in names:
             action = menu.addAction(name, lambda _checked=False, n=name: self.apply_layout(n))
-            slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+            slug = _layout_slug(name, taken)
+            taken.add(slug)
             action.setData(f"view.layouts.apply.{slug}")          # a named layout is a command too
 
     # -- commands --------------------------------------------------------------------------
+
+    @property
+    def field(self):
+        """The active raster field, or None before one is open. Setting it re-applies the
+        commands' enabled checks (``refresh_commands``), so Ctrl+Return works the moment a raster
+        opens and stops when the last layer goes."""
+        return self._field_value
+
+    @field.setter
+    def field(self, value) -> None:
+        self._field_value = value
+        refresh = getattr(self, "refresh_commands", None)
+        if refresh is not None:
+            refresh()
 
     def command_enabled(self) -> dict:
         """The commands that need an open raster; everything else is always enabled."""
@@ -10286,8 +10294,9 @@ both ``Canvas`` signals report the
         return h
 
     def _fill_view_menu_tail(self, menu: QtWidgets.QMenu) -> None:
-        menu.addSeparator()
-        self._layouts_menu = menu.addMenu("Layouts")
+        """The Layouts submenu the table placed (``view.layouts.save_as``) gets the saved names."""
+        self._layouts_menu = next(a.menu() for a in menu.actions()
+                                  if a.menu() is not None and a.menu().title() == "Layouts")
         self._rebuild_layouts_menu()
 
     def _show_about(self) -> None:
