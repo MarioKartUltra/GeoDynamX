@@ -44,6 +44,14 @@ jobs:
           python -m pip install -e ".[app,dev]"
       - name: Engine in use
         run: python -c "from dynamix.core import fft_policy as p; print(p.resolve())"
+      - name: Style report (spec 10; findings for review, never failing)
+        if: runner.os == 'Linux'
+        run: |
+          python tools/lint_markers.py --all
+          python -m pip install -q "ruff>=0.6"
+          echo "## ruff" >> "$GITHUB_STEP_SUMMARY"
+          ruff check --exit-zero --output-format concise src tools | tee -a "$GITHUB_STEP_SUMMARY" | tail -3
+          ruff format --check src tools >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
       - name: Headless gate
         run: python -m pytest -q -p no:cacheprovider $(grep -L "pyvista\|QtWidgets\|qtbot" tests/test_*.py)
       - name: Qt-only gate (offscreen)

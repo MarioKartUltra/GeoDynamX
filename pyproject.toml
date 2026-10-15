@@ -70,7 +70,7 @@ gui = ["PySide6>=6.5", "pyqtgraph>=0.13", "matplotlib>=3.8"]
 
 # pytest-qt for the shell test suite; ipython for `python -m dynamix.devloop --ipython`
 # (%gui qt + %autoreload 2, guarded — devloop.py prints a clear message and exits if it's absent).
-dev = ["pytest>=8", "pytest-qt", "ipython"]
+dev = ["pytest>=8", "pytest-qt", "ipython", "ruff>=0.6"]
 
 # No [cuda] extra: CUDA is deferred, and declaring one that installs nothing would be a lie in the
 # packaging metadata.
@@ -92,6 +92,23 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+# Spec 10: 88 columns, black-compatible; the verbatim copies and the vendored packages are never formatted
+# or checked, since their own tests pin their bytes. Findings are reported, never build-failing.
+line-length = 88
+exclude = ["src/dynamix/_vendor", "src/dynamix/core/selection.py", "src/dynamix/core/partition.py",
+           "src/dynamix/core/modality.py", "src/dynamix/core/fftbackend.py", "src/dynamix/core/mzlib.py"]
+
+[tool.ruff.lint]
+# E, F, I: errors, pyflakes, import order; D: docstrings, NumPy style; ANN: type hints on public
+# functions (private helpers and *args/**kwargs left alone); BLE001: blind except Exception.
+select = ["E", "F", "I", "D", "ANN", "BLE001"]
+ignore = ["ANN202", "ANN204", "ANN401", "D1", "D203", "D213", "D401", "D413", "E501"]
+per-file-ignores = { "tests/*" = ["D", "ANN"], "docs/*" = ["D", "ANN"] }
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
