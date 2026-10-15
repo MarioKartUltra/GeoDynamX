@@ -132,7 +132,12 @@ def subset_hd(chains: list, scales, q_list, mask: np.ndarray, *,
     hit = _SUBSET_CACHE.get(key)
     if hit is not None and hit[0] is chains:
         return hit[1]
-    from dynamix._vendor.wtmm_ebsd.partition import build_hd_from_chains
+    from dynamix.core import wtmm_backend
+
+    if wtmm_backend.USE_VENDORED:
+        from dynamix._vendor.wtmm_ebsd.partition import build_hd_from_chains
+    else:
+        from dynamix.core.partition_tables import build_hd_from_chains
 
     subset = [c for c, m in zip(chains, mask) if m]
     tables = build_hd_from_chains(subset, scales, q_arr, min_chain_len=int(min_chain_len))

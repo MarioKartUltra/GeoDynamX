@@ -109,8 +109,7 @@ def test_unknown_mode_is_refused():
 # ------------------------------------------------------------------------------ subset tables
 
 def test_subset_hd_all_true_equals_the_full_partition_build():
-    wtmm_ebsd = pytest.importorskip("dynamix._vendor.wtmm_ebsd")
-    from dynamix._vendor.wtmm_ebsd.partition import build_hd_from_chains
+    from dynamix.core.partition_tables import build_hd_from_chains
 
     chains = _chains()
     q_list = np.arange(-2.0, 2.1, 0.5)

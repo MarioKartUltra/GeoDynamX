@@ -1534,7 +1534,10 @@ class PythonWTMMBackend:
         (hd_std, hd_cmax) : tuple[dict, dict]
             Exactly ``build_hd_from_chains``'s return value.
         """
-        from dynamix._vendor.wtmm_ebsd.partition import DEFAULT_Q_LIST, build_hd_from_chains
+        if USE_VENDORED:
+            from dynamix._vendor.wtmm_ebsd.partition import DEFAULT_Q_LIST, build_hd_from_chains
+        else:
+            from dynamix.core.partition_tables import DEFAULT_Q_LIST, build_hd_from_chains
 
         if q_list is None:
             q_list = DEFAULT_Q_LIST
