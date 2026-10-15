@@ -42,7 +42,8 @@ LICENSE and this notice (GPL-2.0-or-later).
 
 The author's own packages, included here by their author:
   EQSelect -- the analysis core in src/dynamix/core started as a copy of it.
-  wtmm, wtmm_ebsd -- vendored under src/dynamix/_vendor (the EBSD modules of wtmm_ebsd are not
+  wtmm, wtmm_ebsd -- vendored under src/dynamix/_vendor (src/dynamix/_vendor/wtmm and
+  src/dynamix/_vendor/wtmm_ebsd) (the EBSD modules of wtmm_ebsd are not
   included in this release).
 
 

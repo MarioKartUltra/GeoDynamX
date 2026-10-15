@@ -25,10 +25,11 @@ def _package_dirs(root):
 
 
 def _entry_for(d, notice):
+    """A LICENSE beside the directory, or its repo path written in NOTICE (a bare directory name
+    is not an entry: "wtmm" appears in prose without naming a tree)."""
     rel = d.relative_to(REPO).as_posix()
     has_file = any((d / n).exists() for n in ("LICENSE", "LICENSE.txt", "COPYING"))
-    named = rel in notice or (rel + "/") in notice or d.name in notice
-    return has_file or named
+    return has_file or rel in notice
 
 
 def test_every_derived_tree_has_a_licence_file_or_a_notice_entry():
@@ -49,6 +50,10 @@ def test_notice_lists_every_gpl_2_only_file():
 
 
 def test_the_licence_check_fails_when_a_tree_loses_its_entry():
-    struck = NOTICE.replace("mz_lastwave", "removed")
-    assert struck != NOTICE
-    assert not _entry_for(SRC / "core" / "mz_lastwave", struck)
+    for rel, word in (("core/mz_lastwave", "src/dynamix/core/mz_lastwave"),
+                      ("_vendor/wtmm", "src/dynamix/_vendor/wtmm"),
+                      ("_vendor/wtmm_ebsd", "src/dynamix/_vendor/wtmm_ebsd")):
+        struck = NOTICE.replace(word, "removed")
+        assert struck != NOTICE, word
+        assert not _entry_for(SRC / rel, struck), rel
+    assert _entry_for(SRC / "_vendor" / "wtmm", NOTICE.replace("wtmm_ebsd", "x"))   # the name alone is not an entry
