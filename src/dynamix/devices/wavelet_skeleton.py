@@ -30,6 +30,8 @@ from dynamix.model.param import Param, ParamKind
 class WaveletSkeleton:
     name = "wavelet_skeleton"
     capabilities = frozenset({"RegionAware"})
+    role = "primary"
+    chain_producer = True
     label = "Wavelet skeleton"
     families = ("Skeletons",)
     consumes = ((FIELD,),)

@@ -74,6 +74,7 @@ from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonl
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
 from dynamix.model.plugins import discover
+from dynamix.model.roles import band_devices, band_for_analyzer, consumer_producers, primary_analyzers
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
 from dynamix.model.forking import drop_states, is_primary, routing_head, ships_to
@@ -382,15 +383,15 @@ def _eta_note_of(result: dict) -> tuple:
 def _band_step_for(names) -> "str | None":
     """The band-reconstruction device the recipe already holds (for seeding/updating the
     Band dialog), or None."""
-    return next((n for n in _BAND_DEVICES if n in names), None)
+    return next((n for n in band_devices() if n in names), None)
 
 
 def _band_device_for(names) -> str:
     """The band-reconstruction variant a Band-dialog commit should create for THIS recipe:
     the variant matching the recipe's h-map producer, conflated ``band_recon`` when the
     producer is the conflated device or absent."""
-    producer = next((n for n in _BAND_FOR_ANALYZER if n in names), "holder_map")
-    return _BAND_FOR_ANALYZER[producer]
+    producer = next((n for n in band_for_analyzer() if n in names), "holder_map")
+    return band_for_analyzer()[producer]
 
 #: Consumer devices -> the producers whose results they read. THE SHIPPING LAW: devices follow
 #: their producer. On a fork, a consumer stranded on the parent whose producers include the
@@ -420,12 +421,12 @@ def _analyzer_fork(old_names, old_bypassed, descriptors, *,
     noise deliberately STAYS on the master, so a child needing prep should be dropped as a
     preset carrying it."""
     old_primary = next((n for n, b in zip(old_names, old_bypassed)
-                        if not b and n in _PRIMARY_ANALYZERS), None)
+                        if not b and n in primary_analyzers()), None)
     if old_primary is None and not root:
         return None
     new_enabled = [d["device"] for d in descriptors if not d.get("bypassed")]
     new_primary = next((n for n in new_enabled
-                        if n in _PRIMARY_ANALYZERS and n != old_primary), None)
+                        if n in primary_analyzers() and n != old_primary), None)
     if new_primary is None:
         return None
     from collections import Counter
@@ -440,9 +441,9 @@ def _analyzer_fork(old_names, old_bypassed, descriptors, *,
     if not sibling:
         return None
     shipped = [i for i, n in enumerate(old_names)
-               if n in _CONSUMER_PRODUCERS
-               and new_primary in _CONSUMER_PRODUCERS[n]
-               and old_primary not in _CONSUMER_PRODUCERS[n]]
+               if n in consumer_producers()
+               and new_primary in consumer_producers()[n]
+               and old_primary not in consumer_producers()[n]]
     return sibling, shipped
 
 
@@ -2780,7 +2781,7 @@ off / z from this layer's own values / z from another loaded
             self._on_chain_edited(descriptors)
             return
         recon_name = _band_device_for(self._names)
-        producer = next((n for n in _BAND_FOR_ANALYZER if n in self._names), None)
+        producer = next((n for n in band_for_analyzer() if n in self._names), None)
         engine = dict(defaults_for(get_device(recon_name)))
         if producer is not None:
             # The variant takes the producer's params it declares: the engine and band knobs.

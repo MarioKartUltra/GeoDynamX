@@ -42,6 +42,7 @@ class WTMM2DROI:
 
     name = "wtmm2d_roi"
     capabilities = frozenset({"OutputProducer", "SourceReader", "StripExtras", "Viewable"})
+    chain_producer = True
     label = "WTMM 2D, ROI"
     families = ("Edge detection", "Regularity")
     #: It reads band 1 of its source file, whatever field it is handed, so it runs on a

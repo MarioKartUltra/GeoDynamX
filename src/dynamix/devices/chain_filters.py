@@ -77,6 +77,7 @@ class ChainHolderFilter:
 
     name = "chain_holder"
     capabilities = frozenset({"SelectionAware", "SelfReporting"})
+    chain_consumer = True
     label = "Chain Hölder"
     families = ("Selection: V-chains",)
     consumes = ((VCHAINS,),)
@@ -202,6 +203,7 @@ class ChainModulusFilter:
 
     name = "chain_modulus"
     capabilities = frozenset({"SelectionAware", "SelfReporting"})
+    chain_consumer = True
     label = "Chain modulus"
     families = ("Selection: V-chains",)
     consumes = ((VCHAINS,),)
@@ -266,6 +268,7 @@ class ChainLengthFilter:
 
     name = "chain_length"
     capabilities = frozenset({"SelectionAware", "SelfReporting"})
+    chain_consumer = True
     label = "Chain length"
     families = ("Selection: V-chains",)
     consumes = ((VCHAINS,),)

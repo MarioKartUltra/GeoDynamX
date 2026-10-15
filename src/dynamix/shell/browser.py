@@ -19,6 +19,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model import DEVICES, is_transform
 from dynamix.model.families import FAMILY_ORDER, display_name, families_of, label_of
+from dynamix.model.roles import is_dev
 from dynamix.model.racks import rack_state
 
 #: Drag mime types a row encodes itself as. The drop target reads these back.
@@ -91,8 +92,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         for name, device in DEVICES.items():
             families = families_of(device)
             # An empty families tuple is a device's own mark that it left the palette.
-            if (name.startswith(_DEV_PREFIX) or name in _SUPERSEDED or name in _SHELL_PLACED
-                    or not families):
+            if is_dev(name, device):
                 members.setdefault("Dev", []).append(name)
                 continue
             for family in families:

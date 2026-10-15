@@ -17,6 +17,7 @@ class ChainTopology:
 
     name = "chain_topology"
     capabilities = frozenset()
+    chain_consumer = True
     label = "Chain topology"
     families = ("Topology",)
     consumes = ((EXTREMA, VCHAINS),)
@@ -60,6 +61,7 @@ class MinVChains:
 
     name = "min_vchains"
     capabilities = frozenset()
+    chain_consumer = True
     label = "Min V-chains per H-line"
     families = ("Selection: V-chains",)
     consumes = ((TOPOLOGY,),)

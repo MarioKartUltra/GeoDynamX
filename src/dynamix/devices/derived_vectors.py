@@ -21,6 +21,7 @@ class DerivedVectors:
 
     name = "derived_vectors"
     capabilities = frozenset({"VectorSource"})
+    shell_placed = True
     #: Placed by the shell on a derivative dataset: listed in no family.
     families = ()
     consumes = ((FIELD,), (STACK,))

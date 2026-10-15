@@ -134,6 +134,8 @@ class GroupPaint:
 
     name = "group_paint"
     capabilities = frozenset()
+    chain_consumer = True
+    shell_placed = True
     #: Appended by the arrangement view's commit: listed in no family.
     families = ()
     consumes = ((VCHAINS,),)
@@ -222,6 +224,7 @@ class GroupFilter:
 
     name = "group_filter"
     capabilities = frozenset()
+    chain_consumer = True
     label = "Group filter"
     families = ("Selection: V-chains",)
     consumes = ((VCHAINS,),)

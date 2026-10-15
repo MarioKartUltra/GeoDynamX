@@ -169,6 +169,7 @@ class TuckerHavok:
 
     name = "tucker_havok"
     capabilities = frozenset({"RegionAware", "StripExtras", "Viewable"})
+    superseded_by = "tucker_HOOI_HOSVD"
     #: Superseded by tucker_HOOI_HOSVD: listed in no family.
     families = ()
     consumes = ((FIELD,), (STACK,))
@@ -328,6 +329,7 @@ class TuckerHOOIHOSVD(TuckerHavok):
 
     name = "tucker_HOOI_HOSVD"
     capabilities = frozenset({"RegionAware", "StripExtras", "Viewable"})
+    superseded_by = None                 # the successor, not superseded: the parent's mark stops here
     label = "Tucker (HOOI / HOSVD)"
     families = ("Decomposition", "Reconstruction")
     consumes = ((FIELD,), (STACK,))

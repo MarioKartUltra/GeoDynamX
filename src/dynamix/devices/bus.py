@@ -20,6 +20,7 @@ class Bus:
 
     name = "bus"
     capabilities = frozenset({"FieldStage", "RegionAware"})
+    shell_placed = True
     #: Placed by the shell's routing dialog: listed in no family.
     families = ()
     consumes = ((FIELD,), (STACK,))

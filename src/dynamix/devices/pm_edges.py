@@ -38,6 +38,8 @@ class PMEdges:
     wants_cancel = True                  # the stop button reaches the snapshot loop
     name = "pm_edges"
     capabilities = frozenset({"Cancellable", "OutputProducer", "RegionAware", "Viewable"})
+    role = "primary"
+    chain_producer = True
     label = "Perona–Malik edges"
     families = ("Edge detection",)
     consumes = ((FIELD,),)
