@@ -265,6 +265,45 @@ def outputs_table() -> str:
                       "tab:outputs", "Tool & Output & Row & Kind & Computed & Per level", rows)
 
 
+PAGE = HERE / "devices_contract.md"
+
+
+def contract_page() -> str:
+    """The one-page device contract (Markdown, ships): what a device declares, the capabilities by
+    name with the attributes the engine probes for them, the contract names, the families and the
+    roles, read from the registry as the tables are."""
+    from dynamix.model.capabilities import PROBES
+    from dynamix.model.roles import chain_producers, primary_analyzers, shell_placed, superseded
+
+    lines = ["# The device contract", "",
+             "Written by `docs/reference/make_tables.py` from the device registry; edit a declaration,",
+             "then run it. A device is one Python class; nothing here needs a base class.", "",
+             "## What a device declares", "",
+             "| attribute | meaning |", "|---|---|",
+             "| `name` | the id: lowercase, digits, underscores; stable, it names the step in a saved chain, a cache key and a `.gprv` step |",
+             "| `label`, `families` | display name and the families it is listed under (`Labs` for an experimental device, `()` to leave the palette) |",
+             "| `params` | a tuple of `Param`; `validate_params` fills defaults and rejects unknown keys |",
+             "| `compute(field, params, progress=None)` + `cache_key(params)` | a Transform; `apply(extrema, params)` makes a Filter |",
+             "| `consumes`, `produces` | alternatives of contract names the step needs, and the set it adds (`<received>` passes the input on) |",
+             "| `capabilities` | a frozenset of the names below; absent, the engine probes the attributes instead |",
+             "| `role = \"primary\"`, `chain_producer`, `chain_consumer`, `superseded_by`, `shell_placed`, `band_variant_of` | the roles the shell derives its device sets from |",
+             "| `outputs` | `Output` declarations the layer's rows show, computed by `compute_output` |",
+             "", "A device file in the user's devices folder exposes `DEVICES = [...]`; a package registers through",
+             "the `geodynamix.devices` entry-point group. `python -m dynamix.new_device <id>` writes a file with a",
+             "golden test. A file that fails to import or validate is a greyed browser row with its error.", "",
+             "## Capabilities", "", "| capability | probed attributes |", "|---|---|"]
+    lines += [f"| `{name}` | " + ", ".join(f"`{a}`" for a in attrs) + " |" for name, attrs in PROBES.items()]
+    lines += ["", "## Contracts", "", "| name | meaning |", "|---|---|"]
+    lines += [f"| `{name}` | {meaning} |" for name, meaning in CONTRACTS.items()]
+    lines += ["", "## Families", "", ", ".join(f"`{f}`" for f in FAMILY_ORDER), "",
+              "## Roles today", "",
+              "- primary analyzers: " + ", ".join(f"`{n}`" for n in primary_analyzers()),
+              "- chain producers: " + ", ".join(f"`{n}`" for n in chain_producers()),
+              "- superseded: " + ", ".join(f"`{n}`" + (f" by `{s}`" if s else " by the Transport") for n, s in superseded().items()),
+              "- shell-placed: " + ", ".join(f"`{n}`" for n in shell_placed()), ""]
+    return "\n".join(lines)
+
+
 def render() -> dict[str, str]:
     """Every table's text, by its name in :data:`TABLES`, from the devices registered now."""
     return {"families": families_table(), "contracts": contracts_table(),
@@ -280,6 +319,8 @@ def main():
     for name, text in render().items():
         (OUT / f"{name}.tex").write_text(text, encoding="utf-8")
         print("wrote", f"tables/{name}.tex")
+    PAGE.write_text(contract_page(), encoding="utf-8")
+    print("wrote", PAGE.name)
 
 
 if __name__ == "__main__":

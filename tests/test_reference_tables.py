@@ -134,3 +134,9 @@ def test_every_public_param_is_named_in_the_reference(make_tables, builtins):
                for p in device.params
                if not p.name.startswith("_") and make_tables.tex(p.name) not in text]
     assert not missing, missing
+
+
+def test_the_contract_page_in_the_tree_is_a_fresh_render(make_tables, builtins):
+    page = make_tables.contract_page()
+    assert page.startswith("# The device contract") and "`FieldStage`" in page and "`wtmm2d`" in page
+    assert make_tables.PAGE.read_text(encoding="utf-8") == page
