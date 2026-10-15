@@ -89,6 +89,7 @@ from dynamix.model.provenance import provenance_tree
 from dynamix.model.racks import (Rack, RackEntry, RackStep, builtin_racks, load_racks,
                                  rack_from_descriptors, save_rack)
 from dynamix.roi.halo import _EDGES, MIN_A_MIN
+from dynamix.shell.commands import bind_commands, build_menus
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
@@ -1695,75 +1696,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if isinstance(stored, dict) and not self._apply_dock_entry(stored):
             self.reset_layout()
 
-        # Window-scoped, so it fires wherever focus sits inside the window but never steals Space
-        # from another window of the same app.
-        self._key_run = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Return"), self)
-        self._key_run.activated.connect(self._run_transforms)
-        self._space = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Space), self)
-        self._space.setContext(QtCore.Qt.WindowShortcut)
-        self._space.activated.connect(self._toggle_transport)
-
-        # `c`/`v` selection-mode hotkeys -- the SAME
-        # mechanism as `self._space` just above, not Tab's bespoke app-level `eventFilter`. Tab
-        # needs that heavier machinery only because Qt's OWN focus-chain navigation consumes a
-        # real Tab keypress before it ever reaches a `QShortcut`/`keyPressEvent` at all
-        # (`eventFilter`'s own docstring); `c`/`v`, like Space, are plain, unclaimed keys with no
-        # such built-in consumer, so a `WindowShortcut`-context `QShortcut` is already the
-        # simplest thing that works: it fires from anywhere focus sits inside this window, and
-        # Qt's own `ShortcutOverride` mechanism defers to a focused `QLineEdit`'s normal text
-        # entry first (proven by `self._space` already coexisting with renaming a layer, which
-        # needs literal spaces) -- so typing "c" or "v" into a rename field or a numeric box
-        # keeps working exactly as typing a space already does, with no extra guard needed here.
-        self._key_click_mode = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_C), self)
-        self._key_click_mode.setContext(QtCore.Qt.WindowShortcut)
-        self._key_click_mode.activated.connect(lambda: self.set_selection_mode("click"))
-
-        self._key_cycle_mode = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_V), self)
-        self._key_cycle_mode.setContext(QtCore.Qt.WindowShortcut)
-        self._key_cycle_mode.activated.connect(self._cycle_selection_mode)
-
-        # Esc cancels an in-progress transect first click
-        # -- the SAME `WindowShortcut`-context idiom as `c`/`v`/Space above (fires from anywhere
-        # focus sits inside this window; `Canvas.cancel_transect` is a harmless no-op when nothing
-        # is in progress, so no mode guard is needed here).
-        self._key_cancel_transect = QtGui.QShortcut(QtGui.QKeySequence(QtCore.Qt.Key_Escape), self)
-        self._key_cancel_transect.setContext(QtCore.Qt.WindowShortcut)
-        self._key_cancel_transect.activated.connect(self.canvas.cancel_transect)
-
-        # Transect delete's undo STACK -- ⌘Z (``QKeySequence.Undo`` resolves to the
-        # platform's own undo chord; Cmd+Z on macOS, the only target per the project's). Bound at the
-        # WINDOW level, same idiom as every other hotkey here, rather than on `TransectPanel`
-        # itself: a `QShortcut` scoped to that widget alone would only fire while it happens to
-        # hold keyboard focus, and undo needs to work regardless of where the user's focus is.
-        self._key_undo_transect = QtGui.QShortcut(QtGui.QKeySequence.Undo, self)
-        self._key_undo_transect.setContext(QtCore.Qt.WindowShortcut)
-        self._key_undo_transect.activated.connect(self._transect_panel.undo)
-
-        # Rack removal's own undo. The design's literal
-        # wording ("removed rack X — ⌘Z restores") names the SAME ``QKeySequence.Undo`` chord already bound above -- but a second ``QShortcut`` on that identical key sequence, in
-        # the identical ``WindowShortcut`` context, does not stack: Qt considers two enabled
-        # shortcuts sharing a key sequence AMBIGUOUS and fires neither ``activated()`` handler (only
-        # ``activatedAmbiguously()``, which nothing here connects to) -- confirmed against Qt's own
-        # shortcut-dispatch docs, not assumed. Rather than invent a focus/context routing rule to
-        # arbitrate between two independent undo stacks sharing one chord (the design's other
-        # offered option -- real complexity for a case a second chord dissolves for free), rack
-        # removal binds Shift+⌘Z instead: still a standard, discoverable macOS chord (the same one
-        # native apps use for Redo -- repurposed here for a second, INDEPENDENT undo track, not
-        # actual redo semantics), distinct from the plain ⌘Z, and named explicitly in the
-        # removal's own status message ("⇧⌘Z restores", ``workflow_zone.py``'s
-        # ``_on_rack_remove_requested``) so the binding is discoverable without this comment. Built
-        # from the literal chord string rather than ``QKeySequence.Redo`` -- the STANDARD KEY's own
-        # name would misleadingly suggest this shortcut performs a real redo.
-        #
-        # Bound through a thin wrapper (:meth:`_undo_rack_removal`), NOT
-        # ``self.strips.undo_removal`` directly -- unlike ``self._transect_panel`` (built once, in
-        # ``__init__``, and never replaced), ``self.strips`` is torn down and REBUILT by
-        # :meth:`_build_strips` on every layer switch/reseed, which would leave a direct connection
-        # bound to a deleted ``WorkflowZone``. The wrapper re-reads ``self.strips`` at ACTIVATION
-        # time instead, so it always reaches whichever zone is live right now.
-        self._key_undo_rack = QtGui.QShortcut(QtGui.QKeySequence("Shift+Ctrl+Z"), self)
-        self._key_undo_rack.setContext(QtCore.Qt.WindowShortcut)
-        self._key_undo_rack.activated.connect(self._undo_rack_removal)
+        # Every shortcut is a command (model/commands.py) bound in the menu block below; the
+        # transect undo and the rack undo stay routed through this window's own wrappers so a
+        # rebuilt strip zone is always the one reached.
 
         # Application-level, not window-scoped: a real Tab press goes to whichever DESCENDANT
         # currently has focus, never to this window object (see ``eventFilter``'s docstring) --
@@ -1777,103 +1712,30 @@ class MainWindow(QtWidgets.QMainWindow):
         # finding. Open/Save/Save As are the wiring, nothing more; the dialogs are file pickers,
         # the one dialog class DESIGN.md's "minimal file-open" already admits.
         self._project_path = None
-        file_menu = self.menuBar().addMenu("File")
-        open_action = QtGui.QAction("Open Project…", self)
-        open_action.triggered.connect(self._on_open_project_clicked)
-        file_menu.addAction(open_action)
-        save_action = QtGui.QAction("Save Project", self)
-        save_action.setShortcut(QtGui.QKeySequence.Save)
-        save_action.triggered.connect(self._on_save_project)
-        file_menu.addAction(save_action)
-        save_as_action = QtGui.QAction("Save Project As…", self)
-        save_as_action.triggered.connect(self._on_save_project_as_clicked)
-        file_menu.addAction(save_as_action)
-        file_menu.addSeparator()
-        # Footprint browser (the first in-app data-browser step):
-        # scan a folder's raster HEADERS, outline every dataset on the world, right-click to
-        # import one. The scanned folders persist (Settings.footprint_folders) and re-scan on the
-        # next window open -- see _restore_footprint_folders.
-        scan_action = QtGui.QAction("Scan Folder for Footprints…", self)
-        scan_action.triggered.connect(self._on_scan_footprints_clicked)
-        file_menu.addAction(scan_action)
-        ref_action = QtGui.QAction("Open Reference Layer…", self)
-        ref_action.triggered.connect(self._on_open_reference_clicked)
-        file_menu.addAction(ref_action)
-        overview_action = QtGui.QAction("Open Full Extent (Overview)…", self)
-        overview_action.triggered.connect(self._on_open_overview_clicked)
-        file_menu.addAction(overview_action)
-        export_chains_action = QtGui.QAction("Export Chains (.npz)…", self)
-        export_chains_action.triggered.connect(self._on_export_chains_clicked)
-        file_menu.addAction(export_chains_action)
-        export_derived_action = QtGui.QAction("Export Derived Raster (.npz)…", self)
-        export_derived_action.triggered.connect(self._on_export_derived_clicked)
-        file_menu.addAction(export_derived_action)
-        racks_menu = self.menuBar().addMenu("Racks")
-        rack_editor_action = QtGui.QAction("Rack Editor…", self)
-        rack_editor_action.triggered.connect(lambda: self._open_rack_editor(None))
-        racks_menu.addAction(rack_editor_action)
-
-        # Minimal Settings menu: one checkable action, read fresh at every open rather than
-        # cached on the window, so a setting changed in one window's menu is honoured the next
-        # time ANY window opens a file -- including this one, without a restart.
-        view_menu = self.menuBar().addMenu("View")
-        # ⌘0 and F ("frame"): WindowShortcut like Space / c / v, so a focused text field keeps
-        # its own typing first.
-        self._zoom_action = QtGui.QAction("Zoom to Dataset", self)
-        self._zoom_action.setShortcuts([QtGui.QKeySequence("Ctrl+0"),
-                                        QtGui.QKeySequence(QtCore.Qt.Key_F)])
-        self._zoom_action.setShortcutContext(QtCore.Qt.WindowShortcut)
-        self._zoom_action.triggered.connect(self._zoom_to_dataset)
-        view_menu.addAction(self._zoom_action)
-        crs_action = QtGui.QAction("Map CRS…", self)
-        crs_action.triggered.connect(self._on_map_crs_action)
-        view_menu.addAction(crs_action)
-        # The docks: show or hide each, put everything back, or keep an arrangement by name.
-        view_menu.addSeparator()
-        for dock in self.docks.values():
-            view_menu.addAction(dock.toggleViewAction())
-        view_menu.addAction("Reset Layout", self.reset_layout)
-        self._layouts_menu = view_menu.addMenu("Layouts")
-        self._rebuild_layouts_menu()
-        settings_menu = self.menuBar().addMenu("Settings")
-        self._auto_run_action = QtGui.QAction("Auto-run transforms", self, checkable=True)
-        self._auto_run_action.setChecked(load_settings().auto_run_wtmm)
-        self._auto_run_action.toggled.connect(self._on_auto_run_toggled)
-        settings_menu.addAction(self._auto_run_action)
-        # The master compute-engine choice: three exclusive radio actions.
-        # Applied immediately (set_default_engine) AND persisted -- engine choice never touches
-        # cache keys (backends agree to float32 tolerance), so flipping it mid-session keeps
-        # every stage cache valid and only changes who does the next FFT.
-        # Engine + precision cover EVERY FFT in the app, persisted and applied at STARTUP
-        # (restart to apply) through fft_policy; the immediate apply described above is the
-        # legacy path (``_on_engine_selected_legacy``), which the menu's own values bypass.
-        engine_menu = settings_menu.addMenu("Compute engine")
-        engine_group = QtGui.QActionGroup(self)
-        engine_group.setExclusive(True)
+        # The menus, shortcuts and the palette all come from one table (model/commands.py); the
+        # window supplies what each id does (command_handlers) and keeps a few attribute aliases
+        # that callers and tests name.
+        self.commands = bind_commands(self, self.command_handlers())
+        build_menus(self, self.commands, extra={"View": self._fill_view_menu_tail})
+        self._zoom_action = self.commands["view.zoom_to_dataset"]
+        self._key_undo_rack = self.commands["edit.undo_rack_drop"]
+        self._key_undo_transect = self.commands["edit.undo_transect"]
         saved = load_settings()
-        self._engine_actions = {}
-        for value, label in (("auto", "Auto (MLX on Apple Silicon, else FFTW3)"),
-                             ("mlx", "MLX (Apple GPU, 32-bit)"),
-                             ("fftw", "FFTW3 (CPU)")):
-            action = QtGui.QAction(label, self, checkable=True)
-            action.setChecked(value == saved.compute_engine)
-            action.triggered.connect(
-                lambda _checked=False, v=value: self._on_engine_selected(v))
-            engine_group.addAction(action)
-            engine_menu.addAction(action)
-            self._engine_actions[value] = action
-        precision_menu = settings_menu.addMenu("FFT precision")
-        precision_group = QtGui.QActionGroup(self)
-        precision_group.setExclusive(True)
-        self._precision_actions = {}
-        for value, label in ((32, "32-bit (single)"), (64, "64-bit (double, FFTW3)")):
-            action = QtGui.QAction(label, self, checkable=True)
-            action.setChecked(value == saved.compute_precision)
-            action.triggered.connect(
-                lambda _checked=False, v=value: self._on_precision_selected(v))
-            precision_group.addAction(action)
-            precision_menu.addAction(action)
-            self._precision_actions[value] = action
+        self._auto_run_action = self.commands["settings.auto_run"]
+        self._auto_run_action.blockSignals(True)               # the stored value, not a change
+        self._auto_run_action.setChecked(saved.auto_run_wtmm)
+        self._auto_run_action.blockSignals(False)
+        self._engine_actions = {v: self.commands[f"settings.engine.{v}"] for v in ("auto", "mlx", "fftw")}
+        self._precision_actions = {v: self.commands[f"settings.precision.{v}"] for v in (32, 64)}
+        self._engine_actions[saved.compute_engine].setChecked(True)
+        self._precision_actions[saved.compute_precision].setChecked(True)
+        for name, dock in self.docks.items():
+            action = self.commands[f"view.{name}"]
+            action.blockSignals(True)
+            action.setChecked(not dock.isHidden())
+            action.blockSignals(False)
+            dock.visibilityChanged.connect(action.setChecked)
+        self.commands[f"view.center.{self._center_view}"].setChecked(True)
         from dynamix.core import fft_policy
         from dynamix.core.wtmm_backend import set_default_engine
         fft_policy.configure(saved.compute_engine, saved.compute_precision)
@@ -9849,6 +9711,8 @@ both ``Canvas`` signals report the
         self._redraw_map()
 
     def _set_center_view(self, view: str) -> None:
+        if hasattr(self, "commands"):
+            self.commands[f"view.center.{view}"].setChecked(True)
         """Switch the center zone to ``view`` -- ``"raster"`` (the session canvas, index 0),
         ``"vector"`` (the arrangement in each layer's own NATIVE frame -- ``field.frame`` straight
         through, no CRS, no georeference gate) or ``"geo"`` (the arrangement's original WGS84
@@ -10360,12 +10224,76 @@ both ``Canvas`` signals report the
     def _rebuild_layouts_menu(self) -> None:
         menu = self._layouts_menu
         menu.clear()
-        menu.addAction("Save as…", self._save_layout_as)
+        menu.addAction(self.commands["view.layouts.save_as"])
         names = list(self._layouts())
         if names:
             menu.addSeparator()
         for name in names:
-            menu.addAction(name, lambda _checked=False, n=name: self.apply_layout(n))
+            action = menu.addAction(name, lambda _checked=False, n=name: self.apply_layout(n))
+            action.setData(f"view.layouts.apply.{name}")          # a named layout is a command too
+
+    # -- commands --------------------------------------------------------------------------
+
+    def command_handlers(self) -> dict:
+        """What each command id does in this window; the table itself is headless."""
+        h = {
+            "file.open_raster": self._on_open_clicked,
+            "file.open_project": self._on_open_project_clicked,
+            "file.save_project": self._on_save_project,
+            "file.save_project_as": self._on_save_project_as_clicked,
+            "file.scan_footprints": self._on_scan_footprints_clicked,
+            "file.open_reference": self._on_open_reference_clicked,
+            "file.open_overview": self._on_open_overview_clicked,
+            "file.export_chains": self._on_export_chains_clicked,
+            "file.export_derived": self._on_export_derived_clicked,
+            "edit.undo_transect": self._transect_panel.undo,
+            "edit.undo_rack_drop": self._undo_rack_removal,
+            "edit.cancel_transect": self.canvas.cancel_transect,
+            "layer.roi": self._on_roi_tool_clicked,
+            "chain.run": self._run_transforms,
+            "transport.play": self._toggle_transport,
+            "view.zoom_to_dataset": self._zoom_to_dataset,
+            "view.map_crs": self._on_map_crs_action,
+            "view.selection.click": lambda: self.set_selection_mode("click"),
+            "view.selection.cycle": self._cycle_selection_mode,
+            "view.reset_layout": self.reset_layout,
+            "view.layouts.save_as": self._save_layout_as,
+            "view.palette": self.show_palette,
+            "racks.editor": lambda: self._open_rack_editor(None),
+            "settings.auto_run": self._on_auto_run_toggled,
+            "help.about": self._show_about,
+        }
+        for view in ("raster", "map", "vector", "geo"):
+            h[f"view.center.{view}"] = lambda checked=True, v=view: self._set_center_view(v)
+        for name, dock in self.docks.items():
+            h[f"view.{name}"] = lambda checked, d=dock: d.setVisible(checked)
+        for value in ("auto", "mlx", "fftw"):
+            h[f"settings.engine.{value}"] = lambda checked=True, v=value: self._on_engine_selected(v)
+        for value in (32, 64):
+            h[f"settings.precision.{value}"] = lambda checked=True, v=value: self._on_precision_selected(v)
+        return h
+
+    def _fill_view_menu_tail(self, menu) -> None:
+        menu.addSeparator()
+        self._layouts_menu = menu.addMenu("Layouts")
+        self._rebuild_layouts_menu()
+
+    def _show_about(self) -> None:
+        QtWidgets.QMessageBox.about(self, "GeoDynamix",
+                                    "GeoDynamix (beta)\nMultiscale analysis of geoscience rasters.")
+
+    def show_palette(self) -> None:
+        """The command palette (view.palette): commands and devices filtered as you type."""
+        from dynamix.shell.commands import CommandPalette
+
+        if not hasattr(self, "_palette"):
+            self._palette = CommandPalette(self, self.commands)
+        self._palette.open()
+
+    def add_device(self, name: str) -> None:
+        """Place a device at the end of the active chain, as a drop would (the palette and the
+        Analysis menu)."""
+        self.strips.add_device(name)
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Honest close-during-compute (v1): there is no cancellation, so the window says which

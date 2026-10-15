@@ -126,7 +126,12 @@ def test_the_view_menu_lists_a_toggle_per_dock_and_reset_layout(qtbot, clean_reg
     texts = [a.text() for a in view.actions()]
     assert "Reset Layout" in texts
     for name in DOCK_NAMES:
-        assert w.docks[name].toggleViewAction() in view.actions()
+        action = w.commands[f"view.{name}"]
+        assert action in view.actions() and action.isCheckable() and action.isChecked()
+        w.docks[name].close()
+        assert not action.isChecked()                              # follows the dock's visibility
+        action.trigger()
+        assert not w.docks[name].isHidden()                        # and drives it
 
 
 def test_a_floating_dock_restored_off_every_screen_docks_again(qtbot, clean_registry):

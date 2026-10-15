@@ -786,13 +786,13 @@ def test_removing_the_sole_layer_mid_compute_lands_without_a_crash(qtbot, stub_d
 
 
 def test_space_toggles_the_transport(qtbot, loaded):
-    shortcuts = [s for s in loaded.findChildren(QtGui.QShortcut)
-                 if s.key() == QtGui.QKeySequence(QtCore.Qt.Key_Space)]
-    assert len(shortcuts) == 1
-    assert shortcuts[0].context() == QtCore.Qt.WindowShortcut
-    shortcuts[0].activated.emit()
+    """Space is the one command transport.play, bound once with window context."""
+    action = loaded.commands["transport.play"]
+    assert [s.toString() for s in action.shortcuts()] == ["Space"]
+    assert action.shortcutContext() == QtCore.Qt.WindowShortcut
+    action.trigger()
     assert loaded.transport.clock.playing is True
-    shortcuts[0].activated.emit()
+    action.trigger()
     assert loaded.transport.clock.playing is False
 
 
