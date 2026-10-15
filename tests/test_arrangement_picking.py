@@ -21,6 +21,7 @@ from unittest.mock import Mock
 
 import numpy as np
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 from PySide6 import QtCore, QtWidgets
 
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")

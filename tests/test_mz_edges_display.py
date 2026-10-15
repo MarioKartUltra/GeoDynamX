@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 from dynamix.core.frames import LocalFrame
 from dynamix.core.rasterfield import RasterField

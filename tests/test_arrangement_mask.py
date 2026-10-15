@@ -14,6 +14,7 @@ import time
 
 import numpy as np
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 pytest.importorskip("rasterio", reason="rasterio not installed (needed by the geo fixture)")

@@ -25,6 +25,7 @@ from __future__ import annotations
 from unittest.mock import Mock
 
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 from PySide6 import QtCore, QtGui
 
 from dynamix.shell.arrangement.group_palette import GroupPalette

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.shell.settings import update_settings

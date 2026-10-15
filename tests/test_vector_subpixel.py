@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 pv = pytest.importorskip("pyvista")
 

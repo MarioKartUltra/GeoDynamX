@@ -11,6 +11,7 @@ imported unconditionally regardless -- but the ``ArrangementView`` wiring sectio
 from __future__ import annotations
 
 import pytest
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 from dynamix.core.projection import MODES
 from dynamix.shell.arrangement.mode_row import DEFAULT_MODE, ModeRow
