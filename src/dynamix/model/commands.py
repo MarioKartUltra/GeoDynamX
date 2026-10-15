@@ -22,6 +22,10 @@ class Command:
     group: str = ""
     #: Runs without a window (``python -m dynamix.run <id>``): the settings commands.
     headless: bool = False
+    #: A submenu title inside the category's menu ("Compute engine"), or none.
+    submenu: str = ""
+    #: A separator sits before this entry in its menu.
+    separator_before: bool = False
 
 
 COMMANDS: tuple[Command, ...] = (
@@ -29,7 +33,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("file.open_project", "Open Project…", "File"),
     Command("file.save_project", "Save Project", "File", ("Ctrl+S",)),
     Command("file.save_project_as", "Save Project As…", "File"),
-    Command("file.scan_footprints", "Scan Folder for Footprints…", "File"),
+    Command("file.scan_footprints", "Scan Folder for Footprints…", "File", separator_before=True),
     Command("file.open_reference", "Open Reference Layer…", "File"),
     Command("file.open_overview", "Open Full Extent (Overview)…", "File"),
     Command("file.export_chains", "Export Chains (.npz)…", "File"),
@@ -48,7 +52,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("view.center.geo", "Globe", "View", checkable=True, group="view.center"),
     Command("view.selection.click", "Click Selection", "View", ("C",)),
     Command("view.selection.cycle", "Next Selection Mode", "View", ("V",)),
-    Command("view.dock.browser", "Devices", "View", checkable=True),
+    Command("view.dock.browser", "Devices", "View", checkable=True, separator_before=True),
     Command("view.dock.layers", "Processing", "View", checkable=True),
     Command("view.dock.inspector", "Inspector", "View", checkable=True),
     Command("view.dock.chain", "Chain", "View", checkable=True),
@@ -58,15 +62,15 @@ COMMANDS: tuple[Command, ...] = (
     Command("racks.editor", "Rack Editor…", "Racks"),
     Command("settings.auto_run", "Auto-run transforms", "Settings", checkable=True, headless=True),
     Command("settings.engine.auto", "Auto (MLX on Apple Silicon, else FFTW3)", "Settings",
-            checkable=True, group="settings.engine", headless=True),
+            checkable=True, group="settings.engine", headless=True, submenu="Compute engine"),
     Command("settings.engine.mlx", "MLX (Apple GPU, 32-bit)", "Settings", checkable=True,
-            group="settings.engine", headless=True),
+            group="settings.engine", headless=True, submenu="Compute engine"),
     Command("settings.engine.fftw", "FFTW3 (CPU)", "Settings", checkable=True,
-            group="settings.engine", headless=True),
+            group="settings.engine", headless=True, submenu="Compute engine"),
     Command("settings.precision.32", "32-bit (single)", "Settings", checkable=True,
-            group="settings.precision", headless=True),
+            group="settings.precision", headless=True, submenu="FFT precision"),
     Command("settings.precision.64", "64-bit (double, FFTW3)", "Settings", checkable=True,
-            group="settings.precision", headless=True),
+            group="settings.precision", headless=True, submenu="FFT precision"),
     Command("help.about", "About GeoDynamix", "Help"),
 )
 

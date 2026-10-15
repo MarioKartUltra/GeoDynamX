@@ -194,3 +194,19 @@ def test_closing_stores_state_and_geometry_apart_from_named_layouts(qtbot, tmp_p
     qtbot.addWidget(w2)
     assert w2.dockWidgetArea(w2.docks["dock.inspector"]) == QtCore.Qt.LeftDockWidgetArea
     assert w2._geometry_restored and w2.height() == size.height()   # the width is pinned by the 800 px offscreen screen
+
+
+def test_a_tabbed_dock_stays_shown_and_checked_when_its_tab_goes_behind(qtbot, clean_registry):
+    """Qt emits visibilityChanged(False) for a dock whose tab goes behind another; that must never
+    hide the dock or uncheck its View entry (the old toggleViewAction tracked hidden/shown only)."""
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.show()
+    qtbot.waitExposed(w)
+    a, b = w.docks["dock.browser"], w.docks["dock.layers"]
+    w.tabifyDockWidget(a, b)
+    for front in (b, a, b):
+        front.raise_()
+        QtWidgets.QApplication.processEvents()
+    assert not a.isHidden() and not b.isHidden()
+    assert w.commands["view.dock.browser"].isChecked() and w.commands["view.dock.layers"].isChecked()

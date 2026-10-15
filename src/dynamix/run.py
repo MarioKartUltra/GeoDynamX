@@ -22,7 +22,25 @@ HEADLESS = {
 USAGE = "python -m dynamix.run <command id> [key=value ...] | --list"
 
 
-def main(argv=None) -> int:
+def _notes(settings) -> list[str]:
+    """What the Settings menu says after the same change: the precision note for the engine chosen,
+    an absent mlx, and that a running app applies the engine on restart."""
+    from dynamix.core.fft_policy import precision_note
+
+    notes = []
+    note = precision_note(settings.compute_engine, int(settings.compute_precision))
+    if note:
+        notes.append(note)
+    if settings.compute_engine == "mlx":
+        try:
+            import mlx.core  # noqa: F401
+        except ImportError:
+            notes.append("mlx is not installed here; FFTW3 will be used")
+    notes.append("saved; a running GeoDynamix applies it on restart")
+    return notes
+
+
+def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv or argv[0] in ("-h", "--help"):
         print(f"usage: {USAGE}", file=sys.stderr)
@@ -31,14 +49,20 @@ def main(argv=None) -> int:
         for cid in sorted(HEADLESS):
             print(f"{cid}\t{by_id()[cid].title}")
         return 0
-    cid, args = argv[0], dict(a.split("=", 1) for a in argv[1:] if "=" in a)
+    cid, rest = argv[0], argv[1:]
+    bare = [a for a in rest if "=" not in a]
+    if bare:
+        print(f"not key=value: {' '.join(bare)}", file=sys.stderr)
+        return 2
     if cid not in by_id():
         print(f"unknown command {cid!r}", file=sys.stderr)
         return 2
     if cid not in HEADLESS:
         print(f"{cid} needs a window: run it from the app", file=sys.stderr)
         return 2
-    HEADLESS[cid](args)
+    settings = HEADLESS[cid](dict(a.split("=", 1) for a in rest))
+    for note in _notes(settings):
+        print(f"{cid}: {note}")
     return 0
 
 

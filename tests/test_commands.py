@@ -67,3 +67,14 @@ def test_the_runner_imports_no_qt():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          env={**__import__("os").environ, "PYTHONNOUSERSITE": "1"})
     assert out.stdout.strip() == "ok", out.stderr
+
+
+def test_the_runner_handles_exactly_the_headless_commands_and_says_restart(tmp_path, monkeypatch, capsys):
+    from dynamix.run import HEADLESS, main
+
+    assert set(HEADLESS) == {c.id for c in COMMANDS if c.headless}
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    assert main(["settings.engine.fftw", "bogus"]) == 2           # an argument without = is an error
+    assert not (tmp_path / "s.json").exists()
+    assert main(["settings.engine.fftw"]) == 0
+    assert "restart" in capsys.readouterr().out.lower()

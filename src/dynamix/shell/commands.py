@@ -42,8 +42,19 @@ def bind_commands(window: QtWidgets.QMainWindow, handlers: dict) -> dict:
             action.triggered.connect(lambda _checked=False, h=handler: h())
         window.addAction(action)                    # the shortcut lives on the window, menu or not
         actions[c.id] = action
-    window._command_groups = groups
     return actions
+
+
+def watch_enabled(actions: dict, menus: dict, enabled: dict):
+    """``enabled`` maps a command id to a predicate; the returned callable applies them all and runs
+    before every menu opens (the palette calls it when it opens)."""
+    def refresh() -> None:
+        for cid, pred in enabled.items():
+            actions[cid].setEnabled(bool(pred()))
+    for menu in menus.values():
+        menu.aboutToShow.connect(refresh)
+    refresh()
+    return refresh
 
 
 def build_menus(window: QtWidgets.QMainWindow, actions: dict, *, extra=None) -> dict:
@@ -58,15 +69,24 @@ def build_menus(window: QtWidgets.QMainWindow, actions: dict, *, extra=None) -> 
         if category == "Analysis":
             _fill_analysis(window, menu)
             continue
+        submenus: dict = {}
         for c in COMMANDS:
-            if c.category == category:
-                menu.addAction(actions[c.id])
+            if c.category != category:
+                continue
+            target = menu
+            if c.submenu:
+                target = submenus.get(c.submenu)
+                if target is None:
+                    target = submenus[c.submenu] = menu.addMenu(c.submenu)
+            if c.separator_before:
+                target.addSeparator()
+            target.addAction(actions[c.id])
         if extra and category in extra:
             extra[category](menu)
     return menus
 
 
-def _fill_analysis(window, menu) -> None:
+def _fill_analysis(window: QtWidgets.QMainWindow, menu: QtWidgets.QMenu) -> None:
     by_family: dict = {}
     for name, device in sorted(DEVICES.items()):
         for family in families_of(device):
@@ -87,7 +107,7 @@ class CommandPalette(QtWidgets.QFrame):
     filtered as you type; Enter runs the first match, Esc closes and hands focus back. Entries are
     command ids and ``device.<name>``; a device entry takes the drop path at the end of the chain."""
 
-    def __init__(self, window, actions: dict):
+    def __init__(self, window: QtWidgets.QMainWindow, actions: dict[str, QtGui.QAction]) -> None:
         super().__init__(window, QtCore.Qt.Popup | QtCore.Qt.FramelessWindowHint)
         self._window, self._actions = window, actions
         layout = QtWidgets.QVBoxLayout(self)
@@ -95,7 +115,8 @@ class CommandPalette(QtWidgets.QFrame):
         self.line = QtWidgets.QLineEdit()
         self.line.setPlaceholderText("Command or device\u2026")
         self.line.textChanged.connect(self.filter)
-        self.line.returnPressed.connect(self._run_first)
+        self.line.returnPressed.connect(self._run_current)
+        self.line.installEventFilter(self)              # Up/Down/PageUp/PageDown move the list
         self.list = QtWidgets.QListWidget()
         self.list.itemActivated.connect(lambda item: self._run(item.data(QtCore.Qt.UserRole)))
         layout.addWidget(self.line)
@@ -104,8 +125,8 @@ class CommandPalette(QtWidgets.QFrame):
 
     def entries(self) -> list:
         """``(entry id, text)`` for every enabled command and every registered device."""
-        out = [(cid, f"{a.text()}    {a.shortcut().toString()}".rstrip())
-               for cid, a in self._actions.items() if a.isEnabled()]
+        out = [(cid, f"{a.text()}    {a.shortcut().toString(QtGui.QKeySequence.NativeText)}".rstrip())
+               for cid, a in self._actions.items() if a.isEnabled() and cid != "view.palette"]
         for name, device in sorted(DEVICES.items()):
             out.append((f"device.{name}",
                         f"Add {label_of(device)}  ({name}, {', '.join(families_of(device))})"))
@@ -129,6 +150,9 @@ class CommandPalette(QtWidgets.QFrame):
         return shown
 
     def open(self) -> None:
+        refresh = getattr(self._window, "refresh_commands", None)
+        if refresh is not None:
+            refresh()
         self.line.clear()
         self.filter("")
         self.move(self._window.mapToGlobal(
@@ -136,9 +160,17 @@ class CommandPalette(QtWidgets.QFrame):
         self.show()
         self.line.setFocus()
 
-    def _run_first(self) -> None:
-        if self.list.count():
-            self._run(self.list.item(0).data(QtCore.Qt.UserRole))
+    def _run_current(self) -> None:
+        item = self.list.currentItem() or (self.list.item(0) if self.list.count() else None)
+        if item is not None:
+            self._run(item.data(QtCore.Qt.UserRole))
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self.line and event.type() == QtCore.QEvent.KeyPress and event.key() in (
+                QtCore.Qt.Key_Up, QtCore.Qt.Key_Down, QtCore.Qt.Key_PageUp, QtCore.Qt.Key_PageDown):
+            QtWidgets.QApplication.sendEvent(self.list, event)
+            return True
+        return super().eventFilter(obj, event)
 
     def _run(self, entry_id: str) -> None:
         self.hide()
@@ -147,7 +179,7 @@ class CommandPalette(QtWidgets.QFrame):
         else:
             self._actions[entry_id].trigger()
 
-    def keyPressEvent(self, event) -> None:
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:
         if event.key() == QtCore.Qt.Key_Escape:
             self.hide()
             self._window.activateWindow()

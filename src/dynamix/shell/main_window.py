@@ -89,7 +89,8 @@ from dynamix.model.provenance import provenance_tree
 from dynamix.model.racks import (Rack, RackEntry, RackStep, builtin_racks, load_racks,
                                  rack_from_descriptors, save_rack)
 from dynamix.roi.halo import _EDGES, MIN_A_MIN
-from dynamix.shell.commands import bind_commands, build_menus
+from dynamix.shell.commands import bind_commands, build_menus, watch_enabled
+from dynamix.shell.controller import CommandController
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
@@ -1715,8 +1716,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # The menus, shortcuts and the palette all come from one table (model/commands.py); the
         # window supplies what each id does (command_handlers) and keeps a few attribute aliases
         # that callers and tests name.
+        self.controller = CommandController(self)
         self.commands = bind_commands(self, self.command_handlers())
-        build_menus(self, self.commands, extra={"View": self._fill_view_menu_tail})
+        self.menus = build_menus(self, self.commands, extra={"View": self._fill_view_menu_tail})
+        self.refresh_commands = watch_enabled(self.commands, self.menus, self.command_enabled())
         self._zoom_action = self.commands["view.zoom_to_dataset"]
         self._key_undo_rack = self.commands["edit.undo_rack_drop"]
         self._key_undo_transect = self.commands["edit.undo_transect"]
@@ -1734,7 +1737,9 @@ class MainWindow(QtWidgets.QMainWindow):
             action.blockSignals(True)
             action.setChecked(not dock.isHidden())
             action.blockSignals(False)
-            dock.visibilityChanged.connect(action.setChecked)
+            # visibilityChanged also fires for a tab going behind another, so the check mark is
+            # read from isHidden(), the hidden/shown state it means, never from the signal's value.
+            dock.visibilityChanged.connect(lambda _v, a=action, d=dock: a.setChecked(not d.isHidden()))
         self.commands[f"view.center.{self._center_view}"].setChecked(True)
         from dynamix.core import fft_policy
         from dynamix.core.wtmm_backend import set_default_engine
@@ -9717,8 +9722,6 @@ both ``Canvas`` signals report the
         self._redraw_map()
 
     def _set_center_view(self, view: str) -> None:
-        if hasattr(self, "commands"):
-            self.commands[f"view.center.{view}"].setChecked(True)
         """Switch the center zone to ``view`` -- ``"raster"`` (the session canvas, index 0),
         ``"vector"`` (the arrangement in each layer's own NATIVE frame -- ``field.frame`` straight
         through, no CRS, no georeference gate) or ``"geo"`` (the arrangement's original WGS84
@@ -9750,6 +9753,8 @@ both ``Canvas`` signals report the
         ``__init__``'s own comments on ``self._mask_row``/``self._group_palette``/
         ``self._view_dialog`` for the three deliberate exceptions.
         """
+        if hasattr(self, "commands"):
+            self.commands[f"view.center.{view}"].setChecked(True)
         if view == self._center_view:
             return
         previous, self._center_view = self._center_view, view
@@ -10235,12 +10240,20 @@ both ``Canvas`` signals report the
             menu.addSeparator()
         for name in names:
             action = menu.addAction(name, lambda _checked=False, n=name: self.apply_layout(n))
-            action.setData(f"view.layouts.apply.{name}")          # a named layout is a command too
+            slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+            action.setData(f"view.layouts.apply.{slug}")          # a named layout is a command too
 
     # -- commands --------------------------------------------------------------------------
 
+    def command_enabled(self) -> dict:
+        """The commands that need an open raster; everything else is always enabled."""
+        has_field = lambda: self.field is not None
+        return {cid: has_field for cid in ("chain.run", "file.export_chains", "file.export_derived",
+                                           "layer.roi")}
+
     def command_handlers(self) -> dict:
-        """What each command id does in this window; the table itself is headless."""
+        """What each command id does in this window; the table itself is headless. Transport and key
+        handling come from the controller (``shell/controller.py``)."""
         h = {
             "file.open_raster": self._on_open_clicked,
             "file.open_project": self._on_open_project_clicked,
@@ -10251,16 +10264,10 @@ both ``Canvas`` signals report the
             "file.open_overview": self._on_open_overview_clicked,
             "file.export_chains": self._on_export_chains_clicked,
             "file.export_derived": self._on_export_derived_clicked,
-            "edit.undo_transect": self._transect_panel.undo,
-            "edit.undo_rack_drop": self._undo_rack_removal,
-            "edit.cancel_transect": self.canvas.cancel_transect,
             "layer.roi": self._on_roi_tool_clicked,
             "chain.run": self._run_transforms,
-            "transport.play": self._toggle_transport,
-            "view.zoom_to_dataset": self._zoom_to_dataset,
             "view.map_crs": self._on_map_crs_action,
-            "view.selection.click": lambda: self.set_selection_mode("click"),
-            "view.selection.cycle": self._cycle_selection_mode,
+            **self.controller.handlers(),
             "view.reset_layout": self.reset_layout,
             "view.layouts.save_as": self._save_layout_as,
             "view.palette": self.show_palette,
@@ -10278,7 +10285,7 @@ both ``Canvas`` signals report the
             h[f"settings.precision.{value}"] = lambda checked=True, v=value: self._on_precision_selected(v)
         return h
 
-    def _fill_view_menu_tail(self, menu) -> None:
+    def _fill_view_menu_tail(self, menu: QtWidgets.QMenu) -> None:
         menu.addSeparator()
         self._layouts_menu = menu.addMenu("Layouts")
         self._rebuild_layouts_menu()

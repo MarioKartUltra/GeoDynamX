@@ -3,7 +3,7 @@
 """Every menu action is a command; the shortcuts kept their keys; Space toggles the transport once."""
 from __future__ import annotations
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.commands import by_id
 from dynamix.shell.main_window import MainWindow
@@ -103,3 +103,101 @@ def test_the_palette_opens_on_ctrl_k_filters_and_returns_focus(qtbot, loaded):
     QtTest.QTest.keyClick(palette.line, QtCore.Qt.Key_Escape)
     assert not palette.isVisible()
     qtbot.waitUntil(w.isActiveWindow, timeout=3000)
+
+
+def test_the_settings_menu_keeps_its_submenus_and_file_and_view_their_separators(qtbot, clean_registry):
+    w = MainWindow()
+    qtbot.addWidget(w)
+    settings = {a.menu().title(): a.menu() for a in w.menus["Settings"].actions() if a.menu() is not None}
+    assert list(settings) == ["Compute engine", "FFT precision"]
+    assert [a.data() for a in settings["Compute engine"].actions()] == [
+        "settings.engine.auto", "settings.engine.mlx", "settings.engine.fftw"]
+    assert [a.data() for a in settings["FFT precision"].actions()] == [
+        "settings.precision.32", "settings.precision.64"]
+    file_actions = w.menus["File"].actions()
+    assert [a.isSeparator() for a in file_actions].index(True) == 4      # after Save Project As…
+    view = w.menus["View"].actions()
+    i = [a.data() for a in view].index("view.dock.browser")
+    assert view[i - 1].isSeparator()
+
+
+def test_the_palette_runs_the_current_row_after_the_arrow_keys(qtbot, loaded):
+    from PySide6 import QtTest
+
+    w = loaded
+    w.show()
+    qtbot.waitExposed(w)
+    w.commands["view.palette"].trigger()
+    palette = w._palette
+    shown = palette.filter("dock")
+    assert shown[:2] == ["view.dock.browser", "view.dock.layers"]
+    QtTest.QTest.keyClick(palette.line, QtCore.Qt.Key_Down)
+    assert palette.list.currentRow() == 1
+    was_hidden = w.docks["dock.layers"].isHidden()
+    QtTest.QTest.keyClick(palette.line, QtCore.Qt.Key_Return)
+    assert not palette.isVisible()
+    assert w.docks["dock.layers"].isHidden() != was_hidden       # the second entry ran
+    assert not w.docks["dock.browser"].isHidden()                 # the first did not
+
+
+def test_commands_needing_a_raster_are_disabled_and_out_of_the_palette_before_one_is_open(qtbot, window):
+    w = window
+    w.refresh_commands()
+    for cid in ("chain.run", "file.export_chains", "file.export_derived", "layer.roi"):
+        assert not w.commands[cid].isEnabled(), cid
+    w.show_palette()
+    assert "file.export_chains" not in w._palette.filter("")
+
+
+def test_commands_needing_a_raster_enable_once_one_is_open(qtbot, loaded):
+    loaded.refresh_commands()
+    assert loaded.commands["chain.run"].isEnabled()
+    assert loaded.commands["file.export_chains"].isEnabled()
+
+
+def test_the_palette_filters_wtmm_to_the_wtmm_commands_and_devices(qtbot, clean_registry):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.show_palette()
+    shown = w._palette.filter("wtmm")
+    assert "device.wtmm2d" in shown and all("wtmm" in s for s in shown)
+
+
+def test_the_palette_shows_native_shortcut_text_and_not_itself(qtbot, loaded):
+    w = loaded
+    w.show_palette()
+    shown = w._palette.filter("")
+    assert "view.palette" not in shown
+    labels = [w._palette.list.item(i).text() for i in range(w._palette.list.count())]
+    save = next(label for label in labels if label.startswith("Save Project "))
+    assert save.endswith(QtGui.QKeySequence("Ctrl+S").toString(QtGui.QKeySequence.NativeText))
+
+
+def test_a_named_layout_gets_a_slug_id_and_the_window_keeps_no_group_attribute(qtbot, loaded):
+    w = loaded
+    w.save_layout("My Desk 2")
+    assert "view.layouts.apply.my_desk_2" in [a.data() for a in w._layouts_menu.actions()]
+    assert not hasattr(w, "_command_groups")
+    assert MainWindow._set_center_view.__doc__.startswith("Switch")
+
+
+def test_transport_and_key_handling_live_in_the_controller(qtbot, loaded):
+    from dynamix.shell.controller import CommandController
+
+    w = loaded
+    controller = CommandController(w)
+    handlers = controller.handlers()
+    assert {"transport.play", "edit.cancel_transect", "edit.undo_transect", "edit.undo_rack_drop",
+            "view.selection.click", "view.selection.cycle", "view.zoom_to_dataset"} <= set(handlers)
+    assert w.command_handlers()["transport.play"] == w.controller.toggle_transport
+    w.controller.toggle_transport()
+    assert w.transport.clock.playing
+    w.controller.toggle_transport()                 # and back: a running sweep outlives the test
+    assert not w.transport.clock.playing
+    w.controller.selection_cycle()
+    assert w._selection_mode != "click"
+    w.controller.selection_click()
+    assert w._selection_mode == "click"
