@@ -64,3 +64,4 @@ def test_a_refused_inspector_edit_shows_in_neither_control(qtbot, loaded):
     assert w._params[0].get("n_scales", before) == before
     assert _val(w.strips.strip(0).controls["n_scales"]) == before
     assert _val(knob) == before
+    assert "locked" in w.strips.reading_label.text()          # refused for that reason, and said so

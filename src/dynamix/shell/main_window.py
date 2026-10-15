@@ -5259,7 +5259,7 @@ both ``Canvas`` signals report the
         knobs = tuple(p for p in device.params if getattr(p, "section", "") == _RECON_SECTION
                       and p.kind is not ParamKind.TEXT)
         if panel.set_params(knobs, values):
-            self.right_panel._protect_from_wheel(panel)
+            self.right_panel.protect_from_wheel(panel)
         table = "recon_levels" in values and values.get("algorithm") == "lastwave"
         panel.levels.setVisible(table)
         if table:

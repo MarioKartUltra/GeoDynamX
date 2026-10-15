@@ -206,15 +206,15 @@ class RightPanel(QtWidgets.QScrollArea):
         layout.addWidget(heading)
         layout.addWidget(widget)
         self._headings[title] = heading                 # retitled by set_section_title
-        self._protect_from_wheel(frame)
+        self.protect_from_wheel(frame)
         index = 0 if first else self._column.count() - 1     # top, or before the trailing stretch
         self._column.insertWidget(index, frame)
         self._sections[title] = frame
         return frame
 
     def set_section_title(self, key: str, text: str) -> None:
-        """Retitle the section added under ``key``; a key no section was added under raises KeyError."""
-        """Retitle a section (the Device section names the step it shows)."""
+        """Retitle the section added under ``key`` (the Device section names the step it shows);
+        an unknown key raises KeyError."""
         self._headings[key].setText(text)
 
     def apply_relevance(self, relevance: dict) -> None:
@@ -238,7 +238,6 @@ class RightPanel(QtWidgets.QScrollArea):
 
     # -- Display section (relocated from the left panel, plumbing unchanged) ---------
 
-    _protect_from_wheel = protect_from_wheel          # the name older callers use
     def _build_display_section(self, display_params) -> None:
         """The Display knobs, built exactly as they were in the left panel's old
         ``display_row`` -- same ``make_control(control_spec(p), p.default)`` call, same
