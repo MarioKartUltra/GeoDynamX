@@ -41,10 +41,27 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[app,dev]"
+          python -m pip install -e ".[fast,io,app,dev]"
       - name: Engine in use
         run: python -c "from dynamix.core import fft_policy as p; print(p.resolve())"
       - name: Headless gate
         run: python -m pytest -q -p no:cacheprovider $(grep -L "pyvista\|QtWidgets\|qtbot" tests/test_*.py)
       - name: Qt-only gate (offscreen)
         run: python -m pytest -q -p no:cacheprovider $(grep -l "QtWidgets\|qtbot" tests/test_*.py | xargs grep -L "pyvista")
+
+  lint-imports:
+    name: layering gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[fast,io,dev]"
+      - name: Import contracts
+        run: lint-imports
