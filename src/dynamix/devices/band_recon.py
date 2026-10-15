@@ -37,7 +37,7 @@ class BandRecon:
     name = "band_recon"
     capabilities = frozenset({"RegionAware"})
     role = "primary"
-    superseded_by = "band_recon_measure"
+    superseded_by = "holder_measure"
     band_variant_of = "holder_map"
     band_rank = 2
     #: Superseded: listed in no family.

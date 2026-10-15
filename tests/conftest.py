@@ -64,6 +64,31 @@ def stub_filter():
     return StubFilter()
 
 
+def make_field(values=None, shape=(64, 56)):
+    """A pixel-framed RasterField: ``values`` or a fixed-seed random walk of ``shape``."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    if values is None:
+        values = np.random.default_rng(0).standard_normal(shape).cumsum(0).cumsum(1)
+    return RasterField(name="f", values=values, frame=LocalFrame(units="px"),
+                       x_axis=np.arange(float(values.shape[1])),
+                       y_axis=np.arange(float(values.shape[0])))
+
+
+def make_layer(*steps, window=None):
+    """A layer whose chain is ``steps`` (``(device id, params)`` pairs), materialized; ``window``
+    is an ROI window tag."""
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    chain = Chain(tuple(DeviceRef(n, dict(p)) for n, p in steps)).materialized()
+    layer = Layer(layer_id=1, name="L", source_id="s", chain=chain)
+    if window is not None:
+        layer.tags["roi.window"] = window
+    return layer
+
+
 @pytest.fixture(autouse=True)
 def _registry_leak_guard():
     """Detect tests that leave DEVICES dirty without requesting clean_registry."""
@@ -81,14 +106,22 @@ def _registry_leak_guard():
 
 @pytest.fixture
 def clean_registry():
-    """Empty device registry, restored afterwards. Registration is global state."""
+    """Empty device registry, restored afterwards. Registration is global state, and so are the
+    plugin origins and the once-per-process discovery memo beside it."""
+    from dynamix.model import plugins
     from dynamix.model.device import DEVICES
 
-    saved = dict(DEVICES)
+    saved, origins, found = dict(DEVICES), dict(plugins.ORIGINS), dict(plugins._DISCOVERED)
     DEVICES.clear()
+    plugins.ORIGINS.clear()
+    plugins._DISCOVERED.clear()
     yield DEVICES
     DEVICES.clear()
     DEVICES.update(saved)
+    plugins.ORIGINS.clear()
+    plugins.ORIGINS.update(origins)
+    plugins._DISCOVERED.clear()
+    plugins._DISCOVERED.update(found)
 
 
 @pytest.fixture(autouse=True)

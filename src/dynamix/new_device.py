@@ -23,11 +23,15 @@ from dynamix.model.param import Param, ParamKind
 class {cls}:
     name = "{id}"
     label = "{label}"
-    families = ("Labs",)                 # experimental: listed folded until you promote it
-    capabilities = frozenset()           # names from dynamix.model.capabilities.CAPABILITIES
+    # Experimental: listed under Labs, folded, until you promote it to a family.
+    families = ("Labs",)
+    # Names from dynamix.model.capabilities.CAPABILITIES; with a declaration the engine probes
+    # nothing, so a wants_cancel or an outputs you add needs its name here too.
+    capabilities = frozenset()
     params = (Param("gain", ParamKind.FLOAT, default=1.0, min=0.0, max=10.0),)
-    consumes = (("{consumes}",),)         # alternatives of contract names the step needs
-    produces = frozenset({{"{produces}"}})  # what it adds; "<received>" passes the input on
+    # Alternatives of contract names the step needs; what it adds ("<received>" passes the input on).
+    consumes = (("{consumes}",),)
+    produces = {produces_expr}
 {body}
 
 DEVICES = [{cls}()]
@@ -77,7 +81,7 @@ def test_{id}_matches_its_golden_output():
         out = device.compute(field, params)
         values = np.asarray(out["values"] if isinstance(out, dict) else out)
     else:
-        values = np.asarray([len(device.apply([], params))])
+        values = np.asarray([len(device.apply([{{}}, {{}}, {{}}], params))])
     if not GOLDEN.exists():
         GOLDEN.parent.mkdir(parents=True, exist_ok=True)
         np.savez(GOLDEN, values=values)
@@ -94,8 +98,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m dynamix.new_device", usage=USAGE)
     ap.add_argument("id")
     ap.add_argument("--kind", choices=("transform", "filter"), default="transform")
-    ap.add_argument("--consumes", default="Field")
-    ap.add_argument("--produces", default="Field")
+    ap.add_argument("--consumes", default=None, help="Field for a transform, ExtremaStack for a filter")
+    ap.add_argument("--produces", default=None, help="Field for a transform, nothing for a filter")
     ap.add_argument("--dir", default=None)
     try:
         a = ap.parse_args(sys.argv[1:] if argv is None else argv)
@@ -104,7 +108,9 @@ def main(argv: list[str] | None = None) -> int:
     if not re.fullmatch(r"[a-z][a-z0-9_]*", a.id):
         print(f"not a device id (lowercase, digits, underscores): {a.id!r}", file=sys.stderr)
         return 2
-    unknown = [c for c in (a.consumes, a.produces) if c != "<received>" and c not in ALL_CONTRACTS]
+    consumes = a.consumes or ("Field" if a.kind == "transform" else "ExtremaStack")
+    produces = a.produces if a.produces is not None else ("Field" if a.kind == "transform" else "")
+    unknown = [c for c in (consumes, produces) if c and c != "<received>" and c not in ALL_CONTRACTS]
     if unknown:
         print(f"unknown contract name(s) {unknown}; known: {sorted(ALL_CONTRACTS)}", file=sys.stderr)
         return 2
@@ -114,19 +120,20 @@ def main(argv: list[str] | None = None) -> int:
     else:
         folder = Path(a.dir)
     device_path = folder / f"{a.id}.py"
-    if device_path.exists():
-        print(f"{device_path} exists; not overwriting", file=sys.stderr)
+    test_name = f"test_{a.id}.py"
+    readme = folder / "golden" / a.id / "README.md"
+    taken = [p for p in (device_path, folder / test_name, readme.parent) if p.exists()]
+    if taken:
+        print(f"{taken[0]} exists; not overwriting", file=sys.stderr)
         return 2
     folder.mkdir(parents=True, exist_ok=True)
     cls = "".join(part.capitalize() for part in a.id.split("_"))
     label = a.id.replace("_", " ").capitalize()
     body = _TRANSFORM_BODY if a.kind == "transform" else _FILTER_BODY
-    consumes = a.consumes if a.kind == "transform" else "ExtremaStack"
+    produces_expr = f'frozenset({{"{produces}"}})' if produces else "frozenset()"
     device_path.write_text(_DEVICE.format(cls=cls, id=a.id, label=label, consumes=consumes,
-                                          produces=a.produces, body=body))
-    test_name = f"test_{a.id}.py"
+                                          produces_expr=produces_expr, body=body))
     (folder / test_name).write_text(_TEST.format(id=a.id, test_name=test_name))
-    readme = folder / "golden" / a.id / "README.md"
     readme.parent.mkdir(parents=True, exist_ok=True)
     readme.write_text(_README.format(id=a.id))
     for p in (device_path, folder / test_name, readme):

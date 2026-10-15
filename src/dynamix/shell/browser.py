@@ -33,6 +33,8 @@ _CATEGORIES = ("Transforms", "Filters", "Dev", "Racks")
 #: The headers after the families, in display order.
 _TAIL = ("Racks", "Dev")
 
+#: The browser reads ``dynamix.model.roles.is_dev``; the three tables below are the baseline
+#: ``tests/test_roles.py`` asserts.
 #: Naming convention for stub devices — routed to the "Dev" category, not a registry change.
 _DEV_PREFIX = "stub_"
 
@@ -120,6 +122,8 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
             item.setToolTip(0, result.error)
         self.expandAll()
         self.collapseItem(self._categories["Dev"])
+        if any(r.error for r in plugin_results):   # a failed device file: its row is seen at once
+            self.expandItem(self._categories["Dev"])
         if "Labs" in self._categories:          # experimental devices: listed, folded away
             self.collapseItem(self._categories["Labs"])
         #: ``(steps, layer_input, master, roi_holder)`` of the active layer, or None before one.

@@ -4,7 +4,8 @@
 
 The engine and the shell used to learn them by probing attributes (``getattr(device,
 "field_stage", False)`` and ten more). A device may now declare ``capabilities = frozenset({...})``
-with the names below; the probes stay as the fallback for a device that declares nothing, and
+with the names below, and the engine, the ROI runner, the fork logic and the shell ask :func:`has`,
+which reads the declaration when there is one and probes only a device that declares nothing;
 :func:`differences` lists every registered device whose declaration disagrees with its probes."""
 from __future__ import annotations
 

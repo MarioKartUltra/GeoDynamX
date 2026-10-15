@@ -273,7 +273,8 @@ def contract_page() -> str:
     name with the attributes the engine probes for them, the contract names, the families and the
     roles, read from the registry as the tables are."""
     from dynamix.model.capabilities import PROBES
-    from dynamix.model.roles import chain_producers, primary_analyzers, shell_placed, superseded
+    from dynamix.model.roles import (band_for_analyzer, chain_producers, consumer_producers,
+                                     primary_analyzers, shell_placed, superseded)
 
     lines = ["# The device contract", "",
              "Written by `docs/reference/make_tables.py` from the device registry; edit a declaration,",
@@ -288,9 +289,11 @@ def contract_page() -> str:
              "| `capabilities` | a frozenset of the names below; absent, the engine probes the attributes instead |",
              "| `role = \"primary\"`, `chain_producer`, `chain_consumer`, `superseded_by`, `shell_placed`, `band_variant_of` | the roles the shell derives its device sets from |",
              "| `outputs` | `Output` declarations the layer's rows show, computed by `compute_output` |",
-             "", "A device file in the user's devices folder exposes `DEVICES = [...]`; a package registers through",
-             "the `geodynamix.devices` entry-point group. `python -m dynamix.new_device <id>` writes a file with a",
-             "golden test. A file that fails to import or validate is a greyed browser row with its error.", "",
+             "", "A device file in the user's devices folder exposes `DEVICES = [...]`: one self-contained file per",
+             "device (the folder is not on the import path, so a file cannot import a sibling; `_*.py` and",
+             "`test_*.py` are skipped). A package registers through the `geodynamix.devices` entry-point group.",
+             "`python -m dynamix.new_device <id>` writes a file with a golden test beside it. A file that fails to",
+             "import or validate is a greyed browser row with its error; discovery runs once per start.", "",
              "## Capabilities", "", "| capability | probed attributes |", "|---|---|"]
     lines += [f"| `{name}` | " + ", ".join(f"`{a}`" for a in attrs) + " |" for name, attrs in PROBES.items()]
     lines += ["", "## Contracts", "", "| name | meaning |", "|---|---|"]
@@ -299,6 +302,8 @@ def contract_page() -> str:
               "## Roles today", "",
               "- primary analyzers: " + ", ".join(f"`{n}`" for n in primary_analyzers()),
               "- chain producers: " + ", ".join(f"`{n}`" for n in chain_producers()),
+              "- chain consumers: " + ", ".join(f"`{n}`" for n in consumer_producers()),
+              "- band variants: " + ", ".join(f"`{v}` for `{a}`" for a, v in band_for_analyzer().items()),
               "- superseded: " + ", ".join(f"`{n}`" + (f" by `{s}`" if s else " by the Transport") for n, s in superseded().items()),
               "- shell-placed: " + ", ".join(f"`{n}`" for n in shell_placed()), ""]
     return "\n".join(lines)

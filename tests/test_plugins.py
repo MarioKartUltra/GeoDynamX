@@ -6,6 +6,8 @@ from __future__ import annotations
 import hashlib
 import textwrap
 
+import pytest
+
 from dynamix.engine.cache import cache_key
 from dynamix.model.device import DEVICES, get_device
 from dynamix.model.plugins import discover, origin_of
@@ -50,12 +52,47 @@ def test_a_plugin_naming_an_unknown_contract_is_refused(tmp_path, clean_registry
     assert len(results) == 1 and "Fields" in results[0].error and "plug_bad" not in DEVICES
 
 
+def test_discovery_runs_once_per_process(tmp_path, clean_registry):
+    (tmp_path / "double.py").write_text(GOOD)
+    first = discover(tmp_path, entry_group="geodynamix.tests.none")
+    second = discover(tmp_path, entry_group="geodynamix.tests.none")
+    assert first == second and [r.error for r in second] == [None] and "plug_double" in DEVICES
+
+
+def test_a_file_that_exits_or_cannot_be_read_is_a_row_and_the_next_file_still_loads(tmp_path, clean_registry):
+    (tmp_path / "a_quits.py").write_text("import sys\nsys.exit(3)\n")
+    (tmp_path / "b_folder.py").mkdir()
+    (tmp_path / "c_double.py").write_text(GOOD)
+    results = discover(tmp_path, entry_group="geodynamix.tests.none")
+    assert [r.error and r.error.split(":")[0] for r in results] == ["SystemExit", "IsADirectoryError", None]
+    assert results[1].origin == "user:b_folder.py" and "plug_double" in DEVICES
+
+
 def test_a_duplicate_id_is_an_error_and_the_first_stands(tmp_path, clean_registry):
     (tmp_path / "a.py").write_text(GOOD)
     (tmp_path / "b.py").write_text(GOOD)
     results = sorted(discover(tmp_path, entry_group="geodynamix.tests.none"), key=lambda r: r.path)
     assert results[0].error is None and "already registered" in results[1].error
     assert get_device("plug_double") is not None
+
+
+def _variant(text: str) -> str:
+    return GOOD.replace("plug_double", "plug_variant").replace('families = ("Labs",)', text)
+
+
+@pytest.mark.parametrize("declaration, word", [
+    ('families = ("Labs",)\n    capabilities = frozenset({"Typo"})', "Typo"),
+    ('families = ("Labs",)\n    role = "secondary"', "role"),
+    ('families = ("Labs",)\n    band_variant_of = "plug_other"', "band_rank"),
+    ('families = ("Labs",)\n    band_variant_of = "holder_measure"\n    band_rank = 7', "already has"),
+])
+def test_a_bad_declaration_is_refused_at_discovery_not_in_the_shell(tmp_path, clean_registry, declaration, word):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    (tmp_path / "variant.py").write_text(_variant(declaration))
+    results = discover(tmp_path, entry_group="geodynamix.tests.none")
+    assert len(results) == 1 and word in results[0].error and "plug_variant" not in DEVICES
 
 
 def test_an_entry_point_registers_its_device(tmp_path, clean_registry, monkeypatch):
@@ -88,12 +125,12 @@ def test_the_cache_salt_leaves_builtin_keys_unchanged_and_separates_user_version
 def test_a_plugin_step_is_keyed_with_its_origin(tmp_path, clean_registry):
     from dynamix.engine.cache import Cache
     from dynamix.engine.resolve import resolve
-    from tests.test_engine_contracts import _field, _layer
+    from tests.conftest import make_field, make_layer
 
     (tmp_path / "double.py").write_text(GOOD)
     assert discover(tmp_path, entry_group="geodynamix.tests.none")[0].error is None
-    layer = _layer(("plug_double", {"gain": 2.0}))
-    r = resolve(layer, _field(), Cache())
+    layer = make_layer(("plug_double", {"gain": 2.0}))
+    r = resolve(layer, make_field(), Cache())
     assert r.analysis_key == cache_key("plug_double", layer.source_id, {"gain": 2.0},
                                        origin=origin_of("plug_double"))
     assert r.analysis_key != cache_key("plug_double", layer.source_id, {"gain": 2.0})

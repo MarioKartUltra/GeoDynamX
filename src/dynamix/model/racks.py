@@ -22,6 +22,7 @@ from importlib import metadata
 from pathlib import Path
 
 from dynamix.model.chain import Chain, DeviceRef
+from dynamix.model import capabilities
 from dynamix.model.contracts import StepState, next_step_state
 from dynamix.model.forking import is_primary, routing_head
 from dynamix.model.device import get_device, is_transform, validate_params
@@ -284,7 +285,7 @@ def rack_state(rack: Rack, steps, layer_input: str, *, master: bool = False,
         return StepState(True)
     device = get_device(first.device)
     head = next((i for i, ref in enumerate(steps) if is_primary(get_device(ref.device))), None)
-    if not (is_primary(device) or getattr(device, "reads_source", False)):
+    if not (is_primary(device) or capabilities.has(device, "SourceReader")):
         base = steps
     elif roi_holder:
         base = steps if head is None else steps[:head]

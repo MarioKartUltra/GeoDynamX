@@ -45,3 +45,38 @@ def test_a_device_that_declares_nothing_is_reported_and_a_wrong_declaration_is_l
     clean_registry["bare"], clean_registry["wrong"] = Bare(), Wrong()
     assert undeclared() == ["bare"]
     assert differences() == {"wrong": ({"Cancellable"}, {"FieldStage"})}
+
+
+def test_the_engine_reads_the_declaration_and_probes_only_a_device_that_declares_nothing(clean_registry):
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from tests.conftest import make_field, make_layer
+
+    seen = {}
+
+    class Quiet:
+        """Sets ``wants_cancel`` but declares no capability: the declaration wins, no cancel."""
+        name = "quiet"
+        params = ()
+        families = ("Labs",)
+        consumes = (("Field",),)
+        produces = frozenset({"Field"})
+        capabilities = frozenset()
+        wants_cancel = True
+
+        def compute(self, field, params, progress=None, **kw):
+            seen[self.name] = sorted(kw)
+            return {"values": field.values}
+
+        def cache_key(self, params):
+            return (self.name,)
+
+    class Loud(Quiet):
+        """Declares nothing at all: the probe finds ``wants_cancel`` and the cancel is passed."""
+        name = "loud"
+        capabilities = None
+
+    clean_registry["quiet"], clean_registry["loud"] = Quiet(), Loud()
+    for name in ("quiet", "loud"):
+        resolve(make_layer((name, {})), make_field(), Cache(), cancel=lambda: False)
+    assert seen == {"quiet": [], "loud": ["cancel"]}

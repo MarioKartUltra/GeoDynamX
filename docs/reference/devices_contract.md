@@ -16,9 +16,11 @@ then run it. A device is one Python class; nothing here needs a base class.
 | `role = "primary"`, `chain_producer`, `chain_consumer`, `superseded_by`, `shell_placed`, `band_variant_of` | the roles the shell derives its device sets from |
 | `outputs` | `Output` declarations the layer's rows show, computed by `compute_output` |
 
-A device file in the user's devices folder exposes `DEVICES = [...]`; a package registers through
-the `geodynamix.devices` entry-point group. `python -m dynamix.new_device <id>` writes a file with a
-golden test. A file that fails to import or validate is a greyed browser row with its error.
+A device file in the user's devices folder exposes `DEVICES = [...]`: one self-contained file per
+device (the folder is not on the import path, so a file cannot import a sibling; `_*.py` and
+`test_*.py` are skipped). A package registers through the `geodynamix.devices` entry-point group.
+`python -m dynamix.new_device <id>` writes a file with a golden test beside it. A file that fails to
+import or validate is a greyed browser row with its error; discovery runs once per start.
 
 ## Capabilities
 
@@ -58,5 +60,7 @@ golden test. A file that fails to import or validate is a greyed browser row wit
 
 - primary analyzers: `wtmm2d`, `mz_edges`, `wavelet_skeleton`, `cdf_edges`, `pm_edges`, `holder_map`, `holder_measure`, `holder_multiaffine`, `band_recon`, `band_recon_measure`, `band_recon_multiaffine`
 - chain producers: `wtmm2d`, `wtmm2d_roi`, `mz_edges`, `wavelet_skeleton`, `cdf_edges`, `pm_edges`
-- superseded: `holder_map` by `holder_measure`, `band_recon` by `band_recon_measure`, `band_recon_measure` by `holder_measure`, `band_recon_multiaffine` by `holder_multiaffine`, `tucker_havok` by `tucker_HOOI_HOSVD`, `scale_select` by the Transport
+- chain consumers: `chain_topology`, `min_vchains`, `scale_select`, `orientation_wedge`, `modulus_threshold`, `hline_length`, `hline_modulus`, `hline_holder`, `chain_holder`, `chain_modulus`, `chain_length`, `chain_classify`, `group_paint`, `group_filter`
+- band variants: `band_recon_measure` for `holder_measure`, `band_recon_multiaffine` for `holder_multiaffine`, `band_recon` for `holder_map`
+- superseded: `holder_map` by `holder_measure`, `band_recon` by `holder_measure`, `band_recon_measure` by `holder_measure`, `band_recon_multiaffine` by `holder_multiaffine`, `tucker_havok` by `tucker_HOOI_HOSVD`, `scale_select` by the Transport
 - shell-placed: `bus`, `group_paint`, `derived_vectors`

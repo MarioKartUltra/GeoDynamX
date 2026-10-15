@@ -62,9 +62,9 @@ from dynamix.core.pointset import read_csv_points
 from dynamix.core.transect import chains_in_buffer, sample_profile
 from dynamix.devices import register_builtin_devices
 from dynamix.devices.groups import encode_groups
-from dynamix.engine import Cache, cache_key, resolve, source_identity
+from dynamix.engine import Cache, resolve, source_identity
 from dynamix.engine.resolve import (output_key, seed_shown_level, selection_recipe,
-                                    selection_steps, shown_level)
+                                    selection_steps, shown_level, step_key)
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
                                     scan_footprints, scene_label)
@@ -73,6 +73,7 @@ from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
+from dynamix.model import capabilities
 from dynamix.model.plugins import discover
 from dynamix.model.roles import band_devices, band_for_analyzer, consumer_producers, primary_analyzers
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
@@ -348,6 +349,8 @@ def _display_style_of(layer) -> dict:
 #: DIFFERENT one onto an analyzed layer forks a sibling representation instead of mutating
 #: the chain. ``wtmm2d_roi`` is absent
 #: deliberately -- its drop has its own armed-placement branch.
+#: The window reads this set from ``dynamix.model.roles``; the table is the baseline
+#: ``tests/test_roles.py`` asserts.
 _PRIMARY_ANALYZERS = ("wtmm2d", "mz_edges", "wavelet_skeleton", "cdf_edges", "pm_edges",
                       "holder_map", "holder_measure", "holder_multiaffine", "band_recon",
                       "band_recon_measure", "band_recon_multiaffine")
@@ -390,13 +393,16 @@ def _band_device_for(names) -> str:
     """The band-reconstruction variant a Band-dialog commit should create for THIS recipe:
     the variant matching the recipe's h-map producer, conflated ``band_recon`` when the
     producer is the conflated device or absent."""
-    producer = next((n for n in band_for_analyzer() if n in names), "holder_map")
-    return band_for_analyzer()[producer]
+    variants = band_for_analyzer()
+    producer = next((n for n in variants if n in names), "holder_map")
+    return variants[producer]
 
 #: Consumer devices -> the producers whose results they read. THE SHIPPING LAW: devices follow
 #: their producer. On a fork, a consumer stranded on the parent whose producers include the
 #: NEW analyzer but not the parent's own ships to the sibling WITH its tuned params -- on the
 #: parent it could only ever no-op. Consumers of the parent's analyzer never move.
+#: The window reads this set from ``dynamix.model.roles``; the table is the baseline
+#: ``tests/test_roles.py`` asserts.
 _CHAIN_PRODUCERS = ("wtmm2d", "wtmm2d_roi", "mz_edges", "wavelet_skeleton", "cdf_edges",
                     "pm_edges")
 _CONSUMER_PRODUCERS = {name: _CHAIN_PRODUCERS for name in (
@@ -440,10 +446,11 @@ def _analyzer_fork(old_names, old_bypassed, descriptors, *,
             sibling.append(dict(d))
     if not sibling:
         return None
+    producers_of = consumer_producers()
     shipped = [i for i, n in enumerate(old_names)
-               if n in consumer_producers()
-               and new_primary in consumer_producers()[n]
-               and old_primary not in consumer_producers()[n]]
+               if n in producers_of
+               and new_primary in producers_of[n]
+               and old_primary not in producers_of[n]]
     return sibling, shipped
 
 
@@ -522,8 +529,8 @@ def _roi_spawn(old_names, descriptors) -> "tuple | None":
         if d.get("bypassed"):
             continue
         dev = get_device(d["device"])
-        if (is_transform(dev) and not getattr(dev, "field_stage", False)
-                and not getattr(dev, "reads_source", False)):
+        if (is_transform(dev) and not capabilities.has(dev, "FieldStage")
+                and not capabilities.has(dev, "SourceReader")):
             return sibling, []
     return None
 
@@ -4917,7 +4924,7 @@ both ``Canvas`` signals report the
             return False
         # A derivative dataset's vector loader (``vector_source``) is part of the dataset.
         return not any(is_transform(get_device(n))
-                       and not getattr(get_device(n), "field_stage", False)
+                       and not capabilities.has(get_device(n), "FieldStage")
                        and not getattr(get_device(n), "vector_source", False)
                        for n, b in zip(self._names, self._bypassed) if not b)
 
@@ -5804,7 +5811,8 @@ both ``Canvas`` signals report the
     def _cache_keys_for(self, layer) -> list[str]:
         """Every transform step's cache key for ``layer``'s OWN chain, threaded through
         ``upstream`` exactly as :func:`dynamix.engine.resolve.resolve` derives them -- reused via
-        the imported :func:`~dynamix.engine.cache_key` AND :func:`~dynamix.engine.source_identity`,
+        the imported :func:`~dynamix.engine.resolve.step_key` (which carries a plugin's origin)
+        AND :func:`~dynamix.engine.source_identity`,
         never re-typed, so freeze can never pin a DIFFERENT key than the one a resolve would
         actually look up (a duplicated format string -- or a duplicated ``source_id`` derivation -- is exactly the kind of drift ``cache.py``'s own module
         docstring warns about). Filters are skipped -- they are never cached, and ``resolve`` never
@@ -5822,7 +5830,7 @@ both ``Canvas`` signals report the
             if not state.applies or not is_transform(device):
                 continue
             params = validate_params(device, ref.params)
-            key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream)
+            key = step_key(device, sid, params, upstream)
             keys.append(key)
             upstream = key
         return keys

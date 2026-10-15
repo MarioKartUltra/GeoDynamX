@@ -17,10 +17,20 @@ import numpy as np
 
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
+from dynamix.model import capabilities
 from dynamix.model.contracts import input_contract, stamp_fill, step_states
-from dynamix.model.plugins import origin_of
 from dynamix.model.device import (Output, apply_view, declared_outputs, get_device,
                                   is_transform, keyed_params, validate_params)
+from dynamix.model.plugins import origin_of
+
+
+def step_key(device, sid: str, params: dict, upstream: str | None) -> str:
+    """The cache key of one transform step: the device, the source identity, its keyed params,
+    the key of the transform before it and, for a plugin, its origin. The one derivation:
+    :func:`resolve` and the shell's own walk of a chain (``MainWindow._cache_keys_for``) both call
+    it, so the key the shell looks up is the key the engine stored."""
+    return cache_key(device.name, sid, keyed_params(device, params), upstream=upstream,
+                     origin=origin_of(device.name))
 
 
 @dataclasses.dataclass
@@ -184,10 +194,10 @@ def _roi_prefix(layer, steps) -> list:
     run = []
     for ref in steps:
         device = get_device(ref.device)
-        if not is_transform(device) or getattr(device, "reads_source", False):
+        if not is_transform(device) or capabilities.has(device, "SourceReader"):
             break
         run.append((device, validate_params(device, ref.params)))
-        if not getattr(device, "field_stage", False):
+        if not capabilities.has(device, "FieldStage"):
             return run                      # the analyzer closes the region step
     return []                               # a field stage with no analyzer: nothing to crop
 
@@ -213,7 +223,7 @@ def _refuse_the_picture(layer, field, steps) -> None:
     for ref in steps:
         device = get_device(ref.device)
         if is_transform(device):
-            if getattr(device, "reads_source", False):
+            if capabilities.has(device, "SourceReader"):
                 return
             raise ValueError(
                 f"{ref.device}: this dataset is too big to analyse whole — its display is a "
@@ -319,8 +329,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
 
         rect = tuple(int(v) for v in layer.tags["roi.window"].split(","))
         for device, params in roi_steps:
-            upstream = cache_key(device.name, sid, keyed_params(device, params),
-                                 upstream=upstream, origin=origin_of(device.name))
+            upstream = step_key(device, sid, params, upstream)
 
         def _region(run=roi_steps, r=rect):
             return run_on_region(run, field, r, progress=progress, cancel=cancel)
@@ -338,15 +347,14 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
         params = validate_params(device, ref.params)
 
         if is_transform(device):
-            key = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream,
-                            origin=origin_of(device.name))
+            key = step_key(device, sid, params, upstream)
 
             # A transform after the first consumes the previous result, not the raw field.
             src = field if upstream is None else result
 
             def _compute(d=device, p=params, s=src):
                 kw = {}
-                if getattr(d, "wants_cancel", False):
+                if capabilities.has(d, "Cancellable"):
                     kw["cancel"] = cancel
                 if getattr(d, "uses_stage_cache", False):
                     kw["stage_cache"] = cache.stages
@@ -365,7 +373,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             # that model must see honest filtered dicts, exactly as the sequential dict path
             # would hand them over -- so the live selection is materialized ONCE before it
             # runs (a no-op when nothing is narrowed or no product is stamped).
-            if not getattr(device, "selection_aware", False):
+            if not capabilities.has(device, "SelectionAware"):
                 result = materialize_selection(result)
             result = device.apply(result, params)
             ran_f.append(device.name)
@@ -459,7 +467,7 @@ def level_keeps(layer, raw: dict, device, params: dict, level: int,
         names = {p.name for p in filt.params}
         extra = {k: v for k, v in overrides.get(key, {}).items() if k in names}
         p = validate_params(filt, {**ref.params, **extra})
-        if not getattr(filt, "selection_aware", False):
+        if not capabilities.has(filt, "SelectionAware"):
             result = materialize_selection(result)
         result = filt.apply(result, p)
     result = materialize_selection(result)
@@ -527,9 +535,9 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
     def _window() -> dict:
         window, _info = read_processing_window(field, (row, col, h, w), m)
         for d, p in roi_steps[:-1]:
-            kw = {"cancel": cancel} if getattr(d, "wants_cancel", False) else {}
+            kw = {"cancel": cancel} if capabilities.has(d, "Cancellable") else {}
             window = d.compute(window, p, progress=progress, **kw)
-        kw = {"cancel": cancel} if getattr(analyzer, "wants_cancel", False) else {}
+        kw = {"cancel": cancel} if capabilities.has(analyzer, "Cancellable") else {}
         return {"window": window, "raw": analyzer.compute(window, aparams, progress=progress,
                                                           **kw)}
 

@@ -87,6 +87,7 @@ def devices_dir() -> Path:
     the settings file, so ``DYNAMIX_SETTINGS_PATH`` moves it too."""
     return settings_path().parent / "devices"
 
+
 def load_settings() -> Settings:
     try:
         d = json.loads(settings_path().read_text())
