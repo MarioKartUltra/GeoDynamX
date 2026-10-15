@@ -307,18 +307,16 @@ def _tensor_svd_3x2_numpy(gx1, gy1, gx2, gy2, gx3, gy3):
 
 
 def resolve_tensor_svd_3x2():
-    """Lazily resolve the 3x2 tensor-SVD callable.
-
-    Prefers ``wtmm_ebsd.cwt2d.tensor_svd_3x2`` (available whenever ``mlx``
-    is importable, since that module hard-imports it at load time) and
-    falls back to the numpy transcription :func:`_tensor_svd_3x2_numpy`
-    (the universal-binary path) otherwise.
-    """
-    try:
-        from dynamix._vendor.wtmm_ebsd.cwt2d import tensor_svd_3x2
-        return tensor_svd_3x2
-    except ImportError:
-        return _tensor_svd_3x2_numpy
+    """Lazily resolve the 3x2 tensor-SVD callable: the app's own transcription
+    :func:`_tensor_svd_3x2_numpy`; the vendored ``wtmm_ebsd.cwt2d.tensor_svd_3x2`` behind
+    :data:`USE_VENDORED` until the last port."""
+    if USE_VENDORED:
+        try:
+            from dynamix._vendor.wtmm_ebsd.cwt2d import tensor_svd_3x2
+            return tensor_svd_3x2
+        except ImportError:
+            pass
+    return _tensor_svd_3x2_numpy
 
 
 def _cwtd_numpy(signal, a_min, n_oct, n_voice, wavelet_name: str = "g2",
@@ -857,6 +855,11 @@ def _load_wtmm_ebsd_module(name: str):
         return module
 
 
+#: Test-only (spec 09, Phase B): True routes the 2-D CWT on mlx and the tensor SVD through the
+#: vendored ``wtmm_ebsd.cwt2d`` originals in place of the app's own transcriptions, so the two can
+#: be compared until the last port; the app never sets it.
+USE_VENDORED: bool = False
+
 #: The app-wide default cwt2d engine. ``None`` = the auto-detect ``cwt2d`` always had (mlx when
 #: importable, else the numpy/FFT fallback); "mlx"/"numpy" force one engine for every call that
 #: does not pass its own ``_engine``. Set by the shell from ``Settings.compute_engine`` at
@@ -885,11 +888,12 @@ def get_default_engine() -> "str | None":
 def _resolve_cwt2d_engine():
     """Lazily resolve the CWT operator injected as ``cwt_2d_f32``.
 
-    Prefers ``wtmm_ebsd.cwt2d.cwt_2d_f32`` (the mlx original) and falls back to
-    the numpy transcription :func:`_cwt2d_numpy`. The two are
-    signature-compatible -- ``(image, scales, *, pad, derivs, wavelet,
-    verbose)`` returning a dict keyed by derivative name -- and both implement
-    ``derivs="all"``, which the tensor path needs for the wavelet Hessian.
+    On mlx the app's own :func:`_cwt2d_mlx` (the vendored ``cwt_2d_f32`` loop with the
+    registry's filters; the original stays behind :data:`USE_VENDORED`), else the numpy
+    transcription :func:`_cwt2d_numpy` on the policy's FFT. All three are
+    signature-compatible -- ``(image, scales, *, pad, derivs, wavelet, verbose)`` returning a
+    dict keyed by derivative name -- and implement ``derivs="all"``, which the tensor path
+    needs for the wavelet Hessian.
     """
     from dynamix.core import fft_policy
 
@@ -897,8 +901,10 @@ def _resolve_cwt2d_engine():
     if be.name == "mlx":
         try:
             import mlx.core  # noqa: F401
-            from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
-            return cwt_2d_f32
+            if USE_VENDORED:
+                from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
+                return cwt_2d_f32
+            return _cwt2d_mlx
         except ImportError:
             pass
     # FFTW3 at the policy precision; numpy's FFT only as the policy's last resort
@@ -1041,13 +1047,13 @@ class PythonWTMMBackend:
 
         if engine == "mlx":
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
-            if registry:
-                raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
-                                 wavelet=wavelet, verbose=False, params=smoother_params)
-            else:
+            if USE_VENDORED and not registry:
                 from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
                 raw = cwt_2d_f32(field, scales, pad=pad, derivs=derivs,
                                   wavelet=wavelet, verbose=False)
+            else:
+                raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
+                                 wavelet=wavelet, verbose=False, params=smoother_params)
         elif engine == "fftw":
             from dynamix.core import fft_policy
             be = fft_policy.active()

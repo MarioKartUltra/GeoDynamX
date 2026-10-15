@@ -6,8 +6,12 @@ the 2-D Gaussian-pair CWT (``backend.cwt2d``) and the 1-D CWT (``backend.cwt1d``
 (``chain_groups.subset_hd``), the Dupont–Venugopal cumulants (``spectra.cascade_cumulants``) and the
 1-D pipeline (``extrema1d``, ``chains1d``, ``partition1d``). The goldens under ``golden/vendor/``
 were recorded from the vendored originals (tag ``vendored-snapshot-2026-10``) before spec 09 trimmed
-them; a port of a piece (spec 09, Phase B) must reproduce its golden to rtol 1e-6 for float32 and
-1e-10 for float64 on the recording machine (backends agree to float32 tolerance elsewhere).
+them; a port of a piece (spec 09, Phase B) must reproduce its golden on the recording machine. The
+1-D pieces are float64 end to end and must agree to 1e-10. The 2-D pieces run through the float32
+transform on mlx, where the app's own filter bank and the vendored one differ by rounding, so they
+agree to float32 tolerance (1e-5 relative, with the same share of each array's largest value as the
+absolute floor), angles modulo 2π, and the per-(q, a) standard errors of h, D and τ, which amplify a
+rounding difference through a fit over a handful of chains, to 1e-2. The chain counts are exact.
 
     PYTHONNOUSERSITE=1 python tests/test_vendor_goldens.py --record
 """
@@ -134,8 +138,32 @@ def _count(obj):
     return repr(obj)[:60]
 
 
-def _tolerance(arr: np.ndarray) -> float:
-    return 1e-6 if arr.dtype == np.float32 else 1e-10
+#: Relative tolerance per piece: the 1-D pieces are float64 end to end; the 2-D pieces are what the
+#: float32 transform makes of them.
+TOLERANCE = {"cwt2d": 1e-5, "tensor": 1e-5, "chain_filters": 1e-5, "dh_from_chains": 1e-5,
+             "cumulants": 1e-5, "cwtd": 1e-10, "pipeline_1d": 1e-10}
+
+
+def _compare(piece: str, key: str, got: dict, want: dict) -> None:
+    """``got[key]`` against ``want[key]`` at the piece's tolerance (see the module docstring). An
+    argument is compared modulo 2π and only where the modulus beside it carries a signal (above
+    1e-3 of its largest value): where the gradient vanishes the angle is rounding noise."""
+    rtol = TOLERANCE[piece]
+    if "sigma" in key and rtol > 1e-9:
+        rtol = 1e-2
+    g, w = np.asarray(got[key], dtype=np.float64), np.asarray(want[key], dtype=np.float64)
+    assert g.shape == w.shape, (piece, key, g.shape, w.shape)
+    if key.endswith("arg"):
+        mod = np.asarray(want[key[:-3] + "mod"], dtype=np.float64)
+        lit = mod > 1e-3 * mod.max()
+        d = np.abs(np.angle(np.exp(1j * (g[lit] - w[lit]))))
+        assert d.max() <= rtol * np.pi, (piece, key, float(d.max()))
+        return
+    finite = np.isfinite(w)
+    assert np.array_equal(finite, np.isfinite(g)), (piece, key, "NaN pattern")
+    scale = float(np.abs(w[finite]).max()) if finite.any() else 0.0
+    np.testing.assert_allclose(g[finite], w[finite], rtol=rtol, atol=rtol * scale,
+                               err_msg=f"{piece}/{key}")
 
 
 @pytest.mark.parametrize("piece", PIECES)
@@ -151,8 +179,29 @@ def test_the_vendored_piece_reproduces_its_golden(piece):
         if w.dtype.kind in "US":
             assert str(g) == str(w), key
         else:
-            np.testing.assert_allclose(g, w, rtol=_tolerance(np.asarray(g)), atol=0.0,
-                                       err_msg=f"{piece}/{key}")
+            _compare(piece, key, got, want)
+
+
+@pytest.mark.parametrize("piece", ["cwt2d", "tensor"])
+def test_the_vendored_originals_still_reproduce_the_goldens_behind_the_flag(piece):
+    """Port 1 (spec 09, Phase B): the app's own 2-D mlx transform and tensor SVD are the live
+    path; the vendored originals, reachable only with ``USE_VENDORED``, must agree with the same
+    goldens until the last port removes them."""
+    from dynamix.core import wtmm_backend
+
+    pytest.importorskip("mlx.core")
+    meta = json.loads((GOLDEN / "machine.json").read_text())
+    if meta["machine"] != _machine():
+        pytest.skip(f"recorded on {meta['machine']}")
+    want = dict(np.load(GOLDEN / f"{piece}.npz", allow_pickle=False))
+    wtmm_backend.USE_VENDORED = True
+    try:
+        got = _flatten(_run(piece))
+    finally:
+        wtmm_backend.USE_VENDORED = False
+    for key, w in want.items():
+        if w.dtype.kind not in "US":
+            _compare(piece, key, got, want)
 
 
 if __name__ == "__main__" and "--record" in sys.argv:
