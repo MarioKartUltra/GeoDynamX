@@ -48,7 +48,7 @@ from dynamix.core.chain_product import DRAW_CAP as _DRAW_CAP
 from dynamix.core.transect import orient_endpoints
 from dynamix.roi.picture import display_stride, native_shape, sample_spacing
 from dynamix.core.wtmm_backend import _order_lines
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import RESTRAINED_DARK, current, rgb
 from dynamix.shell.units import px_to_metres
 
 __all__ = [
@@ -106,7 +106,8 @@ _CLICK_MAX_TRAVEL_PX = 3.0
 #: strings: The chrome-literal grep matches `#rrggbb` text and font-family names, not tuples.
 EXTREMA_COLOR = (200, 200, 200)     # isolated extrema (line_id == -1): light gray
 HCHAIN_COLOR = (235, 235, 235)      # H-chain polylines: white-ish
-VTRAIL_COLOR = (255, 160, 40)       # V-chain drift trails: amber family
+VTRAIL_COLOR = (255, 160, 40)       # V-chain drift trails: amber family (the default theme's; the
+                                    # pen itself reads theme.current().amber, so a theme re-tints it)
 
 #: Point-layer scatter overlay -- a distinct, cool hue, deliberately
 #: NOT amber (VTRAIL_COLOR/the ROI band's One-Accent Rule exception) and NOT a seam/ghost/extrema
@@ -858,14 +859,14 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.hchain_item.setVisible(False)
         self.view.addItem(self.hchain_item)
 
-        self.vtrail_item = pg.PlotDataItem(pen=pg.mkPen(VTRAIL_COLOR), connect="finite")
+        self.vtrail_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().amber)), connect="finite")
         self.vtrail_item.setVisible(False)
         self.view.addItem(self.vtrail_item)
 
         # Seam-flagged V-chain trails (see SEAM_COLOR above): no visibility toggle of its own --
         # unlike vtrail_item, it stays on regardless of `_show_trails`, which is the entire point
         # of flagging (set_result never calls setVisible(False) on it).
-        self.seam_item = pg.PlotDataItem(pen=pg.mkPen(SEAM_COLOR), connect="finite")
+        self.seam_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().seam)), connect="finite")
         self.view.addItem(self.seam_item)
 
         # Excluded-chain ghosts (see GHOST_COLOR above), dashed so a discarded chain reads as
@@ -933,7 +934,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         # The ROI bounds outline: which region of the parent raster the displayed result was
         # measured over (see set_result's docstring on in-context rendering). Empty for every
         # non-ROI result, riding the same "empty data draws nothing" visibility as the COI item.
-        self.roi_bounds_item = pg.PlotDataItem(pen=pg.mkPen(ROI_BOUNDS_COLOR), connect="all")
+        self.roi_bounds_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().amber)), connect="all")
         self.view.addItem(self.roi_bounds_item)
 
         # The ROI rubber band. AMBER, and by the One-Accent Rule rather than in spite of it: the

@@ -99,6 +99,20 @@ def load_theme(name: str, user_dir=None) -> "Theme":
 
 RESTRAINED_DARK = Theme()
 
+#: The theme last applied (``apply_theme``); Restrained Dark until one is.
+_CURRENT: list[Theme] = [RESTRAINED_DARK]
+
+
+def current() -> Theme:
+    """The theme the application wears now: what a Theme-Rule carve-out reads its role from."""
+    return _CURRENT[0]
+
+
+def rgb(hex_color: str) -> tuple[int, int, int]:
+    """``#rrggbb`` as the RGB tuple pyqtgraph pens take."""
+    digits = hex_color.lstrip("#")
+    return tuple(int(digits[i:i + 2], 16) for i in (0, 2, 4))
+
 
 def assets_dir(theme: Theme) -> Path:
     """The theme's SVG assets (``themes/assets/<name>/``), as the generated QSS references them."""
@@ -160,5 +174,6 @@ QComboBox::down-arrow {{ image: {_url(t, "arrow_down.svg")}; width: 10px; height
 def apply_theme(app, theme: Theme) -> None:
     from PySide6 import QtGui
 
+    _CURRENT[0] = theme
     app.setStyleSheet(generate_qss(theme))
     app.setFont(QtGui.QFont(theme.sans_family, theme.base_pt))

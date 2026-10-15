@@ -1579,3 +1579,26 @@ def test_the_extrema_colour_paints_every_maximum_pixel_and_isolated_ones_hide_by
     canvas.set_overlay_colors("#ffffff", "#00ff00", "#0000ff")   # a recolour repaints the pixels
     assert tuple(canvas.extrema_raster_item.image[11, 5, :3]) == (0, 0, 255)
     assert tuple(canvas.isolated_raster_item.image[40, 5, :3]) == (0, 0, 255)
+
+
+def test_the_canvas_pens_follow_the_applied_theme(qtbot):
+    """The V-trail, ROI-bounds and seam pens are Theme-Rule carve-outs whose values come from the
+    theme's amber and seam roles: they follow the theme applied, not the module constants."""
+    from PySide6 import QtWidgets
+
+    from dynamix.shell.canvas import Canvas
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current, load_theme
+
+    app = QtWidgets.QApplication.instance()
+    light = load_theme("light")
+    try:
+        apply_theme(app, light)
+        assert current() is light
+        canvas = Canvas()
+        qtbot.addWidget(canvas)
+        assert canvas.vtrail_item.opts["pen"].color().name() == light.amber
+        assert canvas.roi_bounds_item.opts["pen"].color().name() == light.amber
+        assert canvas.seam_item.opts["pen"].color().name() == light.seam
+    finally:
+        apply_theme(app, RESTRAINED_DARK)
+    assert current() is RESTRAINED_DARK

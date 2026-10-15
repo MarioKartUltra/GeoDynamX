@@ -149,3 +149,13 @@ def test_racks_live_in_a_racks_folder_beside_the_settings_file(monkeypatch, tmp_
     monkeypatch.setattr("sys.platform", "win32")
     monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
     assert racks_dir() == tmp_path / "Roaming" / "GeoDynamix" / "racks"
+
+
+def test_settings_carry_the_theme_name():
+    from dynamix.shell.settings import load_settings, update_settings
+
+    assert load_settings().theme == "restrained_dark"
+    update_settings(theme="light")
+    assert load_settings().theme == "light"
+    update_settings(theme=7)                     # not a name: the default comes back
+    assert load_settings().theme == "restrained_dark"
