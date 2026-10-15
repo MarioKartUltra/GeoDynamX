@@ -74,7 +74,7 @@ class LinealPath:
     name = "lineal_path"
     label = "Lineal path"
     families = ("Microstructure",)
-    role = "primary"
+    role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = frozenset({CURVE})
     capabilities = frozenset({"SelfReporting"})
@@ -86,6 +86,10 @@ class LinealPath:
         Param("r_max", ParamKind.INT, default=64, min=1, max=100000, soft_min=8, soft_max=512,
               label="Max r (px)"),
     )
+
+    def roi_margin(self, params: dict) -> int:
+        """A count of runs needs no halo: a segment either lies in the window or it does not."""
+        return 0
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         values = np.asarray(field.values, dtype=np.float64)
