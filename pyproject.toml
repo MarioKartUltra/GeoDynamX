@@ -45,7 +45,10 @@ fftw = ["pyfftw>=0.14"]
 mac = ["mlx>=0.20"]
 
 # Raster and image loading: GeoTIFF windowing/tiling, plain images for lab-frame maps.
-io = ["rasterio>=1.4", "Pillow>=10"]
+# rasterio <1.5.2: 1.5.2 ships no macOS 14 arm64 wheel, so pip builds it from source and a machine
+# without GDAL (a CI runner, a user's laptop) fails; 1.5.1 has wheels on every target. Raise the
+# ceiling when a release restores the wheel.
+io = ["rasterio>=1.4,<1.5.2", "Pillow>=10"]
 
 # HDF4 (ASTER-class HDF-EOS2) via pyhdf, lazily imported by core/ingest and roi/picture.
 # <0.11.7: that release's macOS wheels are tagged macosx_26_0, so on older macOS pip skips
@@ -76,7 +79,7 @@ dev = ["pytest>=8", "pytest-qt", "ipython"]
 catalog = ["pyyaml>=6.0"]
 
 # GeoDynamix_Beta: everything the app needs, in one extra -- `pip install -e ".[app]"`.
-app = ["numba>=0.60", "scipy>=1.11", "PyWavelets>=1.8", "rasterio>=1.4", "Pillow>=10", "PySide6>=6.5",
+app = ["numba>=0.60", "scipy>=1.11", "PyWavelets>=1.8", "rasterio>=1.4,<1.5.2", "Pillow>=10", "PySide6>=6.5",
        "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11",
        "pyhdf>=0.11.6,<0.11.7"]   # same pin as the hdf4 extra, for the same reason
 
