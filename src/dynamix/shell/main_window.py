@@ -78,6 +78,7 @@ from dynamix.model.device import (declared_outputs, defaults_for, get_device, is
 from dynamix.model.forking import drop_states, is_primary, routing_head, ships_to
 from dynamix.model.inspector_state import (InspectorState, SubLayerState,
                                            inspectors_from_payload, inspectors_to_payload)
+from dynamix.model.families import label_of
 from dynamix.model.param import Param, ParamKind
 from dynamix.model.presets import PRESETS
 from dynamix.model.project import Project
@@ -113,7 +114,7 @@ from dynamix.shell.spectrum_window import SpectrumWindow
 from dynamix.shell.point_import import load_points
 from dynamix.shell.profile_dialog import ProfileDialog
 from dynamix.shell.rack_editor import RackEditor
-from dynamix.shell.right_panel import CompositePanel, ReconstructionPanel, RightPanel
+from dynamix.shell.right_panel import DevicePanel, CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
 from dynamix.shell.settings import (Settings, load_settings, racks_dir, save_settings,
                                     update_settings)
@@ -1381,6 +1382,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self._recon_panel.runRequested.connect(self._on_recon_run)
         self._recon_panel.stopRequested.connect(self._stop_compute)
         self.right_panel.add_section(_RECON_TITLE, self._recon_panel)
+        # The Device section: the selected chain step's knobs (DevicePanel); shown while a box
+        # is selected, routed through the same param path the box's own knobs take.
+        self._device_panel = DevicePanel()
+        self._device_panel.paramChanged.connect(self._on_inspector_param_changed)
+        self.right_panel.add_section("Device", self._device_panel, first=True).setVisible(False)
+        self._inspected_step: int | None = None
         self.right_panel.apply_relevance({_RECON_TITLE: False})
         # The arrangement's mask row (``arrangement/mask_row.py`` --
         # widget itself unchanged), relocated out of ``ArrangementView`` into a view-scoped section
@@ -1676,6 +1683,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if isinstance(last, dict) and last.get("state"):
             if not self.restoreState(QtCore.QByteArray.fromHex(str(last["state"]).encode())):
                 self.reset_layout()
+            self._redock_offscreen()
 
         # Window-scoped, so it fires wherever focus sits inside the window but never steals Space
         # from another window of the same app.
@@ -4740,7 +4748,37 @@ both ``Canvas`` signals report the
         self._layer_by_id[layer.layer_id] = layer
         self.layer_list.add_layer_row(layer, field)
 
+    def _on_step_selected(self, i: int) -> None:
+        """A chain box was clicked (or the strip rebuilt, ``i`` negative): the inspector's Device
+        section shows that step's strip knobs, basic open and advanced collapsed."""
+        if not (0 <= i < len(self._names)):
+            self._hide_device_section()
+            return
+        device = get_device(self._names[i])
+        params = [p for p in device.params if not p.section and p.kind is not ParamKind.TEXT]
+        self._inspected_step = i
+        values = {**defaults_for(device), **self._params[i]}      # a step stores only what it set
+        if self._device_panel.set_device(params, values):
+            self.right_panel._protect_from_wheel(self._device_panel)
+        self.right_panel.set_section_title("Device", f"Device: {label_of(device)}")
+        self.right_panel.apply_relevance({"Device": True})
+
+    def _hide_device_section(self) -> None:
+        self._inspected_step = None
+        self.right_panel.apply_relevance({"Device": False})
+
+    def _on_inspector_param_changed(self, name: str, value) -> None:
+        """An inspector edit: the box shows it too, then the one param path runs."""
+        i = self._inspected_step
+        if i is None or i >= len(self._names):
+            return
+        control = self.strips.strip(i).controls.get(name)
+        if control is not None:
+            control.set_value(value)
+        self._on_param_changed(i, name, value)
+
     def _on_layer_selected(self, layer_id: int) -> None:
+        self._hide_device_section()
         layer = self._layer_by_id.get(layer_id)
         if layer is not None and layer.parent_id is None and self._active_roi_id is not None:
             # The dataset row means the WHOLE field: selecting it deactivates the ROI a
@@ -7050,6 +7088,7 @@ both ``Canvas`` signals report the
                                if e.rack is not None and not e.problem])
         self.strips.saveRackRequested.connect(self._on_save_rack_from_strip)
         self.strips.paramChanged.connect(self._on_param_changed)
+        self.strips.stepSelected.connect(self._on_step_selected)
         self.strips.chainEdited.connect(self._on_chain_edited)
         # A fresh SourceBox lives inside this fresh WorkflowZone, so the chip-hover ->
         # flash relay has to be rewired every rebuild, same as paramChanged/chainEdited above.
@@ -7308,6 +7347,8 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             return
         self._params[step_index][name] = value
+        if self._inspected_step == step_index:
+            self._device_panel.set_values(self._params[step_index])
         # While the layer has a shown level (the Transport's ``ui.scale_idx``), a scale_select
         # step is inactive: its knob edits the step's param and moves no level.
         legacy_scale = (self._names[step_index] == "scale_select" and name == "scale_idx"
@@ -9740,6 +9781,7 @@ both ``Canvas`` signals report the
             self._sync_arrangement()
 
     def _on_layers_row_selected(self, row_id: str) -> None:
+        self._hide_device_section()
         """A row picked in the Layers panel selects its layer (a Map click does not)."""
         kind, _, rest = row_id.partition(":")
         if kind in ("prod", "ext", "chn"):
@@ -10254,6 +10296,13 @@ both ``Canvas`` signals report the
             dock.setFloating(False)
             dock.show()
 
+    def _redock_offscreen(self) -> None:
+        """A floating dock that no screen shows (a layout saved on another monitor) docks again."""
+        screens = [s.geometry() for s in QtWidgets.QApplication.screens()]
+        for dock in self.docks.values():
+            if dock.isFloating() and not any(g.intersects(dock.frameGeometry()) for g in screens):
+                dock.setFloating(False)
+
     def _layouts(self) -> dict:
         layouts = load_settings().view_options.get("layouts")
         return dict(layouts) if isinstance(layouts, dict) else {}
@@ -10275,6 +10324,7 @@ both ``Canvas`` signals report the
             return False
         for dock in self.docks.values():
             dock.show()
+        self._redock_offscreen()
         return True
 
     def _save_layout_as(self) -> None:

@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""The inspector follows the selection: a chain step's knobs, basic open and advanced collapsed."""
+from __future__ import annotations
+
+from PySide6 import QtWidgets
+
+from dynamix.model.param import Param, ParamKind
+from dynamix.shell.right_panel import DevicePanel
+from tests.test_shell_window import _FIELD, loaded, stub_devices, window  # noqa: F401
+
+
+def _val(control):
+    return control.value() if callable(getattr(control, "value", None)) else control._value
+
+
+def test_device_panel_keeps_advanced_knobs_collapsed_until_asked(qtbot):
+    panel = DevicePanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    params = (Param("a", ParamKind.INT, default=1, min=0, max=9),
+              Param("b", ParamKind.INT, default=2, min=0, max=9, level="advanced"))
+    assert panel.set_device(params, {"a": 1, "b": 2})
+    assert panel.controls["a"].isVisible() and not panel.controls["b"].isVisible()
+    panel.advanced_button.setChecked(True)
+    assert panel.controls["b"].isVisible()
+    assert not panel.set_device(params, {"a": 3, "b": 4})       # same knobs: values only
+    assert _val(panel.controls["a"]) == 3
+
+
+def test_selecting_a_step_shows_its_knobs_and_a_layer_hides_them(qtbot, loaded):
+    w = loaded
+    section = w.right_panel._sections["Device"]
+    assert section.isHidden()                       # the test window is never shown: hidden state
+    w.strips.strip(0).selected.emit()
+    assert not section.isHidden() and w._inspected_step == 0
+    assert section.isAncestorOf(w._device_panel)
+    assert "n_scales" in w._device_panel.controls
+    assert section.findChildren(QtWidgets.QLabel)[0].text().startswith("Device")
+    w.layer_list.layerSelected.emit(w.layer.layer_id)
+    assert section.isHidden() and w._inspected_step is None
+
+
+def test_an_inspector_edit_takes_the_box_edit_path_and_mirrors_into_the_box(qtbot, loaded):
+    w = loaded
+    w.strips.strip(0).selected.emit()
+    w._device_panel.paramChanged.emit("n_scales", 5)
+    assert w._params[0]["n_scales"] == 5
+    assert _val(w.strips.strip(0).controls["n_scales"]) == 5
+    w.strips.strip(0).controls["n_scales"].valueChanged.emit(6)       # a box edit
+    assert _val(w._device_panel.controls["n_scales"]) == 6

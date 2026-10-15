@@ -123,3 +123,16 @@ def test_the_view_menu_lists_a_toggle_per_dock_and_reset_layout(qtbot, clean_reg
     assert "Reset Layout" in texts
     for name in DOCK_NAMES:
         assert w.docks[name].toggleViewAction() in view.actions()
+
+
+def test_a_floating_dock_restored_off_every_screen_docks_again(qtbot, clean_registry):
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.resize(1400, 900)
+    w.show()
+    qtbot.waitExposed(w)
+    dock = w.docks["dock.browser"]
+    dock.setFloating(True)
+    dock.move(100_000, 100_000)                       # a second monitor this machine does not have
+    w._redock_offscreen()
+    assert not dock.isFloating()
