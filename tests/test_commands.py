@@ -37,3 +37,33 @@ def test_headless_commands_are_the_settings_ones():
     assert {c.id for c in COMMANDS if c.headless} == {
         "settings.auto_run", "settings.engine.auto", "settings.engine.mlx", "settings.engine.fftw",
         "settings.precision.32", "settings.precision.64"}
+
+
+def test_the_runner_lists_headless_commands_and_sets_a_setting(tmp_path):
+    import json
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "DYNAMIX_SETTINGS_PATH": str(tmp_path / "s.json"), "PYTHONNOUSERSITE": "1"}
+    out = subprocess.run([sys.executable, "-m", "dynamix.run", "--list"],
+                         capture_output=True, text=True, env=env)
+    assert out.returncode == 0, out.stderr
+    assert "settings.engine.fftw" in out.stdout and "file.open_project" not in out.stdout
+    out = subprocess.run([sys.executable, "-m", "dynamix.run", "settings.engine.fftw"],
+                         capture_output=True, text=True, env=env)
+    assert out.returncode == 0, out.stderr
+    assert json.loads((tmp_path / "s.json").read_text())["compute_engine"] == "fftw"
+    out = subprocess.run([sys.executable, "-m", "dynamix.run", "file.open_project"],
+                         capture_output=True, text=True, env=env)
+    assert out.returncode == 2 and "needs a window" in out.stderr
+
+
+def test_the_runner_imports_no_qt():
+    import subprocess
+    import sys
+
+    code = "import sys; sys.modules['PySide6'] = None; import dynamix.run; print('ok')"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         env={**__import__("os").environ, "PYTHONNOUSERSITE": "1"})
+    assert out.stdout.strip() == "ok", out.stderr
