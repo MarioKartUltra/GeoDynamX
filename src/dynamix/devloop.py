@@ -94,7 +94,7 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: against every `from dynamix.shell...` import in the package) -- a runtime topological sort
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
-    "theme", "knobs", "knob_widgets", "worker", "opening", "point_import", "units", "settings",
+    "theme", "docks", "knobs", "knob_widgets", "worker", "opening", "point_import", "units", "settings",
     "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas", "inspector",
     "roi_panel",
     "right_panel", "layer_panel", "arrangement_facade", "view_dialog", "topology_panel",
@@ -107,6 +107,7 @@ _MODULE_ORDER = (
 #: would leave chain_strip's DeviceStrip closing over the STALE make_control function.
 _DEPENDS_ON = {
     "theme": (),
+    "docks": (),
     "knobs": (),
     "knob_widgets": ("knobs",),
     "worker": (),
@@ -191,7 +192,7 @@ _DEPENDS_ON = {
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("theme", "canvas", "workflow_zone", "roi_panel", "right_panel", "layer_panel",
+    "main_window": ("theme", "docks", "canvas", "workflow_zone", "roi_panel", "right_panel", "layer_panel",
                     "transport", "worker", "opening", "point_import", "units", "settings",
                     "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement",
                     "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel",

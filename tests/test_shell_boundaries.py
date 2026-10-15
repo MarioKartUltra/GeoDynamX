@@ -24,9 +24,13 @@ def test_theme_rule_no_literal_colors_or_fonts_outside_theme():
         assert not FAMILY.search(text), f"{path.name} holds a font family"
 
 
-def test_no_docks_ever():
+def test_dock_set_is_fixed():
+    """Docks exist only where ``shell/docks.py`` builds them: no other shell module creates one, so the
+    set stays the four the docks module names (``tests/test_shell_docks.py`` pins the names)."""
     for path in sorted(SHELL.rglob("*.py")):
-        assert "QDockWidget" not in path.read_text(), f"{path.name} uses a dock"
+        if path.name == "docks.py":
+            continue
+        assert "QDockWidget(" not in path.read_text(), f"{path.name} builds a dock"
 
 
 def test_vtrail_color_is_the_theme_accent():
