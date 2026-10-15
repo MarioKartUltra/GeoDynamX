@@ -2069,3 +2069,76 @@ def test_roi_create_scales_a_decimated_overview_to_native_pixels(qtbot, loaded):
     step = next(ref for ref in captured["chain"].steps if ref.device == "wtmm2d_roi")
     assert step.params["roi_row"] == 48 and step.params["roi_col"] == 80
     assert step.params["roi_h"] == 128 and step.params["roi_w"] == 160
+
+
+# --------------------------------------------------------------------------- Settings ▸ Theme
+
+
+def _theme_menu(win):
+    from PySide6 import QtWidgets
+
+    settings = next(m for m in win.menuBar().findChildren(QtWidgets.QMenu) if m.title() == "Settings")
+    return next(a.menu() for a in settings.actions() if a.menu() is not None and a.menu().title() == "Theme")
+
+
+def _user_theme(tmp_path, monkeypatch, name="my", **changes):
+    import dataclasses
+    import json
+
+    from dynamix.shell import settings as settings_mod
+    from dynamix.shell.theme import RESTRAINED_DARK
+
+    folder = tmp_path / "themes"
+    folder.mkdir(exist_ok=True)
+    data = dict(dataclasses.asdict(RESTRAINED_DARK), name=name, **changes)
+    (folder / f"{name}.json").write_text(json.dumps(data))
+    monkeypatch.setattr(settings_mod, "themes_dir", lambda: folder)
+    return folder / f"{name}.json"
+
+
+def test_the_theme_submenu_lists_bundled_and_user_themes_and_applies_a_pick(qtbot, stub_devices, tmp_path, monkeypatch):
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.settings import load_settings
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current
+
+    _user_theme(tmp_path, monkeypatch)
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    menu = _theme_menu(win)
+    menu.aboutToShow.emit()
+    entries = {a.text(): a for a in menu.actions() if not a.isSeparator()}
+    assert {"restrained_dark", "mid_grey", "light", "my"} <= set(entries)
+    assert entries["restrained_dark"].isChecked()
+    try:
+        entries["light"].trigger()
+        assert current().name == "light" and load_settings().theme == "light"
+        assert entries["light"].isChecked() and not entries["restrained_dark"].isChecked()
+    finally:
+        from PySide6 import QtWidgets
+
+        apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
+
+
+def test_an_edited_theme_file_reloads_live(qtbot, stub_devices, tmp_path, monkeypatch):
+    import json
+
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current
+
+    path = _user_theme(tmp_path, monkeypatch)
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    menu = _theme_menu(win)
+    menu.aboutToShow.emit()
+    try:
+        next(a for a in menu.actions() if a.text() == "my").trigger()
+        assert current().name == "my"
+        data = json.loads(path.read_text())
+        data["panel"] = "#222233"
+        with qtbot.waitSignal(win.themeReloaded, timeout=5000):
+            path.write_text(json.dumps(data))
+        assert current().panel == "#222233"
+    finally:
+        from PySide6 import QtWidgets
+
+        apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
