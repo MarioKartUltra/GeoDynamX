@@ -60,3 +60,25 @@ def test_the_analysis_menu_lists_devices_by_family(qtbot, clean_registry):
     assert "Edge detection" in families
     ids = [a.data() for m in analysis.findChildren(QtWidgets.QMenu) for a in m.actions() if a.data()]
     assert "analysis.wtmm2d" in ids
+
+
+def test_play_toggles_exactly_once_per_trigger_and_once_per_space_with_the_button_focused(qtbot, loaded):
+    from PySide6 import QtTest
+
+    w = loaded
+    with qtbot.waitActive(w, timeout=3000):    # a window shortcut fires only in the active window
+        w.show()
+        w.activateWindow()
+    tr = w.transport
+    assert not tr.clock.playing
+    w.commands["transport.play"].trigger()
+    assert tr.clock.playing
+    w.commands["transport.play"].trigger()
+    assert not tr.clock.playing
+    QtTest.QTest.mouseClick(tr.play_button, QtCore.Qt.LeftButton)   # the user's way to focus it
+    assert tr.clock.playing                                # the click itself toggles once
+    assert w.focusWidget() is not tr.play_button           # NoFocus: the button never takes focus
+    QtTest.QTest.keyClick(w, QtCore.Qt.Key_Space)
+    assert not tr.clock.playing                            # once, by the window's command
+    QtTest.QTest.keyClick(w, QtCore.Qt.Key_Space)
+    assert tr.clock.playing
