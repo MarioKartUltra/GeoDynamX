@@ -133,6 +133,7 @@ class GroupPaint:
     """
 
     name = "group_paint"
+    capabilities = frozenset()
     #: Appended by the arrangement view's commit: listed in no family.
     families = ()
     consumes = ((VCHAINS,),)
@@ -220,6 +221,7 @@ class GroupFilter:
     its own "no-op" setting."""
 
     name = "group_filter"
+    capabilities = frozenset()
     label = "Group filter"
     families = ("Selection: V-chains",)
     consumes = ((VCHAINS,),)

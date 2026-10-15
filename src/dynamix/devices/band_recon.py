@@ -35,6 +35,7 @@ from dynamix.model.param import Param, ParamKind
 
 class BandRecon:
     name = "band_recon"
+    capabilities = frozenset({"RegionAware"})
     #: Superseded: listed in no family.
     families = ()
     consumes = ((FIELD,),)
@@ -172,6 +173,7 @@ def _split_arrays(method: str):
 
 class BandReconMeasure:
     name = "band_recon_measure"
+    capabilities = frozenset({"RegionAware", "StripExtras"})
     label = "Band reconstruction, measure"
     #: Superseded by holder_measure's band rows: listed in no family.
     families = ()
@@ -220,6 +222,7 @@ class BandReconMeasure:
 
 class BandReconMultiaffine:
     name = "band_recon_multiaffine"
+    capabilities = frozenset({"RegionAware", "StripExtras"})
     label = "Band reconstruction, multiaffine"
     #: Superseded by holder_multiaffine's band rows: listed in no family.
     families = ()

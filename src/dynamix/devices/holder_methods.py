@@ -447,6 +447,7 @@ def _compute(device, method: str, field, params: dict, progress=None) -> dict:
 
 class HolderMeasure:
     name = "holder_measure"
+    capabilities = frozenset({"OutputProducer", "RegionAware", "StripExtras", "Viewable"})
     label = "Microcanonical MFA, measure"
     families = ("Regularity", "Reconstruction")
     consumes = ((FIELD,),)
@@ -514,6 +515,7 @@ class HolderMeasure:
 
 class HolderMultiaffine:
     name = "holder_multiaffine"
+    capabilities = frozenset({"OutputProducer", "RegionAware", "StripExtras", "Viewable"})
     label = "Microcanonical MFA, multiaffine"
     families = ("Regularity", "Reconstruction")
     consumes = ((FIELD,),)

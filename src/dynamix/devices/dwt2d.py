@@ -30,6 +30,7 @@ class DWT2D:
     """The orthogonal dyadic pyramid, one row per band and level."""
 
     name = "dwt2d"
+    capabilities = frozenset({"OutputProducer", "RegionAware", "Viewable"})
     label = "DWT"
     families = ("Decomposition",)
     consumes = ((FIELD,),)

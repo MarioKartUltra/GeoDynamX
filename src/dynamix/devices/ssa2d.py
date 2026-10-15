@@ -54,6 +54,7 @@ class SSA2D:
 
     wants_cancel = True                  # the stop button reaches the eigensolver
     name = "ssa2d"
+    capabilities = frozenset({"Cancellable", "RegionAware", "StripExtras", "Viewable"})
     label = "2-D SSA"
     families = ("Decomposition", "Reconstruction")
     consumes = ((FIELD,),)

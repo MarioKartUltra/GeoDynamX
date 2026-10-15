@@ -111,6 +111,7 @@ class PCADevice:
     """Principal component analysis across a stack's bands; shows one component raster."""
 
     name = "pca"
+    capabilities = frozenset({"RegionAware", "Viewable"})
     label = "PCA"
     families = ("Decomposition",)
     consumes = ((STACK,),)
@@ -167,6 +168,7 @@ class TuckerHavok:
     or its residual."""
 
     name = "tucker_havok"
+    capabilities = frozenset({"RegionAware", "StripExtras", "Viewable"})
     #: Superseded by tucker_HOOI_HOSVD: listed in no family.
     families = ()
     consumes = ((FIELD,), (STACK,))
@@ -325,6 +327,7 @@ class TuckerHOOIHOSVD(TuckerHavok):
     as before."""
 
     name = "tucker_HOOI_HOSVD"
+    capabilities = frozenset({"RegionAware", "StripExtras", "Viewable"})
     label = "Tucker (HOOI / HOSVD)"
     families = ("Decomposition", "Reconstruction")
     consumes = ((FIELD,), (STACK,))

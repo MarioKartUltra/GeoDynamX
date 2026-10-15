@@ -19,6 +19,7 @@ class Bus:
     """Raw bands routed into one ``(ny, nx, n)`` stack on the host's grid."""
 
     name = "bus"
+    capabilities = frozenset({"FieldStage", "RegionAware"})
     #: Placed by the shell's routing dialog: listed in no family.
     families = ()
     consumes = ((FIELD,), (STACK,))

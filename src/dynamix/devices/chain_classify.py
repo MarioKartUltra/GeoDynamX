@@ -120,6 +120,7 @@ class ChainClassify:
     """
 
     name = "chain_classify"
+    capabilities = frozenset()
     label = "Seam classifier"
     families = ("Selection: V-chains",)
     consumes = ((VCHAINS,),)

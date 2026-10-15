@@ -102,6 +102,7 @@ def holder_arrays(vals, params: dict, progress=None, extras=None):
 
 class HolderMap:
     name = "holder_map"
+    capabilities = frozenset({"RegionAware"})
     #: Superseded by holder_measure / holder_multiaffine: listed in no family.
     families = ()
     consumes = ((FIELD,),)

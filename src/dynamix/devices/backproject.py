@@ -76,6 +76,7 @@ class Backproject:
     alone -- see the module docstring."""
 
     name = "backproject"
+    capabilities = frozenset()
     label = "Back-project points"
     families = ("Points",)
     consumes = ((POINTS,),)

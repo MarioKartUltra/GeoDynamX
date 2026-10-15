@@ -61,6 +61,7 @@ def _line_ids(mask, ys, xs):
 class CDFEdges:
     wants_cancel = True                  # the stop button reaches the snapshot loop
     name = "cdf_edges"
+    capabilities = frozenset({"Cancellable", "OutputProducer", "RegionAware", "Viewable"})
     label = "CDF edges"
     families = ("Edge detection",)
     consumes = ((FIELD,),)

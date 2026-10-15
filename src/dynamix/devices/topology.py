@@ -16,6 +16,7 @@ class ChainTopology:
     """Build the H-chain/segment/extremum/V-chain incidence graph from a WTMM result."""
 
     name = "chain_topology"
+    capabilities = frozenset()
     label = "Chain topology"
     families = ("Topology",)
     consumes = ((EXTREMA, VCHAINS),)
@@ -58,6 +59,7 @@ class MinVChains:
     """
 
     name = "min_vchains"
+    capabilities = frozenset()
     label = "Min V-chains per H-line"
     families = ("Selection: V-chains",)
     consumes = ((TOPOLOGY,),)

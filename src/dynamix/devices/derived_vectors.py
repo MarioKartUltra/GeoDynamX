@@ -20,6 +20,7 @@ class DerivedVectors:
     """Emit a derivative dataset's frozen extrema and maxima lines."""
 
     name = "derived_vectors"
+    capabilities = frozenset({"VectorSource"})
     #: Placed by the shell on a derivative dataset: listed in no family.
     families = ()
     consumes = ((FIELD,), (STACK,))

@@ -64,6 +64,7 @@ class WTMM2D:
     """
 
     name = "wtmm2d"
+    capabilities = frozenset({"Cancellable", "OutputProducer", "Previewable", "RegionAware", "StripExtras", "Viewable"})
     label = "WTMM 2D"
     families = ("Edge detection", "Regularity")
     consumes = ((FIELD,),)
