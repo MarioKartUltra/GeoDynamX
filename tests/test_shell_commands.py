@@ -251,3 +251,21 @@ def test_transport_and_key_handling_live_in_the_controller(qtbot, loaded):
     assert w._selection_mode != "click"
     w.controller.selection_click()
     assert w._selection_mode == "click"
+
+
+def test_the_controller_imports_no_shell_module():
+    """The controller is a leaf the window uses; the dev loop lists it with no dependencies."""
+    import ast
+    import pathlib
+
+    import dynamix.shell.controller as controller
+
+    tree = ast.parse(pathlib.Path(controller.__file__).read_text())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("dynamix.shell"):
+            imported.add(node.module)
+        elif isinstance(node, ast.Import):
+            imported.update(a.name for a in node.names if a.name.startswith("dynamix.shell"))
+    assert imported == set()
+    assert controller.SELECTION_MODE_CYCLE == ("box", "lasso", "transect")

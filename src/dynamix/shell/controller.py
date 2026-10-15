@@ -7,6 +7,11 @@ the widgets they act on and its old method names as one-line aliases for the cal
 from __future__ import annotations
 
 
+#: V's own cycle order (the non-click modes only): C owns click directly, and EQSelect's own V
+#: never visits it either. Lives here because the cycle is the controller's to walk.
+SELECTION_MODE_CYCLE = ("box", "lasso", "transect")
+
+
 class CommandController:
     """The handlers of the transport and key commands for one window."""
 
@@ -36,14 +41,12 @@ class CommandController:
     def selection_cycle(self) -> None:
         """V: walks box -> lasso -> transect -> box, skipping click; pressed in click mode it starts
         the cycle at box (there is no principled next mode for a cycle click was never part of)."""
-        from dynamix.shell.main_window import _SELECTION_MODE_CYCLE
-
         w = self._w
-        if w._selection_mode not in _SELECTION_MODE_CYCLE:
-            w.set_selection_mode(_SELECTION_MODE_CYCLE[0])
+        if w._selection_mode not in SELECTION_MODE_CYCLE:
+            w.set_selection_mode(SELECTION_MODE_CYCLE[0])
             return
-        i = _SELECTION_MODE_CYCLE.index(w._selection_mode)
-        w.set_selection_mode(_SELECTION_MODE_CYCLE[(i + 1) % len(_SELECTION_MODE_CYCLE)])
+        i = SELECTION_MODE_CYCLE.index(w._selection_mode)
+        w.set_selection_mode(SELECTION_MODE_CYCLE[(i + 1) % len(SELECTION_MODE_CYCLE)])
 
     def zoom_to_dataset(self) -> None:
         """Fit the raster view to the selected row: its ROI window when it runs on one, else the

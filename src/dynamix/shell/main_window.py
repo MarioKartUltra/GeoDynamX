@@ -90,7 +90,7 @@ from dynamix.model.racks import (Rack, RackEntry, RackStep, builtin_racks, load_
                                  rack_from_descriptors, save_rack)
 from dynamix.roi.halo import _EDGES, MIN_A_MIN
 from dynamix.shell.commands import bind_commands, build_menus, watch_enabled
-from dynamix.shell.controller import CommandController
+from dynamix.shell.controller import SELECTION_MODE_CYCLE, CommandController
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
@@ -172,8 +172,8 @@ _SELECTION_MODES = ("click", "box", "lasso", "transect", "mask")
 
 #: `v`'s own cycle order ("`v` -> `_cycle_selection_mode`... cycles only the non-click
 #: modes"), deliberately excluding ``"click"`` -- `c` owns click directly, and EQSelect's own `v`
-#: never visits it either.
-_SELECTION_MODE_CYCLE = ("box", "lasso", "transect")
+#: never visits it either. The controller walks it, so it lives there; this is its old name.
+_SELECTION_MODE_CYCLE = SELECTION_MODE_CYCLE
 
 _PANEL_WIDTH = 220          # left zone's default splitter width -- a first-run
                             # hint only; the boundary drags freely and Settings.splitter_sizes
