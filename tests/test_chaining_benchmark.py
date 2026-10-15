@@ -1,12 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Chainers are scored on synthetic isotropic cusps -|r - r0|^h of known h: the longest chain
-through the cusp gives h from the slope of log2 modulus against log2 scale. Under this backend's
-normalisation the modulus along a cusp's chain scales as a^(h + 1) (measured: slopes 1.304, 1.502,
-1.701 for h = 0.3, 0.5, 0.7), so the score is the slope minus one; whether the app's own per-chain
-Hölder readings (``chain_stats._chain_ols_holder``, the raw slope) intend that offset is logged for
-the author. Eight voices per octave keep each scale step's modulus ratio inside the benchmark's
-similitude band. The h and its error per chainer and per h are recorded in
+through the cusp gives h as the slope of log2 modulus against log2 scale. The transform runs with
+no pseudo-fractional integration (``fracint_alpha = 0``): the default lift of order 1 multiplies
+each modulus by a, so the slope would read h + 1, the integrated frame the spectrum fits undo
+with their eta. The h and its error per chainer and per h are recorded in
 ``golden/chaining/benchmark.json`` on the recording machine and must reproduce there (backends
 agree to float32 tolerance, so the numbers are per machine).
 
@@ -28,7 +26,7 @@ from dynamix.core.wtmm_backend import run_wtmm2d
 GOLDEN = Path(__file__).parent / "golden" / "chaining" / "benchmark.json"
 H_VALUES = (0.3, 0.5, 0.7)
 N = 128
-WTMM = {"n_oct": 3, "n_voice": 8, "thresh": 1e-3}
+WTMM = {"n_oct": 3, "n_voice": 4, "thresh": 1e-3, "fracint_alpha": 0.0}
 
 
 def _machine() -> str:
@@ -47,11 +45,10 @@ def _cusp(h: float):
 
 
 def _h_from(chains: list) -> float:
-    """h from the longest chain (the cusp's own): the slope of log2 modulus against log2 scale,
-    minus the backend's one (see the module docstring)."""
+    """h from the longest chain (the cusp's own): the slope of log2 modulus against log2 scale."""
     longest = max(chains, key=lambda c: len(c["mod"]))
     slope, _ = np.polyfit(longest["log2_scales"], longest["log2_mod"], 1)
-    return float(slope) - 1.0
+    return float(slope)
 
 
 def _run() -> dict:
