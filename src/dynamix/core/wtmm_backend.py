@@ -800,15 +800,21 @@ class _XsmShim:
 
     @staticmethod
     def compute_holder_exponents(chains) -> list:
-        """``[{"h": chain_ols_holder(ch)} for ch in chains]`` (lazy import).
+        """``[{"h": h} for ch in chains]`` with ``h`` the OLS slope of ``log2_mod`` against
+        ``log2_scales`` (``dynamix.core.chain_stats._chain_ols_holder``, the app's own
+        reimplementation of the vendored ``chain_ols_holder``; the vendored original stays behind
+        :data:`USE_VENDORED` until the last port).
 
         One entry per chain, positionally aligned with ``chains`` (the real
         wrapper additionally drops chains shorter than 2 scales, which would
-        break that alignment; ``chain_ols_holder`` returns NaN for those
-        instead).
+        break that alignment; the slope is NaN for those instead).
         """
-        chain_filters = _load_wtmm_ebsd_module("chain_filters")
-        return [{"h": chain_filters.chain_ols_holder(ch)} for ch in chains]
+        if USE_VENDORED:
+            chain_filters = _load_wtmm_ebsd_module("chain_filters")
+            return [{"h": chain_filters.chain_ols_holder(ch)} for ch in chains]
+        from dynamix.core.chain_stats import _chain_ols_holder
+
+        return [{"h": _chain_ols_holder(ch)} for ch in chains]
 
 
 def _load_wtmm_ebsd_module(name: str):
