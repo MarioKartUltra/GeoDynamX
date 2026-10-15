@@ -51,7 +51,13 @@ export PYTHONNOUSERSITE=1    # a Dock launch skips conda activation: keep ~/.loc
 LOG_DIR="\$HOME/Library/Logs/GeoDynamix"
 mkdir -p "\$LOG_DIR"
 [ -f "\$LOG_DIR/geodynamix.log" ] && mv -f "\$LOG_DIR/geodynamix.log" "\$LOG_DIR/geodynamix.previous.log"
-echo "=== GeoDynamix \$(date '+%Y-%m-%d %H:%M:%S') at \$(/usr/bin/git -C "$REPO" rev-parse --short HEAD 2>/dev/null) ===" > "\$LOG_DIR/geodynamix.log"
+# The checkout's commit, read from .git by the shell itself: a Dock launch must never wait on an
+# external tool (/usr/bin/git is Apple's shim and can sit on xcodebuild for many seconds).
+REV="\$(cat "$REPO/.git/HEAD" 2>/dev/null)"
+case "\$REV" in ref:*) REF="\${REV#ref: }"
+  REV="\$(cat "$REPO/.git/\$REF" 2>/dev/null || grep " \$REF\$" "$REPO/.git/packed-refs" 2>/dev/null | cut -c1-40)";;
+esac
+echo "=== GeoDynamix \$(date '+%Y-%m-%d %H:%M:%S') at \${REV:0:7} ===" > "\$LOG_DIR/geodynamix.log"
 exec "$PY" -m dynamix.shell.app "\$@" >> "\$LOG_DIR/geodynamix.log" 2>&1
 EOF
 chmod +x "$APP/Contents/MacOS/GeoDynamix"
