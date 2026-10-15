@@ -584,6 +584,14 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \bottomrule
 \end{longtable}
 
+\subsection*{Lineal path}\label{sec:lineal}
+\tool{Lineal path}{lineal\_path} (family Microstructure) thresholds the field into two phases
+(\texttt{threshold}: phase 1 lies above it) and computes the lineal-path function $L(r)$, the
+probability that a segment of $r$ pixels dropped along a row or a column lies entirely in phase 1
+(\texttt{direction}: horizontal, vertical or the mean of both), for $r = 0 \ldots$ \texttt{r\_max};
+$L(0)$ is the phase fraction and $L$ never increases. It produces a Curve, the pair $(r, L(r))$,
+counted exactly from the phase-1 run lengths without periodic wrap.
+
 \subsection*{Gradient arrows and anisotropy}\label{sec:arrows}
 The argument $\mathcal{A}=\arg T_\psi$ of each maximum points uphill in the pixel frame:
 $0^\circ$ toward increasing column, $+90^\circ$ toward increasing row (clockwise on screen).

@@ -29,7 +29,7 @@ class _Superseded:
 def test_the_family_order_is_the_browser_tree():
     assert FAMILY_ORDER == ("Data preparation", "Edge detection", "Regularity", "Skeletons",
                             "Decomposition", "Reconstruction", "Topology", "Selection: extrema",
-                            "Selection: V-chains", "Points", "Other")
+                            "Selection: V-chains", "Points", "Microstructure", "Other")
 
 
 def test_an_undeclared_device_is_its_id_under_other():
@@ -67,6 +67,7 @@ LABELS = {
     "holder_measure": "Microcanonical MFA, measure",
     "holder_multiaffine": "Microcanonical MFA, multiaffine",
     "wavelet_skeleton": "Wavelet skeleton",
+    "lineal_path": "Lineal path",
     "pca": "PCA",
     "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
     "ssa2d": "2-D SSA",
@@ -106,6 +107,7 @@ FAMILY_TREE = {
     "Selection: V-chains": {"chain_holder", "chain_modulus", "chain_length", "chain_classify",
                             "min_vchains", "group_filter"},
     "Points": {"backproject"},
+    "Microstructure": {"lineal_path"},
     "Other": set(),
 }
 
