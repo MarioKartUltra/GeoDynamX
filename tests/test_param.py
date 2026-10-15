@@ -231,4 +231,4 @@ def test_param_level_is_basic_by_default_advanced_on_request_and_never_keyed():
     from dynamix.model.chain import Chain, DeviceRef
 
     payload = Chain(steps=(DeviceRef("d", {"a": 1}),)).to_payload()
-    assert "level" not in str(payload)
+    assert all("level" not in step and "level" not in step.get("params", {}) for step in payload["steps"])

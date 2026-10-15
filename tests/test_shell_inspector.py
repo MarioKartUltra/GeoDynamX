@@ -36,7 +36,7 @@ def test_selecting_a_step_shows_its_knobs_and_a_layer_hides_them(qtbot, loaded):
     assert not section.isHidden() and w._inspected_step == 0
     assert section.isAncestorOf(w._device_panel)
     assert "n_scales" in w._device_panel.controls
-    assert section.findChildren(QtWidgets.QLabel)[0].text().startswith("Device")
+    assert w.right_panel._headings["Device"].text().startswith("Device")
     w.layer_list.layerSelected.emit(w.layer.layer_id)
     assert section.isHidden() and w._inspected_step is None
 
@@ -49,3 +49,18 @@ def test_an_inspector_edit_takes_the_box_edit_path_and_mirrors_into_the_box(qtbo
     assert _val(w.strips.strip(0).controls["n_scales"]) == 5
     w.strips.strip(0).controls["n_scales"].valueChanged.emit(6)       # a box edit
     assert _val(w._device_panel.controls["n_scales"]) == 6
+
+
+def test_a_refused_inspector_edit_shows_in_neither_control(qtbot, loaded):
+    """A locked layer refuses the edit; the box and the inspector both keep the old value (a control
+    only proposes a value, the owner shows it once accepted)."""
+    w = loaded
+    w.strips.strip(0).selected.emit()
+    before = _val(w.strips.strip(0).controls["n_scales"])
+    w.layer.tags["ui.lock"] = "1"
+    knob = w._device_panel.controls["n_scales"]
+    knob.set_value(before + 1)                        # the user turned the inspector knob...
+    knob.valueChanged.emit(before + 1)                # ...and the panel proposed the value
+    assert w._params[0].get("n_scales", before) == before
+    assert _val(w.strips.strip(0).controls["n_scales"]) == before
+    assert _val(knob) == before

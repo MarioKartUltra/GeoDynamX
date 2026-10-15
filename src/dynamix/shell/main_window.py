@@ -1256,7 +1256,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # What the browser rows were last greyed for (_sync_browser_states).
         self._browser_key = None
         # The browser has its own dock (shell/docks.py); the processing tree, the reference
-        # layers and the ROI panel share the Layers dock through this splitter.
+        # layers and the ROI panel share the Processing dock through this splitter.
         self._left_split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self._left_split.addWidget(self.layer_list)
         # Reference layers: interpretation over the data, listed under the layers.
@@ -4769,7 +4769,7 @@ both ``Canvas`` signals report the
         self._inspected_step = i
         values = {**defaults_for(device), **self._params[i]}      # a step stores only what it set
         if self._device_panel.set_device(params, values):
-            self.right_panel._protect_from_wheel(self._device_panel)
+            self.right_panel.protect_from_wheel(self._device_panel)
         self.right_panel.set_section_title("Device", f"Device: {label_of(device)}")
         self.right_panel.apply_relevance({"Device": True})
 
@@ -4778,14 +4778,20 @@ both ``Canvas`` signals report the
         self.right_panel.apply_relevance({"Device": False})
 
     def _on_inspector_param_changed(self, name: str, value) -> None:
-        """An inspector edit: the box shows it too, then the one param path runs."""
+        """An inspector edit takes the one param path; the box mirrors it only once the value is
+        accepted. A locked or frozen layer refuses the edit, and then neither control may show it:
+        the inspector is set back from the params it never changed."""
         i = self._inspected_step
         if i is None or i >= len(self._names):
+            return
+        self._on_param_changed(i, name, value)
+        if self._params[i].get(name) != value:
+            device = get_device(self._names[i])
+            self._device_panel.set_values({**defaults_for(device), **self._params[i]})
             return
         control = self.strips.strip(i).controls.get(name)
         if control is not None:
             control.set_value(value)
-        self._on_param_changed(i, name, value)
 
     def _on_layer_selected(self, layer_id: int) -> None:
         self._hide_device_section()
@@ -10296,7 +10302,6 @@ both ``Canvas`` signals report the
             ]
         layer.tags["groups"] = encoded
 
-    # -- closing ---------------------------------------------------------------------------
     # -- dock layouts ----------------------------------------------------------------------
 
     def reset_layout(self) -> None:
@@ -10366,6 +10371,8 @@ both ``Canvas`` signals report the
             menu.addSeparator()
         for name in names:
             menu.addAction(name, lambda _checked=False, n=name: self.apply_layout(n))
+
+    # -- closing ---------------------------------------------------------------------------
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Honest close-during-compute (v1): there is no cancellation, so the window says which

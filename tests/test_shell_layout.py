@@ -23,7 +23,7 @@ def _window(qtbot):
 
 
 def test_zone_tree_is_four_docks_around_the_centre(qtbot, clean_registry):
-    """Supersedes the two-splitter zone tree: browser and layers left, inspector right, the chain
+    """Supersedes the two-splitter zone tree: browser and Processing left, inspector right, the chain
     along the bottom, the centre stack as the central widget (shell/docks.py)."""
     w = _window(qtbot)
     assert set(w.docks) == {"dock.browser", "dock.layers", "dock.inspector", "dock.chain"}
