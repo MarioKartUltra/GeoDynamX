@@ -67,3 +67,59 @@ def test_old_splitter_sizes_seed_the_dock_widths(qtbot, tmp_path, monkeypatch, c
     assert w.docks["dock.browser"].width() == 180
     assert w.docks["dock.inspector"].width() == 220
     assert w.docks["dock.chain"].height() == 150
+
+
+def test_reset_layout_restores_the_default_and_shows_hidden_docks(qtbot, clean_registry):
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.resize(1400, 900)
+    w.show()
+    qtbot.waitExposed(w)
+    w.addDockWidget(QtCore.Qt.LeftDockWidgetArea, w.docks["dock.inspector"])
+    w.docks["dock.layers"].close()
+    assert not w.docks["dock.layers"].isVisible()
+    w.reset_layout()
+    assert _areas(w)["dock.inspector"] == QtCore.Qt.RightDockWidgetArea
+    assert all(w.docks[n].isVisible() for n in DOCK_NAMES)
+
+
+def test_named_layouts_save_restore_and_list_in_the_menu(qtbot, tmp_path, monkeypatch, clean_registry):
+    from dynamix.shell.settings import load_settings
+
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.resize(1400, 900)
+    w.show()
+    qtbot.waitExposed(w)
+    w.addDockWidget(QtCore.Qt.LeftDockWidgetArea, w.docks["dock.inspector"])
+    w.save_layout("inspector left")
+    assert "inspector left" in load_settings().view_options["layouts"]
+    assert "inspector left" in [a.text() for a in w._layouts_menu.actions()]
+    w.reset_layout()
+    assert _areas(w)["dock.inspector"] == QtCore.Qt.RightDockWidgetArea
+    assert w.apply_layout("inspector left")
+    assert _areas(w)["dock.inspector"] == QtCore.Qt.LeftDockWidgetArea
+    assert not w.apply_layout("no such layout")
+
+
+def test_a_layout_whose_state_no_longer_matches_falls_back_to_the_default(qtbot, tmp_path, monkeypatch,
+                                                                            clean_registry):
+    from dynamix.shell.settings import Settings, save_settings
+
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    save_settings(Settings(view_options={"layouts": {"last": {"state": "00ff00ff"}}}))
+    w = MainWindow()
+    qtbot.addWidget(w)
+    assert all(not w.docks[n].isHidden() for n in DOCK_NAMES)
+    assert _areas(w)["dock.inspector"] == QtCore.Qt.RightDockWidgetArea
+
+
+def test_the_view_menu_lists_a_toggle_per_dock_and_reset_layout(qtbot, clean_registry):
+    w = MainWindow()
+    qtbot.addWidget(w)
+    view = next(m for m in w.menuBar().findChildren(QtWidgets.QMenu) if m.title() == "View")
+    texts = [a.text() for a in view.actions()]
+    assert "Reset Layout" in texts
+    for name in DOCK_NAMES:
+        assert w.docks[name].toggleViewAction() in view.actions()

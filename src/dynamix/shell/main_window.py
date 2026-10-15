@@ -1675,7 +1675,7 @@ class MainWindow(QtWidgets.QMainWindow):
         last = (load_settings().view_options.get("layouts") or {}).get("last")
         if isinstance(last, dict) and last.get("state"):
             if not self.restoreState(QtCore.QByteArray.fromHex(str(last["state"]).encode())):
-                self.restoreState(self._default_dock_state)
+                self.reset_layout()
 
         # Window-scoped, so it fires wherever focus sits inside the window but never steals Space
         # from another window of the same app.
@@ -1810,6 +1810,13 @@ class MainWindow(QtWidgets.QMainWindow):
         crs_action = QtGui.QAction("Map CRS…", self)
         crs_action.triggered.connect(self._on_map_crs_action)
         view_menu.addAction(crs_action)
+        # The docks: show or hide each, put everything back, or keep an arrangement by name.
+        view_menu.addSeparator()
+        for dock in self.docks.values():
+            view_menu.addAction(dock.toggleViewAction())
+        view_menu.addAction("Reset Layout", self.reset_layout)
+        self._layouts_menu = view_menu.addMenu("Layouts")
+        self._rebuild_layouts_menu()
         settings_menu = self.menuBar().addMenu("Settings")
         self._auto_run_action = QtGui.QAction("Auto-run transforms", self, checkable=True)
         self._auto_run_action.setChecked(load_settings().auto_run_wtmm)
@@ -10238,6 +10245,53 @@ both ``Canvas`` signals report the
         layer.tags["groups"] = encoded
 
     # -- closing ---------------------------------------------------------------------------
+    # -- dock layouts ----------------------------------------------------------------------
+
+    def reset_layout(self) -> None:
+        """Today's arrangement, every dock docked and shown, at the sizes the default recorded."""
+        self.restoreState(self._default_dock_state)
+        for dock in self.docks.values():
+            dock.setFloating(False)
+            dock.show()
+
+    def _layouts(self) -> dict:
+        layouts = load_settings().view_options.get("layouts")
+        return dict(layouts) if isinstance(layouts, dict) else {}
+
+    def save_layout(self, name: str) -> None:
+        """Keep the current dock arrangement under ``name`` in the settings file (a preference,
+        never the project)."""
+        layouts = self._layouts()
+        layouts[name] = {"state": bytes(self.saveState().toHex()).decode()}
+        update_settings(view_options={**load_settings().view_options, "layouts": layouts})
+        self._rebuild_layouts_menu()
+
+    def apply_layout(self, name: str) -> bool:
+        """Restore the named arrangement; False when it is unknown or no longer matches the dock
+        set, in which case nothing changes."""
+        entry = self._layouts().get(name)
+        state = entry.get("state") if isinstance(entry, dict) else None
+        if not state or not self.restoreState(QtCore.QByteArray.fromHex(str(state).encode())):
+            return False
+        for dock in self.docks.values():
+            dock.show()
+        return True
+
+    def _save_layout_as(self) -> None:
+        name, ok = QtWidgets.QInputDialog.getText(self, "Save layout", "Name")
+        if ok and name.strip():
+            self.save_layout(name.strip())
+
+    def _rebuild_layouts_menu(self) -> None:
+        menu = self._layouts_menu
+        menu.clear()
+        menu.addAction("Save as…", self._save_layout_as)
+        names = [n for n in self._layouts() if n != "last"]
+        if names:
+            menu.addSeparator()
+        for name in names:
+            menu.addAction(name, lambda _checked=False, n=name: self.apply_layout(n))
+
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Honest close-during-compute (v1): there is no cancellation, so the window says which
         stage it is waiting out and closes when that stage completes. ``_on_finished`` and
