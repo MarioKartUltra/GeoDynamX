@@ -572,3 +572,19 @@ def test_cumulants_from_per_scale_moments_match_the_sample_route():
         assert a[k] == pytest.approx(b[k], rel=1e-9, abs=1e-12)
     tau = spectra.cumulant_tau({"c1": 0.7, "c2": 0.3, "c3": 0.0, "c4": 0.0}, np.array([-1.0, 0.0, 2.0]), c0=2.0)
     np.testing.assert_allclose(tau, [-2.0 - 0.7 - 0.15, -2.0, -2.0 + 1.4 - 0.6])
+
+
+def test_phase_transition_tangent_reaches_the_y_axis_at_D_minus_q_h():
+    q = np.arange(-5.0, 5.01, 0.5)
+    tau = 0.6 * q - 0.1 * q * q
+    bad = q < -3.0
+    tau[bad] = tau[q == -3.0][0] + 1.2 * (q[bad] + 3.0) + 0.3 * (q[bad] + 3.0) ** 2
+    h = 0.6 - 0.2 * q
+    D = q * h - tau                                       # Legendre-consistent spectrum
+    got = spectra.phase_transition_tangent(q, tau, h, D)
+    q_c = spectra.negative_branch_convexity_loss(q, tau)
+    i = int(np.argmin(np.abs(q - q_c)))
+    assert got["q_c"] == q_c and got["h_c"] == h[i] and got["D_c"] == D[i]
+    assert got["intercept"] == pytest.approx(D[i] - q_c * h[i])
+    assert got["intercept"] == pytest.approx(-tau[i])     # Legendre: the tangent meets h = 0 at -tau(q_c)
+    assert spectra.phase_transition_tangent(q, 0.6 * q - 0.1 * q * q, h, D) is None

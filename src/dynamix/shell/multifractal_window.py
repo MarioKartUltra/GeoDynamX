@@ -14,9 +14,9 @@ families side by side -- ``log2 Z(q,a)`` (``tau_qa``), ``H(q,a)`` (``h_qa``) and
 (``D_qa``) against ``log2 a``, one q-graded curve family each, every panel carrying a draggable
 :class:`~pyqtgraph.LinearRegionItem` mirrored across all three (the books' presentation: Arneodo reads H(q,a) and D(q,a) directly instead of Legendre-transforming tau(q) -- the workbook cell 47's own top row, click-to-bracket
 on any panel). Middle: tau(q), D(h), h(q) with propagated 1-sigma error bars; the tau panel also
-carries the Pont-2006 negative-branch convexity-loss marker (the right-tail truncation
-indicator -- large negative q where concavity breaks is numerical artifact, flagged never
-auto-truncated). Bottom: the cell-49 phase-transition surface -- tau(q) vs ln q with the
+shares a legend row under D(h) with the c(q) panel; D(h) carries the tangent at the phase
+transition (the Pont-2006 negative-branch convexity-loss abscissa q_c: slope q_c through the
+fitted point, drawn to the y axis, where it reads -tau(q_c)). Bottom: the cell-49 phase-transition surface -- tau(q) vs ln q with the
 two-segment fit split at q* (constant-specific-heat approximation: linear-in-ln-q per phase; the
 slope break signals freezing of singularities), and the count-weighted R² scan with the auto-best
 marker; q* is settable by the spin or by clicking either panel. pyqtgraph, not matplotlib,
@@ -106,6 +106,12 @@ class PhysicalAxis(pg.AxisItem):
     def __init__(self, physical, orientation: str = "top", **kw) -> None:
         super().__init__(orientation, **kw)
         self._physical = physical
+
+    def tickValues(self, minVal, maxVal, size):
+        """One label per octave, at integer log₂ a, whatever the panel's width: the three
+        family panels then tick alike instead of each by its own measured text widths."""
+        lo, hi = int(np.ceil(min(minVal, maxVal))), int(np.floor(max(minVal, maxVal)))
+        return [(1.0, [float(k) for k in range(lo, hi + 1)])]
 
     def tickStrings(self, values, scale, spacing):
         from dynamix.core.wavelet_profiles import format_length
@@ -439,17 +445,23 @@ class MultifractalWindow(QtWidgets.QDialog):
                                     symbolPen=None, symbolBrush=RESTRAINED_DARK.ink)
             plot.addItem(curve)
             self._spectrum_curves[name] = curve
+        # h is read as a plain decimal: pyqtgraph's automatic SI prefix would otherwise label
+        # these axes "(x0.001)" whenever the exponents are small.
+        self._spectrum_plots["D"].getAxis("bottom").enableAutoSIPrefix(False)
+        self._spectrum_plots["h"].getAxis("left").enableAutoSIPrefix(False)
 
-        # Pont-2006 truncation indicator on the tau(q) panel: the negative-branch abscissa where
-        # concavity breaks (the right-tail regime's numerical-artifact zone) -- shown as a dashed
-        # marker, never an automatic truncation.
-        self._convexity_line = pg.InfiniteLine(
-            angle=90, movable=False,
-            pen=pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine),
-            label="convexity loss", labelOpts={"position": 0.92,
-                                               "color": RESTRAINED_DARK.ink_muted})
-        self._convexity_line.setVisible(False)
-        self._spectrum_plots["tau"].addItem(self._convexity_line)
+        # The tangent at the phase transition on D(h): through the fitted point at the Pont-2006
+        # negative-branch convexity-loss abscissa q_c with slope q_c, drawn from the y axis past
+        # the point, the intercept marked and read (spectra.phase_transition_tangent). An
+        # indicator, never an automatic truncation.
+        muted_dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        self._tangent_line = pg.PlotDataItem(pen=muted_dash, connect="finite")
+        self._tangent_marker = pg.ScatterPlotItem(size=7, pen=None,
+                                                  brush=RESTRAINED_DARK.ink_muted)
+        self._tangent_label = pg.TextItem(anchor=(0, 1), color=RESTRAINED_DARK.ink_muted)
+        for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
+            item.setVisible(False)
+            self._spectrum_plots["D"].addItem(item)
 
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
@@ -485,7 +497,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         # An h-map result's histogram construction (eq. 21, the eq. 39 bars) beside the points,
         # as points; the D(h) panel carries the legend of what is drawn (_sync_dh_legend).
         d_plot = self._spectrum_plots["D"]
-        self._dh_legend = d_plot.addLegend(offset=(10, 10))
+        # The legend is a row of (sample, short name) pairs under the panel's bottom axis, in
+        # the PlotItem's own grid (row 4 sits below the axis row), never over the data.
+        self._dh_legend_row = pg.GraphicsLayout()
+        self._dh_legend_row.setContentsMargins(0, 0, 0, 0)
+        d_plot.layout.addItem(self._dh_legend_row, 4, 1)
         self._dh_hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
         d_plot.addItem(self._dh_hist_err)
         self._dh_hist_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=4, symbolPen=None,
@@ -519,11 +535,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._cq_plot = self._glw.addPlot(row=2, col=3, colspan=3, viewBox=WheelAxisViewBox())
         self._cq_plot.setLabel("bottom", "q")
         self._cq_plot.setLabel("left", "c(q) = −q² τ″")
-        # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²
-        # (the axis label says so; the legend lives on D(h)).
-        self._cq_plot.setLabel("left", "c(q) = −q² τ″")
-        self._cq_plot.setTitle("points: fit · line: cumulant expansion · dotted: log-normal c₂q²",
-                               size="9pt", color=RESTRAINED_DARK.ink_muted)
+        # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²:
+        # three entries of the legend row under D(h), beside the spectra it shares that row with.
         self._cq_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5, symbolPen=None,
                                          symbolBrush=RESTRAINED_DARK.ink)
         self._cq_plot.addItem(self._cq_curve)
@@ -532,6 +545,9 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink_muted,
                                                          style=QtCore.Qt.DotLine))
         self._cq_plot.addItem(self._cq_ln_curve)
+        self._dh_legend_entries += [(self._cq_curve, lambda: "c(q) fit"),
+                                    (self._cq_cum_curve, lambda: "cumulant expansion"),
+                                    (self._cq_ln_curve, lambda: "log-normal c₂q²")]
 
         # The families take half the height; the 2 x 2 grid the rest (the Bershadskii row,
         # when shown, a fifth).
@@ -663,18 +679,47 @@ class MultifractalWindow(QtWidgets.QDialog):
         x = getattr(item, "xData", None)
         return item.isVisible() and x is not None and len(x) > 0
 
+    @staticmethod
+    def _short_name(name: str) -> str:
+        """A source's legend name: what follows the last " · " (the layer, not the method
+        sentence); the full name is the entry's tooltip."""
+        return str(name).rsplit(" · ", 1)[-1].strip()
+
+    def _dh_legend_names(self) -> list:
+        """The short names in the legend row, in order."""
+        return [self._short_name(name) for _item, name in self._in_dh_legend.get("order", [])]
+
     def _sync_dh_legend(self) -> None:
-        """The D(h) legend lists exactly what is drawn there: the primary, the histogram and
-        box-counting constructions, the cumulant spectrum, every source."""
-        if not hasattr(self, "_dh_legend"):
+        """The legend row under D(h) lists exactly what is drawn on D(h) and c(q): the primary,
+        the histogram and box-counting constructions, the cumulant spectrum, every source, the
+        c(q) fit, its cumulant expansion and the log-normal reference. Four entries per line."""
+        if not hasattr(self, "_dh_legend_row"):
             return
         wanted = [(item, name_of()) for item, name_of in self._dh_legend_entries
                   if self._drawn(item)]
-        if wanted != self._in_dh_legend.get("order"):
-            self._dh_legend.clear()
-            for item, name in wanted:
-                self._dh_legend.addItem(item, name)
-            self._in_dh_legend = {"order": wanted}
+        if wanted == self._in_dh_legend.get("order"):
+            return
+        from pyqtgraph.graphicsItems.LegendItem import ItemSample
+
+        row = self._dh_legend_row
+        row.clear()
+        for i, (item, name) in enumerate(wanted):
+            line, col = divmod(i, 4)
+            sample = ItemSample(item)
+            sample.setMinimumSize(20, 20)
+            sample.setMaximumSize(20, 20)
+            label = pg.LabelItem(self._short_name(name), size="9pt",
+                                 color=RESTRAINED_DARK.ink_muted, justify="left")
+            label.setToolTip(str(name))
+            row.addItem(sample, line, 2 * col)
+            row.addItem(label, line, 2 * col + 1)
+        # Entries pack to the left: a stretch column after them takes the slack.
+        n_cols = 2 * min(len(wanted), 4)
+        for col in range(n_cols):
+            row.layout.setColumnStretchFactor(col, 0)
+        row.addItem(pg.LabelItem(""), 0, n_cols)
+        row.layout.setColumnStretchFactor(n_cols, 1)
+        self._in_dh_legend = {"order": wanted}
 
     def _on_boxcount_toggled(self, checked: bool) -> None:
         if not checked or self._h_map is None:
@@ -825,9 +870,9 @@ class MultifractalWindow(QtWidgets.QDialog):
             ci.removeItem(self._pt_scan_plot)
         for col in range(6):                   # equal columns: thirds on top, halves below
             ci.layout.setColumnStretchFactor(col, 1)
-        ci.layout.setRowStretchFactor(0, 3 if visible else 2)
-        ci.layout.setRowStretchFactor(1, 1)
-        ci.layout.setRowStretchFactor(2, 1)
+        ci.layout.setRowStretchFactor(0, 3)      # the families, then the spectra at 2:2
+        ci.layout.setRowStretchFactor(1, 2)
+        ci.layout.setRowStretchFactor(2, 2)
         ci.layout.setRowStretchFactor(3, 1 if visible else 0)
         for widget in (self._pt_label, self._qstar_label, self._qstar_spin):
             widget.setVisible(visible)
@@ -929,7 +974,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             self._focus_readout.setText(text)
         self._update_spectrum_plots()
         self._update_phase_transition()
-        self._update_convexity_marker()
+        self._update_phase_tangent()
         self._update_specific_heat()
         self._update_fit_lines()
         self._refit_sources()
@@ -1045,14 +1090,23 @@ class MultifractalWindow(QtWidgets.QDialog):
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
             f"  ·  R²min={c['r2']:.2f}")
 
-    def _update_convexity_marker(self) -> None:
+    def _update_phase_tangent(self) -> None:
+        """The D(h) tangent at the phase transition, from the y axis to a quarter past the
+        fitted point; hidden while the negative branch stays concave."""
         fit = self._fit
         if fit is None:
             return
-        q_loss = spectra.negative_branch_convexity_loss(fit["q_list"], fit["tau"])
-        self._convexity_line.setVisible(q_loss is not None)
-        if q_loss is not None:
-            self._convexity_line.setPos(float(q_loss))
+        got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+        for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
+            item.setVisible(got is not None)
+        if got is None:
+            return
+        h_end = 1.25 * got["h_c"] if got["h_c"] != 0.0 else 0.1
+        x = np.linspace(0.0, h_end, 2)
+        self._tangent_line.setData(x, got["intercept"] + got["q_c"] * x)
+        self._tangent_marker.setData([0.0], [got["intercept"]])
+        self._tangent_label.setText(f"{got['intercept']:.3f} at h = 0 · tangent at q_c = {got['q_c']:g}")
+        self._tangent_label.setPos(0.0, got["intercept"])
 
     # -- gestures ---------------------------------------------------------------------------
     def _on_region_changed(self) -> None:

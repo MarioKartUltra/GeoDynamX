@@ -191,18 +191,64 @@ def test_phase_transition_readout_matches_the_core_fitter(qtbot):
     assert "Δs=" in window._pt_label.text()
 
 
-def test_convexity_loss_marker_tracks_the_negative_branch(qtbot):
+def _broken_pair():
+    """cmax loses concavity on the negative branch below q = -3; std stays concave."""
     q = np.arange(-5.0, 5.01, 0.5)
     concave = 0.6 * q - 0.1 * q * q
     broken = concave.copy()
     bad = q < -3.0
     broken[bad] = concave[q == -3.0][0] + (0.6 + 0.6) * (q[bad] + 3.0) \
         + 0.3 * (q[bad] + 3.0) ** 2
-    window = MultifractalWindow(_hd_q(q, concave), _hd_q(q, broken))
+    return _hd_q(q, concave), _hd_q(q, broken)
+
+
+def test_the_phase_transition_tangent_on_D_h_tracks_the_negative_branch(qtbot):
+    window = MultifractalWindow(*_broken_pair())
     qtbot.addWidget(window)
-    assert window._convexity_line.isVisible()                       # cmax (default) is broken
+    fit = window.current_fit()                                      # cmax (default) is broken
+    expect = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+    assert expect is not None
+    line = window._tangent_line
+    assert line.isVisible()
+    x, y = line.xData, line.yData
+    assert x[0] == 0.0 and y[0] == pytest.approx(expect["intercept"])   # read off the y axis
+    assert (y[-1] - y[0]) / (x[-1] - x[0]) == pytest.approx(expect["q_c"])  # slope q_c
+    assert abs(x[-1]) > abs(expect["h_c"]) and np.sign(x[-1]) == np.sign(expect["h_c"])  # past the point
+    assert f"{expect['intercept']:.3f}" in window._tangent_label.textItem.toPlainText()
+    assert not hasattr(window, "_convexity_line")                   # the tau(q) marker is gone
     window._table_combo.setCurrentText("no-sup (std)")
-    assert not window._convexity_line.isVisible()                   # std is clean
+    assert not line.isVisible()                                     # std is clean
+
+
+def test_the_D_h_legend_is_a_row_under_the_panel_with_short_names(qtbot):
+    hd_std, hd_cmax = _pair()
+    long_name = "moments over the projections (Turiel 2006, M method) · holder_measure @A"
+    window = MultifractalWindow(hd_std, hd_cmax,
+                                sources=[{"name": long_name, "hd_std": hd_std, "hd_cmax": hd_cmax}])
+    qtbot.addWidget(window)
+    d_plot = window._spectrum_plots["D"]
+    assert d_plot.layout.itemAt(4, 1) is window._dh_legend_row     # under the bottom axis
+    names = window._dh_legend_names()
+    assert "holder_measure @A" in names and long_name not in names
+    assert "canonical (Arneodo WTMM)" in names
+    assert "c(q) fit" in names                                     # drawn after the fit
+    registered = {name_of() for _item, name_of in window._dh_legend_entries}
+    assert {"c(q) fit", "cumulant expansion", "log-normal c₂q²"} <= registered
+    assert not window._cq_plot.titleLabel.isVisible()               # the caption moved here
+
+
+def test_axes_read_plain_decimals_and_the_physical_axis_ticks_once_per_octave(qtbot):
+    from dynamix.shell.multifractal_window import PhysicalAxis
+
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    assert window._spectrum_plots["D"].getAxis("bottom").autoSIPrefix is False
+    assert window._spectrum_plots["h"].getAxis("left").autoSIPrefix is False
+    axis = PhysicalAxis(lambda v: (2.0 ** v, "px"))
+    assert axis.tickValues(2.3, 5.6, 600) == [(1.0, [3.0, 4.0, 5.0])]
+    layout = window._glw.ci.layout
+    assert (layout.rowStretchFactor(0), layout.rowStretchFactor(1),
+            layout.rowStretchFactor(2)) == (3, 2, 2)
 
 
 def test_scale_window_changes_are_broadcast(qtbot):
@@ -302,7 +348,7 @@ def test_the_layout_is_partition_functions_over_a_two_by_two_grid_with_bershadsk
     assert ci.rows[0][0] is window._family_plots["tau_qa"] and ci.rows[0][4] is window._family_plots["D_qa"]
     assert ci.rows[1][0] is window._spectrum_plots["tau"] and ci.rows[1][3] is window._spectrum_plots["D"]
     assert ci.rows[2][0] is window._spectrum_plots["h"] and ci.rows[2][3] is window._cq_plot
-    assert ci.layout.rowStretchFactor(0) == 2 and ci.layout.rowStretchFactor(1) == 1
+    assert (ci.layout.rowStretchFactor(0), ci.layout.rowStretchFactor(1), ci.layout.rowStretchFactor(2)) == (3, 2, 2)
     assert [ci.layout.columnStretchFactor(c) for c in range(6)] == [1] * 6
     assert not window.bershadskii_check.isChecked()
     assert window._pt_plot not in ci.items and not window._pt_label.isVisible()
@@ -310,7 +356,7 @@ def test_the_layout_is_partition_functions_over_a_two_by_two_grid_with_bershadsk
     assert ci.rows[3][0] is window._pt_plot and ci.rows[3][4] is window._pt_scan_plot
     assert ci.layout.rowStretchFactor(0) == 3
     window.bershadskii_check.setChecked(False)
-    assert window._pt_plot not in ci.items and ci.layout.rowStretchFactor(0) == 2
+    assert window._pt_plot not in ci.items and ci.layout.rowStretchFactor(0) == 3
 
 
 def test_the_wheel_zooms_x_and_with_shift_y(qtbot):
@@ -493,8 +539,8 @@ def test_the_box_counting_curve_and_the_pin_to_d0_ride_on_the_fitters_dh_panel(q
     np.testing.assert_allclose(window._dh_hist_curve.getData()[1], D)
 
 
-def _names(plot):
-    return [label.text for _sample, label in plot.legend.items]
+def _names(window):
+    return window._dh_legend_names()
 
 
 def test_the_dh_panel_carries_the_legend_and_the_histogram_and_box_counting_as_points(qtbot):
@@ -505,15 +551,15 @@ def test_the_dh_panel_carries_the_legend_and_the_histogram_and_box_counting_as_p
     window = MultifractalWindow(*_pair(), dh_hist=(h, D, np.full(20, 0.05)), h_map=h_map,
                                 sources=[{"name": "moments · B", "hd_std": _pair()[1], "hd_cmax": _pair()[1]}])
     qtbot.addWidget(window)
-    names = _names(window._spectrum_plots["D"])
+    names = _names(window)
     assert names[0] == "canonical (Arneodo WTMM)" and "microcanonical histogram" in names
-    assert "moments · B" in names and "box-counting across r" not in names
+    assert "B" in names and "box-counting across r" not in names       # the layer part of "moments · B"
     assert window._dh_hist_curve.opts["symbol"] == "o" and window._dh_hist_curve.opts["pen"] is None
     assert not window.boxcount_check.isChecked()
     window.boxcount_check.setChecked(True)
-    assert window._dh_box_curve.getData()[0].size > 0 and "box-counting across r" in _names(window._spectrum_plots["D"])
+    assert window._dh_box_curve.getData()[0].size > 0 and "box-counting across r" in _names(window)
     window.show_menu.actions()[1].setChecked(False)
-    assert "moments · B" not in _names(window._spectrum_plots["D"])
+    assert "B" not in _names(window)
     assert getattr(window._cq_plot, "legend", None) is None or len(window._cq_plot.legend.items) == 0
 
 
@@ -538,7 +584,7 @@ def test_the_cumulant_spectrum_overlay_follows_the_fitted_cumulants(qtbot):
     np.testing.assert_allclose(h_c, np.gradient(spectra.cumulant_tau(c, xh, c0=c0), xh, edge_order=2), atol=1e-6)
     xd, D_c = window._cum_curves["D"].getData()
     np.testing.assert_allclose(D_c, xq * h_c - tau_c, atol=1e-6)
-    assert "cumulant spectrum" in _names(window._spectrum_plots["D"])
+    assert "cumulant spectrum" in _names(window)
     # the moment route brings its cumulants in the table
     hd2 = dict(hd); hd2["lnT_moments"] = spectra.ln_moments(mods)
     table_window = MultifractalWindow(hd2, hd2, scales=scales)
