@@ -7,7 +7,6 @@ from dynamix.shell.settings import update_settings
 from tests.test_shell_window import STUB_CHAIN, _FIELD, loaded, stub_devices, window  # noqa: F401
 
 
-
 def test_app_boots_with_arrangement_never_built(window):
     assert window._center_stack.currentIndex() == 0
     assert window._arrangement is None            # lazy: nothing built yet
@@ -154,6 +153,7 @@ def test_tab_does_not_cross_flip_between_two_live_windows(qtbot, stub_devices):
 
 def test_activate_under_the_offscreen_qpa_platform_does_not_crash_and_leaves_the_scene_unbuilt(
         qtbot, window):
+    pytest.importorskip("pyvista", reason="asserts the real import; the gate installs the app extra")
     from PySide6 import QtWidgets as _QtWidgets
 
     assert _QtWidgets.QApplication.instance().platformName() == "offscreen"

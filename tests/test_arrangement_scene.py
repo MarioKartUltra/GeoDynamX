@@ -2062,7 +2062,6 @@ def test_surface_option_moves_extrema_and_h_lines_onto_the_surface():
 from dynamix.shell.arrangement.scene import _REFERENCE_PREFIX  # noqa: E402
 
 
-
 def _ref_entry(ref_id="ref0", kind="polygon", visible=True, native=None):
     ring = np.array([[119.0, -22.0], [119.5, -22.0], [119.5, -21.5], [119.0, -22.0]])
     return {"ref_id": ref_id, "name": "slumps", "kind": kind, "color": "#ff8800", "visible": visible,
