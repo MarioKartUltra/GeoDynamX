@@ -4,6 +4,7 @@
 every file whose SPDX header says GPL-2.0-only is one NOTICE names."""
 from __future__ import annotations
 
+import re
 import pathlib
 import sys
 
@@ -29,7 +30,7 @@ def _entry_for(d, notice):
     is not an entry: "wtmm" appears in prose without naming a tree)."""
     rel = d.relative_to(REPO).as_posix()
     has_file = any((d / n).exists() for n in ("LICENSE", "LICENSE.txt", "COPYING"))
-    return has_file or rel in notice
+    return has_file or re.search(re.escape(rel) + r"(?!\w)", notice) is not None
 
 
 def test_every_derived_tree_has_a_licence_file_or_a_notice_entry():
@@ -56,4 +57,18 @@ def test_the_licence_check_fails_when_a_tree_loses_its_entry():
         struck = NOTICE.replace(word, "removed")
         assert struck != NOTICE, word
         assert not _entry_for(SRC / rel, struck), rel
-    assert _entry_for(SRC / "_vendor" / "wtmm", NOTICE.replace("wtmm_ebsd", "x"))   # the name alone is not an entry
+    assert _entry_for(SRC / "_vendor" / "wtmm", NOTICE.replace("wtmm_ebsd", "x"))   # its own path still names it
+
+
+def test_a_longer_path_does_not_stand_in_for_a_shorter_one():
+    """``src/dynamix/_vendor/wtmm`` is a prefix of ``src/dynamix/_vendor/wtmm_ebsd``: striking only the
+    shorter path must fail the shorter tree while the longer one keeps its entry."""
+    struck = re.sub(r"src/dynamix/_vendor/wtmm(?!\w)", "removed", NOTICE)
+    assert struck != NOTICE
+    assert "src/dynamix/_vendor/wtmm_ebsd" in struck
+    assert not _entry_for(SRC / "_vendor" / "wtmm", struck)
+    assert _entry_for(SRC / "_vendor" / "wtmm_ebsd", struck)
+
+
+def test_the_bare_name_is_not_an_entry():
+    assert not _entry_for(SRC / "_vendor" / "wtmm", "wtmm appears in prose, no path named")

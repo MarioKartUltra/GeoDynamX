@@ -47,16 +47,18 @@ jobs:
           python -m pip install -e ".[fast,io,app,dev]"
       - name: Engine in use
         run: python -c "from dynamix.core import fft_policy as p; print(p.resolve())"
+      # A file is Qt when it mentions QtWidgets or qtbot. The pyvista scene tests are excluded by their
+      # marker, never by a text match: a test that only mentions pyvista belongs in a required gate.
       - name: Select the gates' files (each list must be non-empty)
         run: |
-          grep -L "pyvista\|QtWidgets\|qtbot" tests/test_*.py > headless.txt
-          grep -l "QtWidgets\|qtbot" tests/test_*.py | xargs grep -L "pyvista" > qtonly.txt
+          grep -L "QtWidgets\|qtbot" tests/test_*.py > headless.txt || true
+          grep -l "QtWidgets\|qtbot" tests/test_*.py > qtonly.txt || true
           echo "headless files: $(wc -l < headless.txt)   qt-only files: $(wc -l < qtonly.txt)"
           test -s headless.txt && test -s qtonly.txt
       - name: Headless gate
-        run: python -m pytest -q -p no:cacheprovider $(cat headless.txt)
+        run: python -m pytest -q -p no:cacheprovider -m "not pyvista" $(cat headless.txt)
       - name: Qt-only gate (offscreen)
-        run: python -m pytest -q -p no:cacheprovider $(cat qtonly.txt)
+        run: python -m pytest -q -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
 
   lint-imports:
     name: layering gate
@@ -85,7 +87,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest]
+        os: [macos-14, windows-latest, ubuntu-latest]
     defaults:
       run:
         shell: bash
@@ -109,9 +111,5 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[fast,io,app,dev]"
-      - name: Scene tests
-        run: |
-          grep -l "pyvista" tests/test_*.py > scene.txt
-          echo "scene files: $(wc -l < scene.txt)"
-          test -s scene.txt
-          python -m pytest -q -p no:cacheprovider $(cat scene.txt)
+      - name: Scene tests (the pyvista marker)
+        run: python -m pytest -q -p no:cacheprovider -m pyvista tests

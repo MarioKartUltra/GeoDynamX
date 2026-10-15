@@ -95,6 +95,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "pyvista: builds a pyvista scene; pyvista's teardown segfaults offscreen on some machines, so these run only in the allowed-to-fail CI job",
+]
 
 # The layering gate (`lint-imports`, run by CI): the layer order the code has, no Qt below the shell,
 # no geopandas/shapely outside a GeoPackage export module, the vendored packages reached only from core.
