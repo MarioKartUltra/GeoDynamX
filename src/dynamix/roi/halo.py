@@ -467,7 +467,8 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
 
     chains = backend.chains2d(extrema, scales, similitude=resolved["similitude"],
                               box_ratio=resolved["box_ratio"], dist2_max=resolved["dist2_max"],
-                              min_len=resolved["min_chain_len"], smooth=resolved["smooth"])
+                              min_len=resolved["min_chain_len"], smooth=resolved["smooth"],
+                              band_per=resolved["band_per"])
     hd_std, hd_cmax = backend.partition2d(chains, scales, q_list=resolved["q_list"],
                                           min_chain_len=resolved["min_chain_len"])
 

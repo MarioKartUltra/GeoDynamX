@@ -573,6 +573,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{dist2\_max} & 50 & $[0,10^6]$ px$^2$ & max squared jump when chaining maxima across scales \\
 \texttt{box\_ratio} & 1.0 & $[0.001,64]$ & chaining search-box anisotropy \\
 \texttt{similitude} & 0.8 & $[0,1]$ & cross-scale similarity acceptance for chaining \\
+\texttt{band\_per} & step & step, octave & where the similitude band applies: between neighbouring scales (xsmurf's vchain), or over a whole octave with each step taking its share, so the voices no longer change which $h$ can chain; the reading beside the similitude knob gives the chainable range of $h$ and the largest $h$ the analyzing wavelet resolves, $h < n_\psi$ \\
 \texttt{show} (\emph{view}) & edges & 3 outputs & \texttt{edges} (the edge stack), or the \texttt{modulus} or \texttt{argument} at the shown level (the Outputs rows, \S\ref{sec:perscale}) \\
 \bottomrule
 \end{longtable}
