@@ -74,6 +74,8 @@ EXTRACTED = {
 }
 
 #: New modules created for DynamiX (not copied from EQSelect). Not subject to drift detection.
+#: units: the CRS-linear-unit conversion, written for the shell and moved below it so the
+#: devices may import it (shell/units.py re-exports it); nothing of EQSelect's.
 #: mzlib/fftbackend: verbatim port from research/reconstruction/,
 #: not EQSelect -- their own drift guard is tests/test_mzlib_port.py, a sibling of this file.
 #: mz_edges: the product-bundle builder over mzlib -- app-facing
@@ -149,7 +151,7 @@ EXTRACTED = {
 #: wavelet_profiles: every wavelet's section and its λ* (the bandpass peak wavelength), the
 #: scale bar's and the physical scale axis's one authority; the per-family constants are
 #: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
-NEW_MODULES = ["scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
+NEW_MODULES = ["units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton", "wavelet_profiles",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
