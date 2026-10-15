@@ -1723,3 +1723,20 @@ def test_an_inactive_box_shows_its_reason_and_keeps_its_params_and_bypass(qtbot,
     box.set_reading("kept 3/4")
     box.set_inactive("")
     assert box.reading_label.text() == "kept 3/4"          # an ordinary reading is kept
+
+
+def test_add_device_takes_the_drop_path_and_its_refusal_gate(qtbot, registered_builtins):
+    """The palette and the Analysis menu place a device as a drop at the end would: the same
+    clamp (a transform never lands after a filter) and the same commit gate."""
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps(_descriptors((("wtmm2d", {}),)))
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.add_device("scale_select")                 # a filter: legal at the end
+    assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "scale_select"]
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.add_device("wtmm2d")                       # a transform: clamped before the filters
+    assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "wtmm2d", "scale_select"]
+    assert zone.strip(2).device.name == "scale_select"

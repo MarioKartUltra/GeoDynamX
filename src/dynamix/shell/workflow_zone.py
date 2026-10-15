@@ -1295,6 +1295,13 @@ class WorkflowZone(QtWidgets.QFrame):
         self._descriptors.insert(index, {"device": name, "params": defaults_for(device),
                                          "bypassed": False, "rack": rack})
 
+    def add_device(self, name: str) -> None:
+        """Place ``name`` as a drop at the end would: the same clamp and the same refusal gate
+        (the command palette and the Analysis menu)."""
+        snapshot = [dict(d) for d in self._descriptors]
+        self._handle_device_drop(name, None, None)
+        self._commit_or_revert(snapshot)
+
     def _handle_preset_drop(self, name: str) -> None:
         """A preset drop creates its OWN named rack from the preset's steps (design: "Racks" is a
         real browser category, and dragging one of its rows out has to actually produce a rack). The drop TARGET is not consulted: nesting one preset's rack
