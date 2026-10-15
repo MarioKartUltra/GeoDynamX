@@ -182,11 +182,12 @@ def test_the_vendored_piece_reproduces_its_golden(piece):
             _compare(piece, key, got, want)
 
 
-@pytest.mark.parametrize("piece", ["cwt2d", "tensor", "chain_filters", "dh_from_chains"])
+@pytest.mark.parametrize("piece", ["cwt2d", "tensor", "chain_filters", "dh_from_chains", "cumulants"])
 def test_the_vendored_originals_still_reproduce_the_goldens_behind_the_flag(piece):
-    """Ports 1–3 (spec 09, Phase B): the app's own 2-D mlx transform, tensor SVD, per-chain
-    Hölder list and partition tables are the live path; the vendored originals, reachable only
-    with ``USE_VENDORED``, must agree with the same goldens until the last port removes them."""
+    """Ports 1–4 (spec 09, Phase B): the app's own 2-D mlx transform, tensor SVD, per-chain
+    Hölder list, partition tables and cumulant fit are the live path; the vendored originals,
+    reachable only with ``USE_VENDORED``, must agree with the same goldens until the last port
+    removes them."""
     from dynamix.core import wtmm_backend
 
     pytest.importorskip("mlx.core")

@@ -100,6 +100,12 @@ SURVIVORS = {
 }
 
 
+#: Survivors a Phase B port made unreachable from the app's seams (the app runs its own code
+#: there now; the vendored module stays on disk, behind ``wtmm_backend.USE_VENDORED``, until the
+#: last port removes it).
+PORTED = {"wtmm.dupont_venugopal"}
+
+
 @pytest.mark.parametrize("pkg", sorted(SURVIVORS))
 def test_the_vendored_packages_carry_exactly_the_survivors(pkg):
     assert {p.stem for p in (VENDOR / pkg).glob("*.py")} == SURVIVORS[pkg]
@@ -107,7 +113,8 @@ def test_the_vendored_packages_carry_exactly_the_survivors(pkg):
 
 def test_every_seam_the_app_runs_loads_only_survivors():
     """A fresh interpreter runs every golden piece (the app's seams into the vendored code) and
-    loads exactly the survivors, so nothing the app reaches was trimmed away."""
+    loads exactly the survivors that no port has replaced yet (``PORTED``), so nothing the app
+    reaches was trimmed away and each port's module is indeed no longer reached."""
     code = textwrap.dedent("""
         import sys
         sys.path.insert(0, "tests")
@@ -122,8 +129,9 @@ def test_every_seam_the_app_runs_loads_only_survivors():
     loaded = {m.replace("dynamix._vendor.", "") for m in eval(res.stdout.split("LOADED", 1)[1].strip())}
     expected = {f"{pkg}.{m}" for pkg, mods in SURVIVORS.items() for m in mods if m != "__init__"}
     expected |= {"wtmm", "wtmm_ebsd"}
-    assert loaded == expected, {"loaded only": sorted(loaded - expected),
-                                "survivor not loaded": sorted(expected - loaded)}
+    assert loaded == expected - PORTED, {"loaded only": sorted(loaded - expected),
+                                         "still loaded though ported": sorted(loaded & PORTED),
+                                         "survivor not loaded": sorted(expected - PORTED - loaded)}
 
 
 @pytest.mark.skipif(not SOURCE.is_dir(), reason=f"source checkout not present at {SOURCE}")
