@@ -79,6 +79,7 @@ def settings_path() -> Path:
         base = Path.home() / "Library" / "Application Support"
     return base / "GeoDynamix" / "settings.json"
 
+
 def themes_dir() -> Path:
     """The user's theme files (``dynamix.shell.theme.load_theme``): a ``themes`` folder beside the
     settings file."""

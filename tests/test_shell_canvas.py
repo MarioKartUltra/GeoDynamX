@@ -1602,3 +1602,70 @@ def test_the_canvas_pens_follow_the_applied_theme(qtbot):
     finally:
         apply_theme(app, RESTRAINED_DARK)
     assert current() is RESTRAINED_DARK
+
+
+def test_a_live_theme_change_retints_the_canvas_chrome_in_place(qtbot):
+    """Every chrome pen follows a theme applied AFTER the canvas was built, through
+    ``apply_theme_roles`` (the window calls it on a pick and on a watched-file reload); each pen
+    keeps its width; a scale-bar colour the user picked from the bar's menu stays."""
+    from PySide6 import QtWidgets
+
+    from dynamix.shell.canvas import Canvas
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, load_theme
+
+    def pen(item):
+        return item.opts["pen"]
+
+    app = QtWidgets.QApplication.instance()
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    light = load_theme("light")
+    try:
+        apply_theme(app, light)
+        canvas.apply_theme_roles()
+        assert pen(canvas.vtrail_item).color().name() == light.amber
+        assert pen(canvas.seam_item).color().name() == light.seam
+        assert pen(canvas.roi_band_item).color().name() == light.roi
+        assert pen(canvas.active_roi_item).color().name() == light.roi
+        assert pen(canvas.active_roi_item).widthF() == 2.0
+        assert pen(canvas.lasso_item).color().name() == light.lasso
+        assert pen(canvas.box_item).color().name() == light.lasso
+        assert pen(canvas.selection_item).color().name() == light.selection_accent
+        assert pen(canvas.selection_item).widthF() == 2.0
+        assert pen(canvas.scale_bar_line).color().name() == light.scale_bar
+        assert canvas.backgroundBrush().color().name() == light.surround
+        canvas.set_scale_bar_style({"color": "#123456"})
+        apply_theme(app, RESTRAINED_DARK)
+        canvas.apply_theme_roles()
+        assert pen(canvas.scale_bar_line).color().name() == "#123456"     # the user's pick stays
+        assert pen(canvas.roi_band_item).color().name() == RESTRAINED_DARK.roi
+        assert canvas.backgroundBrush().color().name() == RESTRAINED_DARK.surround
+    finally:
+        apply_theme(app, RESTRAINED_DARK)
+
+
+def test_switching_themes_leaves_the_data_colours_alone(qtbot):
+    """Chains, extrema and points are data, not chrome: a theme switch, live or at construction,
+    never touches their colours (the Signal Rule)."""
+    from PySide6 import QtWidgets
+
+    from dynamix.shell.canvas import EXTREMA_COLOR, HCHAIN_COLOR, POINTS_COLOR, Canvas
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, load_theme
+
+    app = QtWidgets.QApplication.instance()
+    before = (HCHAIN_COLOR, EXTREMA_COLOR, POINTS_COLOR)
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    try:
+        for name in ("light", "mid_grey"):
+            apply_theme(app, load_theme(name))
+            canvas.apply_theme_roles()
+            fresh = Canvas()
+            qtbot.addWidget(fresh)
+            for c in (canvas, fresh):
+                assert c.hchain_item.opts["pen"].color().getRgb()[:3] == HCHAIN_COLOR
+                assert c.extrema_item.opts["brush"].color().getRgb()[:3] == EXTREMA_COLOR
+                assert c.points_item.opts["brush"].color().getRgb()[:3] == POINTS_COLOR
+    finally:
+        apply_theme(app, RESTRAINED_DARK)
+    assert (HCHAIN_COLOR, EXTREMA_COLOR, POINTS_COLOR) == before

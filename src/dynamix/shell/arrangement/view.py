@@ -114,7 +114,7 @@ no-op-before-a-scene/camera-exists contract every other eager control's wiring a
 this is the hook into this view, waiting for a caller.
 
 **Themed background.** The freshly built ``Scene`` is now handed
-``dynamix.shell.theme.RESTRAINED_DARK.ground`` as its ``background`` argument -- this is the one
+``dynamix.shell.theme.current().ground`` as its ``background`` argument -- this is the one
 place in this module that reads ``theme.py``, and the only reason it may: ``Scene`` itself stays
 Qt-free and never imports theme (see its own module docstring's "Themed background" section) --
 the view is exactly where a color role gets resolved into a literal string and handed down to
@@ -243,7 +243,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current
 
 _pyvista_module = None
 _pyvistaqt_module = None
@@ -349,7 +349,7 @@ class _LassoRegionOverlay(QtWidgets.QWidget):
         if len(self._pts) < 2:
             return
         poly = QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in self._pts])
-        accent = QtGui.QColor(RESTRAINED_DARK.selection_accent)
+        accent = QtGui.QColor(current().selection_accent)
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing, True)
         painter.setPen(QtCore.Qt.PenStyle.NoPen)
@@ -772,7 +772,7 @@ The mask is deliberately NOT applied here anymore -- ``MaskRow``
             # Themed background -- the one place this view reads
             # theme.py, handed down as a plain string so Scene itself stays Qt-free (see both
             # modules' own "Themed background" docstring sections).
-            self._scene = Scene(self._interactor, background=RESTRAINED_DARK.ground)
+            self._scene = Scene(self._interactor, background=current().ground)
             if self._footprints:
                 self._scene.set_footprints(self._footprints)
             if self._previews:

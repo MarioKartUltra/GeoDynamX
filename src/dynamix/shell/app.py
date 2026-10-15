@@ -7,7 +7,7 @@
     python -m dynamix.shell.app field.npz --render out.png   # headless frame, for verification
 
 :func:`~dynamix.shell.theme.apply_theme` is called here at launch, with the theme the settings name,
-and from the window's Settings ▸ Theme pick (the same function, the same app-wide stylesheet). A
+from the window's Settings ▸ Theme pick and from its file watcher when the picked file changes (the same function, the same app-wide stylesheet). A
 widget-level stylesheet anywhere else is exactly the literal-color escape hatch the Theme Rule exists
 to close.
 

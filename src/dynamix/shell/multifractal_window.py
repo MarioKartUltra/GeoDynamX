@@ -58,7 +58,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import spectra
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current
 
 __all__ = ["MultifractalWindow"]
 
@@ -355,14 +355,14 @@ class MultifractalWindow(QtWidgets.QDialog):
 
         #: The two-segment fit's live numbers -- slope_L / slope_R / ds + the scan's best q*.
         self._pt_label = QtWidgets.QLabel("")
-        self._pt_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._pt_label.setStyleSheet(f"color: {current().ink_muted};")
         #: The cascade's cumulants c₁..c₄ under the fit window (the c(q) panel's readout).
         self._cq_label = QtWidgets.QLabel("")
-        self._cq_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._cq_label.setStyleSheet(f"color: {current().ink_muted};")
         #: What the forward transform actually multiplied in -- display only, derived by the
         #: caller (see the module docstring's eta/frame section). Muted: context, not a control.
         self._forward_label = QtWidgets.QLabel(forward_note)
-        self._forward_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._forward_label.setStyleSheet(f"color: {current().ink_muted};")
         # The readouts' texts change with every fit; on their own line, wrapping, with an
         # ignored width policy, they can never raise the window's minimum width.
         readouts = QtWidgets.QHBoxLayout()
@@ -374,7 +374,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         layout.addLayout(readouts)
 
         self._glw = pg.GraphicsLayoutWidget()
-        self._glw.setBackground(RESTRAINED_DARK.ground)
+        self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
         #: The fit window in log₂ a and, through ``physical_of_log2a``, in physical length.
         self.range_label = QtWidgets.QLabel("")
@@ -384,7 +384,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Row 0: the THREE partition-function families (Z, H, D vs log2 a -- the books' top
         # row), each carrying a mirrored copy of the fit window so click-and-drag works on any
         # panel, exactly like the workbook's click-to-bracket on any of its three panels.
-        band = pg.mkColor(RESTRAINED_DARK.amber)
+        band = pg.mkColor(current().amber)
         band.setAlpha(36)
         log2_s = np.asarray(self._current_hd()["log2_scales"], dtype=np.float64)
         span = (float(log2_s.min()), float(log2_s.max()))
@@ -399,7 +399,7 @@ class MultifractalWindow(QtWidgets.QDialog):
                 plot.showAxis("top")
             region = pg.LinearRegionItem(values=span, orientation="vertical",
                                          brush=pg.mkBrush(band),
-                                         pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                         pen=pg.mkPen(current().amber))
             region.setBounds(span)
             region.sigRegionChanged.connect(self._on_region_changed)
             plot.addItem(region)
@@ -409,12 +409,12 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._partition_plot = self._family_plots["tau_qa"]
         self._region = self._regions[0]
         # A focus mode's focus on each family panel, and the field extent L ruled.
-        dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        dash = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
         self._focus_markers: dict[str, pg.ScatterPlotItem] = {}
         self._L_lines: dict[str, pg.InfiniteLine] = {}
         for key, plot in self._family_plots.items():
             marker = pg.ScatterPlotItem(symbol="o", size=11,
-                                        pen=pg.mkPen(RESTRAINED_DARK.amber, width=1.5),
+                                        pen=pg.mkPen(current().amber, width=1.5),
                                         brush=pg.mkBrush(None))
             marker.setVisible(False)
             plot.addItem(marker)
@@ -425,8 +425,8 @@ class MultifractalWindow(QtWidgets.QDialog):
             plot.addItem(line)
             self._L_lines[key] = line
 
-        ink = pg.mkPen(RESTRAINED_DARK.ink, width=1.4)
-        muted = pg.mkPen(RESTRAINED_DARK.ink_muted)
+        ink = pg.mkPen(current().ink, width=1.4)
+        muted = pg.mkPen(current().ink_muted)
         self._spectrum_plots = {}
         self._spectrum_curves = {}
         self._spectrum_errbars = {}
@@ -442,7 +442,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             plot.addItem(errbar)
             self._spectrum_errbars[name] = errbar
             curve = pg.PlotDataItem(pen=ink, connect="finite", symbol="o", symbolSize=4,
-                                    symbolPen=None, symbolBrush=RESTRAINED_DARK.ink)
+                                    symbolPen=None, symbolBrush=current().ink)
             plot.addItem(curve)
             self._spectrum_curves[name] = curve
         # h is read as a plain decimal: pyqtgraph's automatic SI prefix would otherwise label
@@ -454,44 +454,44 @@ class MultifractalWindow(QtWidgets.QDialog):
         # negative-branch convexity-loss abscissa q_c with slope q_c, drawn from the y axis past
         # the point, the intercept marked and read (spectra.phase_transition_tangent). An
         # indicator, never an automatic truncation.
-        muted_dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        muted_dash = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
         self._tangent_line = pg.PlotDataItem(pen=muted_dash, connect="finite")
         self._tangent_marker = pg.ScatterPlotItem(size=7, pen=None,
-                                                  brush=RESTRAINED_DARK.ink_muted)
-        self._tangent_label = pg.TextItem(anchor=(0, 1), color=RESTRAINED_DARK.ink_muted)
+                                                  brush=current().ink_muted)
+        self._tangent_label = pg.TextItem(anchor=(0, 1), color=current().ink_muted)
         for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
             item.setVisible(False)
             self._spectrum_plots["D"].addItem(item)
 
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
-        muted_dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        muted_dash = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
         self._pt_plot = pg.PlotItem(viewBox=WheelAxisViewBox())
         self._pt_plot.setLabel("bottom", "ln q  (positive branch)")
         self._pt_plot.setLabel("left", "τ(q)")
         self._pt_points = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5,
                                           symbolPen=None,
-                                          symbolBrush=RESTRAINED_DARK.ink)
+                                          symbolBrush=current().ink)
         self._pt_plot.addItem(self._pt_points)
         self._pt_fit_left = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.6))
         self._pt_fit_right = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6))
         self._pt_plot.addItem(self._pt_fit_left)
         self._pt_plot.addItem(self._pt_fit_right)
         self._pt_qstar_line = pg.InfiniteLine(angle=90, movable=False,
-                                              pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                              pen=pg.mkPen(current().amber))
         self._pt_plot.addItem(self._pt_qstar_line)
 
         self._pt_scan_plot = pg.PlotItem(viewBox=WheelAxisViewBox())
         self._pt_scan_plot.setLabel("bottom", "q*")
         self._pt_scan_plot.setLabel("left", "weighted R²")
-        self._pt_scan_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink),
+        self._pt_scan_curve = pg.PlotDataItem(pen=pg.mkPen(current().ink),
                                               connect="finite")
         self._pt_scan_plot.addItem(self._pt_scan_curve)
         self._pt_best_line = pg.InfiniteLine(angle=90, movable=False, pen=muted_dash,
                                              label="best", labelOpts={"position": 0.9})
         self._pt_scan_plot.addItem(self._pt_best_line)
         self._pt_scan_qstar_line = pg.InfiniteLine(angle=90, movable=False,
-                                                   pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                                   pen=pg.mkPen(current().amber))
         self._pt_scan_plot.addItem(self._pt_scan_qstar_line)
 
         # An h-map result's histogram construction (eq. 21, the eq. 39 bars) beside the points,
@@ -512,7 +512,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._dh_box_curve = pg.PlotDataItem(pen=None, symbol="s", symbolSize=4, symbolPen=None,
                                              symbolBrush=Q_WARM)
         d_plot.addItem(self._dh_box_curve)
-        amber_dash = pg.mkPen(RESTRAINED_DARK.amber, width=1.4, style=QtCore.Qt.DashLine)
+        amber_dash = pg.mkPen(current().amber, width=1.4, style=QtCore.Qt.DashLine)
         self._cum_curves = {name: pg.PlotDataItem(pen=amber_dash, connect="finite")
                             for name in ("tau", "D", "h")}
         for name, curve in self._cum_curves.items():
@@ -538,11 +538,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²:
         # three entries of the legend row under D(h), beside the spectra it shares that row with.
         self._cq_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5, symbolPen=None,
-                                         symbolBrush=RESTRAINED_DARK.ink)
+                                         symbolBrush=current().ink)
         self._cq_plot.addItem(self._cq_curve)
         self._cq_cum_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6))
         self._cq_plot.addItem(self._cq_cum_curve)
-        self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink_muted,
+        self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(current().ink_muted,
                                                          style=QtCore.Qt.DotLine))
         self._cq_plot.addItem(self._cq_ln_curve)
         self._dh_legend_entries += [(self._cq_curve, lambda: "c(q) fit"),
@@ -709,7 +709,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             sample.setMinimumSize(20, 20)
             sample.setMaximumSize(20, 20)
             label = pg.LabelItem(self._short_name(name), size="9pt",
-                                 color=RESTRAINED_DARK.ink_muted, justify="left")
+                                 color=current().ink_muted, justify="left")
             label.setToolTip(str(name))
             row.addItem(sample, line, 2 * col)
             row.addItem(label, line, 2 * col + 1)

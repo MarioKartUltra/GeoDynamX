@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import re
 from pathlib import Path
 
 #: The bundled theme files (``<name>.json``) and their SVG assets (``assets/<name>/``).
@@ -43,6 +44,14 @@ class Theme:
     # orange `amber` (hex ffa028): close enough to read as the same "selection" family, distinct
     # enough that the two roles can diverge later without a hidden coupling.
     selection_accent: str = "#ffc107"
+    # Canvas chrome (``Canvas.apply_theme_roles``): the ROI band, the saved and active ROIs and
+    # the mask share ``roi`` (amber by default); the lasso and the box share ``lasso``; the scale
+    # bar's default colour is ``scale_bar`` (the bar's own menu overrides it); ``surround`` is the
+    # canvas background outside the raster (pyqtgraph's black by default).
+    roi: str = "#ffa028"
+    lasso: str = "#ffc107"
+    scale_bar: str = "#e6e6e6"
+    surround: str = "#000000"
     # The layer list's H/L/F/I toggles: black with white text at rest, inverted when set
     # (hidden / locked / frozen / inspector open), so the state reads at a glance.
     toggle_rest: str = "#000000"
@@ -60,6 +69,9 @@ class Theme:
         missing, unknown = sorted(fields - set(data)), sorted(set(data) - fields)
         if missing or unknown:
             raise ValueError(f"{Path(path).name}: missing {missing}, unknown {unknown}")
+        bad = sorted(k for k in COLOUR_ROLES if not (isinstance(data[k], str) and _HEX.match(data[k])))
+        if bad:
+            raise ValueError(f"{Path(path).name}: not #rrggbb: {bad}")
         theme = cls(**data)
         ratio = contrast(theme.ink, theme.panel)
         if ratio < 4.5:
@@ -98,6 +110,11 @@ def load_theme(name: str, user_dir=None) -> "Theme":
 
 
 RESTRAINED_DARK = Theme()
+
+#: The roles that are colours: every string field but the name and the two font families.
+COLOUR_ROLES = frozenset(f.name for f in dataclasses.fields(Theme) if f.type == "str") - {
+    "name", "sans_family", "mono_family"}
+_HEX = re.compile(r"#[0-9a-fA-F]{6}\Z")
 
 #: The theme last applied (``apply_theme``); Restrained Dark until one is.
 _CURRENT: list[Theme] = [RESTRAINED_DARK]
@@ -172,6 +189,9 @@ QComboBox::down-arrow {{ image: {_url(t, "arrow_down.svg")}; width: 10px; height
 
 
 def apply_theme(app, theme: Theme) -> None:
+    """Dress the application in ``theme``: the generated stylesheet, the base font, and
+    :func:`current` for the carve-outs. Called at launch (``app.main``), on a Settings ▸ Theme
+    pick and when a watched theme file changes (the window, which then re-tints its canvas)."""
     from PySide6 import QtGui
 
     _CURRENT[0] = theme

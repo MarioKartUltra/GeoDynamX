@@ -2113,9 +2113,35 @@ def test_the_theme_submenu_lists_bundled_and_user_themes_and_applies_a_pick(qtbo
         entries["light"].trigger()
         assert current().name == "light" and load_settings().theme == "light"
         assert entries["light"].isChecked() and not entries["restrained_dark"].isChecked()
+        assert win.canvas.roi_band_item.opts["pen"].color().name() == current().roi   # retinted live
+        assert win.canvas.backgroundBrush().color().name() == current().surround
     finally:
         from PySide6 import QtWidgets
 
+        apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
+
+
+def test_the_theme_named_in_settings_is_watched_from_launch(qtbot, stub_devices, tmp_path, monkeypatch):
+    import json
+
+    from PySide6 import QtWidgets
+
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.settings import update_settings
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current
+
+    path = _user_theme(tmp_path, monkeypatch)
+    update_settings(theme="my")
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    try:
+        assert str(path) in win._theme_watcher.files()
+        data = json.loads(path.read_text())
+        data["panel"] = "#222233"
+        with qtbot.waitSignal(win.themeReloaded, timeout=5000):
+            path.write_text(json.dumps(data))
+        assert current().panel == "#222233"
+    finally:
         apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
 
 

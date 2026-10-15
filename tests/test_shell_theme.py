@@ -149,6 +149,26 @@ def test_too_little_contrast_is_refused(tmp_path):
         Theme.from_json(_written(tmp_path, ink="#777777", panel="#666666"))
 
 
+def test_a_colour_that_is_not_rrggbb_names_its_role(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="ink"):
+        Theme.from_json(_written(tmp_path, ink="e6e6e6"))
+
+
+def test_the_canvas_chrome_roles_ship_in_every_theme():
+    import re
+
+    from dynamix.shell.theme import bundled_themes
+
+    for name, path in bundled_themes().items():
+        t = Theme.from_json(path)
+        for role in ("roi", "lasso", "scale_bar", "surround"):
+            assert re.fullmatch(r"#[0-9a-f]{6}", getattr(t, role)), (name, role)
+    assert RESTRAINED_DARK.roi == RESTRAINED_DARK.amber      # orange stays the default
+    assert RESTRAINED_DARK.surround == "#000000"            # pyqtgraph's black stays the default
+
+
 def test_the_qss_references_svg_assets_that_exist():
     import re
 

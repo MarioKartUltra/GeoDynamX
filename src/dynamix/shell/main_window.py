@@ -115,8 +115,9 @@ from dynamix.shell.profile_dialog import ProfileDialog
 from dynamix.shell.rack_editor import RackEditor
 from dynamix.shell.right_panel import CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
+from dynamix.shell.settings import (Settings, load_settings, racks_dir, save_settings, themes_dir,
+                                    update_settings)
 from dynamix.shell.theme import Theme, apply_theme, bundled_themes
-from dynamix.shell.settings import (Settings, load_settings, racks_dir, save_settings, themes_dir, update_settings)
 from dynamix.shell.skeleton_dialog import SkeletonDialog
 from dynamix.shell.surface_dialog import SurfaceDialog
 from dynamix.shell.topology_panel import TopologyPanel
@@ -1837,6 +1838,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._theme_watcher.fileChanged.connect(self._on_theme_file_changed)
         self._theme_menu.aboutToShow.connect(self._rebuild_theme_menu)
         self._rebuild_theme_menu()
+        # The theme the settings name is watched from the first start, so the designer's edits
+        # reload without a pick first (a pick swaps the watched file).
+        named = self._theme_files().get(load_settings().theme)
+        if named is not None:
+            self._theme_watcher.addPath(str(named))
         # The master compute-engine choice: three exclusive radio actions.
         # Applied immediately (set_default_engine) AND persisted -- engine choice never touches
         # cache keys (backends agree to float32 tolerance), so flipping it mid-session keeps
@@ -4722,6 +4728,7 @@ both ``Canvas`` signals report the
             self._notify(f"theme {name!r}: {exc}", "status")
             return
         apply_theme(QtWidgets.QApplication.instance(), theme)
+        self.canvas.apply_theme_roles()
         update_settings(theme=name)
         if self._theme_watcher.files():
             self._theme_watcher.removePaths(self._theme_watcher.files())
@@ -4737,6 +4744,7 @@ both ``Canvas`` signals report the
             self._notify(f"theme file: {exc}", "status")
         else:
             apply_theme(QtWidgets.QApplication.instance(), theme)
+            self.canvas.apply_theme_roles()
             self.themeReloaded.emit(theme.name)
         if path not in self._theme_watcher.files() and Path(path).exists():
             self._theme_watcher.addPath(path)

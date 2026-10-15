@@ -23,6 +23,7 @@ def test_every_bundled_theme_grabs_the_window(qtbot, loaded):
     try:
         for name in bundled_themes():
             apply_theme(app, load_theme(name))
+            w.canvas.apply_theme_roles()            # what a Settings ▸ Theme pick does
             assert current().name == name
             for _ in range(3):
                 app.processEvents()
