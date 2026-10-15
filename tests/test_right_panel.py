@@ -651,3 +651,30 @@ def test_a_refresh_with_genuinely_changed_rows_does_rebuild(qtbot, chain_window)
     w._refresh_topology_panel()
 
     assert w._topology_panel._list.count() == 0
+
+
+def test_a_wheel_over_an_open_combo_popup_scrolls_the_list_not_the_panel(qtbot, clean_registry):
+    from PySide6 import QtCore, QtGui
+
+    panel = RightPanel(())
+    qtbot.addWidget(panel)
+    combo = QtWidgets.QComboBox()
+    combo.addItems([f"item {i}" for i in range(60)])
+    combo.setMaxVisibleItems(8)
+    panel.add_section("Combo", combo)
+    panel.resize(300, 200)
+    panel.show()
+    qtbot.waitExposed(panel)
+    combo.showPopup()
+    view = combo.view()
+    qtbot.waitExposed(view)
+    before_popup = view.verticalScrollBar().value()
+    before_panel = panel.verticalScrollBar().value()
+    pos = QtCore.QPointF(10, 10)
+    event = QtGui.QWheelEvent(pos, view.viewport().mapToGlobal(pos.toPoint()),
+                              QtCore.QPoint(0, -120), QtCore.QPoint(0, -120), QtCore.Qt.NoButton,
+                              QtCore.Qt.NoModifier, QtCore.Qt.ScrollUpdate, False)
+    QtWidgets.QApplication.sendEvent(view.viewport(), event)
+    assert view.verticalScrollBar().value() > before_popup
+    assert panel.verticalScrollBar().value() == before_panel
+    combo.hidePopup()
