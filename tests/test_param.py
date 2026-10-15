@@ -206,3 +206,15 @@ def test_cdf_edges_labels_its_edge_readouts_and_stores_mz_and_marr():
     p = next(p for p in CDFEdges.params if p.name == "edge_mode")
     assert p.choices == ("mz", "marr") and p.default == "mz"
     assert p.choice_labels == ("Canny (Re)", "Marr (Im)")
+
+
+def test_param_level_is_basic_by_default_advanced_on_request_and_never_keyed():
+    from dynamix.engine.cache import cache_key
+    from dynamix.model.param import Param, ParamKind
+
+    basic = Param("a", ParamKind.INT, default=1, min=0, max=9)
+    advanced = Param("a", ParamKind.INT, default=1, min=0, max=9, level="advanced")
+    assert basic.level == "basic" and advanced.level == "advanced"
+    with pytest.raises(ValueError):
+        Param("a", ParamKind.INT, default=1, min=0, max=9, level="expert")
+    assert cache_key("d", "s", {"a": 1}) == cache_key("d", "s", {"a": 1})   # values only

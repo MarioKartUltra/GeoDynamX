@@ -70,10 +70,15 @@ class Param:
     #: shows the stored values. Presentation only: validation, defaults and cache keys read the
     #: stored value.
     choice_labels: tuple[str, ...] = ()
+    #: Where the inspector draws the knob: ``"basic"`` in the open section, ``"advanced"`` in the
+    #: collapsed one. Presentation only: validation, defaults and cache keys never read it.
+    level: str = "basic"
 
     def __post_init__(self):
         # A payload or a keyword copy hands a list; a frozen, hashable Param holds a tuple.
         object.__setattr__(self, "choice_labels", tuple(self.choice_labels))
+        if self.level not in ("basic", "advanced"):
+            raise ValueError(f"{self.name}: level must be basic or advanced, got {self.level!r}")
         if self.choice_labels and len(self.choice_labels) != len(self.choices):
             raise ValueError(f"{self.name}: {len(self.choice_labels)} choice labels for "
                              f"{len(self.choices)} choices {self.choices}")
