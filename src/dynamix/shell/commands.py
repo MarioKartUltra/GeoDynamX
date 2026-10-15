@@ -59,7 +59,8 @@ def watch_enabled(actions: dict, menus: dict, enabled: dict):
 
 def build_menus(window: QtWidgets.QMainWindow, actions: dict, *, extra=None) -> dict:
     """The menu bar in MENU_ORDER from the commands' categories; Analysis from the device registry
-    by family (an entry per device, id ``analysis.<device>``, calling ``window.add_device``).
+    by family (an entry per device, id ``device.<name>``, the palette's id for the same action,
+    calling ``window.add_device``).
     ``extra`` maps a category to a callable that appends to that menu after the commands."""
     bar = window.menuBar()
     menus = {}
@@ -97,7 +98,7 @@ def _fill_analysis(window: QtWidgets.QMainWindow, menu: QtWidgets.QMenu) -> None
         sub = menu.addMenu(family)
         for device in by_family[family]:
             action = QtGui.QAction(label_of(device), window)
-            action.setData(f"analysis.{device.name}")
+            action.setData(f"device.{device.name}")
             action.triggered.connect(lambda _checked=False, n=device.name: window.add_device(n))
             sub.addAction(action)
 

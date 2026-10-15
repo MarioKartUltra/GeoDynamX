@@ -25,7 +25,7 @@ def test_every_menu_action_carries_a_command_id_and_the_bar_follows_the_order(qt
     table = by_id()
     for action in _menu_actions(w):
         cid = action.data()
-        assert cid and (cid in table or cid.startswith(("analysis.", "view.layouts.apply."))), action.text()
+        assert cid and (cid in table or cid.startswith(("device.", "view.layouts.apply."))), action.text()
 
 
 def test_shortcuts_keep_their_keys_and_window_context(qtbot, clean_registry):
@@ -59,7 +59,7 @@ def test_the_analysis_menu_lists_devices_by_family(qtbot, clean_registry):
     families = [a.menu().title() for a in analysis.actions() if a.menu() is not None]
     assert "Edge detection" in families
     ids = [a.data() for m in analysis.findChildren(QtWidgets.QMenu) for a in m.actions() if a.data()]
-    assert "analysis.wtmm2d" in ids
+    assert "device.wtmm2d" in ids                      # the palette's id for the same action
 
 
 def test_play_toggles_exactly_once_per_trigger_and_once_per_space_with_the_button_focused(qtbot, loaded):
