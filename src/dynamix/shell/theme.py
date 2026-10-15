@@ -9,10 +9,17 @@ other shell module (tests/test_shell_boundaries.py enforces this).
 from __future__ import annotations
 
 import dataclasses
+import json
+from pathlib import Path
+
+#: The bundled theme files (``<name>.json``) and their SVG assets (``assets/<name>/``).
+THEMES_DIR = Path(__file__).resolve().parent / "themes"
 
 
 @dataclasses.dataclass(frozen=True)
 class Theme:
+    #: The theme's name: its file stem under ``themes/`` and its assets folder.
+    name: str = "restrained_dark"
     # tonal ramp, dark -> light (The Instrument Rack: ground -> zone -> panel -> raised)
     ground: str = "#131313"     # canvas surround
     zone: str = "#191919"       # chain-strip zone (its own neutral, per DESIGN.md)
@@ -43,6 +50,51 @@ class Theme:
     sans_family: str = "Helvetica Neue"
     mono_family: str = "Menlo"
     base_pt: int = 11
+
+    @classmethod
+    def from_json(cls, path) -> "Theme":
+        """A theme from its JSON file: exactly the keys of this dataclass (a missing or an unknown
+        key is an error naming it), and the ink must read on the panel at 4.5:1 or better."""
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        fields = {f.name for f in dataclasses.fields(cls)}
+        missing, unknown = sorted(fields - set(data)), sorted(set(data) - fields)
+        if missing or unknown:
+            raise ValueError(f"{Path(path).name}: missing {missing}, unknown {unknown}")
+        theme = cls(**data)
+        ratio = contrast(theme.ink, theme.panel)
+        if ratio < 4.5:
+            raise ValueError(f"{Path(path).name}: ink on panel reads at {ratio:.2f}:1, below 4.5:1")
+        return theme
+
+
+def _luminance(hex_color: str) -> float:
+    """WCAG relative luminance of ``#rrggbb``."""
+    digits = hex_color.lstrip("#")
+    channels = [int(digits[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast(hex_a: str, hex_b: str) -> float:
+    """WCAG contrast ratio between two ``#rrggbb`` colours (1 to 21)."""
+    la, lb = _luminance(hex_a), _luminance(hex_b)
+    light, dark = max(la, lb), min(la, lb)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def bundled_themes() -> dict[str, Path]:
+    """Theme name -> its JSON file under ``themes/``."""
+    return {p.stem: p for p in sorted(THEMES_DIR.glob("*.json"))}
+
+
+def load_theme(name: str, user_dir=None) -> "Theme":
+    """The bundled or user theme called ``name`` (a user file wins); KeyError when no file has it."""
+    files = dict(bundled_themes())
+    if user_dir is not None and Path(user_dir).is_dir():
+        files.update({p.stem: p for p in sorted(Path(user_dir).glob("*.json"))})
+    if name not in files:
+        raise KeyError(f"no theme named {name!r}; known: {sorted(files)}")
+    return Theme.from_json(files[name])
 
 
 RESTRAINED_DARK = Theme()
