@@ -4,10 +4,13 @@
 
 - With mlx absent (a Windows / Intel-Mac install), the vendored packages import, the policy runs
   every FFT on FFTW3, and a 2-D WTMM transform + partition function run end to end.
-- Every vendored file is byte-identical to its source at the vendoring commit, except the five
-  recorded edits (import rewrite, trimmed wtmm_ebsd/__init__.py, guarded mlx in cwt2d.py, each
-  mlx product evaluated before numpy reads it in cwt2d.py, and the Borges A_q Gamma ratios in
-  wtmm/wavelets.py as Pochhammer symbols).
+- Every vendored file is byte-identical to its source at the vendoring commit, except the six
+  recorded edits (import rewrite, trimmed wtmm_ebsd/__init__.py and wtmm/__init__.py, guarded mlx
+  in cwt2d.py, each mlx product evaluated before numpy reads it in cwt2d.py, and the Borges A_q
+  Gamma ratios in wtmm/wavelets.py as Pochhammer symbols).
+- The packages carry only the modules the app loads (spec 09, Phase A): the survivors are pinned
+  below, and a trace of every seam the app runs through (``tests/test_vendor_goldens.py``'s pieces)
+  loads exactly them. The whole copy is at tag ``vendored-snapshot-2026-10``.
 """
 from __future__ import annotations
 
@@ -60,7 +63,8 @@ def _normalised(text: str) -> str:
 @pytest.mark.skipif(not SOURCE.is_dir(), reason=f"source checkout not present at {SOURCE}")
 @pytest.mark.parametrize("pkg", ["wtmm", "wtmm_ebsd"])
 def test_vendored_files_are_verbatim_except_the_recorded_edits(pkg):
-    edited = {("wtmm_ebsd", "__init__.py"), ("wtmm_ebsd", "cwt2d.py"), ("wtmm", "wavelets.py")}
+    edited = {("wtmm_ebsd", "__init__.py"), ("wtmm_ebsd", "cwt2d.py"), ("wtmm", "wavelets.py"),
+              ("wtmm", "__init__.py")}
     for path in sorted((VENDOR / pkg).glob("*.py")):
         if (pkg, path.name) in edited:
             continue
@@ -78,8 +82,48 @@ def test_the_two_edited_files_differ_only_by_their_recorded_edits():
     assert added == ["try:", "import mlx.core as mx", "except ImportError:", "mx = None",
                      "mx.eval(conv)"]
     init = (VENDOR / "wtmm_ebsd" / "__init__.py").read_text()
-    for gone in ("orientation", "symmetry", "grains", "demean", "cpo", "ipf", "kam"):
-        assert f"from .{gone} import" not in init
+    for gone in ("orientation", "symmetry", "grains", "demean", "cpo", "ipf", "kam",
+                 "quality", "shuffles", "spatial_stats", "viewer"):
+        assert f"from .{gone} import" not in init and f"    {gone},\n" not in init
+    init = (VENDOR / "wtmm" / "__init__.py").read_text()
+    for gone in ("colormaps", "hurst", "io", "datasets", "catalog", "spectra", "perline"):
+        assert f"from .{gone} import" not in init and f"from . import {gone}" not in init
+
+
+#: The modules the app loads (``dynamix.core.wtmm_backend``, ``core.spectra``, ``core.chain_groups``,
+#: ``devices.chain_filters``) plus ``wtmm.signals`` (a test fixture source) and ``wtmm_ebsd.nye``
+#: (named live by the author with the tensor WTMM; no app caller today, kept until the author rules).
+SURVIVORS = {
+    "wtmm": {"__init__", "wavelets", "cwt", "signals", "extrema", "chains", "partition",
+             "dupont_venugopal"},
+    "wtmm_ebsd": {"__init__", "chain_filters", "cwt2d", "nye", "partition", "twtmm"},
+}
+
+
+@pytest.mark.parametrize("pkg", sorted(SURVIVORS))
+def test_the_vendored_packages_carry_exactly_the_survivors(pkg):
+    assert {p.stem for p in (VENDOR / pkg).glob("*.py")} == SURVIVORS[pkg]
+
+
+def test_every_seam_the_app_runs_loads_only_survivors():
+    """A fresh interpreter runs every golden piece (the app's seams into the vendored code) and
+    loads exactly the survivors, so nothing the app reaches was trimmed away."""
+    code = textwrap.dedent("""
+        import sys
+        sys.path.insert(0, "tests")
+        import test_vendor_goldens as g
+        for piece in g.PIECES:
+            g._run(piece)
+        print("LOADED", sorted(m for m in sys.modules if m.startswith("dynamix._vendor.")))
+    """)
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         cwd=str(REPO))
+    assert "LOADED" in res.stdout, res.stderr[-2000:]
+    loaded = {m.replace("dynamix._vendor.", "") for m in eval(res.stdout.split("LOADED", 1)[1].strip())}
+    expected = {f"{pkg}.{m}" for pkg, mods in SURVIVORS.items() for m in mods if m != "__init__"}
+    expected |= {"wtmm", "wtmm_ebsd"}
+    assert loaded == expected, {"loaded only": sorted(loaded - expected),
+                                "survivor not loaded": sorted(expected - loaded)}
 
 
 @pytest.mark.skipif(not SOURCE.is_dir(), reason=f"source checkout not present at {SOURCE}")
