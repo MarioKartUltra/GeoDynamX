@@ -15,8 +15,7 @@ FAMILY = re.compile(r"\b(Menlo|Helvetica|Monaco|Courier|Arial|Inter)\b")
 #: Files that break the Theme Rule today (literal colours; canvas.py also a font family): a known
 #: debt, listed in docs/QUESTIONS_FOR_THE_AUTHOR.md (01 round 2). The rule stays live for every other
 #: file, and an entry here fails once its file is clean, so the set only shrinks.
-THEME_OFFENDERS = {"anisotropy_window.py", "canvas.py", "inpaint_window.py", "map_view.py",
-                   "multifractal_window.py"}
+THEME_OFFENDERS: set = set()
 
 
 def test_theme_rule_no_literal_colors_or_fonts_outside_theme():
@@ -184,24 +183,9 @@ def test_devloop_scan_detects_a_touched_file_and_resolves_its_dependents():
         os.utime(theme_path, (original, original))
 
 
-DEVLOOP_UNLISTED = {"anisotropy_window", "bus_dialog", "components_window", "fork_dialog",
-                    "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog",
-                    "wavelet_bar", "window_fit"}
+DEVLOOP_UNLISTED: set = set()
 #: Imports a shell module makes that _DEPENDS_ON does not declare today (the same debt).
-DEVLOOP_GAPS = {
-    "anisotropy_window": {"window_fit"},
-    "canvas": {"wavelet_bar"},
-    "components_window": {"theme"},
-    "main_window": {"anisotropy_window", "bus_dialog", "components_window", "fork_dialog",
-                    "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog",
-                    "wavelet_bar"},
-    "map_view": {"canvas", "units", "wavelet_bar"},
-    "multifractal_window": {"window_fit"},
-    "sends_dialog": {"bus_dialog"},
-    "spectrum_window": {"window_fit"},
-    "wavelet_bar": {"canvas", "theme", "units"},
-    "window_fit": {"settings"},
-}
+DEVLOOP_GAPS: dict = {}
 
 
 def test_devloop_module_order_covers_every_shell_module():
@@ -289,7 +273,6 @@ class _StubCanvas:
         return self._range
 
 
-@pytest.mark.xfail(strict=True, reason="the stub window lacks the _fields the capture now reads (QUESTIONS, 01 round 2)")
 def test_capture_refreshes_path_from_the_live_window():
     """F1: _capture() used to leave SESSION["path"] exactly as the CLI arg set it, forever. A
     window opened via the GUI (no CLI path) or opened over a SECOND file mid-session would then
@@ -328,7 +311,6 @@ def test_capture_refreshes_path_from_the_live_window():
         devloop.SESSION.update(original)
 
 
-@pytest.mark.xfail(strict=True, reason="the stub window lacks the _fields the capture now reads (QUESTIONS, 01 round 2)")
 def test_capture_falls_back_to_the_existing_path_with_no_layer():
     """A window with no layer yet (nothing opened) has no source to read a path from -- SESSION's
     existing path (if any) must survive rather than being clobbered with None."""
@@ -354,7 +336,6 @@ def test_capture_falls_back_to_the_existing_path_with_no_layer():
         devloop.SESSION.update(original)
 
 
-@pytest.mark.xfail(strict=True, reason="the stub window lacks the _fields the capture now reads (QUESTIONS, 01 round 2)")
 def test_capture_stores_the_canvas_view_range(qtbot):
     """C-2: the rebuilt window has to come back where you were looking. ``load_field`` ends in
     ``autoRange()``, so without carrying the camera across, every reload snapped back out to the
@@ -380,7 +361,6 @@ def test_capture_stores_the_canvas_view_range(qtbot):
         devloop.SESSION.update(original)
 
 
-@pytest.mark.xfail(strict=True, reason="the stub window lacks the _fields the capture now reads (QUESTIONS, 01 round 2)")
 def test_session_view_round_trips_into_a_rebuilt_canvas(qtbot):
     """The other half: what ``_capture`` stored is what ``_restore_view`` puts back, through a
     REAL ``Canvas`` on both ends (an aspect-locked ViewBox adjusts whatever range it is handed,
