@@ -31,7 +31,7 @@ __all__ = ["raster_choices", "read_vectors", "result_grid", "vector_counts",
 #: Single rasters a result may carry, in the order a fork offers them.
 _SINGLES = (("ssa_recon", "recon"), ("ssa_residual", "residual"),
             ("tucker_recon", "recon"), ("tucker_residual", "residual"),
-            ("filtered", "filtered"), ("edge_channel", "edge channel"),
+            ("filtered", "u (filtered)"), ("edge_channel", "v (edge detector)"),
             ("h_map", "h(x)"), ("r2_map", "r²"), ("band_mask", "band mask"))
 
 

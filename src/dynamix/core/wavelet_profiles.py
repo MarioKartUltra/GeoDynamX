@@ -393,15 +393,18 @@ def dwt_profile(bank: str, level: int) -> Profile:
 
 
 def cdf_profile(edge_mode: str, sigma: float) -> Profile:
-    """The CDF evolution's edge detector at σ (= 2^k): the 2-D Mexican hat's section for the
-    ``marr`` mode (the Im channel is a Ricker scale space), the Gaussian first derivative for
-    the ``mz`` mode (grad-Re maxima); λ* = 2πσ/√m with m = 2 or 1."""
+    """The linear CDF evolution's equivalent kernel at σ (= 2^k) for small θ: θ t ΔG_σ, the 2-D
+    Mexican hat's section, behind v for the ``marr`` mode (its zero crossings), and ∇G_σ, the
+    Gaussian first derivative, behind ∇u for the ``mz`` mode (its maxima); λ* = 2πσ/√m with
+    m = 2 or 1. Measured on an impulse: within a few per cent of the evolution itself."""
     sigma = float(sigma)
     u = np.linspace(-6.0, 6.0, 481)
     if edge_mode == "marr":
-        psi, m, label = (2.0 - u * u) * np.exp(-u * u / 2.0), 2, "Mexican hat (CDF Im channel)"
+        psi, m, label = ((2.0 - u * u) * np.exp(-u * u / 2.0), 2,
+                         "equivalent kernel of v (linear, small θ): θ t ΔG_σ")
     else:
-        psi, m, label = -u * np.exp(-u * u / 2.0), 1, "Gaussian derivative (CDF grad-Re)"
+        psi, m, label = (-u * np.exp(-u * u / 2.0), 1,
+                         "equivalent kernel of ∇u (linear, small θ): ∇G_σ")
     x, psi = _normalised(u * sigma, psi)
     return Profile(x, psi, sigma, 2.0 * np.pi * sigma / np.sqrt(m), label,
                    extra={"a": sigma, "sigma": sigma})

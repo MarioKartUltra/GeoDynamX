@@ -80,10 +80,13 @@ class CDFEdges:
         # scripts' own value.
         Param("dt", ParamKind.FLOAT, default=0.2, min=0.001, max=0.24,
               soft_min=0.1, soft_max=0.22, units="", label="dt"),
-        # Re is read by Canny's non-maximum suppression, Im by Marr's zero crossings. Saved
-        # chains name the stored values, so they stay "mz" and "marr".
+        # In the cross-diffusion papers' terms (Araújo, Barbeiro, Cuesta & Durán): the image is
+        # the pair (u, v), u the filtered image and v the edge detector. "marr" reads v's zero
+        # crossings; "mz" takes the gradient maxima of u, a mode of this app's own. Saved chains
+        # name the stored values, so they stay "mz" and "marr".
         Param("edge_mode", ParamKind.CHOICE, default="mz",
-              choices=("mz", "marr"), choice_labels=("Canny (Re)", "Marr (Im)"),
+              choices=("mz", "marr"),
+              choice_labels=("u gradient maxima (app)", "v zero crossings (edge detector)"),
               label="Edges"),
         # xsmurf's follow takes four IMAGES -- detector="follow" feeds it this device's own
         # smoothed snapshots via FD derivative stacks (dynamix.core.xsmurf_follow.kapa_from_field)
@@ -97,6 +100,7 @@ class CDFEdges:
         # The extrema pyramid still computes and overlays either way (hide with H if unwanted).
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "filtered", "edge_channel", "re_scale", "im_scale"),
+              choice_labels=("edges", "u (filtered)", "v (edge detector)", "u at σ", "v at σ"),
               label="Show", view=True),
         # Subpixel refinement, both conventions -- "mz" mode gets the wtmm2d
         # parabola along the gradient (dynamix.core.subpixel); "marr" mode gets the
@@ -112,16 +116,21 @@ class CDFEdges:
     # ``re_scale`` / ``im_scale`` are the snapshot at the level the Transport shows, read from
     # ``snapshots``: the evolution run once with every snapshot kept, one entry for all levels.
     outputs = (Output("edges", "vector", label="edges"),
-               Output("filtered", "raster", label="filtered"),
-               Output("edge_channel", "raster", label="edge channel"),
-               Output("re_scale", "raster", lazy=True, label="Re at σ", per_level=True),
-               Output("im_scale", "raster", lazy=True, label="Im at σ", per_level=True),
+               Output("filtered", "raster", label="u (filtered)"),
+               Output("edge_channel", "raster", label="v (edge detector)"),
+               Output("re_scale", "raster", lazy=True, label="u at σ", per_level=True),
+               Output("im_scale", "raster", lazy=True, label="v at σ", per_level=True),
                Output("snapshots", "raster", lazy=True, label="snapshots", row=False))
 
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
-        """The edge detector's kernel at σ = ``scale_px`` (the wavelet scale bar)."""
+        """The scale bar: the linear evolution's equivalent kernel at σ = ``scale_px`` (small θ:
+        v ≈ θ t ΔG_σ * f, u ≈ G_σ * f); the code diffuses and differences, it never builds the
+        kernel. The nonlinear evolution's diffusivity follows the data, so no fixed kernel
+        describes it and there is no bar (``None``)."""
         from dynamix.core.wavelet_profiles import cdf_profile
 
+        if params.get("variant", "linear") == "nonlinear":
+            return None
         return cdf_profile(params.get("edge_mode", "mz"), scale_px)
 
     def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
