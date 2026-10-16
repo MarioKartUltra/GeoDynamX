@@ -298,13 +298,19 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
                                dx=abs(float(transform.a)), dy=abs(float(transform.e)),
                                units=crs.linear_units)
             units = crs.linear_units
+        elif crs is None:                  # the ground scale is unknown: read in pixels
+            from dynamix.core.rasterfield import pixel_frame
+
+            x_axis, y_axis, frame = pixel_frame(cols, rows)
+            units = ""
         else:
             frame = GeographicFrame()
             units = ""
     else:
-        x_axis = np.arange(nx, dtype=np.float64) + 0.5
-        y_axis = np.arange(ny, dtype=np.float64) + 0.5
-        frame = LocalFrame()
+        from dynamix.core.rasterfield import pixel_frame
+
+        x_axis, y_axis, frame = pixel_frame(np.arange(nx, dtype=np.float64) + 0.5,
+                                            np.arange(ny, dtype=np.float64) + 0.5)
         units = ""
     sub_tail = target.split(":")[-1] if target != str(p) else None
     return RasterField(

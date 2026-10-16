@@ -9354,6 +9354,28 @@ both ``Canvas`` signals report the
         profile, label = self._canvas_bar_state()
         field = self._fields.get(self.layer.layer_id, self.field) if self.layer else self.field
         self.map_view.set_wavelet_profile(profile, label, self._axis_step(field))
+        self.map_view.set_pixel_metres(self._pixel_metres(field))
+
+    def _pixel_metres(self, field) -> "float | None":
+        """Ground metres of one pixel of ``field`` (degrees convert along the parallel at its
+        centre), or None when it has no ground scale."""
+        from dynamix.shell.units import deg_to_metres, in_units, physical
+
+        if field is None or len(getattr(field, "x_axis", ())) < 2:
+            return None
+        value, unit = physical(1.0, field)
+        if unit.upper().startswith("EPSG:"):
+            from dynamix.geo.placement import crs_metres
+
+            named = crs_metres(unit)
+            if named is None or named[0] is None:
+                return None
+            value, unit = value * named[0], named[1]
+        if unit in ("deg", "°", "degree", "degrees"):
+            lat = float(np.clip(np.nanmean(np.asarray(field.y_axis, dtype=np.float64)), -89, 89))
+            return float(deg_to_metres(value, lat))
+        metres, unit = in_units(value, unit, "m")
+        return float(metres) if unit == "m" else None
 
     def _stack_entry_flags(self, layer) -> "dict | None":
         """What the layer stack says of ``layer``'s 3-D entry: its rank (the topmost of its

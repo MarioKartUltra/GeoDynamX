@@ -39,7 +39,9 @@ INTENTIONALLY_DIVERGED = {
                    "GeographicFrame), mirroring from_geotiff_window -- fixes the Vector-tab "
                    "360-unit longitude-fold smear on projected sources (b8cbdfd gap); "
                    "from_geotiff_window also NaNs |v| >= 3e38 undeclared fill "
-                   "(the BOEM headers declare nodata=0 while empty areas hold f32-lowest)",
+                   "(the BOEM headers declare nodata=0 while empty areas hold f32-lowest); "
+                   "a GeoTIFF with no CRS reads in pixels (pixel_frame: its ground scale is "
+                   "unknown)",
     "wtmm_backend": "cleanup 3/3 — the reflayers import follows load_topo_extrema to extrema_io; "
                     "unknown-wavelet fall-through now raises ValueError; "
                     "progressive compute — ComputeCancelled + a cancel= stage-boundary "

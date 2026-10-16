@@ -152,6 +152,9 @@ class MapView(QtWidgets.QWidget):
         from dynamix.shell.wavelet_bar import DraggableScaleBar, WaveletBar
 
         self.scale_bar = DraggableScaleBar(size=1000, suffix="m")
+        #: Ground metres of one pixel of the selected layer (set_pixel_metres), for the bar's
+        #: "px" choice; None when it has no ground scale.
+        self._pixel_metres = None
         self.scale_bar.setParentItem(self.view)
         self.scale_bar.anchor((1, 1), (1, 1), offset=(-20, -20))
         self.view.sigRangeChanged.connect(self._update_scale_bar)
@@ -192,21 +195,39 @@ class MapView(QtWidgets.QWidget):
             return 1200.0 / 3937.0
         return 0.0
 
+    def set_pixel_metres(self, metres) -> None:
+        """Ground metres of one pixel of the selected layer, or None (no ground scale)."""
+        self._pixel_metres = float(metres) if metres else None
+        self._update_scale_bar()
+
     def _update_scale_bar(self, *_args) -> None:
         """A bar a round ground distance long, about a quarter of the view: degrees convert at
-        the view centre's latitude (along a parallel); pixel axes read pixels."""
+        the view centre's latitude (along a parallel); pixel axes read pixels. The units menu
+        picks the reading: an SI unit, "px" (the selected layer's pixels at its ground pixel
+        size) or "native" (the map's own unit, degrees on a geographic map)."""
         (x0, x1), (y0, y1) = self.view.viewRange()
         width = x1 - x0
         if not width > 0:
             return
+        choice = self.scale_bar.style()["units"]
         per_unit = self._unit_metres
         if per_unit is None:
+            if choice == "native":
+                label, size = nice_round_scalebar(width)
+                self.scale_bar.size = size
+                self.scale_bar.text.setText(f"{label}°")
+                self.scale_bar.updateBar()
+                return
             lat = float(np.clip((y0 + y1) / 2.0, -89.0, 89.0))
             per_unit = _M_PER_DEG * np.cos(np.radians(lat))
-        if per_unit and per_unit > 0:
+        if per_unit and per_unit > 0 and choice == "px" and self._pixel_metres:
+            label, count = nice_round_scalebar(width * per_unit / self._pixel_metres)
+            size = count * self._pixel_metres / per_unit
+            text = f"{label} px"
+        elif per_unit and per_unit > 0:
             _label, metres = nice_round_scalebar(width * per_unit)
             size = metres / per_unit
-            value, unit = in_units(metres, "m", self.scale_bar.style()["units"])
+            value, unit = in_units(metres, "m", choice)
             text = f"{value:g} {unit}"
         else:
             label, size = nice_round_scalebar(width)

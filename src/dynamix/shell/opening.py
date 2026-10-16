@@ -185,6 +185,10 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
                                    dx=abs(float(transform.a)) * stride,
                                    dy=abs(float(transform.e)) * stride,
                                    units=crs.linear_units)
+            elif crs is None:              # the ground scale is unknown: read in pixels
+                from dynamix.core.rasterfield import pixel_frame
+
+                x_axis, y_axis, frame = pixel_frame(cols, rows)
             else:
                 frame = GeographicFrame()
             field = RasterField(
