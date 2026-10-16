@@ -199,6 +199,7 @@ class Inpaint:
     """Fill the declared regions of the host band; the filled band is the result's raster."""
 
     name = "inpaint"
+    capabilities = frozenset({"Cancellable", "OutputProducer", "RegionAware", "SelfReporting", "Viewable"})
     label = "Inpaint"
     families = ("Reconstruction",)
     consumes = ((FIELD,), (STACK,))
@@ -303,6 +304,7 @@ class Fill:
     """The engine as a field stage: the host band filled ahead of the analyzer, stamped."""
 
     name = "fill"
+    capabilities = frozenset({"Cancellable", "FieldStage", "RegionAware", "SelfReporting"})
     label = "Fill"
     families = ("Data preparation",)
     consumes = ((FIELD,), (STACK,))

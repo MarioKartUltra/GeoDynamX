@@ -61,6 +61,9 @@ _DISPLAY_OFFSET = (-0.5, -0.5)
 
 class MZEdges:
     name = "mz_edges"
+    capabilities = frozenset({"OutputProducer", "RegionAware", "Viewable"})
+    role = "primary"
+    chain_producer = True
     label = "Mallat–Zhong edges"
     families = ("Edge detection", "Regularity", "Reconstruction")
     consumes = ((FIELD,),)

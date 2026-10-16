@@ -19,6 +19,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model import DEVICES, is_transform
 from dynamix.model.families import FAMILY_ORDER, display_name, families_of, label_of
+from dynamix.model.roles import is_dev
 from dynamix.model.racks import rack_state
 
 #: Drag mime types a row encodes itself as. The drop target reads these back.
@@ -32,6 +33,8 @@ _CATEGORIES = ("Transforms", "Filters", "Dev", "Racks")
 #: The headers after the families, in display order.
 _TAIL = ("Racks", "Dev")
 
+#: The browser reads ``dynamix.model.roles.is_dev``; the three tables below are the baseline
+#: ``tests/test_roles.py`` asserts.
 #: Naming convention for stub devices — routed to the "Dev" category, not a registry change.
 _DEV_PREFIX = "stub_"
 
@@ -74,7 +77,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
     #: A rack row was double-clicked: its rack's name, for the rack editor.
     rackEditRequested = QtCore.Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, plugin_results=()):
         super().__init__(parent)
         self.setHeaderHidden(True)
         self.setDragEnabled(True)
@@ -91,8 +94,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         for name, device in DEVICES.items():
             families = families_of(device)
             # An empty families tuple is a device's own mark that it left the palette.
-            if (name.startswith(_DEV_PREFIX) or name in _SUPERSEDED or name in _SHELL_PLACED
-                    or not families):
+            if is_dev(name, device):
                 members.setdefault("Dev", []).append(name)
                 continue
             for family in families:
@@ -108,8 +110,22 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
         for title, names in members.items():
             for name in names:
                 self._add_device_row(self._categories[title], name)
+        for result in plugin_results:
+            if result.error is None:
+                continue
+            # A plugin that failed to import or validate: its file (or entry point) as a row that
+            # cannot be dragged, the error in the tooltip, so the folder's problem is seen at once.
+            title = result.path.rsplit("/", 1)[-1] if result.path else result.origin
+            item = QtWidgets.QTreeWidgetItem(self._categories["Dev"], [title, result.name])
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsDragEnabled & ~QtCore.Qt.ItemIsEnabled)
+            item.setForeground(0, self._muted)
+            item.setToolTip(0, result.error)
         self.expandAll()
         self.collapseItem(self._categories["Dev"])
+        if any(r.error for r in plugin_results):   # a failed device file: its row is seen at once
+            self.expandItem(self._categories["Dev"])
+        if "Labs" in self._categories:          # experimental devices: listed, folded away
+            self.collapseItem(self._categories["Labs"])
         #: ``(steps, layer_input, master, roi_holder)`` of the active layer, or None before one.
         self._rack_context: tuple | None = None
         self.itemDoubleClicked.connect(self._on_item_double_clicked)

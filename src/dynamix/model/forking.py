@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from dynamix.model.chain import DeviceRef
+from dynamix.model import capabilities
 from dynamix.model.contracts import FIELD, STACK, consumes_of, next_step_state, produces_of
 from dynamix.model.device import DEVICES, defaults_for, get_device, is_transform
 
@@ -24,8 +25,8 @@ def is_primary(device) -> bool:
     A device that reads its own data (``reads_source``: the ROI WTMM reading the source file;
     ``vector_source``: a derivative dataset's vector loader) is part of how its layer is read and
     never counts."""
-    if (not is_transform(device) or getattr(device, "reads_source", False)
-            or getattr(device, "vector_source", False)):
+    if (not is_transform(device) or capabilities.has(device, "SourceReader")
+            or capabilities.has(device, "VectorSource")):
         return False
     params = defaults_for(device)
     for alternative in consumes_of(device, params):
@@ -87,7 +88,7 @@ def drop_states(steps, layer_input: str, *, master: bool = False,
         base = steps
     states = {}
     for name, device in DEVICES.items():
-        heads = is_primary(device) or getattr(device, "reads_source", False)
+        heads = is_primary(device) or capabilities.has(device, "SourceReader")
         states[name] = next_step_state(base if heads else steps, layer_input, name,
                                        level_view=level_view)
     return states

@@ -15,6 +15,7 @@ docs/*
 !docs/reference/
 docs/reference/*
 !docs/reference/devices_reference.tex
+!docs/reference/devices_contract.md
 !docs/reference/devices_reference.pdf
 !docs/reference/make_figures.py
 !docs/reference/make_tables.py

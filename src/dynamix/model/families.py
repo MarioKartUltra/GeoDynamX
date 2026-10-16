@@ -12,7 +12,7 @@ from __future__ import annotations
 
 FAMILY_ORDER = ("Data preparation", "Edge detection", "Regularity", "Skeletons", "Decomposition",
                 "Reconstruction", "Topology", "Selection: extrema", "Selection: V-chains",
-                "Points", "Other")
+                "Points", "Labs", "Other")
 
 
 def label_of(device) -> str:

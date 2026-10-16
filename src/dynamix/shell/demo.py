@@ -24,6 +24,8 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core.rasterfield import RasterField
 from dynamix.devices import register_builtin_devices
+from dynamix.model.plugins import discover
+from dynamix.shell.settings import devices_dir
 from dynamix.engine import Cache, resolve
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.device import get_device
@@ -140,6 +142,7 @@ class DemoWindow(QtWidgets.QMainWindow):
         super().__init__(parent)
         self.setWindowTitle("DynamiX — multiscale structure")
         register_builtin_devices()
+        discover(devices_dir())
 
         self.field = RasterField.load_npz(npz_path)
         self.cache = Cache()

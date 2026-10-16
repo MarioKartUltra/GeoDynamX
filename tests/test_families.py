@@ -29,7 +29,7 @@ class _Superseded:
 def test_the_family_order_is_the_browser_tree():
     assert FAMILY_ORDER == ("Data preparation", "Edge detection", "Regularity", "Skeletons",
                             "Decomposition", "Reconstruction", "Topology", "Selection: extrema",
-                            "Selection: V-chains", "Points", "Other")
+                            "Selection: V-chains", "Points", "Labs", "Other")
 
 
 def test_an_undeclared_device_is_its_id_under_other():
@@ -107,6 +107,7 @@ FAMILY_TREE = {
                             "min_vchains", "group_filter"},
     "Points": {"backproject"},
     "Other": set(),
+    "Labs": set(),                        # experimental plugins declare it; no built-in does
 }
 
 #: Superseded and shell-placed devices: registered, listed in no family.

@@ -15,6 +15,7 @@ class StubWavelet:
     """Transform. Mixes three param kinds and needs a stable, param-sensitive cache key."""
 
     name = "stub_wavelet"
+    capabilities = frozenset()
     params = (
         Param("n_octaves", ParamKind.INT, default=4, min=1, max=10, label="Octaves"),
         Param("wavelet", ParamKind.CHOICE, default="mexican",
@@ -41,6 +42,7 @@ class StubHolder:
     """
 
     name = "stub_holder"
+    capabilities = frozenset({"StripExtras"})
     params = (
         Param("h_min", ParamKind.FLOAT, default=-0.5, min=-2.0, max=2.0,
               soft_min=-0.5, soft_max=1.5, label="Hölder min"),
@@ -63,6 +65,7 @@ class StubWedge:
     """Filter. An orientation wedge: a periodic ANGLE plus the frame it is measured against."""
 
     name = "stub_wedge"
+    capabilities = frozenset()
     params = (
         Param("centre", ParamKind.ANGLE, default=0.0, units="deg", wrap=180.0, label="Strike"),
         Param("half_width", ParamKind.FLOAT, default=15.0, min=0.0, max=90.0,

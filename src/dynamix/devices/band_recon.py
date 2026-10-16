@@ -35,6 +35,12 @@ from dynamix.model.param import Param, ParamKind
 
 class BandRecon:
     name = "band_recon"
+    capabilities = frozenset({"RegionAware"})
+    role = "primary"
+    # Either microcanonical method's band output rows reconstruct what this conflated device did.
+    superseded_by = ("holder_measure", "holder_multiaffine")
+    band_variant_of = "holder_map"
+    band_rank = 2
     #: Superseded: listed in no family.
     families = ()
     consumes = ((FIELD,),)
@@ -172,6 +178,11 @@ def _split_arrays(method: str):
 
 class BandReconMeasure:
     name = "band_recon_measure"
+    capabilities = frozenset({"RegionAware", "StripExtras"})
+    role = "primary"
+    superseded_by = "holder_measure"
+    band_variant_of = "holder_measure"
+    band_rank = 0
     label = "Band reconstruction, measure"
     #: Superseded by holder_measure's band rows: listed in no family.
     families = ()
@@ -220,6 +231,11 @@ class BandReconMeasure:
 
 class BandReconMultiaffine:
     name = "band_recon_multiaffine"
+    capabilities = frozenset({"RegionAware", "StripExtras"})
+    role = "primary"
+    superseded_by = "holder_multiaffine"
+    band_variant_of = "holder_multiaffine"
+    band_rank = 1
     label = "Band reconstruction, multiaffine"
     #: Superseded by holder_multiaffine's band rows: listed in no family.
     families = ()

@@ -22,6 +22,7 @@ class BandSelect:
     """One band of the stack, picked by its 1-based index."""
 
     name = "band_select"
+    capabilities = frozenset({"FieldStage", "RegionAware"})
     label = "Band select"
     families = ("Data preparation",)
     #: A stack, or a band row's one-band field (the identity path in compute).

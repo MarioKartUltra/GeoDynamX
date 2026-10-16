@@ -81,6 +81,13 @@ def racks_dir() -> Path:
     file, so ``DYNAMIX_SETTINGS_PATH`` moves both."""
     return settings_path().parent / "racks"
 
+
+def devices_dir() -> Path:
+    """The user's device files (``dynamix.model.plugins.discover``): a ``devices`` folder beside
+    the settings file, so ``DYNAMIX_SETTINGS_PATH`` moves it too."""
+    return settings_path().parent / "devices"
+
+
 def load_settings() -> Settings:
     try:
         d = json.loads(settings_path().read_text())

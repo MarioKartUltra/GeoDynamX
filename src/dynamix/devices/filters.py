@@ -44,6 +44,9 @@ class ScaleSelect:
     """
 
     name = "scale_select"
+    capabilities = frozenset({"SelectionAware"})
+    chain_consumer = True
+    superseded_by = ""
     label = "Scale"
     #: Superseded by the Transport, which sets the shown level: listed in no family.
     families = ()
@@ -99,6 +102,8 @@ class OrientationWedge:
     """
 
     name = "orientation_wedge"
+    capabilities = frozenset({"SelectionAware"})
+    chain_consumer = True
     label = "Orientation wedge"
     families = ("Selection: extrema",)
     consumes = ((EXTREMA,),)
@@ -158,6 +163,8 @@ class ModulusThreshold:
     """
 
     name = "modulus_threshold"
+    capabilities = frozenset({"SelectionAware"})
+    chain_consumer = True
     label = "Modulus threshold"
     families = ("Selection: extrema",)
     consumes = ((EXTREMA,),)
@@ -213,6 +220,8 @@ class HLineLength:
     """
 
     name = "hline_length"
+    capabilities = frozenset({"SelectionAware", "SelfReporting"})
+    chain_consumer = True
     label = "H-line length"
     families = ("Selection: extrema",)
     consumes = ((EXTREMA,),)
@@ -367,6 +376,8 @@ class HLineModulus:
     """
 
     name = "hline_modulus"
+    capabilities = frozenset({"SelectionAware", "SelfReporting"})
+    chain_consumer = True
     label = "H-line modulus"
     families = ("Selection: extrema",)
     produces = ()
@@ -465,6 +476,8 @@ class HLineHolder:
     """
 
     name = "hline_holder"
+    capabilities = frozenset()
+    chain_consumer = True
     label = "H-line Hölder"
     families = ("Selection: extrema",)
     consumes = ((EXTREMA, ALPHA),)
