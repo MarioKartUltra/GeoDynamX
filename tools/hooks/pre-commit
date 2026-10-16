@@ -1,0 +1,7 @@
+#!/bin/bash
+# The marker lint on the Python files staged for this commit (spec 10). It reports and never blocks:
+# install with  cp tools/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+files=$(git diff --cached --name-only --diff-filter=ACM -- '*.py')
+[ -z "$files" ] && exit 0
+python tools/lint_markers.py $files
+exit 0

@@ -56,6 +56,14 @@ jobs:
           grep -l "QtWidgets\|qtbot" tests/test_*.py > qtonly.txt || true
           echo "headless files: $(wc -l < headless.txt)   qt-only files: $(wc -l < qtonly.txt)"
           test -s headless.txt && test -s qtonly.txt
+      - name: Style report (spec 10; findings for review, never failing)
+        if: runner.os == 'Linux'
+        run: |
+          python tools/lint_markers.py --all
+          python -m pip install -q "ruff>=0.6"
+          echo "## ruff" >> "$GITHUB_STEP_SUMMARY"
+          ruff check --exit-zero --output-format concise src tools | tee -a "$GITHUB_STEP_SUMMARY" | tail -3
+          ruff format --check src tools >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
       - name: Headless gate
         run: python -m pytest -q -p no:cacheprovider -m "not pyvista" $(cat headless.txt)
       - name: Qt-only gate (offscreen)
