@@ -126,6 +126,10 @@ def test_cdf_profiles_are_the_ricker_or_the_gaussian_derivative_at_sigma():
     mz = wp.cdf_profile("mz", 4.0)
     assert mz.lambda_px == pytest.approx(2 * np.pi * 4.0, rel=1e-3)
     assert np.allclose(mz.psi, -mz.psi[::-1], atol=1e-9)
+    # The kernels are the linear evolution's equivalent kernels at small θ, in the cross-diffusion
+    # papers' terms: v the edge detector, u the filtered image.
+    assert "equivalent kernel" in marr.family and "v" in marr.family and "small θ" in marr.family
+    assert "equivalent kernel" in mz.family and "u" in mz.family
 
 
 def test_dwt_bank_levels_scale_by_two_and_level_one_is_off_ladder():
