@@ -26,17 +26,14 @@ methods), the private maxima-line ordering kernels (:func:`_walk_lines_py`,
 :func:`_smooth_dips_py`, njit-compiled on demand by :func:`_line_kernels`,
 driven by :func:`_order_lines`), the shared single-scale NMS core
 (:func:`_nms_extrema_scale`), the private numpy transcription
-of ``wtmm_ebsd.cwt2d.cwt_2d_f32`` (:func:`_cwt2d_numpy`) used as the
-universal fallback engine when ``mlx`` is unavailable, the numpy
+of ``wtmm_ebsd.cwt2d.cwt_2d_f32`` (:func:`_cwt2d_numpy`, its FFTs from the
+FFT policy) used as the engine when ``mlx`` is unavailable, the numpy
 transcription of ``wtmm_ebsd.cwt2d.tensor_svd_3x2``
 (:func:`_tensor_svd_3x2_numpy`), the pure-Python ``xsmurf_wrapper``
 stand-ins that ``tensor2d`` dependency-injects into
 ``wtmm_ebsd.twtmm.alpha_jacobian_twtmm`` (:class:`_XsmShim`,
 :class:`_XImageShim`, :class:`_ExtImageShim` and the
-:func:`_make_chain_adapter` chainer), and the private numpy transcription
-of ``wtmm.cwt.cwtd_fftw``'s overlap-save algorithm (:func:`_cwtd_numpy`)
-used as the 1D CWT's universal fallback engine when neither ``mlx`` nor
-``pyfftw`` is available, the chain ``.npz`` export/import pair
+:func:`_make_chain_adapter` chainer), the chain ``.npz`` export/import pair
 (:func:`export_chains_npz`, :func:`load_chains_npz` -- schema v3, byte
 -compatible with ``topo_wtmm.export_extrema``'s v2 via delegation to
 :func:`dynamix.core.reflayers.load_topo_extrema`), and the staged pipeline
@@ -324,105 +321,6 @@ def resolve_tensor_svd_3x2():
         return tensor_svd_3x2
     except ImportError:
         return _tensor_svd_3x2_numpy
-
-
-def _cwtd_numpy(signal, a_min, n_oct, n_voice, wavelet_name: str = "g2",
-                 expo: float = -1.0, border: str = "mirror"):
-    """Numpy/FFT transcription of ``wtmm.cwt.cwtd_fftw``'s overlap-save CWT.
-
-    Signature- and output-compatible with ``cwtd_fftw`` (matches it to
-    ~1e-10 relative tolerance when ``pyfftw`` is present -- see
-    ``test_cwt1d_numpy_matches_fftw``) so it can serve as the 1D CWT's
-    universal-binary fallback engine when neither ``mlx`` nor ``pyfftw``
-    is importable. Reuses ``wtmm.cwt``'s own private overlap-save
-    machinery (filter construction, mirror-border part extraction,
-    periodic filter extension) verbatim -- only the FFT calls themselves
-    are swapped from ``pyfftw`` to ``numpy.fft.rfft``/``irfft``, since that
-    is the one part of ``cwtd_fftw`` that hard-depends on ``pyfftw``.
-
-    Parameters mirror ``cwtd_fftw`` exactly; see that docstring. Only
-    ``border="mirror"`` is implemented (the only border ``cwt1d`` uses);
-    other values raise ``ValueError``.
-
-    Returns
-    -------
-    (coeffs, scales, valid_ranges)
-        ``coeffs`` : (n_scales, size) float64
-        ``scales`` : (n_scales,) float64
-        ``valid_ranges`` : list[(firstp, lastp)] per scale
-    """
-    if border != "mirror":
-        raise ValueError(f"_cwtd_numpy only implements border='mirror', got {border!r}")
-
-    from dynamix._vendor.wtmm.cwt import (_build_filter_vectorized, _get_part_mirror,
-                           _next_power_of_2, _periodic_extend_filter)
-    from dynamix._vendor.wtmm.wavelets import WAVELETS
-
-    signal = np.asarray(signal, dtype=np.float64)
-    size = len(signal)
-    factor = 2.0 ** (1.0 / n_voice)
-    n_scales = n_oct * n_voice
-
-    w = WAVELETS[wavelet_name]
-    d_x_min = w["x_min_factor"] * w["fact"]  # negative
-    d_x_max = w["x_max_factor"] * w["fact"]  # positive
-
-    coeffs = np.zeros((n_scales, size), dtype=np.float64)
-    scales_arr = np.zeros(n_scales, dtype=np.float64)
-    valid_ranges = []
-
-    a = float(a_min)
-    for idx in range(n_scales):
-        scales_arr[idx] = a
-
-        sizeD = int(a * d_x_max)
-        sizeG = int(-a * d_x_min)
-        sizeTot = sizeD + sizeG + 1
-
-        if sizeTot > size:
-            raise ValueError(f"Filter size {sizeTot} > signal size {size} at scale {a:.2f}")
-
-        firstp = sizeG
-        lastp = size - 1 - sizeD
-        valid_ranges.append((firstp, lastp))
-
-        filt = _build_filter_vectorized(sizeTot, sizeG, a, wavelet_name)
-
-        filter_begin = -sizeD
-        filter_end = sizeG
-
-        part_size = _next_power_of_2(2 * sizeTot)
-        size_of_exact_data = part_size - sizeTot + 1
-
-        filt_ext = _periodic_extend_filter(filt, filter_begin, filter_end, part_size)
-        filt_ft = np.fft.rfft(filt_ext)
-
-        nb_of_parts = int(np.ceil(size / size_of_exact_data))
-        result = np.zeros(size, dtype=np.float64)
-
-        for part_nb in range(nb_of_parts):
-            part_begin = part_nb * size_of_exact_data - filter_end
-            sig_part = _get_part_mirror(signal, size, part_begin, part_size)
-
-            sig_ft = np.fft.rfft(sig_part)
-            prod_ft = sig_ft * filt_ft
-            conv_result = np.fft.irfft(prod_ft, n=part_size)
-
-            copy_start = part_nb * size_of_exact_data
-            if part_nb < nb_of_parts - 1:
-                copy_len = size_of_exact_data
-            else:
-                copy_len = size - copy_start
-
-            result[copy_start:copy_start + copy_len] = \
-                conv_result[filter_end:filter_end + copy_len]
-
-        mult = a ** expo
-        coeffs[idx] = result * mult
-
-        a *= factor
-
-    return coeffs, scales_arr, valid_ranges
 
 
 # ---------------------------------------------------------------------------
@@ -862,8 +760,8 @@ def _load_wtmm_ebsd_module(name: str):
         return module
 
 
-#: The app-wide default cwt2d engine. ``None`` = the auto-detect ``cwt2d`` always had (mlx when
-#: importable, else the numpy/FFT fallback); "mlx"/"numpy" force one engine for every call that
+#: The app-wide default cwt2d engine. ``None`` = follow the FFT policy (mlx on Apple Silicon,
+#: else FFTW3); "mlx"/"fftw" force one engine for every call that
 #: does not pass its own ``_engine``. Set by the shell from ``Settings.compute_engine`` at
 #: startup and on menu toggle. NEVER consulted by cache keys -- the backends-agree-to-float32
 #: law makes engine choice infrastructure, not physics, so switching engines must keep every
@@ -873,14 +771,14 @@ _DEFAULT_ENGINE: "str | None" = None
 
 def set_default_engine(engine: "str | None") -> None:
     """Set the app-wide default cwt2d engine: None/"auto" (follow the FFT policy,
-    :mod:`dynamix.core.fft_policy`), "mlx", "fftw", or "numpy"."""
+    :mod:`dynamix.core.fft_policy`), "mlx" or "fftw"."""
     global _DEFAULT_ENGINE
     if engine in (None, "auto"):
         _DEFAULT_ENGINE = None
-    elif engine in ("mlx", "fftw", "numpy"):
+    elif engine in ("mlx", "fftw"):
         _DEFAULT_ENGINE = engine
     else:
-        raise ValueError(f"unknown engine {engine!r}; expected 'auto', 'mlx', 'fftw' or 'numpy'")
+        raise ValueError(f"unknown engine {engine!r}; expected 'auto', 'mlx' or 'fftw'")
 
 
 def get_default_engine() -> "str | None":
@@ -1008,12 +906,11 @@ class PythonWTMMBackend:
         smoother_params : dict or None
             The registry smoother's parameters (``{"alpha": ...}``, ``{"q": ...}``);
             validated here before dispatch; ignored by the Gaussian pair.
-        _engine : {None, "mlx", "fftw", "numpy"}
-            Private test hook. ``None`` (default) auto-selects ``mlx`` when
-            importable, else the numpy fallback. ``"mlx"`` forces the mlx
-            engine and raises ``ImportError`` if mlx is unavailable.
-            ``"numpy"`` forces the pure-numpy fallback engine regardless of
-            mlx availability (used to parity-test the two engines).
+        _engine : {None, "mlx", "fftw"}
+            Private test hook. ``None`` (default) follows the FFT policy (mlx
+            on Apple Silicon, else FFTW3). ``"mlx"`` forces the mlx engine and
+            raises ``ImportError`` if mlx is unavailable. ``"fftw"`` forces the
+            numpy transcription on FFTW3 (used to parity-test the two engines).
 
         Returns
         -------
@@ -1041,9 +938,9 @@ class PythonWTMMBackend:
             engine = _DEFAULT_ENGINE          # the app-wide master setting, when one is set
         if engine is None:
             # Follow the FFT policy -- mlx (32-bit) on Apple Silicon, else FFTW3 at the
-            # configured precision; numpy only as the policy's warned last resort.
+            # configured precision.
             from dynamix.core import fft_policy
-            engine = {"mlx": "mlx", "pyfftw": "fftw"}.get(fft_policy.active().name, "numpy")
+            engine = {"mlx": "mlx", "pyfftw": "fftw"}[fft_policy.active().name]
 
         if engine == "mlx":
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
@@ -1061,9 +958,6 @@ class PythonWTMMBackend:
                 be = fft_policy.make("pyfftw", 32)
             raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
                                 wavelet=wavelet, verbose=False, fft=be, params=smoother_params)
-        elif engine == "numpy":
-            raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
-                                wavelet=wavelet, verbose=False, params=smoother_params)
         else:
             raise ValueError(f"unknown cwt2d engine {engine!r}")
 
