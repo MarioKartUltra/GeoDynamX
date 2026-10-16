@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The chaining band per step or per octave, the chainable range of h it implies, the analyzing
+"""The chaining band per voice or per octave, the chainable range of h it implies, the analyzing
 wavelet's vanishing moments, and the reading beside the similitude knob that shows both limits."""
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ def test_each_smoother_knows_its_vanishing_moments(name, params, n_psi):
     assert smoother(name, params).vanishing_moments == n_psi
 
 
-def test_the_chainable_range_per_step_and_per_octave():
+def test_the_chainable_range_per_voice_and_per_octave():
     w = -np.log2(0.8)
     assert chainable_h(0.8, 4) == pytest.approx((-4 * w, 4 * w))
     assert chainable_h(0.8, 8) == pytest.approx((-8 * w, 8 * w))
@@ -40,7 +40,7 @@ def test_the_chainable_range_per_step_and_per_octave():
     assert chainable_h(0.0, 4) is None
 
 
-def test_the_octave_band_is_the_step_band_with_the_steps_share():
+def test_the_octave_band_is_the_voice_band_with_the_steps_share():
     backend = get_backend("python")
     scales = compute_scales2d(2, 4)
     cwt = backend.cwt2d(fbm2d(64, 0.6, seed=3), scales)
@@ -63,11 +63,11 @@ def _chains_through_the_cusp(h, voices, similitude, band_per):
 
 def test_per_octave_the_voices_no_longer_decide_which_h_chains():
     """A cusp of h = 0.5: per octave, similitude 0.6 admits h < 0.74 and 0.8 admits h < 0.32, at
-    four voices and at eight alike; per step, 0.8 admits it at four voices (h < 1.29)."""
+    four voices and at eight alike; per voice, 0.8 admits it at four voices (h < 1.29)."""
     for voices in (4, 8):
         assert _chains_through_the_cusp(0.5, voices, 0.6, "octave") == 3 * voices
         assert _chains_through_the_cusp(0.5, voices, 0.8, "octave") < 3 * voices
-    assert _chains_through_the_cusp(0.5, 4, 0.8, "step") == 12
+    assert _chains_through_the_cusp(0.5, 4, 0.8, "voice") == 12
 
 
 def test_the_reading_beside_similitude_shows_both_limits():
@@ -85,15 +85,15 @@ def test_the_reading_beside_similitude_shows_both_limits():
     assert device.derived_reading("similitude", 0.0, None, params).startswith("every h chains")
 
 
-def test_the_step_band_keeps_the_chains_stage_key():
-    """xsmurf's band is the default and leaves the chains stage key as it was; the octave band
-    enters it."""
+def test_the_voice_band_keeps_the_chains_stage_key():
+    """xsmurf's per-voice band is the default and leaves the chains stage key as it was; the octave
+    band enters it."""
     from dynamix.core import wtmm_backend
 
     field = RasterField(name="f", values=fbm2d(64, 0.6, seed=3), frame=LocalFrame(units="px"),
                         x_axis=np.arange(64.0), y_axis=np.arange(64.0))
     base = {"n_oct": 2, "n_voice": 2}
     a = run_wtmm2d(field, base)
-    b = run_wtmm2d(field, dict(base, band_per="step"))
+    b = run_wtmm2d(field, dict(base, band_per="voice"))
     assert len(a["chains"]) == len(b["chains"])
-    assert wtmm_backend._WTMM2D_PARAM_DEFAULTS["band_per"] == "step"
+    assert wtmm_backend._WTMM2D_PARAM_DEFAULTS["band_per"] == "voice"

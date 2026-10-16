@@ -56,8 +56,8 @@ def smoother_params(params: dict) -> dict | None:
 
 
 #: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
-BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="step", choices=("step", "octave"),
-                       choice_labels=("per step (xsmurf)", "per octave"), label="Band")
+BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
+                       choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
 
 
 def chaining_reading(similitude: float, params: dict) -> str:
@@ -73,7 +73,7 @@ def chaining_reading(similitude: float, params: dict) -> str:
     sm = smoother(wavelet, smoother_params(params))
     resolves = f"ψ resolves h<{sm.vanishing_moments}"
     span = chainable_h(float(similitude), int(params.get("n_voice", 4)),
-                       float(params.get("fracint_alpha", 0.0)), params.get("band_per", "step"))
+                       float(params.get("fracint_alpha", 0.0)), params.get("band_per", "voice"))
     if span is None:
         return f"every h chains\n{resolves}"
     return f"chains h<{span[1]:.2f}\n{resolves}"

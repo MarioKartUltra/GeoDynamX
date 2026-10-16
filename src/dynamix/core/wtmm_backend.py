@@ -929,7 +929,7 @@ def _cut_edge_extrema(extrema: dict, lx: int, ly: int, border_percent: float) ->
 
 
 def _make_chain_adapter(backend, *, box_ratio: float = 1.0,
-                         dist2_max: float = 50.0, min_len: int = 2, band_per: str = "step"):
+                         dist2_max: float = 50.0, min_len: int = 2, band_per: str = "voice"):
     """Build the ``chain_and_extract`` callable injected into ``wtmm_ebsd.twtmm``.
 
     Accepts the full signature ``twtmm`` calls it with -- ``(ext_images,
@@ -964,21 +964,21 @@ def _make_chain_adapter(backend, *, box_ratio: float = 1.0,
     return chain_and_extract
 
 
-#: How the similitude band applies: "step" between neighbouring scales of the ladder (xsmurf's
+#: How the similitude band applies: per "voice", between neighbouring scales of the ladder (xsmurf's
 #: vchain), or "octave" over a whole octave, each step taking its share.
-BAND_PER = ("step", "octave")
+BAND_PER = ("voice", "octave")
 
 
 def chainable_h(similitude: float, n_voice: int, eta: float = 0.0,
-                band_per: str = "step") -> "tuple[float, float] | None":
+                band_per: str = "voice") -> "tuple[float, float] | None":
     """The Hölder exponents a chain can carry through the similitude band, ``(h_min, h_max)``,
     or None with no band (``similitude`` 0). Along a chain the modulus goes as a^(h + eta), so a
     step of the ladder (a factor 2^(1/n_voice)) multiplies it by 2^((h + eta)/n_voice); the
-    band admits ratios in (s, 1/s) per step, or per octave with ``band_per="octave"``."""
+    band admits ratios in (s, 1/s) per voice, or per octave with ``band_per="octave"``."""
     if similitude <= 0:
         return None
     width = -float(np.log2(similitude))
-    if band_per == "step":
+    if band_per == "voice":
         width *= int(n_voice)
     return (-width - float(eta), width - float(eta))
 
@@ -1299,7 +1299,7 @@ class PythonWTMMBackend:
 
     def chains2d(self, extrema: list, scales, *, similitude: float = 0.8,
                  box_ratio: float = 1.0, dist2_max: float = 50.0,
-                 min_len: int = 2, smooth: bool = True, band_per: str = "step") -> list:
+                 min_len: int = 2, smooth: bool = True, band_per: str = "voice") -> list:
         """Cross-scale WTMM chains -- an exact port of xsmurf's ``vchain``.
 
         Transcribes ``vert_chain`` (``xsmurf/wt2d/chain2.c``) together with the
@@ -1403,7 +1403,7 @@ class PythonWTMMBackend:
                 continue
 
             box = max(1, int(box_ratio * np.log2(scales[s + 1]) * 2))
-            # The modulus-ratio band: xsmurf's, per step of the ladder; per octave, the
+            # The modulus-ratio band: xsmurf's, per voice (one step of the ladder); per octave, the
             # similitude bounds the ratio over a whole octave and this step takes its share.
             lo_band = (similitude ** float(np.log2(scales[s + 1] / scales[s]))
                        if band_per == "octave" and similitude > 0 else similitude)
@@ -1560,7 +1560,7 @@ class PythonWTMMBackend:
                  use_wavelet_hessian: bool = True, fracint_alpha: float = 0.0,
                  thresh: float = 1e-3, pad: int = 32, similitude: float = 0.8,
                  box_ratio: float = 1.0, dist2_max: float = 50.0,
-                 min_len: int = 2, smooth: bool = True, band_per: str = "step") -> dict:
+                 min_len: int = 2, smooth: bool = True, band_per: str = "voice") -> dict:
         """EBSD alpha-Jacobian tensor WTMM (delegates to ``wtmm_ebsd.twtmm``).
 
         DRY rule (non-negotiable): the CUSTOM tensor math is REUSED, never
@@ -2004,8 +2004,8 @@ _WTMM2D_PARAM_DEFAULTS = {
     "n_voice": 6,
     "thresh": 1e-3,
     "similitude": 0.8,
-    # The similitude band per step of the ladder (xsmurf) or per octave (``chainable_h``).
-    "band_per": "step",
+    # The similitude band per voice, one step of the ladder (xsmurf), or per octave (``chainable_h``).
+    "band_per": "voice",
     "box_ratio": 1.0,
     "dist2_max": 50.0,
     "smooth": True,
@@ -2476,7 +2476,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
     chains_key = dict(extrema_key, similitude=resolved["similitude"],
                       box_ratio=resolved["box_ratio"], dist2_max=resolved["dist2_max"],
                       smooth=resolved["smooth"], min_chain_len=resolved["min_chain_len"])
-    if resolved["band_per"] != "step":           # xsmurf's band keeps the stage keys it had
+    if resolved["band_per"] != "voice":          # xsmurf's band keeps the stage keys it had
         chains_key["band_per"] = resolved["band_per"]
 
     def compute_chains():
