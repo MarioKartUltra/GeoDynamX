@@ -55,6 +55,30 @@ def smoother_params(params: dict) -> dict | None:
     return {key: float(params.get(name, default))}
 
 
+#: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
+BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
+                       choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
+
+
+def chaining_reading(similitude: float, params: dict) -> str:
+    """The two lines beside the similitude knob: the largest Hölder exponent a chain can carry
+    through the band at these voices, η and band mode (``chainable_h`` gives the lower limit
+    too), and the largest h the analyzing wavelet resolves, h < n_ψ (its vanishing moments; the
+    smoother knob names ψ). Two different limits: a chain may carry an h the wavelet cannot
+    measure. Short enough for the strip's fixed column."""
+    from dynamix.core.smoothers import smoother
+    from dynamix.core.wtmm_backend import chainable_h
+
+    wavelet = params.get("wavelet", "mexican")
+    sm = smoother(wavelet, smoother_params(params))
+    resolves = f"ψ resolves h<{sm.vanishing_moments}"
+    span = chainable_h(float(similitude), int(params.get("n_voice", 4)),
+                       float(params.get("fracint_alpha", 0.0)), params.get("band_per", "voice"))
+    if span is None:
+        return f"every h chains\n{resolves}"
+    return f"chains h<{span[1]:.2f}\n{resolves}"
+
+
 class WTMM2D:
     """Wavelet Transform Modulus Maxima over a 2-D field.
 
@@ -89,7 +113,8 @@ class WTMM2D:
     param_groups = {
         "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth", "dither",
                 "fracint_alpha", "interpolate", "detector"),
-        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude"),
+        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
+                     "band_per"),
     }
     params = (
         Param("n_oct", ParamKind.INT, default=3, min=1, max=12, label="Octaves"),
@@ -147,6 +172,7 @@ class WTMM2D:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        BAND_PER_PARAM,
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -199,6 +225,7 @@ class WTMM2D:
                 "fracint_alpha": params["fracint_alpha"],
                 "interpolate": params["interpolate"],
                 "detector": params["detector"],
+                "band_per": params["band_per"],
             },
             progress=progress,
             cancel=cancel,
@@ -265,7 +292,7 @@ class WTMM2D:
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
-                 "similitude")
+                 "similitude", "band_per")
 
     def roi_margin(self, params: dict) -> int:
         """The coarsest scale's halo (``halo_margin``, the measured 2.5 x normalized scale) --
@@ -335,6 +362,8 @@ class WTMM2D:
         backwards (see ``scale_units``' docstring). ``None`` for every other param: a derived
         reading explains a knob whose face value is not itself physical, not a general per-param
         annotation mechanism."""
+        if name == "similitude":
+            return chaining_reading(value, params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px

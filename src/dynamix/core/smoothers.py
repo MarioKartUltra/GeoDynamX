@@ -97,6 +97,15 @@ class Smoother:
         return np.asarray(self._theta_hat(np.asarray(sx, dtype=np.float64),
                                           np.asarray(sy, dtype=np.float64)), dtype=np.float64)
 
+    @property
+    def vanishing_moments(self) -> int:
+        """n_ψ, the vanishing moments of ψ = ∇θ: one more than the order of θ̂'s zero at the
+        origin (1 for a smoothing θ, θ̂(0) = 1; 3 for the Mexican pairs, θ̂ ~ |s|²). The WTMM
+        resolves singularities of Hölder exponent h < n_ψ (Arneodo, Decoster & Roux 2000)."""
+        s = np.array([1e-3, 2e-3])
+        v = np.abs(self.theta_hat(s, np.zeros_like(s)))
+        return 1 + int(round(float(np.log2(v[1] / v[0]))))
+
     def section(self, scale: float, deriv_order: int = 1, n_points: int = 256):
         """``(x_px, y)`` of θ (order 0) or of the x-analyser ψ_x = ∂_x θ (order 1) along the x
         axis at nominal scale ``scale``; amplitude unnormalised."""

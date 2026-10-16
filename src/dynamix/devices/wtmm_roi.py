@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.device import Output
-from dynamix.devices.wtmm import SMOOTHER_PARAMS, smoother_params
+from dynamix.devices.wtmm import BAND_PER_PARAM, SMOOTHER_PARAMS, chaining_reading, smoother_params
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
 
@@ -60,7 +60,8 @@ class WTMM2DROI:
     param_groups = {
         "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth",
                 "fracint_alpha", "interpolate", "detector"),
-        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude"),
+        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
+                     "band_per"),
     }
     params = (
         # The first four mirror wtmm2d's declarations exactly (dynamix/devices/wtmm.py) -- same
@@ -102,6 +103,7 @@ class WTMM2DROI:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        BAND_PER_PARAM,
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -164,6 +166,7 @@ class WTMM2DROI:
             "dist2_max": params["dist2_max"],
             "box_ratio": params["box_ratio"],
             "similitude": params["similitude"],
+            "band_per": params["band_per"],
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)
@@ -237,6 +240,8 @@ class WTMM2DROI:
         see that docstring for the sigma/lambda reasoning) rather than imported -- it is a dozen
         lines with no shared state to drift out of sync, and importing a method off a sibling
         device for its side-effect-free body would be a stranger dependency than repeating it."""
+        if name == "similitude":
+            return chaining_reading(value, params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px
