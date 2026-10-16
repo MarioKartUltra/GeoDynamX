@@ -81,6 +81,20 @@ RASTERFIELD_NPZ_SCHEMA = "rasterfield/1"
 IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".bmp", ".gif", ".pgm", ".ppm", ".webp"})
 
 
+def pixel_frame(cols, rows):
+    """``(x_axis, y_axis, frame)`` of a raster whose ground scale is unknown (a GeoTIFF with no
+    CRS, whatever its transform says): the samples' native pixel-centre indices as axes and a
+    ``LocalFrame`` in pixels."""
+    from dynamix.core.frames import LocalFrame
+
+    x_axis = np.asarray(cols, dtype=np.float64)
+    y_axis = np.asarray(rows, dtype=np.float64)
+    dx = float(x_axis[1] - x_axis[0]) if x_axis.size > 1 else 1.0
+    dy = float(y_axis[1] - y_axis[0]) if y_axis.size > 1 else 1.0
+    return x_axis, y_axis, LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]), dx=dx, dy=dy,
+                                      units="px")
+
+
 @dataclass(eq=False)
 class RasterField:
     """A 2-D (or multi-component) raster field placed in scene coordinates via a ``frame``.
@@ -401,6 +415,8 @@ class RasterField:
                 frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                                    dx=abs(float(transform.a)), dy=abs(float(transform.e)),
                                    units=crs.linear_units)
+            elif crs is None:              # the ground scale is unknown: read in pixels
+                x_axis, y_axis, frame = pixel_frame(cols + int(col_off), rows + int(row_off))
             else:
                 frame = GeographicFrame()
         return cls(
@@ -444,6 +460,8 @@ class RasterField:
             frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                                dx=abs(float(transform.a)), dy=abs(float(transform.e)),
                                units=crs.linear_units)
+        elif crs is None:                  # the ground scale is unknown: read in pixels
+            x_axis, y_axis, frame = pixel_frame(cols, rows)
         else:
             frame = GeographicFrame()
         return cls(

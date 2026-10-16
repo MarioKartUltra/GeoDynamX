@@ -136,9 +136,11 @@ def read_picture(path, *, max_dim: int = PICTURE_MAX_DIM, name: str | None = Non
     elif crs is not None:
         frame = GeographicFrame()
     else:
-        # No georeference (a bare netCDF/HDF5 grid): pixel-index axes in a local frame --
-        # ``ingest._load_gdal``'s own convention, never a geographic claim.
-        frame = LocalFrame()
+        # No CRS (a bare netCDF/HDF5 grid, a GeoTIFF without one): the ground scale is unknown,
+        # so pixel-index axes in a local frame in pixels, never a geographic claim.
+        from dynamix.core.rasterfield import pixel_frame
+
+        x_axis, y_axis, frame = pixel_frame(cols + 0.5, rows + 0.5)
     field = RasterField(name=name or f"{Path(path).stem}@pic{s}", values=out, frame=frame,
                         x_axis=x_axis, y_axis=y_axis)
     field.provenance.update({
