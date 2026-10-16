@@ -109,12 +109,23 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
     #
     # multifractal_window.py joins it too: its plot background/inks
     # resolve through theme directly (the canvas.py precedent), so a theme edit must rebuild it.
+    # wavelet_bar.py, map_view.py, anisotropy_window.py and components_window.py read theme roles
+    # the same way, and map_view hosts a canvas, so they join the widening in leaf-to-window order.
     assert devloop.modules_to_reload({"theme"}) == [
-        "dynamix.shell.theme", "dynamix.shell.canvas", "dynamix.shell.inspector",
-        "dynamix.shell.right_panel", "dynamix.shell.view_dialog",
-        "dynamix.shell.multifractal_window", "dynamix.shell.spectrum_window",
-        "dynamix.shell.levels_dialog", "dynamix.shell.main_window",
-    ]
+            "dynamix.shell.theme",
+            "dynamix.shell.canvas",
+            "dynamix.shell.wavelet_bar",
+            "dynamix.shell.map_view",
+            "dynamix.shell.inspector",
+            "dynamix.shell.right_panel",
+            "dynamix.shell.view_dialog",
+            "dynamix.shell.multifractal_window",
+            "dynamix.shell.spectrum_window",
+            "dynamix.shell.anisotropy_window",
+            "dynamix.shell.levels_dialog",
+            "dynamix.shell.components_window",
+            "dynamix.shell.main_window",
+        ]
 
 
 def test_modules_to_reload_is_empty_for_a_file_outside_the_reload_set():
@@ -144,10 +155,19 @@ def test_devloop_scan_detects_a_touched_file_and_resolves_its_dependents():
         changed = {stem for stem, mtime in after.items() if mtime != before.get(stem)}
         assert "theme" in changed
         assert devloop.modules_to_reload(changed) == [
-            "dynamix.shell.theme", "dynamix.shell.canvas", "dynamix.shell.inspector",
-            "dynamix.shell.right_panel", "dynamix.shell.view_dialog",
-            "dynamix.shell.multifractal_window", "dynamix.shell.spectrum_window",
-            "dynamix.shell.levels_dialog", "dynamix.shell.main_window",
+            "dynamix.shell.theme",
+            "dynamix.shell.canvas",
+            "dynamix.shell.wavelet_bar",
+            "dynamix.shell.map_view",
+            "dynamix.shell.inspector",
+            "dynamix.shell.right_panel",
+            "dynamix.shell.view_dialog",
+            "dynamix.shell.multifractal_window",
+            "dynamix.shell.spectrum_window",
+            "dynamix.shell.anisotropy_window",
+            "dynamix.shell.levels_dialog",
+            "dynamix.shell.components_window",
+            "dynamix.shell.main_window",
         ]
     finally:
         os.utime(theme_path, (original, original))
@@ -260,6 +280,7 @@ def test_capture_refreshes_path_from_the_live_window():
             field = object()
             cache = object()
             canvas = _StubCanvas()
+            _fields = {}
 
         window = StubWindow()
         window.project = project
@@ -288,6 +309,7 @@ def test_capture_falls_back_to_the_existing_path_with_no_layer():
             project = object()
             layer = None
             canvas = _StubCanvas()
+            _fields = {}
 
         devloop._capture(StubWindow())
 
@@ -312,6 +334,7 @@ def test_capture_stores_the_canvas_view_range(qtbot):
             project = None
             layer = None
             canvas = _StubCanvas(((10.0, 110.0), (20.0, 70.0)))
+            _fields = {}
 
         devloop._capture(StubWindow())
 
@@ -343,6 +366,7 @@ def test_session_view_round_trips_into_a_rebuilt_canvas(qtbot):
             cache = None
             project = None
             layer = None
+            _fields = {}
 
         captured = Captured()
         captured.canvas = source

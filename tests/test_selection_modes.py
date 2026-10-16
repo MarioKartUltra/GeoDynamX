@@ -409,5 +409,8 @@ def test_groups_section_is_not_view_scoped_and_visible_at_raster_stack_index(qtb
     assert frame.property("view_scoped") is False
 
     assert loaded._center_stack.currentIndex() == 0            # raster view is showing
-    assert loaded._group_palette.isVisible()
-    assert loaded._commit_button.isVisible()
+    # Grouping belongs to the arrangement views: on the raster view the section is folded away by
+    # the relevance map, and it opens there once a result holds chains to group.
+    assert not loaded._group_palette.isVisible()
+    loaded.right_panel.apply_relevance({"Groups": True})
+    assert loaded._group_palette.isVisible() and loaded._commit_button.isVisible()

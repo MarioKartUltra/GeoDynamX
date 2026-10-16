@@ -7544,8 +7544,12 @@ both ``Canvas`` signals report the
                                  "(⌘↩) to compute", "status")
 
             QtCore.QTimer.singleShot(0, _spawn)
-            self._notify("new analysis forked into its own layer — the current one is "
-                         "untouched", "status")
+            forked = "new analysis forked into its own layer — the current one is untouched"
+            placed = self.strips.reading_label.text() if self.strips is not None else ""
+            if "placed in the transform section" in placed:    # the same drop was clamped first
+                forked = f"{placed}; {forked}"
+                self.strips._show_warning(forked)
+            self._notify(forked, "status")
             return
         if self._is_point_layer(self.layer):
             # Stamped BEFORE the candidate Chain is built, same discipline as the build-first rule this method's own docstring documents: everything here still

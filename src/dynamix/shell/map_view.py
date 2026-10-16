@@ -14,8 +14,14 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.geo.placement import field_crs, image_transform, reproject_for_display
 from dynamix.shell.units import in_units
-from dynamix.shell.canvas import (ARROW_COLOR, Canvas, _arrow_segments, hline_polylines,
-                                  lod_stride, nice_round_scalebar)
+from dynamix.shell.canvas import (ARROW_COLOR, Canvas, EXTREMA_COLOR, HCHAIN_COLOR, _arrow_segments,
+                                  hline_polylines, lod_stride, nice_round_scalebar)
+from dynamix.shell.theme import RESTRAINED_DARK
+
+#: Overlay palette of the map view: a derived dataset's outline and a reference layer's lines say
+#: what they ARE, so they are RGB tuples (data identity, the canvas convention), never chrome.
+DERIVED_OUTLINE_COLOR = (232, 163, 61)
+REFERENCE_COLOR = (204, 204, 204)
 
 MAX_DIM = 2048
 #: Ground metres in one degree along the equator (WGS84 semi-major axis).
@@ -489,7 +495,7 @@ class MapView(QtWidgets.QWidget):
         shape = tuple(result.get("_shape") or (len(y_axis), len(x_axis)))[:2]
         hx, hy = hline_polylines(ext, shape)
         lines.setData(*self._to_map_nan(content.grid_field, *to_axes(hx, hy, x_axis, y_axis)),
-                      pen=pg.mkPen(style.get("color_hchain", "#ebebeb"),
+                      pen=pg.mkPen(style.get("color_hchain", HCHAIN_COLOR),
                                    width=float(style.get("line_width", 1.0))))
         n = len(ext["x"])
         iso = np.asarray(ext.get("line_id", np.full(n, -1))) == -1
@@ -497,7 +503,7 @@ class MapView(QtWidgets.QWidget):
         cy = np.asarray(ext.get("y_sub", ext["y"]), dtype=np.float64)[iso]
         dx, dy = self._to_map(content.grid_field, *to_axes(cx, cy, x_axis, y_axis))
         dots.setData(x=dx, y=dy, pen=None, size=float(style.get("point_size", 3.0)),
-                     brush=pg.mkBrush(style.get("color_extrema", "#c8c8c8")))
+                     brush=pg.mkBrush(style.get("color_extrema", EXTREMA_COLOR)))
         ax, ay = self._arrow_xy(result, ext, s, mode, x_axis, y_axis, content.grid_field)
         arrows.setData(ax, ay)
         self._settle(items, opacity, z)
@@ -617,7 +623,7 @@ class MapView(QtWidgets.QWidget):
         x, y = self._to_map(field, *to_axes(cols, rows, field.x_axis, field.y_axis))
         items = self._vectors.get(row_id)
         if items is None:
-            items = (pg.PlotDataItem(pen=pg.mkPen("#e8a33d", style=QtCore.Qt.DashLine)),)
+            items = (pg.PlotDataItem(pen=pg.mkPen(DERIVED_OUTLINE_COLOR, style=QtCore.Qt.DashLine)),)
             self.view.addItem(items[0])
             self._vectors[row_id] = items
         items[0].setData(x, y)
@@ -645,8 +651,8 @@ class MapView(QtWidgets.QWidget):
         if items is None:
             items = (pg.PlotDataItem(connect="finite"),
                      pg.PlotDataItem(connect="finite",
-                                     pen=pg.mkPen("#888888", style=QtCore.Qt.DashLine)),
-                     pg.PlotDataItem(connect="finite", pen=pg.mkPen("#ffd400", width=2)))
+                                     pen=pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)),
+                     pg.PlotDataItem(connect="finite", pen=pg.mkPen(RESTRAINED_DARK.selection_accent, width=2)))
             for it in items:
                 self.view.addItem(it)
             self._vectors[row_id] = items
@@ -748,7 +754,7 @@ class MapView(QtWidgets.QWidget):
             cols = np.array([c, c + w, c + w, c, c]) - 0.5
             rows = np.array([r, r, r + h, r + h, r]) - 0.5
             x, y = self._to_map(field, *to_axes(cols, rows, field.x_axis, field.y_axis))
-            item = pg.PlotDataItem(x, y, pen=pg.mkPen("#e8a33d", style=QtCore.Qt.DashLine))
+            item = pg.PlotDataItem(x, y, pen=pg.mkPen(DERIVED_OUTLINE_COLOR, style=QtCore.Qt.DashLine))
             item.setZValue(top)
             self.view.addItem(item)
             self._overlay_items.append(item)
@@ -762,7 +768,7 @@ class MapView(QtWidgets.QWidget):
             if not xs:
                 continue
             item = pg.PlotDataItem(np.asarray(xs[:-1]), np.asarray(ys[:-1]), connect="finite",
-                                   pen=pg.mkPen("#cccccc"))
+                                   pen=pg.mkPen(REFERENCE_COLOR))
             item.setZValue(top)
             self.view.addItem(item)
             self._overlay_items.append(item)

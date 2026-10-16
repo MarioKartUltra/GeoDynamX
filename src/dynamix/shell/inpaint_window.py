@@ -68,8 +68,8 @@ class InpaintHistogramsWindow(QtWidgets.QWidget):
         entry = self._result["_hists"][key]
         for plot, part in ((self.eta_plot, entry["eta"]), (self.amp_plot, entry["amp"])):
             edges = np.asarray(part["edges"], dtype=float)
-            for name, hist, color in (("inside", part["inside"], "#e15759"),
-                                      ("clear", part["clear"], "#4e79a7")):
+            for name, hist, color in (("inside", part["inside"], (225, 87, 89)),      # series identity:
+                                      ("clear", part["clear"], (78, 121, 167))):      # data, not chrome
                 h = np.asarray(hist, dtype=float)
                 plot.plot(edges, h / max(h.sum(), 1.0), stepMode="center", name=name,
                           pen=pg.mkPen(color, width=2))
@@ -77,7 +77,7 @@ class InpaintHistogramsWindow(QtWidgets.QWidget):
         if abacus is not None:
             edges = np.asarray(abacus["edges"], dtype=float)
             self.eta_plot.plot(edges, np.asarray(abacus["hist"])[key[1]], stepMode="center",
-                               name="abacus", pen=pg.mkPen("#59a14f", style=QtCore.Qt.DashLine))
+                               name="abacus", pen=pg.mkPen((89, 161, 79), style=QtCore.Qt.DashLine))
         self.note.setText(f"Kolmogorov distance: ln|η| {entry['eta']['distance']:.3f} "
                           f"(inside {entry['eta']['n_inside']}, clear {entry['eta']['n_clear']}) · "
                           f"ln|c| {entry['amp']['distance']:.3f}")

@@ -121,3 +121,44 @@ def _fft_policy_reset():
     from dynamix.core import fft_policy
 
     fft_policy.reset()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _warm_numba_kernels():
+    """Compile the M–Z (LastWave) numba kernels once, on the main thread, before the first test.
+
+    They compile lazily on first use (``cache=True``). A Qt test whose worker thread was the first
+    to reach them sat inside numba's compiler while the main thread polled the event loop, and the
+    offscreen gate stalled there; one headless resolve of the recon preview here puts the compile
+    ahead of every test, and the session pays it once instead of inside a worker.
+    """
+    import numpy as np
+
+    from dynamix.core import fft_policy
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve, resolve_output
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.device import DEVICES
+    from dynamix.model.layer import Layer
+
+    saved = dict(DEVICES)
+    DEVICES.clear()
+    try:
+        register_builtin_devices()
+        values = np.random.default_rng(0).standard_normal((64, 56)).cumsum(0).cumsum(1)
+        field = RasterField(name="warm", values=values, frame=LocalFrame(units="px"),
+                            x_axis=np.arange(float(values.shape[1])),
+                            y_axis=np.arange(float(values.shape[0])))
+        chain = Chain((DeviceRef("mz_edges", {"n_levels": 3, "iterations": 2,
+                                               "run_mode": "fixed"}),)).materialized()
+        layer = Layer(layer_id=1, name="warm", source_id="warm", chain=chain)
+        cache = Cache()
+        resolve(layer, field, cache)
+        resolve_output(layer, field, cache, "recon_preview")
+    finally:
+        DEVICES.clear()
+        DEVICES.update(saved)
+        fft_policy.reset()
