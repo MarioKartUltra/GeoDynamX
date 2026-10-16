@@ -120,6 +120,9 @@ class _WheelRedirect(QtCore.QObject):
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QtCore.QEvent.Wheel:
+            if (isinstance(obj, QtWidgets.QWidget)
+                    and obj.window().windowType() == QtCore.Qt.WindowType.Popup):
+                return False                         # an open list (a combo's popup) scrolls itself
             bar = self._scroll.verticalScrollBar()
             bar.setValue(bar.value() - event.angleDelta().y())
             return True                              # consumed: never reaches the control
