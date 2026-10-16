@@ -68,9 +68,11 @@ __all__ = ["MultifractalWindow"]
 Q_COLD = (80, 130, 235)
 Q_WARM = (235, 95, 60)
 
-#: The two partition-table conventions, in combo order. sup (``hd_cmax``, the running-supremum /
-#: chainmax textbook WTMM convention) is the default; no-sup (``hd_std``) is the raw ``|T(a)|``.
-TABLE_CHOICES = ("sup (cmax)", "no-sup (std)")
+#: The two partition-table conventions, in combo order. no-sup (``hd_std``, each line's modulus at
+#: the current scale, xsmurf's own default) is the default; sup (``hd_cmax``, the running supremum
+#: over finer scales along the chain) is the option -- it flattens any part of the spectrum with
+#: h < 0 toward 0, so it is wrong where negative exponents are expected.
+TABLE_CHOICES = ("no-sup (std)", "sup (cmax)")
 
 
 class WheelAxisViewBox(pg.ViewBox):

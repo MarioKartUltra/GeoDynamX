@@ -52,8 +52,9 @@ def test_window_builds_headless_and_is_a_nonmodal_canonical_window(qtbot):
     qtbot.addWidget(window)
     assert window.windowTitle() == "Multifractal spectrum — canonical (Arneodo WTMM)"
     assert window.isModal() is False
-    # sup (cmax) is the default table -- the textbook WTMM convention.
-    assert window._table_combo.currentText() == TABLE_CHOICES[0] == "sup (cmax)"
+    # no-sup (std) is the default table: each line's modulus at the current scale, xsmurf's own
+    # default, which keeps negative exponents (the sup flattens them toward 0).
+    assert window._table_combo.currentText() == TABLE_CHOICES[0] == "no-sup (std)"
 
 
 def test_region_defaults_to_the_full_scale_range(qtbot):
@@ -71,8 +72,9 @@ def test_current_fit_is_exactly_the_core_fitter_on_the_selected_table(qtbot):
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     lo, hi = window._region.getRegion()
-    expect = spectra.fit_spectra(hd_cmax, lo, hi)      # default table is cmax
+    expect = spectra.fit_spectra(hd_cmax, lo, hi)      # the sup table, picked above
     got = window.current_fit()
     for key in ("tau", "h", "D", "tau_err", "h_err", "D_err"):
         np.testing.assert_allclose(got[key], expect[key], rtol=1e-12, err_msg=key)
@@ -97,9 +99,9 @@ def test_table_toggle_switches_between_cmax_and_std(qtbot):
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
-    np.testing.assert_allclose(window.current_fit()["tau"], [1.5, 2.5, 3.5], rtol=1e-12)
-    window._table_combo.setCurrentText("no-sup (std)")
     np.testing.assert_allclose(window.current_fit()["tau"], [1.0, 2.0, 3.0], rtol=1e-12)
+    window._table_combo.setCurrentText("sup (cmax)")
+    np.testing.assert_allclose(window.current_fit()["tau"], [1.5, 2.5, 3.5], rtol=1e-12)
 
 
 # ------------------------------------------------------------------------------- eta / frame
@@ -111,6 +113,7 @@ def test_eta_seed_flows_into_the_control_and_the_fit(qtbot):
     note = "forward lift: a^1 on WT derivs (tensor)"
     window = MultifractalWindow(hd_std, hd_cmax, eta_seed=1.0, forward_note=note)
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     assert window._eta_spin.value() == 1.0
     assert window._forward_label.text() == note
     fit = window.current_fit()
@@ -157,6 +160,7 @@ def test_all_three_partition_families_are_drawn_with_mirrored_regions(qtbot):
 
     window = MultifractalWindow(*_pair())
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     assert [k for k, _ in FAMILY_TABLES] == ["tau_qa", "h_qa", "D_qa"]
     for key, _ in FAMILY_TABLES:
         assert len(window._family_items_by_table[key]) == 3      # one item per q
@@ -205,7 +209,8 @@ def _broken_pair():
 def test_the_phase_transition_tangent_on_D_h_tracks_the_negative_branch(qtbot):
     window = MultifractalWindow(*_broken_pair())
     qtbot.addWidget(window)
-    fit = window.current_fit()                                      # cmax (default) is broken
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
+    fit = window.current_fit()                                      # cmax is broken
     expect = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
     assert expect is not None
     line = window._tangent_line

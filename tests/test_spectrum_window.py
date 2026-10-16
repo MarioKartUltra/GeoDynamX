@@ -55,8 +55,9 @@ def test_canonical_points_are_exactly_the_core_fit(qtbot):
     hd_std, hd_cmax = _pair()
     window = SpectrumWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     lo, hi = window._lo_spin.value(), window._hi_spin.value()
-    expect = spectra.fit_spectra(hd_cmax, lo, hi)          # sup is the default table
+    expect = spectra.fit_spectra(hd_cmax, lo, hi)          # the sup table, picked above
     x, y = window._canon_curve.getData()
     finite = np.isfinite(expect["h"]) & np.isfinite(expect["D"])
     np.testing.assert_allclose(x, np.asarray(expect["h"])[finite], rtol=1e-12)
@@ -135,6 +136,7 @@ def test_group_spectra_overlay_is_gated_and_matches_the_core_subsets(qtbot):
     chains = _chains(scales)
     window = SpectrumWindow(hd_std, hd_cmax, chains=chains, scales=scales)
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     x, _ = window._dom_curve.getData()
     assert x is None or len(x) == 0                         # gated off by default
 
