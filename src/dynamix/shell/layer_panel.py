@@ -155,7 +155,7 @@ class _LayerRow(QtWidgets.QWidget):
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(2, 0, 2, 0)
 
-        self.hide_button = self._make_button("H", "Hide this layer's products (extrema, chains)", not layer.visible)
+        self.hide_button = self._make_button("H", "Hide this layer's products (H-chains, V-chains)", not layer.visible)
         self.lock_button = self._make_button(
             "L", "Lock (params read-only)", layer.tags.get("ui.lock") == "1")
         self.freeze_button = self._make_button(

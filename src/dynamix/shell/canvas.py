@@ -122,8 +122,8 @@ POINTS_COLOR = (0x4F, 0xC3, 0xF7)
 
 #: A V-chain a classification device (``dynamix.devices.chain_classify.ChainClassify``) tagged as
 #: a probable seam artifact (``chain.get("tags")`` truthy) -- drawn on its OWN item
-#: (:attr:`Canvas.seam_item`) so the flag stays visible independent of the trails toggle (see
-#: :meth:`Canvas.set_result`). Its value matches the theme's ``seam`` role exactly, deliberately,
+#: (:attr:`Canvas.seam_item`) so it keeps its own colour; Show V-chains hides it with every other
+#: V-chain (see :meth:`Canvas.set_result`). Its value matches the theme's ``seam`` role exactly, deliberately,
 #: the same way ``ROI_BOUNDS_COLOR`` below matches ``amber`` -- own constant, not a reuse of
 #: ``VTRAIL_COLOR``: a plain drift trail and a flagged one are different things to look at, and
 #: sharing a constant would mean re-tinting either could never happen without re-tinting both.
@@ -866,9 +866,8 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.vtrail_item.setVisible(False)
         self.view.addItem(self.vtrail_item)
 
-        # Seam-flagged V-chain trails (see SEAM_COLOR above): no visibility toggle of its own --
-        # unlike vtrail_item, it stays on regardless of `_show_trails`, which is the entire point
-        # of flagging (set_result never calls setVisible(False) on it).
+        # Seam-flagged V-chain trails (see SEAM_COLOR above), shown and hidden with the others by
+        # `_show_trails` (`_apply_trails_visibility`).
         self.seam_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().seam)), connect="finite")
         self.view.addItem(self.seam_item)
 
@@ -1053,6 +1052,8 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.scale_bar_label.customContextMenuRequested.connect(self._scale_bar_menu)
 
         self._show_trails = False
+        self._show_ghosts = True
+        self._apply_trails_visibility()
         self.view.sigRangeChanged.connect(self._on_view_range_changed)
         self._reposition_overlays()
 
@@ -1225,9 +1226,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
         v_idx, v_total = capped_v(prod, sel["keep_v"], self.draw_cap)
         notes = []
         if len(h_idx) < h_total:
-            notes.append(f"drawing {len(h_idx)} of {h_total} H chains")
+            notes.append(f"drawing {len(h_idx)} of {h_total} H-chains")
         if len(v_idx) < v_total:
-            notes.append(f"drawing {len(v_idx)} of {v_total} V chains")
+            notes.append(f"drawing {len(v_idx)} of {v_total} V-chains")
         self.cap_note = (" · ".join(notes) + " — tighten filters to see the rest"
                          if notes else None)
         # H display prefers the subpixel columns (the interpolate knob); V trails stay on
@@ -2246,10 +2247,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         device (``dynamix.devices.chain_classify``) may tag some chains (``chain["tags"]``
         truthy) as probable seam artifacts, or move them out of ``chains`` entirely into
         ``result["chains_excluded"]``. Tagged chains draw on ``seam_item`` instead of
-        ``vtrail_item``, and stay visible even with ``_show_trails`` off -- flagging exists
-        precisely so a suspect chain is not just another routine drift reading a user can hide.
-        Excluded chains draw dashed on ``ghost_item``, gated on ``result.get("_show_ghosts",
-        True)``. Neither key is ever present on a result no such device has touched, so both
+        ``vtrail_item``. Excluded chains draw dashed on ``ghost_item``, gated on
+        ``result.get("_show_ghosts", True)``. Neither key is ever present on a result no such device has touched, so both
         splits are no-ops there: every plain chain still draws on ``vtrail_item`` exactly as
         before this existed. :func:`classify_chains` does the split; see its own docstring.
 
@@ -2257,9 +2256,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         :class:`dynamix.devices.groups.GroupPaint` stamped with a ``"group:<name>"`` tag (at
         commit time) draws on a per-color item from ``self._group_items`` instead
         of ``seam_item`` or ``vtrail_item`` -- built lazily and reused, one item per distinct
-        ``group_color`` currently in use, and (like ``seam_item``) always visible regardless of
-        ``_show_trails``: a committed group is an even more deliberate assertion than a machine
-        seam flag. A chain carrying BOTH a seam tag and a group tag draws grouped, not seam -- the
+        ``group_color`` currently in use. A chain carrying BOTH a seam tag and a group tag draws grouped, not seam -- the
         user's own commit outranks the classifier (see :func:`classify_chains`'s docstring).
 
         **An ROI result renders IN CONTEXT.** Its extrema are in ROI-local coordinates (the halo
@@ -2374,19 +2371,15 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if sel_geom is None:
             vx, vy, v_kept, v_total = cap_polylines(vx, vy, self.draw_cap)
         self.vtrail_item.setData(vx + col_off, vy + row_off)
-        self.vtrail_item.setVisible(self._show_trails)
         # Honest "drawing N of M" when the cap withheld lines (never a silent truncation).
         notes = []
         if h_total > h_kept:
-            notes.append(f"drawing {h_kept} of {h_total} H-lines")
+            notes.append(f"drawing {h_kept} of {h_total} H-chains")
         if v_total > v_kept:
             notes.append(f"drawing {v_kept} of {v_total} V-chains")
         self.cap_note = (" · ".join(notes) + " — tighten filters to see the rest"
                          if notes else self.cap_note)
 
-        # Flagged trails render on `seam_item` regardless of `_show_trails`: that toggle hides the
-        # ROUTINE drift reading, but a seam flag is a warning about the data, not a reading a user
-        # opted into (see seam_item's construction comment).
         self.seam_item.setData(sx + col_off, sy + row_off)
 
         self._draw_grouped_trails(grouped_xy, col_off, row_off)
@@ -2394,7 +2387,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         excluded = result.get("chains_excluded") or _NO_CHAINS
         gx, gy = self._cached_geometry("ghost", excluded, lambda: vchain_trails(excluded))
         self.ghost_item.setData(gx + col_off, gy + row_off)
-        self.ghost_item.setVisible(bool(result.get("_show_ghosts", True)))
+        self._show_ghosts = bool(result.get("_show_ghosts", True))
+        self._apply_trails_visibility()
         # The maxima gate: arrow mode "off" already leaves arrow_item empty, so the flag only
         # ever takes drawn maxima away.
         self._apply_maxima_visibility()
@@ -2502,7 +2496,16 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def set_show_trails(self, value: bool) -> None:
         self._show_trails = bool(value)
-        self.vtrail_item.setVisible(self._show_trails)
+        self._apply_trails_visibility()
+
+    def _apply_trails_visibility(self) -> None:
+        """Show V-chains is the one switch for every V-chain drawn here: the plain trails, the
+        seam-flagged and group-painted ones, the excluded ghosts and the picked highlight."""
+        on = self._show_trails
+        for item in (self.vtrail_item, self.seam_item, self.selection_item,
+                     *self._group_items.values()):
+            item.setVisible(on)
+        self.ghost_item.setVisible(on and self._show_ghosts)
 
     def _update_coi_outline(self, result: dict, scale_idx: int,
                             row_off: int = 0, col_off: int = 0) -> None:

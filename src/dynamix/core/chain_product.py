@@ -337,7 +337,7 @@ def stub_capped_chains(chains, cap=DRAW_CAP):
     mask = np.zeros(len(chains), dtype=bool)
     mask[keep] = True
     capped = [c if mask[i] else _CHAIN_STUB for i, c in enumerate(chains)]
-    note = f"drawing {int(cap)} of {len(chains)} V chains — tighten filters to see the rest"
+    note = f"drawing {int(cap)} of {len(chains)} V-chains — tighten filters to see the rest"
     return capped, note
 
 

@@ -112,7 +112,7 @@ def test_hline_length_reads_its_line_count_and_range():
     res = attach_chain_product({"extrema": [l0], "chains": [],
                                 "scales": np.asarray([1.0]), "_shape": (8, 64)})
     r = HLineLength().reading(res, {"min_len": 1, "max_len": 0})
-    assert "H-lines" in r and "points ∈ [2, 3]" in r        # lines of 3 and 2 points
+    assert "H-chains" in r and "points ∈ [2, 3]" in r        # lines of 3 and 2 points
     assert HLineLength().data_hints(res, {"min_len": 1, "max_len": 0})["min_len"] == (2.0, 3.0, 2.0)
     # no product / no lines -> honest "run the transform", never a crash
     assert "run the transform" in HLineLength().reading({}, {"min_len": 1, "max_len": 0})

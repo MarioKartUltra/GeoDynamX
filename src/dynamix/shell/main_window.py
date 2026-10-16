@@ -2405,6 +2405,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.layer.tags[f"ui.{name}"] = str(value)
         if name == "color_vtrail" and self.layer.tags.get("ui.show_trails") != "True":
             self.layer.tags["ui.show_trails"] = "True"      # a colour for the trails asks to see them
+        node = self.project.layer_stack.node(f"chn:{self.layer.layer_id}")
+        shown = self.layer.tags.get("ui.show_trails") == "True"
+        if node is not None and node.visible != shown:     # the Layers V-chains row follows
+            node.visible = shown
+            if self.layers_panel is not None:
+                self.layers_panel.refresh()
+            self._redraw_map()
         # The proposal is now the layer's truth, so show it: ``DragValue`` never updates its own
         # label on a drag (knob_widgets.py's feedback-loop contract -- the OWNER calls
         # ``set_value`` once it has applied the value). Without this the thickness applied while
@@ -2419,8 +2426,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._refresh_panel_relevance()
         # The arrangement scene reads THREE of the new keys (colormap for a layer's own
         # drape, color_vtrail as `_chain_color`'s fallback, color_points for a point layer's own
-        # drape -- see `_sync_arrangement`'s entries); color_hchain/color_extrema/show_trails are
-        # session-canvas-only, so resyncing for THOSE would rebuild the arrangement for nothing it
+        # drape -- see `_sync_arrangement`'s entries) and show_trails through the V-chains row it
+        # moves; color_hchain/color_extrema are session-canvas-only, so resyncing for THOSE would rebuild the arrangement for nothing it
         # draws differently. Gated on the arrangement actually being the current view, mirroring
         # every other resync-trigger in this file (``_on_layer_selected``, ``_on_hide_toggled``): a
         # flipped-away edit is picked up for free by ``_toggle_center_view``'s own unconditional
@@ -2433,7 +2440,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # still resyncs.
             if self._arrangement is not None:
                 self._arrangement.set_colormap(str(value))
-        elif (name in ("colormap", "color_vtrail", "color_points",
+        elif (name in ("colormap", "color_vtrail", "color_points", "show_trails",
                        "hillshade", "sun_azimuth", "sun_altitude", "z_factor",
                        "stretch", "stretch_pct", "levels", "levels_colors", "levels_sieve",
                        "surface", "surface_source", "depth_positive")
@@ -6975,7 +6982,7 @@ both ``Canvas`` signals report the
         params = _json.loads(_json.dumps(params, default=list))   # q_list arrays -> lists
         info = export_chain_product_npz(path, result["chain_product"],
                                         field=self.field, params=params)
-        return (f"exported {info['n_horizontal']} H + {info['n_vertical']} V chains "
+        return (f"exported {info['n_horizontal']} H-chains + {info['n_vertical']} V-chains "
                 f"→ {path}" + self._write_provenance(path, "chains_npz"))
 
     def _racks_of(self, layer) -> "list | None":
@@ -7893,7 +7900,7 @@ both ``Canvas`` signals report the
         src = self.project.sources.get(self.layer.source_id) if self.layer is not None else None
         if src is not None and src.hidden and isinstance(result, dict) \
                 and result.get("extrema") and self._center_stack.currentIndex() == 0:
-            self._notify("dataset raster is hidden — extrema are drawn over empty ground "
+            self._notify("dataset raster is hidden — H-chains are drawn over empty ground "
                          "(H on the source row un-hides it)", "status")
         stale = result.get("_stale_groups")
         if stale:
@@ -9469,6 +9476,10 @@ both ``Canvas`` signals report the
             node = self.project.layer_stack.node(f"roi:{roi.roi_id}")
             if node is not None:
                 node.visible = bool(roi.visible)
+        for layer in self.project.layers:      # a V-chains row's eye is the layer's Show V-chains
+            node = self.project.layer_stack.node(f"chn:{layer.layer_id}")
+            if node is not None:
+                node.visible = layer.tags.get("ui.show_trails") == "True"
         if dropped and not near:
             self._notify(f"layer stack: {dropped} row(s) for missing content dropped", "status")
         if self.project.map_crs is None and self.field is not None:
@@ -9511,7 +9522,7 @@ both ``Canvas`` signals report the
         if kind == "prod":
             output = self._shown_output_of(layer)
             return f"{layer.name} · {output.label or output.name}" if output else layer.name
-        return layer.name + {"ext": " · extrema", "chn": " · chains"}[kind]
+        return layer.name + {"ext": " · H-chains", "chn": " · V-chains"}[kind]
 
     def _layer_display(self, layer):
         """``(result, reason)`` of ``layer`` from the cache only -- never a compute. A lazy
@@ -9826,6 +9837,14 @@ both ``Canvas`` signals report the
                 roi.visible, changed = node.visible, True
         if changed:
             self._refresh_saved_rois()
+        for layer in self.project.layers:      # a V-chains row's eye sets Show V-chains
+            node = self.project.layer_stack.node(f"chn:{layer.layer_id}")
+            if node is None or node.visible == (layer.tags.get("ui.show_trails") == "True"):
+                continue
+            layer.tags["ui.show_trails"] = "True" if node.visible else "False"
+            if layer is self.layer:
+                self.right_panel.set_style_values(_display_style_of(layer))
+                self.canvas.set_show_trails(node.visible)
         self._redraw_map()
         if self._arrangement_shown():
             self._sync_arrangement()

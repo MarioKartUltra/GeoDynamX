@@ -679,24 +679,27 @@ def test_show_ghosts_false_hides_ghost_item(qtbot):
 def test_show_ghosts_true_shows_ghost_item(qtbot):
     canvas = Canvas()
     qtbot.addWidget(canvas)
+    canvas.set_show_trails(True)
 
     canvas.set_result(_flagged_result(show_ghosts=True), 0)
 
     assert canvas.ghost_item.isVisible() is True
 
 
-def test_seam_item_renders_even_when_trails_toggle_is_off(qtbot):
-    """The point of flagging: a seam-tagged chain must stay visible independent of
-    `_show_trails`, which governs only the ROUTINE (unflagged) drift trails on `vtrail_item`."""
+def test_show_v_chains_off_hides_the_flagged_and_excluded_chains_too(qtbot):
+    """Show V-chains is one switch for every V-chain: seam-flagged trails and the excluded
+    ghosts keep their data and hide with the plain trails."""
     canvas = Canvas()
     qtbot.addWidget(canvas)
     assert canvas._show_trails is False             # default -- see test_set_show_trails_* below
 
-    canvas.set_result(_flagged_result(), 0)
+    canvas.set_result(_flagged_result(show_ghosts=True), 0)
 
-    assert canvas.seam_item.isVisible() is True
+    assert not canvas.seam_item.isVisible() and not canvas.ghost_item.isVisible()
     sx, _ = canvas.seam_item.getData()
     assert sx.size > 0
+    canvas.set_show_trails(True)
+    assert canvas.seam_item.isVisible() and canvas.ghost_item.isVisible()
 
 
 def test_absent_tags_and_chains_excluded_render_bit_identically_to_plain_result(qtbot, fbm64):
