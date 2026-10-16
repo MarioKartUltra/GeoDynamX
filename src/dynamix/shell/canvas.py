@@ -48,7 +48,7 @@ from dynamix.core.chain_product import DRAW_CAP as _DRAW_CAP
 from dynamix.core.transect import orient_endpoints
 from dynamix.roi.picture import display_stride, native_shape, sample_spacing
 from dynamix.core.wtmm_backend import _order_lines
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current, rgb
 from dynamix.shell.units import px_to_metres
 
 __all__ = [
@@ -106,7 +106,9 @@ _CLICK_MAX_TRAVEL_PX = 3.0
 #: strings: The chrome-literal grep matches `#rrggbb` text and font-family names, not tuples.
 EXTREMA_COLOR = (200, 200, 200)     # isolated extrema (line_id == -1): light gray
 HCHAIN_COLOR = (235, 235, 235)      # H-chain polylines: white-ish
-VTRAIL_COLOR = (255, 160, 40)       # V-chain drift trails: amber family
+VTRAIL_COLOR = (255, 160, 40)       # V-chain drift trails: amber family (the default theme's; the
+                                    # pen reads theme.current().amber at construction and
+                                    # Canvas.apply_theme_roles re-tints it on a theme change)
 
 #: Point-layer scatter overlay -- a distinct, cool hue, deliberately
 #: NOT amber (VTRAIL_COLOR/the ROI band's One-Accent Rule exception) and NOT a seam/ghost/extrema
@@ -825,6 +827,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._overlay_line_width = 1.0
         super().__init__(parent)
         self.view = self.addViewBox()
+        self.setBackground(current().surround)      # the surround outside the raster: a theme role
         self.view.setAspectLocked(True)
         self.view.invertY(True)
 
@@ -859,14 +862,14 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.hchain_item.setVisible(False)
         self.view.addItem(self.hchain_item)
 
-        self.vtrail_item = pg.PlotDataItem(pen=pg.mkPen(VTRAIL_COLOR), connect="finite")
+        self.vtrail_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().amber)), connect="finite")
         self.vtrail_item.setVisible(False)
         self.view.addItem(self.vtrail_item)
 
         # Seam-flagged V-chain trails (see SEAM_COLOR above): no visibility toggle of its own --
         # unlike vtrail_item, it stays on regardless of `_show_trails`, which is the entire point
         # of flagging (set_result never calls setVisible(False) on it).
-        self.seam_item = pg.PlotDataItem(pen=pg.mkPen(SEAM_COLOR), connect="finite")
+        self.seam_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().seam)), connect="finite")
         self.view.addItem(self.seam_item)
 
         # Excluded-chain ghosts (see GHOST_COLOR above), dashed so a discarded chain reads as
@@ -888,7 +891,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         # it matches its own contract even before any `set_display_style` call ever runs -- that
         # method (see its own docstring) is what keeps the 2x relationship true afterward.
         self.selection_item = pg.PlotDataItem(
-            pen=pg.mkPen(RESTRAINED_DARK.selection_accent, width=2.0), connect="finite")
+            pen=pg.mkPen(current().selection_accent, width=2.0), connect="finite")
         self.view.addItem(self.selection_item)
 
         self.extrema_item = pg.ScatterPlotItem(size=3, pen=None, brush=pg.mkBrush(*EXTREMA_COLOR))
@@ -934,22 +937,22 @@ class Canvas(pg.GraphicsLayoutWidget):
         # The ROI bounds outline: which region of the parent raster the displayed result was
         # measured over (see set_result's docstring on in-context rendering). Empty for every
         # non-ROI result, riding the same "empty data draws nothing" visibility as the COI item.
-        self.roi_bounds_item = pg.PlotDataItem(pen=pg.mkPen(ROI_BOUNDS_COLOR), connect="all")
+        self.roi_bounds_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().amber)), connect="all")
         self.view.addItem(self.roi_bounds_item)
 
-        # The ROI rubber band. AMBER, and by the One-Accent Rule rather than in spite of it: the
-        # spec grants this the accent explicitly ("the only amber on screen wins its exception
-        # here: the box IS a selection"), and a selection is precisely what the accent is for. A
-        # theme ROLE, not a literal -- unlike the chain/extremum colors above, this is chrome.
-        self.roi_band_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.amber))
+        # The ROI rubber band, in the theme's ``roi`` role (amber by default, and by the One-Accent
+        # Rule rather than in spite of it: the spec grants this the accent explicitly, "the only
+        # amber on screen wins its exception here: the box IS a selection"). A theme ROLE, not a
+        # literal -- unlike the chain/extremum colors above, this is chrome.
+        self.roi_band_item = pg.PlotDataItem(pen=pg.mkPen(current().roi))
         self.view.addItem(self.roi_band_item)
         # SAVED ROIs of the displayed dataset -- dashed amber outlines,
         # the active one solid, each labelled; FILE pixels (the canvas's own data space).
         self.saved_roi_item = pg.PlotDataItem(
-            pen=pg.mkPen(RESTRAINED_DARK.amber, style=QtCore.Qt.PenStyle.DashLine),
+            pen=pg.mkPen(current().roi, style=QtCore.Qt.PenStyle.DashLine),
             connect="finite")
         self.view.addItem(self.saved_roi_item)
-        self.active_roi_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.amber, width=2),
+        self.active_roi_item = pg.PlotDataItem(pen=pg.mkPen(current().roi, width=2),
                                                connect="finite")
         self.view.addItem(self.active_roi_item)
         self._saved_roi_labels: list = []
@@ -959,11 +962,11 @@ class Canvas(pg.GraphicsLayoutWidget):
         # own item rather than a reuse of roi_band_item because the two gestures (⌘-drag ROI,
         # lasso pick) are conceptually different selections, even though they can never be live
         # at the same time; keeping them separate means neither's add/remove idiom has to reason
-        # about the other's state. Pen migrated from `RESTRAINED_DARK.amber` to the dedicated
-        # `selection_accent` role: a chain PICK is a different kind of
-        # selection from an ROI region, and the two must be able to re-tint independently -- see
-        # `theme.py`'s own comment on `selection_accent` for the full reasoning.
-        self.lasso_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.selection_accent))
+        # about the other's state. Pen migrated from the amber role to the dedicated
+        # `selection_accent` role, and from there to its own `lasso` role: a chain PICK is a
+        # different kind of selection from an ROI region, and the two must be able to re-tint
+        # independently -- see `theme.py`'s own comment on `selection_accent` for the reasoning.
+        self.lasso_item = pg.PlotDataItem(pen=pg.mkPen(current().lasso))
         self.view.addItem(self.lasso_item)
 
         # The box-mode rubber-band -- the SAME rectangle-drawing idiom
@@ -973,18 +976,18 @@ class Canvas(pg.GraphicsLayoutWidget):
         # (a different SHAPE of the same chain-pick concept; kept separate so neither gesture's
         # add/remove idiom has to reason about the other's state, exactly as `lasso_item`'s own
         # comment already argues for the ROI/lasso split).
-        self.box_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.selection_accent))
+        self.box_item = pg.PlotDataItem(pen=pg.mkPen(current().lasso))
         self.view.addItem(self.box_item)
         # Mask mode: the live polygon (amber: a region, like the ROI band) and the committed
         # regions of the active step as dashed rings.
-        self.mask_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.amber))
+        self.mask_item = pg.PlotDataItem(pen=pg.mkPen(current().roi))
         self.view.addItem(self.mask_item)
         self.mask_outline_item = pg.PlotDataItem(
-            pen=pg.mkPen(RESTRAINED_DARK.amber, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
+            pen=pg.mkPen(current().roi, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
         self.view.addItem(self.mask_outline_item)
         # The boundary of a fill: the pixel edges where an inpaint result's fill mask changes
         # (the fill stage carries no mask), above the product, in the result's own placement.
-        self.fill_outline_item = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.selection_accent),
+        self.fill_outline_item = pg.PlotDataItem(pen=pg.mkPen(current().selection_accent),
                                                  connect="finite")
         self.view.addItem(self.fill_outline_item)
 
@@ -998,18 +1001,19 @@ class Canvas(pg.GraphicsLayoutWidget):
         # it; the FINISHED line is drawn by `transect_item`/`transect_highlight_item` once
         # `set_transects` is called with the new record, never by this marker.
         self.transect_item = pg.PlotDataItem(
-            pen=pg.mkPen(RESTRAINED_DARK.selection_accent), connect="finite")
+            pen=pg.mkPen(current().selection_accent), connect="finite")
         self.view.addItem(self.transect_item)
         self.transect_highlight_item = pg.PlotDataItem(
-            pen=pg.mkPen(RESTRAINED_DARK.selection_accent, width=2.0), connect="finite")
+            pen=pg.mkPen(current().selection_accent, width=2.0), connect="finite")
         self.view.addItem(self.transect_highlight_item)
         self.transect_marker_item = pg.ScatterPlotItem(
-            size=8, pen=None, brush=pg.mkBrush(RESTRAINED_DARK.selection_accent))
+            size=8, pen=None, brush=pg.mkBrush(current().selection_accent))
         self.view.addItem(self.transect_marker_item)
 
-        # Chrome (not data): the scale-bar line is a UI reading, so its color is a theme ROLE,
-        # never a literal -- same rule as the QLabel readings below.
-        self.scale_bar_line = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink, width=2))
+        # Chrome (not data): the scale-bar line is a UI reading, so its color is a theme ROLE
+        # (``scale_bar``; the bar's own menu overrides it), never a literal -- same rule as the
+        # QLabel readings below.
+        self.scale_bar_line = pg.PlotDataItem(pen=pg.mkPen(current().scale_bar, width=2))
         self.view.addItem(self.scale_bar_line)
 
         # DATA, not chrome (see SMOOTHER_COLOR/ANALYZER_COLOR's comment above): theta (the
@@ -1690,7 +1694,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self.view.removeItem(item)
         self._saved_roi_labels = []
         for d in rois:
-            text = pg.TextItem(str(d["label"]), color=RESTRAINED_DARK.amber, anchor=(0, 1))
+            text = pg.TextItem(str(d["label"]), color=current().roi, anchor=(0, 1))
             text.setPos(d["col"] + self._display_shift[1] - 0.5,
                         d["row"] + self._display_shift[0] - 0.5)
             self.view.addItem(text)
@@ -2571,10 +2575,46 @@ a bounded gather of at most :attr:`draw_cap` chains per
         from dynamix.shell.wavelet_bar import LINE_WIDTHS, merged_style
 
         self._scale_bar_style = merged_style(self._scale_bar_style, changes)
-        colour = self._scale_bar_style["color"]
+        colour = self._scale_bar_colour()
         self.scale_bar_line.setPen(
             pg.mkPen(colour, width=LINE_WIDTHS[self._scale_bar_style["width"]] + 0.6))
         self.scale_bar_label.setStyleSheet(f"color: {colour};")
+
+    def _scale_bar_colour(self) -> str:
+        """The scale bar's colour: the user's own pick from the bar's menu, or the theme's
+        ``scale_bar`` role while the style still carries the default."""
+        from dynamix.shell.wavelet_bar import DEFAULT_SCALE_STYLE
+
+        colour = self._scale_bar_style["color"]
+        return current().scale_bar if colour == DEFAULT_SCALE_STYLE["color"] else colour
+
+    def apply_theme_roles(self) -> None:
+        """Re-tint every chrome item from the theme the application wears now
+        (:func:`dynamix.shell.theme.current`): the V-trail, seam and ROI-bounds carve-outs, the
+        ROI band, the saved and active ROIs, the mask, the lasso and the box, the selection
+        overlays, the transects, the scale bar and the surround. Each pen keeps its width and
+        style; only the colour changes. The window calls this after ``apply_theme`` on a
+        Settings ▸ Theme pick and on a watched-file reload. The data colours (chains, extrema,
+        points, colormaps) are not chrome and never move."""
+        t = current()
+        for item, role in ((self.vtrail_item, t.amber), (self.roi_bounds_item, t.amber),
+                           (self.seam_item, t.seam),
+                           (self.roi_band_item, t.roi), (self.saved_roi_item, t.roi),
+                           (self.active_roi_item, t.roi), (self.mask_item, t.roi),
+                           (self.mask_outline_item, t.roi),
+                           (self.lasso_item, t.lasso), (self.box_item, t.lasso),
+                           (self.selection_item, t.selection_accent),
+                           (self.fill_outline_item, t.selection_accent),
+                           (self.transect_item, t.selection_accent),
+                           (self.transect_highlight_item, t.selection_accent)):
+            pen = pg.mkPen(item.opts["pen"])
+            pen.setColor(pg.mkColor(role))
+            item.setPen(pen)
+        self.transect_marker_item.setBrush(pg.mkBrush(t.selection_accent))
+        for text in self._saved_roi_labels:
+            text.setColor(t.roi)
+        self.set_scale_bar_style({})
+        self.setBackground(t.surround)
 
     def _scale_bar_menu(self, pos) -> None:
         from dynamix.shell.wavelet_bar import style_menu

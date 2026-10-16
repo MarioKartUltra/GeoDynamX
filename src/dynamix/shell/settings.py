@@ -26,6 +26,9 @@ class Settings:
     #: earlier than that). Round-tripped by :func:`update_settings` exactly like every other
     #: field here.
     center_view: str = "raster"
+    #: The theme applied at launch: a bundled name (``restrained_dark``, ``mid_grey``, ``light``) or a
+    #: file stem under the user's themes folder (``dynamix.shell.theme.load_theme``).
+    theme: str = "restrained_dark"
     #: A raster to open at launch when none is given on the command line (handy for testing). ``None`` or a path that no longer exists
     #: falls back to :func:`dynamix.shell.app._default_raster`'s demo/fixture choice. Set it by
     #: hand in settings.json or via ``update_settings(open_on_launch=...)``.
@@ -75,6 +78,13 @@ def settings_path() -> Path:
     else:
         base = Path.home() / "Library" / "Application Support"
     return base / "GeoDynamix" / "settings.json"
+
+
+def themes_dir() -> Path:
+    """The user's theme files (``dynamix.shell.theme.load_theme``): a ``themes`` folder beside the
+    settings file."""
+    return settings_path().parent / "themes"
+
 
 def racks_dir() -> Path:
     """The user's rack files (``dynamix.model.racks``): a ``racks`` folder beside the settings
@@ -126,6 +136,7 @@ def load_settings() -> Settings:
         compute_precision=compute_precision,
         output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
+        theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
 
 def _positive_int(value, default: int) -> int:

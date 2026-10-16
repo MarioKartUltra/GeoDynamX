@@ -122,7 +122,9 @@ from dynamix.shell.rack_editor import RackEditor
 from dynamix.shell.right_panel import DevicePanel, CompositePanel, ReconstructionPanel, RightPanel
 from dynamix.shell.roi_panel import RoiPanel
 from dynamix.shell.settings import (Settings, devices_dir, load_settings, racks_dir, save_settings,
+                                    themes_dir,
                                     update_settings)
+from dynamix.shell.theme import Theme, apply_theme, bundled_themes
 from dynamix.shell.skeleton_dialog import SkeletonDialog
 from dynamix.shell.surface_dialog import SurfaceDialog
 from dynamix.shell.topology_panel import TopologyPanel
@@ -946,6 +948,7 @@ class MainWindow(QtWidgets.QMainWindow):
     scraping widgets: every result that reaches the screen is emitted from one place."""
 
     resolved = QtCore.Signal(object)        # the Renderable that just reached the canvas
+    themeReloaded = QtCore.Signal(str)      # a watched theme file changed and was re-applied
     errored = QtCore.Signal(str)            # a transform raised; the message is on its strip
 
     #: The chain a window builds when nobody names one -- ``DEMO_CHAIN`` under a name that
@@ -1740,7 +1743,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # that callers and tests name.
         self.controller = CommandController(self)
         self.commands = bind_commands(self, self.command_handlers())
-        self.menus = build_menus(self, self.commands, extra={"View": self._fill_view_menu_tail})
+        self.menus = build_menus(self, self.commands,
+                                 extra={"View": self._fill_view_menu_tail,
+                                        "Settings": self._fill_settings_menu_tail})
         self.refresh_commands = watch_enabled(self.commands, self.menus, self.command_enabled())
         self._zoom_action = self.commands["view.zoom_to_dataset"]
         self._key_undo_rack = self.commands["edit.undo_rack_drop"]
@@ -4573,6 +4578,61 @@ both ``Canvas`` signals report the
         self._refresh_panel_relevance()
         self._refresh_components_button()
         self._refresh_inpaint_button()
+
+    def _theme_files(self) -> dict:
+        """Theme name -> file: the bundled ones, then the user's folder (a user file wins)."""
+        files = dict(bundled_themes())
+        folder = themes_dir()
+        if folder.is_dir():
+            files.update({f.stem: f for f in sorted(folder.glob("*.json"))})
+        return files
+
+    def _rebuild_theme_menu(self) -> None:
+        menu = self._theme_menu
+        for action in list(self._theme_group.actions()):
+            self._theme_group.removeAction(action)
+        menu.clear()
+        picked = load_settings().theme
+        for name in self._theme_files():
+            action = QtGui.QAction(name, self, checkable=True)
+            action.setData(f"settings.theme.{name}")        # a theme pick is a command too
+            action.setChecked(name == picked)
+            action.triggered.connect(lambda _checked=False, n=name: self._on_theme_selected(n))
+            self._theme_group.addAction(action)
+            menu.addAction(action)
+
+    def _on_theme_selected(self, name: str) -> None:
+        """Apply the theme now, remember it, and watch its file for the designer's next edit."""
+        path = self._theme_files().get(name)
+        if path is None:
+            self._notify(f"theme {name!r}: no such file any more", "status")
+            return
+        try:
+            theme = Theme.from_json(path)
+        except (ValueError, OSError) as exc:
+            self._notify(f"theme {name!r}: {exc}", "status")
+            return
+        apply_theme(QtWidgets.QApplication.instance(), theme)
+        self.canvas.apply_theme_roles()
+        update_settings(theme=name)
+        if self._theme_watcher.files():
+            self._theme_watcher.removePaths(self._theme_watcher.files())
+        self._theme_watcher.addPath(str(path))
+
+    def _on_theme_file_changed(self, path: str) -> None:
+        """The watched theme file changed: re-apply it (a file that no longer validates is
+        reported and the current look stays), and watch it again, since an editor that
+        replaces the file drops the watch."""
+        try:
+            theme = Theme.from_json(path)
+        except (ValueError, OSError) as exc:
+            self._notify(f"theme file: {exc}", "status")
+        else:
+            apply_theme(QtWidgets.QApplication.instance(), theme)
+            self.canvas.apply_theme_roles()
+            self.themeReloaded.emit(theme.name)
+        if path not in self._theme_watcher.files() and Path(path).exists():
+            self._theme_watcher.addPath(path)
 
     def _on_auto_run_toggled(self, checked: bool) -> None:
         update_settings(auto_run_wtmm=checked)
@@ -10309,6 +10369,23 @@ both ``Canvas`` signals report the
         for value in (32, 64):
             h[f"settings.precision.{value}"] = lambda checked=True, v=value: self._on_precision_selected(v)
         return h
+
+    def _fill_settings_menu_tail(self, menu: QtWidgets.QMenu) -> None:
+        """Settings ▸ Theme: the bundled themes and the user's own files, rebuilt each time the
+        submenu opens so a file just dropped in the folder is listed; the pick applies live, is
+        remembered, and its file is watched so an edit re-applies without a restart."""
+        self._theme_menu = menu.addMenu("Theme")
+        self._theme_group = QtGui.QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._theme_watcher = QtCore.QFileSystemWatcher(self)
+        self._theme_watcher.fileChanged.connect(self._on_theme_file_changed)
+        self._theme_menu.aboutToShow.connect(self._rebuild_theme_menu)
+        self._rebuild_theme_menu()
+        # The theme the settings name is watched from the first start, so the designer's edits
+        # reload without a pick first (a pick swaps the watched file).
+        named = self._theme_files().get(load_settings().theme)
+        if named is not None:
+            self._theme_watcher.addPath(str(named))
 
     def _fill_view_menu_tail(self, menu: QtWidgets.QMenu) -> None:
         """The Layouts submenu the table placed (``view.layouts.save_as``) gets the saved names."""

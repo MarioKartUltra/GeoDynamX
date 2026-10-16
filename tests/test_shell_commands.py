@@ -25,7 +25,8 @@ def test_every_menu_action_carries_a_command_id_and_the_bar_follows_the_order(qt
     table = by_id()
     for action in _menu_actions(w):
         cid = action.data()
-        assert cid and (cid in table or cid.startswith(("device.", "view.layouts.apply."))), action.text()
+        assert cid and (cid in table or cid.startswith(("device.", "view.layouts.apply.",
+                                                        "settings.theme."))), action.text()
 
 
 def test_shortcuts_keep_their_keys_and_window_context(qtbot, clean_registry):
@@ -109,7 +110,7 @@ def test_the_settings_menu_keeps_its_submenus_and_file_and_view_their_separators
     w = MainWindow()
     qtbot.addWidget(w)
     settings = {a.menu().title(): a.menu() for a in w.menus["Settings"].actions() if a.menu() is not None}
-    assert list(settings) == ["Compute engine", "FFT precision"]
+    assert list(settings) == ["Compute engine", "FFT precision", "Theme"]
     assert [a.data() for a in settings["Compute engine"].actions()] == [
         "settings.engine.auto", "settings.engine.mlx", "settings.engine.fftw"]
     assert [a.data() for a in settings["FFT precision"].actions()] == [
