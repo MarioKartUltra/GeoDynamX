@@ -685,11 +685,9 @@ def test_roi_chain_carries_a_tuned_fracint_alpha(clean_registry):
     assert chain.steps[0].params["fracint_alpha"] == 0.5
 
 
-def test_roi_chain_floors_a_min_at_the_engines_own_minimum(clean_registry):
-    """wtmm2d's a_min goes down to 0.25; the ROI path refuses anything under 1.0 (the halo would
-    be fabricated), and its Param's hard min says so -- so a parent tuned below the floor must be
-    raised on the way in, not carried into a chain that cannot be constructed at all."""
-    from dynamix.roi.halo import MIN_A_MIN
+def test_roi_chain_carries_the_parents_a_min_below_the_halo_limit(clean_registry):
+    """Below a_min 1.0 the ROI run carries the honest-halo warning instead of a floor, so the
+    parent's own a_min rides into the ROI chain unchanged."""
     from dynamix.shell.main_window import roi_chain
 
     register_builtin_devices()
@@ -698,7 +696,7 @@ def test_roi_chain_floors_a_min_at_the_engines_own_minimum(clean_registry):
     chain = roi_chain(parent, {"roi_row": 0, "roi_col": 0, "roi_h": 16, "roi_w": 16,
                                "boundary": "auto"})
 
-    assert chain.steps[0].params["a_min"] == MIN_A_MIN
+    assert chain.steps[0].params["a_min"] == 0.5
 
 
 def test_roi_chain_prepends_when_the_parent_has_no_wtmm2d(clean_registry):

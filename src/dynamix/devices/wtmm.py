@@ -78,6 +78,30 @@ def smoother_params(params: dict) -> dict | None:
     return out
 
 
+def eta_warning(params: dict) -> "str | None":
+    """The ``a_min`` knob's under-sampling warning: the finest scale's η (the analysing wavelet's
+    energy beyond Nyquist, :mod:`dynamix.core.undersampling`) against the configured level, or None
+    while the grid resolves that scale."""
+    from dynamix.core import undersampling
+    from dynamix.core.scale_units import lambda_peak_px
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    finest = compute_scales2d(1, 1, a_min=float(params.get("a_min", 1.0)))[0]
+    wavelet = params.get("wavelet", "mexican")
+    try:
+        sp = smoother_params(params)
+        eta = undersampling.eta(wavelet, sp, finest)
+    except ValueError:                           # a q the smoother refuses: the run says so
+        return None
+    level = undersampling.eta_warn()
+    if not eta > level:
+        return None
+    lam = lambda_peak_px(finest, wavelet, 1, sp)
+    return (f"The finest scale's wavelet has η = {eta:.1e} of its energy beyond Nyquist "
+            f"(λ* {lam:.1f} px): the grid does not resolve this scale, and its moduli carry the "
+            f"pixel lattice (warning level {level:.0e}).")
+
+
 def width_reading(params: dict) -> str:
     """The two lines beside the ``q width`` knob: the β the q smoother runs with and what the
     width holds -- fixed keeps β, so q moves the width with the shape; q-paired keeps the escort
@@ -324,7 +348,16 @@ class WTMM2D:
         # Reuses the runs stamped just above; still worker-side.
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
+        warning = eta_warning(params)
+        if warning:
+            res["_warnings"] = [warning]
         return res
+
+    def knob_warnings(self, field, params: dict) -> dict:
+        """The knobs whose value the grid cannot carry honestly, for the strip's ⚠: ``a_min`` by
+        :func:`eta_warning`."""
+        warning = eta_warning(params or {})
+        return {"a_min": warning} if warning else {}
 
     def view(self, result: dict, params: dict) -> dict:
         """``show`` picks a per-scale output, which the window computes and caches under its
@@ -404,6 +437,9 @@ class WTMM2D:
         res = dict(res)
         res["_frame"] = getattr(window_field, "frame", None)
         attach_chain_product(res)
+        warning = eta_warning(params)
+        if warning:
+            res["_warnings"] = list(res.get("_warnings", [])) + [warning]
         return res
 
     def preview(self, field, params: dict) -> dict:

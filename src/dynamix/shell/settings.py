@@ -63,6 +63,10 @@ class Settings:
     #: the least-recent unpinned output levels are evicted; a marked level is pinned and rides
     #: above it. Anything that is not a positive int falls back to 2 GB.
     output_cache_bytes: int = 2_000_000_000
+    #: The level the under-sampling warning is judged against: η, the finest wavelet's energy beyond
+    #: Nyquist (``dynamix.core.undersampling``). Applied at startup and from Settings > Under-sampling
+    #: Warning Level; anything that is not a positive number falls back to 1e-3 (spec 19's level).
+    eta_warn: float = 1e-3
     #: Where each floating window was left, ``{key: [x, y, w, h]}`` in screen pixels
     #: (``dynamix.shell.window_fit.remember_geometry``); a saved geometry that lands on no
     #: screen is ignored on restore.
@@ -135,6 +139,7 @@ def load_settings() -> Settings:
         open_max_pixels=_positive_int(d.get("open_max_pixels"), 64_000_000),
         compute_precision=compute_precision,
         output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
+        eta_warn=_positive_float(d.get("eta_warn"), 1e-3),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
         theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
@@ -143,6 +148,12 @@ def _positive_int(value, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
         return default
     return value
+
+
+def _positive_float(value, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
+        return default
+    return float(value)
 
 
 def save_settings(s: Settings) -> None:

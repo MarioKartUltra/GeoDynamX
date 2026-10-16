@@ -93,7 +93,7 @@ from dynamix.model.projectfile import (ProjectFormatError, ProjectSchemaError, c
 from dynamix.model.provenance import provenance_tree
 from dynamix.model.racks import (Rack, RackEntry, RackStep, builtin_racks, load_racks,
                                  rack_from_descriptors, save_rack)
-from dynamix.roi.halo import _EDGES, MIN_A_MIN
+from dynamix.roi.halo import _EDGES
 from dynamix.shell.commands import bind_commands, build_menus, watch_enabled
 from dynamix.shell.controller import SELECTION_MODE_CYCLE, CommandController
 from dynamix.shell.arrangement.group_palette import GroupPalette
@@ -721,14 +721,9 @@ def roi_chain(parent_chain: Chain, roi_params: dict) -> Chain:
     rides along untouched -- that is the whole point of an ROI layer: the same recipe, over a
     window, so the two layers are comparable rather than merely adjacent.
 
-    ``a_min`` is FLOORED at :data:`~dynamix.roi.halo.MIN_A_MIN`. ``wtmm2d`` accepts values down to
-    0.25; the ROI path refuses anything under 1.0 (below that the sampled kernel is close to
-    all-pass at Nyquist and no affordable halo is honest -- ``dynamix.roi.halo``'s docstring makes
-    the measurement), and ``wtmm2d_roi``'s own Param declares that as a hard minimum. Copying a
-    parent tuned below the floor would therefore not produce a wrong answer, it would produce a
-    chain that cannot be CONSTRUCTED -- a ValueError out of ``materialized()``, inside a button's
-    signal handler. Raising it here is the one place that can happen with the user's actual
-    intention still in view.
+    ``a_min`` is carried as the parent has it. Below :data:`~dynamix.roi.halo.MIN_A_MIN` the ROI
+    run carries the honest-halo warning (``halo.honest_halo_warning``, shown on the ``a_min`` knob)
+    instead of being refused.
 
     A parent with no ``wtmm2d`` step at all gets ``wtmm2d_roi`` PREPENDED at the device's own
     defaults. Prepended, not appended: the engine rejects an interleaved chain, so a transform
@@ -742,7 +737,6 @@ def roi_chain(parent_chain: Chain, roi_params: dict) -> Chain:
     else:
         parent_params = steps[index].params
         carried = {name: parent_params[name] for name in _SHARED_WTMM_PARAMS}
-        carried["a_min"] = max(float(carried["a_min"]), MIN_A_MIN)
         steps[index] = DeviceRef("wtmm2d_roi", {**carried, **roi_params})
     return Chain(tuple(steps)).materialized()
 
@@ -1776,6 +1770,8 @@ class MainWindow(QtWidgets.QMainWindow):
         from dynamix.core import fft_policy
         from dynamix.core.wtmm_backend import set_default_engine
         fft_policy.configure(saved.compute_engine, saved.compute_precision)
+        from dynamix.core import undersampling
+        undersampling.configure(saved.eta_warn)
         set_default_engine(None)          # the wavelet transform follows the FFT policy
         self._restore_footprint_folders()
 
@@ -4662,6 +4658,31 @@ both ``Canvas`` signals report the
         warn = precision_note(saved.compute_engine, int(precision))
         self._notify(f"FFT precision set to {int(precision)}-bit{note} for newly placed tools — "
                      "restart DynamiX to apply" + (f". {warn}" if warn else ""), "status")
+
+    def _on_eta_warn_clicked(self) -> None:
+        """Settings > Under-sampling Warning Level: the η above which a knob shows its ⚠ (the
+        finest wavelet's energy beyond Nyquist), persisted and applied at once."""
+        from dynamix.core import undersampling
+
+        value, ok = QtWidgets.QInputDialog.getDouble(
+            self, "Under-sampling warning level",
+            "Warn when the finest wavelet has more than this share of its energy beyond Nyquist "
+            "(η; default 1e-3):", undersampling.eta_warn(), 1e-9, 1.0, 9)
+        if ok and value > 0:
+            self._apply_eta_warn(value)
+
+    def _apply_eta_warn(self, value: float) -> None:
+        """Persist ``value`` as the under-sampling warning level, hand it to the core and refresh
+        every knob's ⚠ on screen."""
+        from dynamix.core import undersampling
+        from dynamix.shell.chain_strip import DeviceStrip
+        from dynamix.shell.workflow_zone import DeviceBox
+
+        update_settings(eta_warn=float(value))
+        undersampling.configure(float(value))
+        for box in (*self.findChildren(DeviceBox), *self.findChildren(DeviceStrip)):
+            box._refresh_warnings()
+        self._notify(f"under-sampling warning level set to {float(value):g}", "status")
 
     def _on_engine_selected(self, engine: str) -> None:
         """Settings > Compute engine: persisted; applied at the next start through fft_policy
@@ -10463,6 +10484,7 @@ both ``Canvas`` signals report the
             "layer.roi": self._on_roi_tool_clicked,
             "chain.run": self._run_transforms,
             "view.map_crs": self._on_map_crs_action,
+            "settings.eta_warn": self._on_eta_warn_clicked,
             **self.controller.handlers(),
             "view.reset_layout": self.reset_layout,
             "view.layouts.save_as": self._save_layout_as,

@@ -104,13 +104,14 @@ def test_params_include_the_roi_six_and_the_wtmm_five():
     assert {"roi_row", "roi_col", "roi_h", "roi_w", "boundary"} <= names
 
 
-def test_a_min_hard_floor_is_raised_to_one():
-    """The carry-forward: the engine refuses a_min < 1.0 (contaminated-numbers regime), so the
-    Param must not let the UI ask for a value it would reject."""
+def test_a_min_reaches_below_one_with_a_warning():
+    """Below a_min 1.0 the ROI run is not honest about the halo (the engine's own measurement), so
+    it runs with a warning on the knob rather than a floor."""
     a_min = next(p for p in WTMM2DROI().params if p.name == "a_min")
-    assert a_min.min == 1.0 == MIN_A_MIN
-    with pytest.raises(ValueError, match="below min"):
-        a_min.validate(0.5)
+    assert a_min.min < MIN_A_MIN == 1.0
+    assert a_min.validate(0.5) == 0.5
+    params = dict(defaults_for(WTMM2DROI()), a_min=0.5)
+    assert "Below a_min 1" in WTMM2DROI().knob_warnings(None, params)["a_min"]
 
 
 def test_every_param_declares_a_label():

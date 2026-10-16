@@ -195,6 +195,19 @@ def _value(value, *, private: bool = False):
     return value
 
 
+def _step_warnings(device, params: dict) -> dict:
+    """What the step's knobs warn of (the device's ``knob_warnings``, the strip's ⚠), keyed by the
+    knob in parameter order, each a list of its messages: a report's description is text or an
+    object (gprv 0.2 §4.2), so the warnings group by knob as the outcome groups by component. The
+    messages follow from the parameters and the configured warning levels alone, and each names
+    the level it was judged against."""
+    hook = getattr(device, "knob_warnings", None)
+    if hook is None:
+        return {}
+    found = hook(None, params)
+    return {p.name: found[p.name].split("\n\n") for p in device.params if p.name in found}
+
+
 def _recorded_params(device, params: dict) -> dict:
     """The step's parameters: every declared one except the view-only and the inactive ones,
     plus the private ones a recipe carries (``_sends``, ``_path``)."""
@@ -347,8 +360,12 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
         step = {"id": f"p{k}", "description": text + ".", "source": reads + patch_source,
                 "processingInformation": processing, "executionContext": context,
                 "output": [{"id": f"d{k}"}]}
-        if outcome:
-            step["report"] = [{"name": "outcome", "description": outcome}]
+        reports = [{"name": "outcome", "description": outcome}] if outcome else []
+        warned = _step_warnings(device, params)
+        if warned:
+            reports.append({"name": "warning", "description": warned})
+        if reports:
+            step["report"] = reports
         record_steps.append(step)
         reads = [f"d{k}"]
 

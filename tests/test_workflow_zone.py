@@ -1562,19 +1562,20 @@ def test_undo_removal_is_a_silent_no_op_with_nothing_removed_yet(qtbot, register
 
 
 def test_q_warning_lights_up_and_clears_in_the_box(qtbot, registered_builtins):
-    """The q knob's warning line follows the knob live: empty at the default, a ⚠ line once
-    q_mexican's q drops below 0, empty again when it comes back."""
+    """The q knob's ⚠ follows the knob live: hidden at the default, shown with the warning as its
+    tooltip once q_mexican's q drops below 0, hidden again when it comes back."""
     from dynamix.shell.workflow_zone import DeviceBox
 
     dev = get_device("holder_multiaffine")
     box = DeviceBox(0, dev, dict(defaults_for(dev), wavelet="q_mexican"))
     qtbot.addWidget(box)
-    label = box._derived_labels["q_tsallis"]
-    assert label.text() == ""
+    box.show()
+    icon = box._warning_icons["q_tsallis"]
+    assert not icon.isVisible()
     box.controls["q_tsallis"].valueChanged.emit(-0.5)
-    assert "⚠" in label.text()
+    assert icon.isVisible() and "unbounded at its cutoff" in icon.toolTip()
     box.controls["q_tsallis"].valueChanged.emit(0.5)
-    assert label.text() == ""
+    assert not icon.isVisible()
 
 
 # ------------------------------------------- a knob that only applies under another's value

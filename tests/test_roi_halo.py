@@ -650,17 +650,18 @@ def test_roi_outside_the_parent_is_refused_at_entry_naming_the_raster_dims(inter
                        dict(PARAMS), boundary="reflective")
 
 
-def test_a_min_below_one_is_refused_for_non_locality(interior):
+def test_a_min_below_one_runs_and_says_the_halo_is_not_honest(interior):
     """Below a_min = 1 the sampled kernel is near all-pass at Nyquist, so its influence reaches
-    hundreds of pixels and no affordable halo makes the ROI honest. Refuse rather than return
-    contaminated numbers quietly."""
+    hundreds of pixels and no affordable halo makes the ROI honest. The run goes ahead and its
+    result says so, rather than returning contaminated numbers quietly."""
     assert MIN_A_MIN == 1.0
-    with pytest.raises(ValueError, match=r"a_min"):
-        run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT), ROI_INTERIOR,
-                       dict(PARAMS, a_min=0.5))
-    with pytest.raises(ValueError, match=r"all-pass|Nyquist"):
-        run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT), ROI_INTERIOR,
-                       dict(PARAMS, a_min=0.25))
+    for a_min in (0.5, 0.25):
+        res = run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT), ROI_INTERIOR,
+                             dict(PARAMS, a_min=a_min))
+        assert res["extrema"] and len(res["_warnings"]) == 1
+        assert "all-pass at Nyquist" in res["_warnings"][0]
+    assert "_warnings" not in run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT),
+                                             ROI_INTERIOR, dict(PARAMS))
 
 
 def test_unknown_boundary_mode_is_rejected(interior):

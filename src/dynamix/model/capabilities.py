@@ -24,7 +24,7 @@ PROBES: dict[str, tuple[str, ...]] = {
     "OutputProducer": ("outputs",),
     "SelectionAware": ("selection_aware",),
     "SelfReporting": ("reading", "data_hints"),
-    "StripExtras": ("derived_reading", "param_groups", "check"),
+    "StripExtras": ("derived_reading", "param_groups", "check", "knob_warnings"),
 }
 CAPABILITIES: tuple[str, ...] = tuple(PROBES)
 

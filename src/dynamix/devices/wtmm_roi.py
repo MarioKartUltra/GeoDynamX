@@ -15,11 +15,11 @@ to the parent's global maximum: the same field can report differently "loud" ext
 where the box is drawn. This is inherent to relative thresholding over a windowed read, not a bug
 to fix here.
 
-**The ``a_min`` floor:** the engine refuses ``a_min < 1.0`` outright (the
-sampled kernel is close to all-pass at Nyquist below that, so no affordable halo margin is honest
--- see ``dynamix.roi.halo``'s module docstring). The Param below sets its hard ``min`` at that same
-floor so the knob itself cannot ask for a value the engine would reject; ``wtmm2d``'s own ``a_min``
-keeps its wider floor (0.25) because the whole-raster path has no halo to contaminate.
+**Below ``a_min`` 1.0** the sampled kernel is close to all-pass at Nyquist, so no affordable halo margin
+is honest (``dynamix.roi.halo``'s module docstring). The run goes ahead and carries
+``halo.honest_halo_warning`` in ``_warnings``; the strip shows it on the ``a_min`` knob before the run
+(:meth:`WTMM2DROI.knob_warnings`), with the under-sampling warning ``wtmm2d`` raises. The knob reaches
+the whole-raster floor.
 """
 from __future__ import annotations
 
@@ -27,10 +27,11 @@ from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
 from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTHER_PARAMS,
-                                  chaining_reading, smoother_params, width_reading)
+                                  chaining_reading, eta_warning, smoother_params,
+                                  width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
-from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
+from dynamix.roi.halo import MIN_ROI_SIDE, honest_halo_warning
 
 
 class WTMM2DROI:
@@ -73,12 +74,10 @@ class WTMM2DROI:
         # self-contained device declaration.
         Param("n_oct", ParamKind.INT, default=3, min=1, max=12, label="Octaves"),
         Param("n_voice", ParamKind.INT, default=4, min=1, max=64, label="Voices/octave"),
-        # a_min differs from wtmm2d's: hard min raised to MIN_A_MIN (1.0), the floor
-        # run_wtmm2d_roi enforces itself (contaminated-numbers regime -- see the module
-        # docstring). soft_min follows it up so the declaration stays internally consistent
-        # (Param.__post_init__ rejects a soft_min below the hard min).
-        Param("a_min", ParamKind.FLOAT, default=1.0, min=MIN_A_MIN, max=16.0,
-              soft_min=MIN_A_MIN, soft_max=4.0, units="", label="aₘᵢₙ"),
+        # a_min reaches wtmm2d's floor; below 1.0 the run carries the honest-halo warning (see
+        # the module docstring).
+        Param("a_min", ParamKind.FLOAT, default=1.0, min=0.01, max=16.0,
+              soft_min=0.5, soft_max=4.0, units="", label="aₘᵢₙ"),
         # The smoother θ and its parameters: wtmm2d's own declarations (the registry's names
         # must match between parent and ROI child, so these are shared rather than mirrored).
         *SMOOTHER_PARAMS,
@@ -193,7 +192,18 @@ class WTMM2DROI:
         # run_wtmm2d_roi already set to the analysed window's (h, w).
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
+        warning = eta_warning(params)
+        if warning:
+            res["_warnings"] = list(res.get("_warnings", [])) + [warning]
         return res
+
+    def knob_warnings(self, field, params: dict) -> dict:
+        """The ``a_min`` knob's warnings, for the strip's ⚠: the honest-halo limit below 1.0 and
+        the under-sampling of the finest scale (``wtmm.eta_warning``)."""
+        params = params or {}
+        found = [w for w in (honest_halo_warning(float(params.get("a_min", 1.0))),
+                             eta_warning(params)) if w]
+        return {"a_min": "\n\n".join(found)} if found else {}
 
     def view(self, result: dict, params: dict) -> dict:
         """``show`` picks a per-scale output, which the window computes and caches under its

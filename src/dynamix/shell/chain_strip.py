@@ -24,7 +24,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.device import Device, defaults_for, get_device, is_transform
-from dynamix.shell.knob_widgets import make_control
+from dynamix.shell.knob_widgets import make_control, make_warning_icon, set_knob_warning
 from dynamix.shell.knobs import control_spec
 
 #: Uniform strip height (DESIGN.md: "Uniform strip height"). One module constant, not a magic
@@ -59,6 +59,7 @@ class DeviceStrip(QtWidgets.QFrame):
         self._params = params
         self.controls: dict[str, QtWidgets.QWidget] = {}
         self._derived_labels: dict[str, QtWidgets.QLabel] = {}
+        self._warning_icons: dict[str, QtWidgets.QLabel] = {}
 
         self.setProperty("strip", "true")
         self.setProperty("selected", "false")
@@ -79,7 +80,13 @@ class DeviceStrip(QtWidgets.QFrame):
             column = QtWidgets.QVBoxLayout()
             mini = QtWidgets.QLabel(p.label or p.name)
             mini.setProperty("muted", "true")
-            column.addWidget(mini)
+            header = QtWidgets.QHBoxLayout()
+            header.setSpacing(2)
+            header.addWidget(mini)
+            self._warning_icons[p.name] = make_warning_icon()
+            header.addWidget(self._warning_icons[p.name])
+            header.addStretch(1)
+            column.addLayout(header)
             control = make_control(control_spec(p), params[p.name])
             # Same-thread GUI signal, default-arg trick to bind the param name at connect time --
             # the pattern demo.py already uses for this exact shape of fan-out connection. (The
@@ -106,6 +113,7 @@ class DeviceStrip(QtWidgets.QFrame):
         self.reading_label.setProperty("reading", "true")
         self.reading_label.setProperty("muted", "true")
         row.addWidget(self.reading_label)
+        self._refresh_warnings()
 
     @property
     def step_index(self) -> int:
@@ -144,7 +152,16 @@ class DeviceStrip(QtWidgets.QFrame):
             text = self._derived_text(label_name, self._params[label_name])
             if text is not None:
                 label.setText(text)
+        self._refresh_warnings()
         self.paramChanged.emit(name, value)
+
+    def _refresh_warnings(self) -> None:
+        """Each knob's ⚠ from the device's ``knob_warnings`` (none without the hook), recomputed
+        with the derived readings, since a sibling knob can change a warning."""
+        hook = getattr(self.device, "knob_warnings", None)
+        found = hook(self._field, self._params) if hook is not None else {}
+        for name, icon in self._warning_icons.items():
+            set_knob_warning(icon, found.get(name))
 
     def set_selected(self, value: bool) -> None:
         self.setProperty("selected", "true" if value else "false")

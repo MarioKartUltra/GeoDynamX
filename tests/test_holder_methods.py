@@ -181,21 +181,25 @@ def test_holder_measure_runs_below_q_one(q):
 
 
 def test_q_knob_warns_where_the_kernel_misbehaves():
-    """The q knob's live line (``derived_reading``): silent inside each kernel's clean range
-    (an EMPTY string, so the label exists and can light up later), a warning where it stops
-    being well-behaved, silent when the chosen wavelet does not use q, None for other knobs."""
+    """The q knob's ⚠ (``knob_warnings``): silent inside each kernel's clean range, a warning
+    where it stops being well-behaved, silent when the chosen wavelet does not use q. The reading
+    lines carry no warning: q has none, r1's is empty on the real-space build."""
     from dynamix.devices.band_recon import BandReconMeasure, BandReconMultiaffine
+
+    def q_warns(dev, p, q):
+        return "q_tsallis" in dev.knob_warnings(None, dict(p, q_tsallis=q))
 
     for meas, multi in ((HolderMeasure(), HolderMultiaffine()),
                         (BandReconMeasure(), BandReconMultiaffine())):
         pm = dict(defaults_for(meas), wavelet="q_gaussian")
         pa = dict(defaults_for(multi), wavelet="q_mexican")
-        assert meas.derived_reading("q_tsallis", 1.5, None, pm) == ""
-        assert meas.derived_reading("q_tsallis", -1.0, None, pm) == ""   # compact: still fine
-        assert "⚠" in meas.derived_reading("q_tsallis", 2.5, None, pm)
-        assert multi.derived_reading("q_tsallis", 0.0, None, pa) == ""
-        assert "⚠" in multi.derived_reading("q_tsallis", -0.5, None, pa)
-        assert multi.derived_reading("q_tsallis", -0.5, None, dict(pa, wavelet="g2")) == ""
+        assert not q_warns(meas, pm, 1.5)
+        assert not q_warns(meas, pm, -1.0)                              # compact: still fine
+        assert q_warns(meas, pm, 2.5)
+        assert not q_warns(multi, pa, 0.0)
+        assert q_warns(multi, pa, -0.5)
+        assert not q_warns(multi, dict(pa, wavelet="g2"), -0.5)
+        assert meas.derived_reading("q_tsallis", 2.5, None, pm) is None
         assert meas.derived_reading("r_min", 1.0, None, pm) == ""       # r1 has its own line
         assert meas.derived_reading("kappa", 8.0, None, pm) is None
 

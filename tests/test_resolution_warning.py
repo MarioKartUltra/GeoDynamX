@@ -68,15 +68,14 @@ def test_the_q_mexican_closed_form_is_the_kernel_itself(q, beta):
                   q_beta=beta or 0.5) == pytest.approx(2.0 / min(widths), rel=1e-4)
 
 
-def test_the_warning_line_lights_below_the_floor_only():
+def test_the_warning_lights_below_the_floor_only():
     p = {**_BASE, "wavelet": "q_mexican", "q_tsallis": 0.5, "q_pairing": "q-paired"}
-    assert hm.knob_warning("multiaffine", "r_min", 2.5, p).startswith("⚠")
-    assert hm.knob_warning("multiaffine", "r_min", 3.0, p) == ""
-    assert hm.knob_warning("multiaffine", "r_min", 1.0, {**p, "wavelet": "g2"}) == ""
-    # empty, never None, where no floor applies: the label must exist to light up later
-    assert hm.knob_warning("measure", "r_min", 0.2, {**p, "wavelet": "gaussian"}) == ""
-    assert hm.knob_warning("multiaffine", "q_tsallis", -0.5, p) == \
-        hm.q_warning("multiaffine", "q_tsallis", -0.5, p)               # q's own line is kept
+    assert "r_min" in hm.knob_warnings("multiaffine", {**p, "r_min": 2.5})
+    assert "r_min" not in hm.knob_warnings("multiaffine", {**p, "r_min": 3.0})
+    assert "r_min" not in hm.knob_warnings("multiaffine", {**p, "wavelet": "g2", "r_min": 1.0})
+    assert "r_min" not in hm.knob_warnings("measure", {**p, "wavelet": "gaussian", "r_min": 0.2})
+    assert hm.knob_warnings("multiaffine", {**p, "q_tsallis": -0.5})["q_tsallis"] == \
+        hm.q_warning("multiaffine", "q_tsallis", -0.5, p)               # q's own warning too
 
 
 # ------------------------------------------- the measure route: the compact q-Gaussian only
@@ -111,7 +110,7 @@ def test_the_measure_closed_form_is_the_kernel_itself(q, width):
                                 dict(wavelet="q_gaussian", q_tsallis=1.5)])
 def test_other_positive_kernels_have_no_floor(kw):
     assert hm.lobe_floor("measure", {**_BASE, **kw}) is None
-    assert hm.knob_warning("measure", "r_min", 0.1, {**_BASE, **kw}) == ""
+    assert "r_min" not in hm.knob_warnings("measure", {**_BASE, **kw, "r_min": 0.1})
 
 
 @pytest.fixture
@@ -122,17 +121,18 @@ def builtins(clean_registry):
     return clean_registry
 
 
-def test_the_tools_show_it_on_r1(builtins):
+def test_the_tools_show_it_on_r1s_glyph(builtins):
     from dynamix.model.device import defaults_for, get_device
 
     for name in ("holder_multiaffine", "band_recon_multiaffine"):
         dev = get_device(name)
         p = {**defaults_for(dev), "wavelet": "g3"}
-        assert dev.derived_reading("r_min", 1.0, None, p).startswith("⚠")
-        assert dev.derived_reading("r_min", 1.4, None, p) == ""
+        assert "r_min" in dev.knob_warnings(None, {**p, "r_min": 1.0})
+        assert "r_min" not in dev.knob_warnings(None, {**p, "r_min": 1.4})
+        assert dev.derived_reading("r_min", 1.0, None, p) == ""      # the reading carries no ⚠
     for name in ("holder_measure", "band_recon_measure"):
         dev = get_device(name)
         p = {**defaults_for(dev), "wavelet": "q_gaussian", "q_tsallis": 0.0, "q_beta": 5.0}
-        assert dev.derived_reading("r_min", 1.0, None, p).startswith("⚠")
-        assert dev.derived_reading("r_min", 2.5, None, p) == ""
-        assert dev.derived_reading("r_min", 1.0, None, defaults_for(dev)) == ""
+        assert "r_min" in dev.knob_warnings(None, {**p, "r_min": 1.0})
+        assert "r_min" not in dev.knob_warnings(None, {**p, "r_min": 2.5})
+        assert "r_min" not in dev.knob_warnings(None, {**defaults_for(dev), "r_min": 1.0})

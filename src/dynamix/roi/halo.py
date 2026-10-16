@@ -58,8 +58,8 @@ from ``1.0*a`` to ``6.28*a``, it occurs at ANY margin in that range -- so the bi
 margin size is the accuracy cliff above, not a clean cliff at which knife-edges also vanish. See
 ``tests/test_roi_halo.py``'s ``MAX_NMS_TIES_PER_SCALE`` for the tolerance this earns the oracle.
 
-``a_min < 1`` is refused outright (see :func:`run_wtmm2d_roi`): below it the kernel is so
-under-sampled that no affordable margin is honest.
+``a_min < 1`` runs, and its result carries :func:`honest_halo_warning` in ``_warnings``: below it the
+kernel is so under-sampled that no affordable margin is honest.
 
 Boundaries
 ----------
@@ -108,6 +108,17 @@ MIN_ROI_SIDE = 8
 
 #: ``a_min`` below this makes the sampled kernel non-local (see the module docstring).
 MIN_A_MIN = 1.0
+
+
+def honest_halo_warning(a_min: float) -> "str | None":
+    """The warning an ROI run carries below :data:`MIN_A_MIN`, where no affordable halo makes the
+    ROI match a whole-raster run (the module docstring), or None at and above it."""
+    if float(a_min) >= MIN_A_MIN:
+        return None
+    return ("Below a_min 1 the sampled wavelet is close to all-pass at Nyquist; its reach is hundreds "
+            "of pixels (368 px to 1e-3 at a_min 0.25), so the halo cannot make this ROI match a "
+            "whole-raster run, anywhere in the box at the finest scales. Analyse the whole raster "
+            "for a reference.")
 
 #: Reported edge names, in this order.
 _EDGES = ("N", "S", "E", "W")
@@ -289,8 +300,8 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     roi : (row_off, col_off, height, width)
         Both sides must be at least :data:`MIN_ROI_SIDE` px.
     params : dict
-        The WTMM2D param contract, resolved by the backend's own typo guard. ``a_min`` must be at
-        least :data:`MIN_A_MIN`.
+        The WTMM2D param contract, resolved by the backend's own typo guard. Below
+        :data:`MIN_A_MIN` the run carries :func:`honest_halo_warning` in ``_warnings``.
     boundary : {"auto", "reflective"}
         ``"auto"`` takes real parent data wherever the halo has it; ``"reflective"`` reads only
         the ROI and reflects it, ignoring the parent entirely.
@@ -332,12 +343,7 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         raise ValueError(
             f"run_wtmm2d_roi: mode={resolved['mode']!r} is not supported; the ROI halo path is "
             "scalar-only (the tensor pipeline is monolithic and has no per-scale seam)")
-    if resolved["a_min"] < MIN_A_MIN:
-        raise ValueError(
-            f"run_wtmm2d_roi: a_min={resolved['a_min']} is below {MIN_A_MIN}. The sampled wavelet "
-            "at that scale is close to all-pass at Nyquist, so its influence reaches hundreds of "
-            "pixels (measured: 368 px to the 1e-3 level at a_min=0.25) and no affordable halo "
-            "makes the ROI's answer match a whole-raster one. Analyse the full raster instead.")
+    warning = honest_halo_warning(resolved["a_min"])
 
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     # "reflective" IS "auto" against a parent that stops at the ROI's own edges.
@@ -350,7 +356,7 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
      coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, scales, progress)
 
-    return {
+    out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
         "params": resolved, "cache_hits": set(),
@@ -360,6 +366,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
     }
+    if warning:
+        out["_warnings"] = [warning]
+    return out
 
 
 def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
@@ -498,11 +507,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         raise ValueError(
             f"wtmm2d on an ROI: mode={resolved['mode']!r} is not supported; the per-scale halo "
             "path is scalar-only (the tensor pipeline has no per-scale seam)")
-    if resolved["a_min"] < MIN_A_MIN:
-        raise ValueError(
-            f"wtmm2d on an ROI: a_min={resolved['a_min']} is below {MIN_A_MIN} -- the sampled "
-            "wavelet is close to all-pass at Nyquist and no affordable halo is honest. Raise "
-            "a_min or analyse the whole raster.")
+    warning = honest_halo_warning(resolved["a_min"])
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     need = halo_margin(max(scales))
     if int(offset) < need:
@@ -524,7 +529,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
 
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
      coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, scales, progress)
-    return {
+    out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
         "params": resolved, "cache_hits": set(),
@@ -534,3 +539,6 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
     }
+    if warning:
+        out["_warnings"] = [warning]
+    return out
