@@ -46,6 +46,7 @@ from dynamix.devices.holder_map import MOMENT_SOURCE, field_values_2d, projectio
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.device import Output, keyed_params
 from dynamix.devices.precision import PRECISION_PARAM
+from dynamix.devices import q_widths
 from dynamix.model.param import Param, ParamKind
 
 
@@ -105,28 +106,21 @@ def method_arrays(vals, method: str, params: dict, progress=None, extras=None):
     return h_map, r2_map, scales
 
 
+#: Each route's q-family kernel, the one wavelet its width knobs apply to.
+_Q_FAMILY = {"measure": "q_gaussian", "multiaffine": "q_mexican"}
+
+
 def q_width(method: str, params: dict) -> "float | None":
     """The width beta the q-family kernel runs with (None for every other kernel): the knob's
-    value when fixed, ``microcanonical.paired_q_beta(q)`` when q-paired."""
-    q_family = {"measure": "q_gaussian", "multiaffine": "q_mexican"}[method]
-    if params.get("wavelet") != q_family:
-        return None
-    if params.get("q_pairing", "fixed") == "q-paired":
-        from dynamix.core.microcanonical import paired_q_beta
-
-        return paired_q_beta(float(params["q_tsallis"]))
-    return float(params.get("q_beta", 0.5))
+    value when fixed, ``microcanonical.paired_q_beta(q)`` when q-paired
+    (``devices.q_widths.q_width``)."""
+    return q_widths.q_width(params, (_Q_FAMILY[method],))
 
 
 def q_width_check(method: str, params: dict) -> None:
     """A q-paired width needs q < 2 (the 2-D escort variance it holds at one is infinite from
     q = 2); the q-Mexican hat's own knob already stops at 1.95."""
-    q_family = {"measure": "q_gaussian", "multiaffine": "q_mexican"}[method]
-    if (params.get("wavelet") == q_family and params.get("q_pairing") == "q-paired"
-            and float(params.get("q_tsallis", 1.5)) >= 2.0):
-        raise ValueError(f"a q-paired width needs q < 2 (got q = {params['q_tsallis']}): the "
-                         "escort variance it holds at one is infinite from q = 2 -- use a fixed "
-                         "width there")
+    q_widths.q_width_check(params, (_Q_FAMILY[method],))
 
 
 #: The multiaffine route's resolution floor (Turiel 2008, figure 2 and section 4.2.1): a
@@ -328,14 +322,9 @@ def _width_knobs(q_wavelet: str) -> tuple:
     hat) or Q-PAIRED, ``beta(q) = 1/(2(2 - q))``: the escort (q-)variance held at one per
     component, the 2-D form of the paper's ``1/(3 - q)``, which also pins the q-Mexican hat's
     zero crossing at r for every q (its classic calibration). Both agree at q = 1. Greyed out
-    unless the tool's q-kernel is chosen; the value knob also while paired."""
-    return (
-        Param("q_pairing", ParamKind.CHOICE, default="fixed", choices=("fixed", "q-paired"),
-              label="q width", active_when=("wavelet", (q_wavelet,))),
-        Param("q_beta", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1,
-              soft_max=2.0, units="", label="q β",
-              active_when=(("wavelet", (q_wavelet,)), ("q_pairing", ("fixed",)))),
-    )
+    unless the tool's q-kernel is chosen; the value knob also while paired
+    (``devices.q_widths.width_knobs``)."""
+    return q_widths.width_knobs((q_wavelet,))
 
 
 def q_warning(method: str, name: str, value, params: "dict | None") -> "str | None":

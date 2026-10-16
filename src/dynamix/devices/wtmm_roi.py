@@ -27,7 +27,7 @@ from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
 from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTHER_PARAMS,
-                                  chaining_reading, smoother_params)
+                                  chaining_reading, smoother_params, width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
@@ -62,8 +62,8 @@ class WTMM2DROI:
     #: WINDOW, not a wavelet or a linking rule), so they land in the trailing unlabeled group
     #: ``workflow_zone.DeviceBox`` builds for params no entry names.
     param_groups = {
-        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth",
-                "fracint_alpha", "interpolate", "detector"),
+        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "q_pairing", "q_beta", "n_oct",
+                "n_voice", "smooth", "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
     }
@@ -254,6 +254,8 @@ class WTMM2DROI:
         device for its side-effect-free body would be a stranger dependency than repeating it."""
         if name == "similitude":
             return chaining_reading(value, params or {})
+        if name == "q_pairing":
+            return width_reading(params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px

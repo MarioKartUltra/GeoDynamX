@@ -12,6 +12,7 @@ import numpy as np
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import XSMURF_DERIVED
+from dynamix.devices import q_widths
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
@@ -24,6 +25,9 @@ _LEVEL_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "detecto
 #: Gaussian pair, (the device's param name, the registry's key).
 _SMOOTHER_KNOBS = {"frac_bspline": ("alpha", "alpha"), "q_gaussian": ("q_tsallis", "q"),
                    "q_mexican": ("q_tsallis", "q"), "q_meyer": ("q_tsallis", "q")}
+
+#: The q smoothers with a width β; the q-Meyer taper has none (q-paired, it holds its band peak).
+_BETA_SMOOTHERS = ("q_gaussian", "q_mexican")
 
 #: The smoother choice and its two parameters, shared with the ROI device. The choice names
 #: the smoothing function θ; the analysing wavelets are its gradient components: g3 for the
@@ -43,18 +47,50 @@ SMOOTHER_PARAMS = (
     Param("q_tsallis", ParamKind.FLOAT, default=1.5, min=0.05, max=1.95, soft_min=0.5,
           soft_max=1.8, units="", label="q (Tsallis)",
           active_when=("wavelet", ("q_gaussian", "q_mexican", "q_meyer"))),
+    # The q smoothers' two widths, fixed (default, today's kernels) or q-paired; out of the
+    # key at their defaults, so every recipe keyed before them keeps its key.
+    *q_widths.width_knobs(("q_gaussian", "q_mexican", "q_meyer"), beta_wavelets=_BETA_SMOOTHERS,
+                          keyed_at_default=False),
 )
 
 
 def smoother_params(params: dict) -> dict | None:
     """The backend's ``smoother_params`` for the chosen θ: ``{"alpha": α}`` for the fractional
-    B-spline, ``{"q": q}`` for the q-Gaussian, ``None`` for the Gaussian pair."""
-    knob = _SMOOTHER_KNOBS.get(params.get("wavelet", "mexican"))
+    B-spline, ``{"q": q}`` for the q smoothers, ``None`` for the Gaussian pair. A q width other
+    than today's rides beside q: ``"beta"`` (the resolved β, when not ½) for the q-Gaussian and
+    the q-Mexican hat, ``"pairing": "q-paired"`` for the q-Meyer taper (not at q = 1, where its
+    band peak already sits there). Paired at q = 1 is fixed ½: the same dict, the same key."""
+    wavelet = params.get("wavelet", "mexican")
+    knob = _SMOOTHER_KNOBS.get(wavelet)
     if knob is None:
         return None
     name, key = knob
     default = next(p.default for p in SMOOTHER_PARAMS if p.name == name)
-    return {key: float(params.get(name, default))}
+    out = {key: float(params.get(name, default))}
+    if wavelet in _BETA_SMOOTHERS:
+        resolved = dict(params, q_tsallis=out["q"])
+        q_widths.q_width_check(resolved, _BETA_SMOOTHERS)
+        beta = q_widths.q_width(resolved, _BETA_SMOOTHERS)
+        if beta != 0.5:
+            out["beta"] = beta
+    elif wavelet == "q_meyer" and params.get("q_pairing") == "q-paired" and out["q"] != 1.0:
+        out["pairing"] = "q-paired"
+    return out
+
+
+def width_reading(params: dict) -> str:
+    """The two lines beside the ``q width`` knob: the β the q smoother runs with and what the
+    width holds -- fixed keeps β, so q moves the width with the shape; q-paired keeps the escort
+    variance (the band peak for the q-Meyer taper), so q moves the shape alone. Empty, not None,
+    while no q smoother is chosen, so the label exists and can light up later."""
+    wavelet = params.get("wavelet", "mexican")
+    paired = params.get("q_pairing", "fixed") == "q-paired"
+    if wavelet == "q_meyer":
+        return "band peak held" if paired else "q moves λ*"
+    if wavelet not in _BETA_SMOOTHERS:
+        return ""
+    beta = smoother_params(params).get("beta", 0.5)
+    return f"β {beta:.3g}\n{'escort variance held' if paired else 'q moves width too'}"
 
 
 #: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
@@ -134,14 +170,14 @@ class WTMM2D:
     #: ``chains2d`` has no separate cache seam from the CWT/extrema stages the way a Filter would).
     #: ``workflow_zone.DeviceBox`` renders one labeled column-group per entry, in THIS param order
     #: -- not ``params`` tuple order -- so the pairing below (wavelet+a_min, alpha+q_tsallis (one
-    #: shown at a time), n_oct+n_voice, smooth alone; min_chain_len+thresh, dist2_max+box_ratio,
-    #: similitude alone) is a deliberate two-per-column layout, not an accident of dict
-    #: iteration. ``similitude`` joins CHAINING: it is the third linking kwarg in the exact same
+    #: shown at a time), q_pairing+q_beta, n_oct+n_voice, smooth alone; min_chain_len+thresh,
+    #: dist2_max+box_ratio, similitude alone) is a deliberate two-per-column layout, not an
+    #: accident of dict iteration. ``similitude`` joins CHAINING: it is the third linking kwarg in the exact same
     #: ``chains2d`` call as ``box_ratio``/``dist2_max`` (dynamix/core/wtmm_backend.py), so a
     #: group named CHAINING that omitted it was incomplete, not merely conservative.
     param_groups = {
-        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth", "dither",
-                "fracint_alpha", "interpolate", "detector"),
+        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "q_pairing", "q_beta", "n_oct",
+                "n_voice", "smooth", "dither", "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
     }
@@ -403,6 +439,8 @@ class WTMM2D:
         annotation mechanism."""
         if name == "similitude":
             return chaining_reading(value, params or {})
+        if name == "q_pairing":
+            return width_reading(params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px

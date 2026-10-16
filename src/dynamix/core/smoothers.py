@@ -26,14 +26,17 @@ Smoothers:
   its radial transform from :func:`dynamix.core.q_fourier.q_gaussian_ft` tabulated once per q.
   Finite mass in 2-D only for q < 2; a continuous ψ at the compact support's edge (q < 1) needs
   q > 0; the 2-D variance diverges from q = 5/3, so the scale is matched by the parameter σ,
-  never by the variance.
+  never by the variance. A width β other than ½, e_q(−β ρ²/σ²) = e_q(−½ (ρ √(2β)/σ)²), is the
+  same table stretched, θ̂_β(s) = θ̂_½(s/√(2β)); the devices resolve β (fixed, or q-paired so
+  the escort variance stays one, ``devices.q_widths``).
 - ``q_mexican``: −Δ of that q-Gaussian smoother, |s|² θ̂_q, the q analogue of the Mexican pair
   (ψ = q-g3, in closed form by the chain rule on e_q; Borges's own index is q_B = 2 − 1/q).
   2/3 < q < 2: the q-g3 carries e_q^(3q−2), which must vanish at the support's edge.
 - ``q_meyer``: Meyer's radial scaling-function taper with cos(π/2·ν) replaced by the q-cosine
   cos_q(x₀ ν) of Borges et al. 2004 (x₀ its first zero) — the generalization their closing
   remark leaves open. Bandlimited and isotropic; the dilation is fixed at q = 1 so that the
-  band peak equals the Gaussian g1's, and q moves it. 0 < q < 2.
+  band peak equals the Gaussian g1's, and q moves it, or q-paired: recomputed per q so the band
+  peak stays at the g1's (λ* = √2 a). 0 < q < 2.
 """
 from __future__ import annotations
 
@@ -225,6 +228,17 @@ def _q_table(q: float) -> tuple:
     return s, np.asarray(f, dtype=np.float64) / float(f[0])
 
 
+def _stretched(theta_hat, beta: float):
+    """θ̂ at width β from θ̂ at width ½: θ̂_β(s) = θ̂_½(s/√(2β)); width ½ is ``theta_hat`` itself."""
+    if beta == 0.5:
+        return theta_hat
+    c = np.sqrt(2.0 * beta)
+
+    def stretched(sx, sy):
+        return theta_hat(sx / c, sy / c)
+    return stretched
+
+
 def _q_hat_factory(q: float):
     if q == 1.0:
         return _gaussian_hat
@@ -236,9 +250,9 @@ def _q_hat_factory(q: float):
     return theta_hat
 
 
-def _q_section_factory(q: float):
+def _q_section_factory(q: float, beta: float = 0.5):
     def section(scale, deriv_order, n_points):
-        sigma = float(scale) * _SIGMA_PER_SCALE
+        sigma = float(scale) * _SIGMA_PER_SCALE / np.sqrt(2.0 * beta)
         x = np.linspace(-6.0 * sigma, 6.0 * sigma, max(int(n_points), 513))
         u = -x * x / (2.0 * sigma * sigma)
         theta = _e_q(u, q)
@@ -251,22 +265,22 @@ def _q_section_factory(q: float):
 
 # -- the q-Mexican hat: −Δ of the q-Gaussian smoother, its analyser the q-g3 ---------------
 
-def _q_mexican_hat_factory(q: float):
-    envelope = _q_hat_factory(q)
+def _q_mexican_hat_factory(q: float, beta: float = 0.5):
+    envelope = _stretched(_q_hat_factory(q), beta)
 
     def theta_hat(sx, sy):
         return (sx * sx + sy * sy) * envelope(sx, sy)
     return theta_hat
 
 
-def _q_mexican_section_factory(q: float):
+def _q_mexican_section_factory(q: float, beta: float = 0.5):
     """Closed forms by the chain rule on e_q (each derivative of e_q^a gives a·e_q^(a+q−1)):
     θ = −Δ e_q(−ρ²/2σ²) = (2/σ²) e_q^q − q (ρ²/σ⁴) e_q^(2q−1) and, along x,
     ψ_x = ∂_x θ = (q x/σ⁴) [(2q − 1)(x²/σ²) e_q^(3q−2) − 4 e_q^(2q−1)]; at q = 1 the Mexican
     pair's (2 − u²)e^(−u²/2) and (u³ − 4u)e^(−u²/2). The exponents stay positive for q > 2/3,
-    which keeps ψ continuous at the compact support's edge below q = 1."""
+    which keeps ψ continuous at the compact support's edge below q = 1. Width β: σ/√(2β)."""
     def section(scale, deriv_order, n_points):
-        sigma = float(scale) * _SIGMA_PER_SCALE
+        sigma = float(scale) * _SIGMA_PER_SCALE / np.sqrt(2.0 * beta)
         x = np.linspace(-6.0 * sigma, 6.0 * sigma, max(int(n_points), 513))
         e = _e_q(-x * x / (2.0 * sigma * sigma), q)
         if deriv_order == 0:
@@ -312,12 +326,13 @@ def _meyer_taper(omega, q: float):
     return np.where(omega >= 4.0 * np.pi / 3.0, 0.0, out)
 
 
-@functools.lru_cache(maxsize=1)
-def _meyer_scale() -> float:
-    """ω per unit s, fixed at q = 1 so that the Meyer analyser's band peak is the Gaussian g1's:
-    the peak of ω·taper(ω) is put at s* = 1/√2 (λ* = √2 a); the q-deformation then moves λ*."""
+@functools.lru_cache(maxsize=64)
+def _meyer_scale(q: float = 1.0) -> float:
+    """ω per unit s that puts the peak of ω·taper_q(ω) at s* = 1/√2 (λ* = √2 a, the Gaussian
+    g1's band peak). Fixed width: the q = 1 value for every q, so the q-deformation moves λ*;
+    q-paired: this q's own, so λ* stays put."""
     w = np.linspace(2.0 * np.pi / 3.0, 4.0 * np.pi / 3.0, 1 << 16)
-    f = w * _meyer_taper(w, 1.0)
+    f = w * _meyer_taper(w, q)
     i = int(np.argmax(f))
     w_star = w[i]
     if 0 < i < w.size - 1:
@@ -328,8 +343,8 @@ def _meyer_scale() -> float:
     return float(w_star * np.sqrt(2.0))
 
 
-def _meyer_hat_factory(q: float):
-    c = _meyer_scale()
+def _meyer_hat_factory(q: float, paired: bool = False):
+    c = _meyer_scale(q) if paired else _meyer_scale()
 
     def theta_hat(sx, sy):
         return _meyer_taper(c * np.sqrt(sx * sx + sy * sy), q)
@@ -337,25 +352,46 @@ def _meyer_hat_factory(q: float):
 
 
 @functools.lru_cache(maxsize=64)
-def _meyer_section_u(q: float, deriv_order: int) -> tuple:
+def _meyer_section_u(q: float, deriv_order: int, paired: bool = False) -> tuple:
     """The q-Meyer's section (bandlimited, so no closed form), on a finer grid for its band and
     over a wider window: a bandlimited kernel rings with the period of its cut-off (about 4 σ
     here) and decays as ρ⁻⁴, so ±12 σ shows the rings down to a percent of the main lobe."""
-    return _central_row(_meyer_hat_factory(q), deriv_order, n=4096, span=12.0)
+    return _central_row(_meyer_hat_factory(q, paired), deriv_order, n=4096, span=12.0)
 
 
-def _meyer_section_factory(q: float):
+def _meyer_section_factory(q: float, paired: bool = False):
     def section(scale, deriv_order, n_points):
-        u, y = _meyer_section_u(float(q), int(deriv_order))
+        u, y = _meyer_section_u(float(q), int(deriv_order), bool(paired))
         return u * scale * _SIGMA_PER_SCALE, y
     return section
 
 
 # -- the registry ----------------------------------------------------------------------------
 
+def _beta(params: dict) -> float:
+    """A q kernel's width β (default ½, today's kernel); refused unless positive."""
+    beta = float(params.get("beta", 0.5))
+    if not beta > 0.0:
+        raise ValueError(f"a q kernel's width needs beta > 0, got {beta!r}")
+    return beta
+
+
+def _width_label(q: float, beta: float, given: bool) -> str:
+    """The β a q kernel runs with, for its label: "β paired" where it is the q-paired width
+    (``microcanonical.paired_q_beta``), else its value."""
+    if given and q < 2.0:
+        from dynamix.core.microcanonical import paired_q_beta
+
+        if np.isclose(beta, paired_q_beta(q), rtol=1e-12, atol=0.0):
+            return "β paired"
+    return f"β {beta:g}"
+
+
 def smoother(name: str, params: dict | None = None) -> Smoother:
     """The smoother ``name`` with its parameters: ``alpha`` for ``frac_bspline`` (≥ 1; a
-    continuous ψ in 2-D needs > 2), ``q`` for ``q_gaussian`` (0 < q < 2)."""
+    continuous ψ in 2-D needs > 2), ``q`` for ``q_gaussian`` (0 < q < 2), and the q kernels'
+    width: ``beta`` (> 0, default ½) for ``q_gaussian`` and ``q_mexican``, ``pairing =
+    "q-paired"`` for ``q_meyer`` (its band peak held for every q)."""
     params = dict(params or {})
     if name == "gaussian":
         return Smoother("gaussian", "g0", "g1", {}, _gaussian_hat, _pair_section("gaussian"))
@@ -373,20 +409,27 @@ def smoother(name: str, params: dict | None = None) -> Smoother:
         if not 0.0 < q < 2.0:
             raise ValueError(f"q_gaussian needs 0 < q < 2 (finite mass in 2-D below 2, a "
                              f"continuous psi above 0), got {q!r}")
-        return Smoother("q_gaussian", f"q-Gaussian q = {q:g}", "∂θ_q", {"q": q},
-                        _q_hat_factory(q), _q_section_factory(q))
+        beta = _beta(params)
+        return Smoother("q_gaussian", f"q-Gaussian q = {q:g}, {_width_label(q, beta, 'beta' in params)}",
+                        "∂θ_q", {"q": q, "beta": beta}, _stretched(_q_hat_factory(q), beta),
+                        _q_section_factory(q, beta))
     if name == "q_mexican":
         q = float(params.get("q", 1.5))
         if not 2.0 / 3.0 < q < 2.0:
             raise ValueError(f"q_mexican needs 2/3 < q < 2 (finite mass in 2-D below 2, a "
                              f"continuous q-g3 at the support's edge above 2/3), got {q!r}")
-        return Smoother("q_mexican", f"q-Mexican hat q = {q:g}", "q-g3", {"q": q},
-                        _q_mexican_hat_factory(q), _q_mexican_section_factory(q))
+        beta = _beta(params)
+        return Smoother("q_mexican", f"q-Mexican hat q = {q:g}, {_width_label(q, beta, 'beta' in params)}",
+                        "q-g3", {"q": q, "beta": beta}, _q_mexican_hat_factory(q, beta),
+                        _q_mexican_section_factory(q, beta))
     if name == "q_meyer":
         q = float(params.get("q", 1.5))
         if not 0.0 < q < 2.0:
             raise ValueError(f"q_meyer needs 0 < q < 2 (the q-cosine's first zero exists "
                              f"there), got {q!r}")
-        return Smoother("q_meyer", f"q-Meyer q = {q:g}", "∂θ_q", {"q": q},
-                        _meyer_hat_factory(q), _meyer_section_factory(q))
+        paired = params.get("pairing", "fixed") == "q-paired"
+        return Smoother("q_meyer", f"q-Meyer q = {q:g}, "
+                        f"{'band peak held' if paired else 'dilation fixed'}", "∂θ_q",
+                        {"q": q, "pairing": "q-paired" if paired else "fixed"},
+                        _meyer_hat_factory(q, paired), _meyer_section_factory(q, paired))
     raise ValueError(f"unknown smoother {name!r}; expected one of {NAMES}")
