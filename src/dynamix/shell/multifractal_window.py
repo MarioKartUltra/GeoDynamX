@@ -315,6 +315,9 @@ class MultifractalWindow(QtWidgets.QDialog):
         # The cumulants' own scale range: a second window on the log2 a panels, in the
         # cumulant curve's colour; off, they read the fit window.
         self.cumulant_range_check = QtWidgets.QCheckBox("cumulant range")
+        self.cumulant_range_check.setEnabled(
+            (self._extrema_mods is not None and self._scales_px is not None)
+            or self._current_hd().get("lnT_moments") is not None)
         self.cumulant_range_check.toggled.connect(self._on_cumulant_range_toggled)
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this

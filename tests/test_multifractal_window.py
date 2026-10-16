@@ -658,3 +658,10 @@ def test_the_cumulants_can_take_their_own_scale_range(qtbot):
     window.cumulant_range_check.setChecked(False)
     assert not any(r.isVisible() for r in window._cum_regions)
     np.testing.assert_allclose(window.current_cumulants()["c2"], 0.3, atol=0.03)
+
+
+
+def test_the_cumulant_range_is_disabled_without_moduli_or_moments(qtbot):
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    assert not window.cumulant_range_check.isEnabled()
