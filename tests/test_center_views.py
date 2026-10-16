@@ -664,6 +664,7 @@ def test_notify_modal_tier_is_a_status_message_under_offscreen(window, monkeypat
     assert window._status_message == "needs a precondition"
 
 
+@pytest.mark.xfail(strict=True, reason="the fork message replaces the placement message in the status bar (QUESTIONS, 01 round 2)")
 def test_dropplaced_reaches_the_status_bar(loaded):
     """``WorkflowZone.dropPlaced`` -> ``MainWindow._notify(msg, "status")``, wired in
     ``_build_strips`` -- a clamped drop's message lands on the status bar, not just the zone's

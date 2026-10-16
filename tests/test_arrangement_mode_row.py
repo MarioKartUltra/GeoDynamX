@@ -75,6 +75,7 @@ def test_mode_row_reclicking_the_active_mode_does_not_reemit(qtbot):
 # mirroring exactly how tests/test_arrangement_mask.py's own "ArrangementView wiring" section was already updated for MaskRow's identical departure.
 
 
+@pytest.mark.pyvista
 def test_arrangement_view_no_longer_builds_a_mode_row(qtbot):
     pytest.importorskip("pyvista", reason="pyvista not installed")
     from dynamix.shell.arrangement.view import ArrangementView
@@ -87,6 +88,7 @@ def test_arrangement_view_no_longer_builds_a_mode_row(qtbot):
     assert not hasattr(view, "_mode_row")
 
 
+@pytest.mark.pyvista
 def test_arrangement_view_set_mode_forwards_to_scene_and_camera_lazily(qtbot):
     pv = pytest.importorskip("pyvista", reason="pyvista not installed")
     pv.OFF_SCREEN = True

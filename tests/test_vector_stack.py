@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import numpy as np
-import pyvista as pv
+import pytest
 
-from dynamix.model.layer import Layer
-from dynamix.shell.arrangement.scene import Scene
-from test_arrangement_scene import _geo_field, _make_extrema0, _plotter, _result
+pv = pytest.importorskip("pyvista", reason="pyvista not installed")
+
+from dynamix.model.layer import Layer  # noqa: E402  (the scene module below needs pyvista first)
+from dynamix.shell.arrangement.scene import Scene  # noqa: E402
+from test_arrangement_scene import _geo_field, _make_extrema0, _plotter, _result  # noqa: E402
+
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 
 def _entry(layer_id, field, result, **kw):

@@ -1,5 +1,7 @@
 # GeoDynamix (beta)
 
+[![tests](https://github.com/MarioKartUltra/GeoDynamX/actions/workflows/tests.yml/badge.svg)](https://github.com/MarioKartUltra/GeoDynamX/actions/workflows/tests.yml)
+
 GeoDynamix is a desktop application for the multiscale analysis of geoscience rasters: digital
 elevation models, bathymetry, potential-field grids, and satellite or outcrop imagery. It measures
 how structure changes with scale, using wavelet-based multifractal methods, edge detection and

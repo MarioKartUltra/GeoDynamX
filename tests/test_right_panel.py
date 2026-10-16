@@ -146,6 +146,7 @@ def test_right_panel_scaffold_is_a_scroll_area():
 # wiring" section now tests THAT, not a row this view no longer builds).
 
 
+@pytest.mark.pyvista
 def test_mask_row_lives_in_right_panel_not_view(qtbot, clean_registry):
     w = MainWindow()
     qtbot.addWidget(w)

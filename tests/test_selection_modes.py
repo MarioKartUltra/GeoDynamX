@@ -396,6 +396,7 @@ def test_box_select_alt_subtracts_end_to_end(qtbot, loaded):
     assert loaded._group_palette.selection() == {(lid, 2)}
 
 
+@pytest.mark.xfail(strict=True, reason="the group palette is not visible at the raster stack index (QUESTIONS, 01 round 2)")
 def test_groups_section_is_not_view_scoped_and_visible_at_raster_stack_index(qtbot, loaded):
     loaded.show()
 

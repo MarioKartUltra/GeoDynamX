@@ -20,6 +20,8 @@ pv.OFF_SCREEN = True
 
 from dynamix.shell.arrangement.view import install_momentum_observers  # noqa: E402
 
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
+
 
 class _Tracker:
     def __init__(self):
