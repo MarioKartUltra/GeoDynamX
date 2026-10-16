@@ -251,16 +251,21 @@ def test_chains2d_schema(fbm64):
 
 def test_chains2d_consumable_by_wtmm_ebsd(fbm64):
     from dynamix._vendor.wtmm_ebsd.chain_filters import filter_by_length
-    from dynamix._vendor.wtmm_ebsd.partition import build_hd_from_chains
+    from dynamix._vendor.wtmm_ebsd.partition import build_hd_from_chains as vendored_build
+    from dynamix.core.partition_tables import build_hd_from_chains
     b, scales, chains = _pipeline(fbm64)
     kept, dropped = filter_by_length(chains, 3)
     assert len(kept) + len(dropped) == len(chains)
     hd_std, hd_cmax = b.partition2d(chains, scales)
     n_q = len(hd_std["q_list"]); n_sc = len(scales)
     assert hd_std["tau_qa"].shape == (n_q, n_sc) == hd_cmax["tau_qa"].shape
-    # partition2d must equal a direct build_hd_from_chains call
+    # partition2d must equal a direct build_hd_from_chains call (the app's own builder, spec 09)
     ref_std, _ = build_hd_from_chains(chains, scales, hd_std["q_list"])
     np.testing.assert_allclose(hd_std["tau_qa"], ref_std["tau_qa"], equal_nan=True)
+    # and the vendored builder, which accumulates in float32 on mlx, to float32 agreement
+    ven_std, _ = vendored_build(chains, scales, hd_std["q_list"])
+    np.testing.assert_allclose(hd_std["tau_qa"], ven_std["tau_qa"], rtol=1e-5, atol=1e-6,
+                               equal_nan=True)
 
 def test_fbm_holder_recovered(fbm64):
     # Slope of <log2 max|T|> vs log2(a) over the mid-scale range ≈ H (loose tolerance:

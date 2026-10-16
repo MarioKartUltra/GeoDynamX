@@ -315,18 +315,16 @@ def _tensor_svd_3x2_numpy(gx1, gy1, gx2, gy2, gx3, gy3):
 
 
 def resolve_tensor_svd_3x2():
-    """Lazily resolve the 3x2 tensor-SVD callable.
-
-    Prefers ``wtmm_ebsd.cwt2d.tensor_svd_3x2`` (available whenever ``mlx``
-    is importable, since that module hard-imports it at load time) and
-    falls back to the numpy transcription :func:`_tensor_svd_3x2_numpy`
-    (the universal-binary path) otherwise.
-    """
-    try:
-        from dynamix._vendor.wtmm_ebsd.cwt2d import tensor_svd_3x2
-        return tensor_svd_3x2
-    except ImportError:
-        return _tensor_svd_3x2_numpy
+    """Lazily resolve the 3x2 tensor-SVD callable: the app's own transcription
+    :func:`_tensor_svd_3x2_numpy`; the vendored ``wtmm_ebsd.cwt2d.tensor_svd_3x2`` behind
+    :data:`USE_VENDORED` until the last port."""
+    if USE_VENDORED:
+        try:
+            from dynamix._vendor.wtmm_ebsd.cwt2d import tensor_svd_3x2
+            return tensor_svd_3x2
+        except ImportError:
+            pass
+    return _tensor_svd_3x2_numpy
 
 
 # ---------------------------------------------------------------------------
@@ -711,15 +709,21 @@ class _XsmShim:
 
     @staticmethod
     def compute_holder_exponents(chains) -> list:
-        """``[{"h": chain_ols_holder(ch)} for ch in chains]`` (lazy import).
+        """``[{"h": h} for ch in chains]`` with ``h`` the OLS slope of ``log2_mod`` against
+        ``log2_scales`` (``dynamix.core.chain_stats._chain_ols_holder``, the app's own
+        reimplementation of the vendored ``chain_ols_holder``; the vendored original stays behind
+        :data:`USE_VENDORED` until the last port).
 
         One entry per chain, positionally aligned with ``chains`` (the real
         wrapper additionally drops chains shorter than 2 scales, which would
-        break that alignment; ``chain_ols_holder`` returns NaN for those
-        instead).
+        break that alignment; the slope is NaN for those instead).
         """
-        chain_filters = _load_wtmm_ebsd_module("chain_filters")
-        return [{"h": chain_filters.chain_ols_holder(ch)} for ch in chains]
+        if USE_VENDORED:
+            chain_filters = _load_wtmm_ebsd_module("chain_filters")
+            return [{"h": chain_filters.chain_ols_holder(ch)} for ch in chains]
+        from dynamix.core.chain_stats import _chain_ols_holder
+
+        return [{"h": _chain_ols_holder(ch)} for ch in chains]
 
 
 def _load_wtmm_ebsd_module(name: str):
@@ -766,6 +770,11 @@ def _load_wtmm_ebsd_module(name: str):
         return module
 
 
+#: Test-only (spec 09, Phase B): True routes the 2-D CWT on mlx and the tensor SVD through the
+#: vendored ``wtmm_ebsd.cwt2d`` originals in place of the app's own transcriptions, so the two can
+#: be compared until the last port; the app never sets it.
+USE_VENDORED: bool = False
+
 #: The app-wide default cwt2d engine. ``None`` = follow the FFT policy (mlx on Apple Silicon,
 #: else FFTW3); "mlx"/"fftw" force one engine for every call that
 #: does not pass its own ``_engine``. Set by the shell from ``Settings.compute_engine`` at
@@ -794,11 +803,12 @@ def get_default_engine() -> "str | None":
 def _resolve_cwt2d_engine():
     """Lazily resolve the CWT operator injected as ``cwt_2d_f32``.
 
-    Prefers ``wtmm_ebsd.cwt2d.cwt_2d_f32`` (the mlx original) and falls back to
-    the numpy transcription :func:`_cwt2d_numpy`. The two are
-    signature-compatible -- ``(image, scales, *, pad, derivs, wavelet,
-    verbose)`` returning a dict keyed by derivative name -- and both implement
-    ``derivs="all"``, which the tensor path needs for the wavelet Hessian.
+    On mlx the app's own :func:`_cwt2d_mlx` (the vendored ``cwt_2d_f32`` loop with the
+    registry's filters; the original stays behind :data:`USE_VENDORED`), else the numpy
+    transcription :func:`_cwt2d_numpy` on the policy's FFT. All three are
+    signature-compatible -- ``(image, scales, *, pad, derivs, wavelet, verbose)`` returning a
+    dict keyed by derivative name -- and implement ``derivs="all"``, which the tensor path
+    needs for the wavelet Hessian.
     """
     from dynamix.core import fft_policy
 
@@ -806,8 +816,10 @@ def _resolve_cwt2d_engine():
     if be.name == "mlx":
         try:
             import mlx.core  # noqa: F401
-            from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
-            return cwt_2d_f32
+            if USE_VENDORED:
+                from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
+                return cwt_2d_f32
+            return _cwt2d_mlx
         except ImportError:
             pass
     # The transcription on the policy backend: FFTW3 at the policy precision, or mlx's FFT
@@ -969,13 +981,13 @@ class PythonWTMMBackend:
 
         if engine == "mlx":
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
-            if registry:
-                raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
-                                 wavelet=wavelet, verbose=False, params=smoother_params)
-            else:
+            if USE_VENDORED and not registry:
                 from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
                 raw = cwt_2d_f32(field, scales, pad=pad, derivs=derivs,
                                   wavelet=wavelet, verbose=False)
+            else:
+                raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
+                                 wavelet=wavelet, verbose=False, params=smoother_params)
         elif engine == "fftw":
             from dynamix.core import fft_policy
             be = fft_policy.active()
@@ -1455,7 +1467,10 @@ class PythonWTMMBackend:
         (hd_std, hd_cmax) : tuple[dict, dict]
             Exactly ``build_hd_from_chains``'s return value.
         """
-        from dynamix._vendor.wtmm_ebsd.partition import DEFAULT_Q_LIST, build_hd_from_chains
+        if USE_VENDORED:
+            from dynamix._vendor.wtmm_ebsd.partition import DEFAULT_Q_LIST, build_hd_from_chains
+        else:
+            from dynamix.core.partition_tables import DEFAULT_Q_LIST, build_hd_from_chains
 
         if q_list is None:
             q_list = DEFAULT_Q_LIST
@@ -1561,7 +1576,10 @@ class PythonWTMMBackend:
             field3 = np.where(finite, field3, fill)
 
         scales = np.asarray(scales, dtype=np.float64)
-        twtmm = _load_wtmm_ebsd_module("twtmm")
+        if USE_VENDORED:
+            twtmm = _load_wtmm_ebsd_module("twtmm")
+        else:
+            from dynamix.core import tensor_wtmm as twtmm
 
         svd_wtmm = twtmm.alpha_jacobian_twtmm(
             field3, scales,

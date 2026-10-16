@@ -21,6 +21,8 @@ __version__ = "0.0.1.dev0"
 # GeoDynamix_Beta vendoring (2026-09-22): the EBSD modules (orientation, symmetry, grains,
 # demean, cpo, io, ipf, kam, papeschi, orientation_stats, scalar_fields, mtex_bridge) are LEFT
 # OUT -- no orix, no MATLAB, no EBSD reading in the beta. Only these modules are imported.
+# Trim (spec 09, 2026-10-15): quality, shuffles, spatial_stats and viewer, which the app never
+# loads, are gone too; the full copy is at tag vendored-snapshot-2026-10.
 
 # ---- public re-exports -----------------------------------------------------
 from . import (
@@ -28,11 +30,7 @@ from . import (
     cwt2d,
     nye,
     partition,
-    quality,
-    shuffles,
-    spatial_stats,
     twtmm,
-    viewer,
 )
 
 # Most-used names exposed at package level for ergonomics in notebooks.
@@ -48,20 +46,9 @@ from .cwt2d import (
     cwt_2d_f32,
     tensor_svd_3x2,
 )
-from .quality import (
-    bc_gradient_magnitude,
-    bc_damage_mask,
-    confidence_weighted_damage,
-)
 from .twtmm import (
     alpha_jacobian_twtmm,
     scalar_field_wtmm,
-)
-from .viewer import (
-    precompute_viewer_bundle,
-    viewer_bundle_diagnostics,
-    add_wavelet_scalebar,
-    add_map_scalebar,
 )
 from .partition import (
     DEFAULT_Q_LIST,

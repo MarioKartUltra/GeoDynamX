@@ -153,6 +153,7 @@ EXTRACTED = {
 #: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
 NEW_MODULES = ["units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product", "chaining",
+              "tensor_wtmm", "partition_tables",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton", "wavelet_profiles",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
