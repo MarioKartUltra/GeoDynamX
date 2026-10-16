@@ -50,6 +50,10 @@ mac = ["mlx>=0.20"]
 # ceiling when a release restores the wheel.
 io = ["rasterio>=1.4,<1.5.2", "Pillow>=10"]
 
+# The .gprv provenance records written beside every export (dynamix.engine.gprv_export): the gprv
+# library of GeoDynamX-Provenance, pure Python, pinned to its release tag.
+provenance = ["gprv @ git+https://github.com/MarioKartUltra/GeoDynamX-Provenance@v0.2.0"]
+
 # HDF4 (ASTER-class HDF-EOS2) via pyhdf, lazily imported by core/ingest and roi/picture.
 # <0.11.7: that release's macOS wheels are tagged macosx_26_0, so on older macOS pip skips
 # them and falls back to the sdist, which compiles libhdf4 at install time. 0.11.6 ships
@@ -70,7 +74,7 @@ gui = ["PySide6>=6.5", "pyqtgraph>=0.13", "matplotlib>=3.8"]
 
 # pytest-qt for the shell test suite; ipython for `python -m dynamix.devloop --ipython`
 # (%gui qt + %autoreload 2, guarded — devloop.py prints a clear message and exits if it's absent).
-dev = ["pytest>=8", "pytest-qt", "ipython"]
+dev = ["pytest>=8", "pytest-qt", "ipython", "jsonschema>=4"]
 
 # No [cuda] extra: CUDA is deferred, and declaring one that installs nothing would be a lie in the
 # packaging metadata.
@@ -81,7 +85,8 @@ catalog = ["pyyaml>=6.0"]
 # GeoDynamix_Beta: everything the app needs, in one extra -- `pip install -e ".[app]"`.
 app = ["numba>=0.60", "scipy>=1.11", "PyWavelets>=1.8", "rasterio>=1.4,<1.5.2", "Pillow>=10", "PySide6>=6.5",
        "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11",
-       "pyhdf>=0.11.6,<0.11.7"]   # same pin as the hdf4 extra, for the same reason
+       "pyhdf>=0.11.6,<0.11.7",   # same pin as the hdf4 extra, for the same reason
+       "gprv @ git+https://github.com/MarioKartUltra/GeoDynamX-Provenance@v0.2.0"]
 
 # The vendored `wtmm` package's own optional features (its NN and dataset helpers), lazily
 # imported and never used by the app -- declared honestly, installed only on request.

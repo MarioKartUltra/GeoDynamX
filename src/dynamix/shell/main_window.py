@@ -63,6 +63,7 @@ from dynamix.core.transect import chains_in_buffer, sample_profile
 from dynamix.devices import register_builtin_devices
 from dynamix.devices.groups import encode_groups
 from dynamix.engine import Cache, cache_key, resolve, source_identity
+from dynamix.engine.gprv_export import bundle_path, record_beside
 from dynamix.engine.resolve import (output_key, seed_shown_level, selection_recipe,
                                     selection_steps, shown_level)
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
@@ -966,6 +967,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # via File > Export Derived Raster; usable as a 3-D surface height source. Pruned with
         # the layer.
         self._derived_fields: dict = {}
+        #: layer_id -> (path, export, print_params) of the layer's last export, so File > Write
+        #: Provenance Record can write that export's record again.
+        self._last_export: dict = {}
         # Live-slice vector fidelity: when the drape is RGBA-baked (hillshade /
         # custom class colors) the per-tick LUT swap can't apply, so live ticks fall back to
         # a 300 ms-throttled FULL apply (tags + resync -- the same per-change path the
@@ -1802,6 +1806,10 @@ class MainWindow(QtWidgets.QMainWindow):
         export_derived_action = QtGui.QAction("Export Derived Raster (.npz)…", self)
         export_derived_action.triggered.connect(self._on_export_derived_clicked)
         file_menu.addAction(export_derived_action)
+        provenance_action = QtGui.QAction("Write Provenance Record", self)
+        provenance_action.setObjectName("file.write_provenance")
+        provenance_action.triggered.connect(self._on_write_provenance)
+        file_menu.addAction(provenance_action)
         racks_menu = self.menuBar().addMenu("Racks")
         rack_editor_action = QtGui.QAction("Rack Editor…", self)
         rack_editor_action.triggered.connect(lambda: self._open_rack_editor(None))
@@ -2214,6 +2222,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.load_field(open_field(path, window_size=settings.open_window_px,
                                    max_pixels=settings.open_max_pixels,
                                    subdataset=subdataset), path)
+        record = record_beside(path)
+        if record is not None:
+            self._notify(f"{Path(path).name}: its provenance record {record.name} is beside it; "
+                         "a record written from this dataset cites it", "status")
 
     def load_field(self, field, path: str, *, inert: bool = False,
                    bands: "list | None" = None) -> None:
@@ -6903,7 +6915,9 @@ both ``Canvas`` signals report the
             self, "Export Chains (.npz)", "", "WTMM chains (*.npz);;All files (*)")
         if not path:
             return
-        self._notify(self._export_chain_product(path), "status")
+        path = bundle_path(path)                 # the export's own folder, its record beside it
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._notify(self._export_chain_product(str(path)), "status")
 
     def _on_export_derived_clicked(self) -> None:
         """File > Export Derived Raster: the ACTIVE layer's derived dataset (h-map or band
@@ -6920,10 +6934,15 @@ both ``Canvas`` signals report the
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Export derived raster", f"{dfield.name}.npz", "NumPy archive (*.npz)")
         if path:
-            dfield.save_npz(path)
+            path = bundle_path(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            dfield.save_npz(str(path))
             levels = dfield.provenance.get("marked_levels")
             tail = (f" · marked levels {', '.join(str(l + 1) for l in levels)}"
                     if levels else "")
+            shown = {k: dfield.provenance[k] for k in ("output", "level", "marked_levels")
+                     if k in (dfield.provenance or {})}
+            tail += self._write_provenance(path, "derived_npz", shown or None)
             self._notify(f"derived raster exported — {path}{tail}", "status")
 
     def _derived_export_field(self, layer):
@@ -6966,7 +6985,50 @@ both ``Canvas`` signals report the
         info = export_chain_product_npz(path, result["chain_product"],
                                         field=self.field, params=params)
         return (f"exported {info['n_horizontal']} H + {info['n_vertical']} V chains "
-                f"→ {path}")
+                f"→ {path}" + self._write_provenance(path, "chains_npz"))
+
+    def _racks_of(self, layer) -> "list | None":
+        """Per step of ``layer.chain``, the rack it came from (or None): the window's working
+        copy for the active layer, the stored recipe for another; None when they do not line up."""
+        if layer is self.layer:
+            racks = [r for r, b in zip(self._rack, self._bypassed) if not b]
+        else:
+            recipe = self._recipes.get(layer.layer_id) or []
+            racks = [d.get("rack") for d in recipe if not d.get("bypassed")]
+        return racks if len(racks) == len(layer.chain.steps) else None
+
+    def _write_provenance(self, path, export: str, print_params=None) -> str:
+        """Write the .gprv record of the active layer's export at ``path`` beside it
+        (:mod:`dynamix.engine.gprv_export`); returns the status-line tail. A record that cannot be
+        written never fails the export: the tail says why."""
+        if self.layer is None:
+            return " · no provenance record (no active layer)"
+        try:
+            from dynamix.engine.gprv_export import write_record
+
+            record = write_record(self.project, self.layer, path, export=export,
+                                  layer_input=self._layer_input(self.layer),
+                                  racks=self._racks_of(self.layer), result=self._active_result,
+                                  print_params=print_params)
+        except ImportError:
+            return (" · no provenance record: the gprv library is not installed "
+                    "(pip install '.[provenance]')")
+        except Exception as exc:                                  # noqa: BLE001
+            return f" · no provenance record: {exc}"
+        self._last_export[self.layer.layer_id] = (str(path), export, print_params)
+        return f" · provenance {Path(record).name}"
+
+    def _on_write_provenance(self) -> None:
+        """File > Write Provenance Record: the active layer's last export gets its record again
+        (the earlier one moves aside, never rewritten)."""
+        last = self._last_export.get(self.layer.layer_id) if self.layer is not None else None
+        if last is None:
+            self._notify("export this layer first: every export writes its record beside it",
+                         "status")
+            return
+        path, export, print_params = last
+        self._notify(f"{Path(path).name}{self._write_provenance(path, export, print_params)}",
+                     "status")
 
     def _notify(self, msg: str, tier: str = "status") -> None:
         """The single place every surface this slice touches funnels an outward-facing message
