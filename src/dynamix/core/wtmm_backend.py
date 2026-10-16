@@ -74,6 +74,8 @@ from pathlib import Path
 
 import numpy as np
 
+from dynamix.core import chaining
+
 __all__ = [
     "DEFAULT_Q",
     "compute_scales2d",
@@ -2010,6 +2012,9 @@ _WTMM2D_PARAM_DEFAULTS = {
     "dist2_max": 50.0,
     "smooth": True,
     "min_chain_len": 2,
+    # The chainer (dynamix.core.chaining): the benchmark by default, so the chains stage's key is
+    # what it was for every recipe that names none.
+    "chainer": "xsmurf_bench",
     "q_list": DEFAULT_Q,
     "pad": 32,
     # No pseudo-fractional integration unless asked: with eta = 0 a chain's log2-modulus slope is
@@ -2478,13 +2483,11 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                       smooth=resolved["smooth"], min_chain_len=resolved["min_chain_len"])
     if resolved["band_per"] != "voice":          # xsmurf's band keeps the stage keys it had
         chains_key["band_per"] = resolved["band_per"]
+    if resolved["chainer"] != chaining.DEFAULT:
+        chains_key["chainer"] = resolved["chainer"]
 
     def compute_chains():
-        return backend.chains2d(extrema, scales, similitude=resolved["similitude"],
-                                box_ratio=resolved["box_ratio"],
-                                dist2_max=resolved["dist2_max"],
-                                min_len=resolved["min_chain_len"], smooth=resolved["smooth"],
-                                band_per=resolved["band_per"])
+        return chaining.link(extrema, scales, resolved, backend)
 
     _ck()
     chains = _run_stage("chains", chains_key, out_dir, field.name, compute_chains,

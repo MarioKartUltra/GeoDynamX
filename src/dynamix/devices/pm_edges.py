@@ -27,9 +27,12 @@ refuses upstream results with the shared pointed message.
 """
 from __future__ import annotations
 
+import dataclasses
+
 from dynamix.devices.cdf_edges import _line_ids
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.model.contracts import EXTREMA, FIELD
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.device import Output
 from dynamix.model.param import Param, ParamKind
 
@@ -41,6 +44,7 @@ class PMEdges:
     role = "primary"
     chain_producer = True
     label = "Perona–Malik edges"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Perona & Malik (1990), IEEE Trans. Pattern Anal. Mach. Intell. 12(7), 629")
     families = ("Edge detection",)
     consumes = ((FIELD,),)
     produces = (EXTREMA,)

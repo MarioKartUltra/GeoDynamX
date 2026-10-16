@@ -304,6 +304,11 @@
    "mod": [],
    "raster_out": -94318.4453125
   },
+  "lineal_path": {
+   "chains": 0,
+   "levels": [],
+   "mod": []
+  },
   "min_vchains": {
    "chains": 71,
    "levels": [

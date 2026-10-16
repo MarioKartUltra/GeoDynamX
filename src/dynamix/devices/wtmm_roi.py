@@ -24,6 +24,7 @@ keeps its wider floor (0.25) because the whole-raster path has no halo to contam
 from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
+from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output
 from dynamix.devices.wtmm import BAND_PER_PARAM, SMOOTHER_PARAMS, chaining_reading, smoother_params
 from dynamix.model.param import Param, ParamKind
@@ -44,6 +45,7 @@ class WTMM2DROI:
     capabilities = frozenset({"OutputProducer", "SourceReader", "StripExtras", "Viewable"})
     chain_producer = True
     label = "WTMM 2D, ROI"
+    origin = XSMURF_DERIVED
     families = ("Edge detection", "Regularity")
     #: It reads band 1 of its source file, whatever field it is handed, so it runs on a
     #: dataset row's band stack as well as on a single-band field.
@@ -104,6 +106,10 @@ class WTMM2DROI:
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
         BAND_PER_PARAM,
+        # The cross-scale chainer, as on wtmm2d (not keyed at its default).
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
+              label="Chainer", keyed_at_default=False),
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -167,6 +173,7 @@ class WTMM2DROI:
             "box_ratio": params["box_ratio"],
             "similitude": params["similitude"],
             "band_per": params["band_per"],
+            "chainer": params["chainer"],
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)

@@ -432,7 +432,7 @@ def test_a_pending_layers_scale_select_strip_shows_inactive(qtbot, loaded):
 def test_the_browser_greys_scale_while_the_layer_has_a_shown_level(qtbot, loaded):
     from dynamix.model.contracts import SCALE_BY_TRANSPORT
     from dynamix.model.device import get_device
-    from dynamix.model.families import display_name
+    from dynamix.model.families import display_name, tooltip_of
 
     row = loaded.browser._rows["scale_select"][0]
     assert loaded.layer.tags["ui.scale_idx"] == "0"           # the landing wrote the level
@@ -440,4 +440,4 @@ def test_the_browser_greys_scale_while_the_layer_has_a_shown_level(qtbot, loaded
     assert row.foreground(0).color() == loaded.browser._muted.color()
     del loaded.layer.tags["ui.scale_idx"]                     # no shown level
     loaded._sync_browser_states()
-    assert row.toolTip(0) == display_name(get_device("scale_select"))
+    assert row.toolTip(0) == tooltip_of(get_device("scale_select"))

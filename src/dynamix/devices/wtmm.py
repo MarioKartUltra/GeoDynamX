@@ -11,6 +11,7 @@ import numpy as np
 
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
 from dynamix.model.device import Output
+from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.param import Param, ParamKind
 
 #: The params a per-scale output reads: the scale grid, the wavelet, the lift and the detector
@@ -92,6 +93,7 @@ class WTMM2D:
     role = "primary"
     chain_producer = True
     label = "WTMM 2D"
+    origin = XSMURF_DERIVED
     families = ("Edge detection", "Regularity")
     consumes = ((FIELD,),)
     produces = (EXTREMA, VCHAINS)
@@ -173,6 +175,12 @@ class WTMM2D:
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
         BAND_PER_PARAM,
+        # The cross-scale chainer (dynamix.core.chaining): the benchmark, xsmurf's vchain port,
+        # by default; not keyed at that default, so every recipe keyed before the knob existed
+        # keeps its key.
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
+              label="Chainer", keyed_at_default=False),
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -226,6 +234,7 @@ class WTMM2D:
                 "interpolate": params["interpolate"],
                 "detector": params["detector"],
                 "band_per": params["band_per"],
+                "chainer": params["chainer"],
             },
             progress=progress,
             cancel=cancel,
@@ -292,7 +301,7 @@ class WTMM2D:
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
-                 "similitude", "band_per")
+                 "similitude", "band_per", "chainer")
 
     def roi_margin(self, params: dict) -> int:
         """The coarsest scale's halo (``halo_margin``, the measured 2.5 x normalized scale) --

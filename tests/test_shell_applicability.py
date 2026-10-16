@@ -15,7 +15,7 @@ from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import DeviceRef
 from dynamix.model.contracts import FIELD, StepState, next_step_state, step_states
 from dynamix.model.device import get_device
-from dynamix.model.families import display_name
+from dynamix.model.families import display_name, tooltip_of
 from tests.test_shell_window import _FIELD, stub_devices, window  # noqa: F401
 
 PM_CHAIN = (("pm_edges", {}), ("chain_length", {}))
@@ -77,9 +77,9 @@ def test_the_browser_greys_what_cannot_follow_the_active_layers_analysis(pm_wind
     assert chain_holder.toolTip(0) == next_step_state(pm, FIELD, "chain_holder").reason
     assert chain_holder.foreground(0).color() == pm_window.browser._muted.color()
     assert rows["orientation_wedge"][0].toolTip(0) == \
-        display_name(get_device("orientation_wedge"))
+        tooltip_of(get_device("orientation_wedge"))
     # an analyzer dropped on the master forks a sibling over the field: offered
-    assert rows["wtmm2d"][0].toolTip(0) == display_name(get_device("wtmm2d"))
+    assert rows["wtmm2d"][0].toolTip(0) == tooltip_of(get_device("wtmm2d"))
     assert rows["pca"][0].toolTip(0) == next_step_state((), FIELD, "pca").reason
 
 

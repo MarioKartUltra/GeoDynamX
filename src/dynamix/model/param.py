@@ -73,6 +73,10 @@ class Param:
     #: Where the inspector draws the knob: ``"basic"`` in the open section, ``"advanced"`` in the
     #: collapsed one. Presentation only: validation, defaults and cache keys never read it.
     level: str = "basic"
+    #: False: the param leaves the cache key (``dynamix.model.device.keyed_params``) while it holds
+    #: its default and enters it once set. For a knob added after recipes were keyed, whose default
+    #: is what every existing recipe did (``wtmm2d.chainer``): the old keys stay the old keys.
+    keyed_at_default: bool = True
 
     def __post_init__(self):
         # A payload or a keyword copy hands a list; a frozen, hashable Param holds a tuple.

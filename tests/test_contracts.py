@@ -13,7 +13,7 @@ from dynamix.core.frames import LocalFrame
 from dynamix.core.pointset import PointSet
 from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import DeviceRef
-from dynamix.model.contracts import (ALL_CONTRACTS, ALPHA, COMPONENTS, CONTRACT_KEYS, CONTRACTS,
+from dynamix.model.contracts import (ALL_CONTRACTS, ALPHA, COMPONENTS, CONTRACT_KEYS, CONTRACTS, CURVE,
                                      EXTREMA, FIELD, HMAP, POINTS, RECEIVED, STACK, TOPOLOGY,
                                      VCHAINS, StepState, consumes_of, input_contract,
                                      next_step_state, produces_of, producers_of, step_states)
@@ -190,9 +190,9 @@ def _raster(shape):
                        x_axis=np.arange(float(nx)), y_axis=np.arange(float(ny)))
 
 
-def test_the_nine_contracts_have_a_meaning_and_their_result_keys():
+def test_the_ten_contracts_have_a_meaning_and_their_result_keys():
     assert set(CONTRACTS) == {FIELD, STACK, POINTS, EXTREMA, ALPHA, VCHAINS, TOPOLOGY, HMAP,
-                              COMPONENTS}
+                              COMPONENTS, CURVE}
     assert set(CONTRACT_KEYS) == set(CONTRACTS)
     assert CONTRACT_KEYS[EXTREMA] == ("extrema", "scales", "_shape")
     assert CONTRACT_KEYS[VCHAINS] == ("chains",)
@@ -398,6 +398,7 @@ DECLARATIONS = {
     "group_filter": (((VCHAINS,),), _V, set()),
     "backproject": (((POINTS,),), {POINTS}, {POINTS}),
     "derived_vectors": (((FIELD,), (STACK,)), {STACK}, {EXTREMA, VCHAINS}),
+    "lineal_path": (((FIELD,),), {FIELD}, {CURVE}),
 }
 
 

@@ -30,6 +30,7 @@ from __future__ import annotations
 import numpy as np
 
 from dynamix.model.contracts import ALPHA, EXTREMA, FIELD
+from dynamix.model.origin import LASTWAVE_DERIVED
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 
@@ -65,6 +66,7 @@ class MZEdges:
     role = "primary"
     chain_producer = True
     label = "Mallat–Zhong edges"
+    origin = LASTWAVE_DERIVED
     families = ("Edge detection", "Regularity", "Reconstruction")
     consumes = ((FIELD,),)
 

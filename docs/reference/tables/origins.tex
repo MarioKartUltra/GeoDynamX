@@ -1,0 +1,55 @@
+% Written by make_tables.py from the device registry: change a declaration, then
+% run python docs/reference/make_tables.py.
+\phantomsection\label{tab:origins}%
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.22\textwidth}>{\raggedright\arraybackslash}p{0.3\textwidth}>{\raggedright\arraybackslash}p{0.16\textwidth}>{\raggedright\arraybackslash}p{0.26\textwidth}}
+\caption*{\textbf{Origins}: who wrote each tool's code, under which licence, and the method it implements; a derived tool runs code ported from another program (see \texttt{NOTICE}).}\\
+\toprule
+Tool & Authors & Licence & Citation \\ \midrule
+\endfirsthead
+\toprule
+Tool & Authors & Licence & Citation \\ \midrule
+\endhead
+\tool{Noise / dither}{noise} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Fill}{fill} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Band select}{band\_select} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{WTMM 2D}{wtmm2d} & Abraham Joseph Okayli Masaryk, Nicolas Decoster, Pierre Kestener, St\'ephane Roux, Alain Arneodo & GPL-2.0-only (derived) & Arneodo, Decoster \& Roux (2000), Eur. Phys. J. B 15, 567; chaining and follow ported from xsmurf, Centre de Recherche Paul Pascal, Bordeaux (1999) \\
+\tool{WTMM 2D, ROI}{wtmm2d\_roi} & Abraham Joseph Okayli Masaryk, Nicolas Decoster, Pierre Kestener, St\'ephane Roux, Alain Arneodo & GPL-2.0-only (derived) & Arneodo, Decoster \& Roux (2000), Eur. Phys. J. B 15, 567; chaining and follow ported from xsmurf, Centre de Recherche Paul Pascal, Bordeaux (1999) \\
+\tool{Mallat--Zhong edges}{mz\_edges} & Abraham Joseph Okayli Masaryk, Emmanuel Bacry, J\'er\^ome Fraleu, J\'er\^ome Kalifa, Erwan Le Pennec, Wen-Liang Hwang, St\'ephane Mallat, Sifen Zhong & GPL-2.0-or-later (derived) & Mallat \& Zhong (1992), IEEE Trans. Pattern Anal. Mach. Intell. 14(7), 710; ported from LastWave's dwtrans2d 2.1 (1998--2002) \\
+\tool{Wavelet skeleton}{wavelet\_skeleton} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) & Mallat \& Hwang (1992), IEEE Trans. Inf. Theory 38(2), 617 \\
+\tool{CDF edges}{cdf\_edges} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Perona--Malik edges}{pm\_edges} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) & Perona \& Malik (1990), IEEE Trans. Pattern Anal. Mach. Intell. 12(7), 629 \\
+\tool{Microcanonical MFA, measure}{holder\_measure} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{PCA}{pca} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{2-D SSA}{ssa2d} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{DWT}{dwt2d} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Inpaint}{inpaint} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Chain topology}{chain\_topology} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Min V-chains per H-line}{min\_vchains} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Orientation wedge}{orientation\_wedge} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Modulus threshold}{modulus\_threshold} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{H-line length}{hline\_length} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{H-line modulus}{hline\_modulus} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{H-line H\"older}{hline\_holder} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Chain H\"older}{chain\_holder} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Chain modulus}{chain\_modulus} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Chain length}{chain\_length} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Seam classifier}{chain\_classify} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Group filter}{group\_filter} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Back-project points}{backproject} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Lineal path}{lineal\_path} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{bus} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{holder\_map} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{band\_recon} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Band reconstruction, measure}{band\_recon\_measure} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Band reconstruction, multiaffine}{band\_recon\_multiaffine} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{tucker\_havok} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\tool{Scale}{scale\_select} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{group\_paint} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{derived\_vectors} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{stub\_wavelet} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{stub\_holder} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\dev{stub\_wedge} & Abraham Joseph Okayli Masaryk & GPL-2.0-or-later (first party) &  \\
+\bottomrule
+\end{longtable}
