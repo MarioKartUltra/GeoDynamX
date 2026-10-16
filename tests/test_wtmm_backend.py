@@ -32,12 +32,12 @@ def test_cwt2d_shapes(fbm64):
     assert out["mod"].shape == (6, 64, 64) and out["arg"].shape == (6, 64, 64)
     assert np.all(np.isfinite(out["mod"]))
 
-def test_cwt2d_numpy_engine_parity(fbm64):
+def test_cwt2d_fftw_engine_parity(fbm64):
     pytest.importorskip("mlx.core")
     b = PythonWTMMBackend()
     scales = compute_scales2d(2, 3)
     ref = b.cwt2d(fbm64, scales)                       # mlx engine (auto)
-    alt = b.cwt2d(fbm64, scales, _engine="numpy")      # forced fallback (test hook)
+    alt = b.cwt2d(fbm64, scales, _engine="fftw")       # the transcription on FFTW3 (test hook)
     np.testing.assert_allclose(alt["mod"], ref["mod"], rtol=1e-3, atol=1e-5)
 
 def test_cwt2d_nan_filled(fbm64):
@@ -59,14 +59,14 @@ def test_cwt2d_unknown_wavelet_raises(fbm64):
     assert "morlet" in msg
     assert "gaussian" in msg and "mexican" in msg
 
-def test_cwt2d_unknown_wavelet_raises_numpy_engine(fbm64):
-    # Secondary: the numpy fallback engine's own builder-level guard
+def test_cwt2d_unknown_wavelet_raises_fftw_engine(fbm64):
+    # Secondary: the transcription's own builder-level guard
     # (_build_wavelet_filters_numpy) is defense for any direct caller, kept even
     # though cwt2d's entry guard now covers this engine too.
     b = PythonWTMMBackend()
     scales = compute_scales2d(1, 1)
     with pytest.raises(ValueError, match="morlet"):
-        b.cwt2d(fbm64, scales, wavelet="morlet", _engine="numpy")
+        b.cwt2d(fbm64, scales, wavelet="morlet", _engine="fftw")
 
 def test_cwt2d_known_wavelets_still_work(fbm64):
     b = PythonWTMMBackend()
@@ -120,11 +120,16 @@ _REGISTRY = [("frac_bspline", {"alpha": 3.0}), ("q_gaussian", {"q": 1.5}),
 
 
 @pytest.mark.parametrize("wavelet,params", _REGISTRY, ids=[w for w, _ in _REGISTRY])
-def test_cwt2d_registry_smoothers_run_on_fftw_as_on_numpy(fbm64, wavelet, params):
-    # The numpy loop takes the fft_policy backend: FFTW3 and numpy's FFT give the same field.
+def test_cwt2d_registry_smoothers_run_on_fftw_32_as_at_64(fbm64, wavelet, params):
+    # The numpy loop takes the fft_policy backend: FFTW3 at 32 and at 64 bits give the same
+    # field to float32 tolerance.
+    from dynamix.core import fft_policy
+    from dynamix.core.wtmm_backend import _cwt2d_numpy
+
     b = PythonWTMMBackend()
     scales = compute_scales2d(2, 3)
-    ref = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, _engine="numpy")
+    ref = _cwt2d_numpy(fbm64, scales, wavelet=wavelet, params=params, verbose=False,
+                       fft=fft_policy.make("pyfftw", 64))
     assert ref["mod"].shape == (6, 64, 64) and np.all(np.isfinite(ref["mod"]))
     assert ref["mod"].max() > 0
     alt = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, _engine="fftw")
@@ -139,7 +144,7 @@ def test_cwt2d_registry_smoothers_on_device_match_the_numpy_loop(fbm64, wavelet,
     b = PythonWTMMBackend()
     scales = compute_scales2d(1, 2)
     ref = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, derivs="all",
-                  _engine="numpy")
+                  _engine="fftw")
     dev = b.cwt2d(fbm64, scales, wavelet=wavelet, smoother_params=params, derivs="all",
                   _engine="mlx")
     for k in ("mod", "dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"):
@@ -149,9 +154,9 @@ def test_cwt2d_registry_smoothers_on_device_match_the_numpy_loop(fbm64, wavelet,
 def test_cwt2d_q_gaussian_at_q_one_is_the_gaussian_smoother(fbm64):
     b = PythonWTMMBackend()
     scales = compute_scales2d(1, 2)
-    ref = b.cwt2d(fbm64, scales, wavelet="gaussian", _engine="numpy")
+    ref = b.cwt2d(fbm64, scales, wavelet="gaussian", _engine="fftw")
     alt = b.cwt2d(fbm64, scales, wavelet="q_gaussian", smoother_params={"q": 1.0},
-                  _engine="numpy")
+                  _engine="fftw")
     np.testing.assert_allclose(alt["mod"], ref["mod"], rtol=1e-4, atol=1e-6)
 
 
@@ -399,23 +404,6 @@ def test_1d_delegation():
     cl, fl = b.chains1d(ea, eo)
     pf = b.partition1d(eo, 3, 4, 1.0, [-1.0, 0.0, 2.0], coarser_links=cl)
     assert pf["sTq"].shape == (3, 12)
-
-def test_cwt1d_numpy_matches_fftw():
-    # Parity of the pure-numpy overlap-save fallback against the pyfftw
-    # reference on a real (non-trivial-spectrum) test signal.
-    pytest.importorskip("pyfftw")
-    from dynamix._vendor.wtmm.cwt import cwtd_fftw
-    from dynamix._vendor.wtmm.signals import ucantor
-    from dynamix.core.wtmm_backend import _cwtd_numpy
-
-    sig, _ = ucantor(256, np.array([0.5, 0.5]), np.array([0.4, 0.6]))
-    sig = np.cumsum(sig)
-    ref_coeffs, ref_scales, ref_vr = cwtd_fftw(sig, 1.0, 3, 4)
-    alt_coeffs, alt_scales, alt_vr = _cwtd_numpy(sig, 1.0, 3, 4)
-    np.testing.assert_allclose(alt_coeffs, ref_coeffs, rtol=1e-8)
-    np.testing.assert_allclose(alt_scales, ref_scales)
-    assert alt_vr == ref_vr
-
 
 """tests/test_wtmm_backend.py (part 4): tensor2d (alpha-Jacobian WTMM via the xsm shim)"""
 

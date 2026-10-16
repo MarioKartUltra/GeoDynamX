@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """fft_policy.py -- the app-wide FFT engine + precision POLICY (DynamiX-native).
 
-Every FFT runs on mlx or FFTW3, never numpy by default. So:
+Every FFT runs on mlx or FFTW3, never numpy. So:
 
 - ``auto``: mlx on Apple Silicon (when installed), FFTW3 (pyfftw) everywhere else;
 - 64-bit always runs on FFTW3 (mlx is single precision only);
@@ -125,39 +125,7 @@ class _MLX:
                                             axes=list(axes)))
 
 
-class _Numpy:
-    """numpy's FFT -- the warned LAST RESORT (neither mlx nor pyfftw installed)."""
-    name = "numpy"
-
-    def __init__(self, precision=32):
-        self.precision = int(precision)
-
-    def fft(self, a, axis=-1):
-        return np.fft.fft(_cast(a, self.precision), axis=axis)
-
-    def ifft(self, a, axis=-1):
-        return np.fft.ifft(_cast(a, self.precision), axis=axis)
-
-    def fft2(self, a, axes=(-2, -1)):
-        return np.fft.fft2(_cast(a, self.precision), axes=axes)
-
-    def ifft2(self, a, axes=(-2, -1)):
-        return np.fft.ifft2(_cast(a, self.precision), axes=axes)
-
-    def rfft(self, a, axis=-1):
-        return np.fft.rfft(_cast(a, self.precision, real=True), axis=axis)
-
-    def irfft(self, a, n=None, axis=-1):
-        return np.fft.irfft(_cast(a, self.precision), n=n, axis=axis)
-
-    def rfft2(self, a, axes=(-2, -1)):
-        return np.fft.rfft2(_cast(a, self.precision, real=True), axes=axes)
-
-    def irfft2(self, a, s=None, axes=(-2, -1)):
-        return np.fft.irfft2(_cast(a, self.precision), s=s, axes=axes)
-
-
-_BACKENDS = {"pyfftw": _PyFFTW, "mlx": _MLX, "numpy": _Numpy}
+_BACKENDS = {"pyfftw": _PyFFTW, "mlx": _MLX}
 _ACTIVE = None
 _CONFIG = ("auto", 32)
 _DOUBLE = None
@@ -208,7 +176,7 @@ def precision_note(engine: str, precision: int, **machine) -> str:
 
 
 def make(name: str, precision: int = 32):
-    """A backend instance (``"pyfftw"``, ``"mlx"`` or ``"numpy"``) at ``precision``."""
+    """A backend instance (``"pyfftw"`` or ``"mlx"``) at ``precision``."""
     return _BACKENDS[name](precision=precision)
 
 

@@ -38,6 +38,8 @@ def test_without_mlx_or_pyfftw_the_policy_refuses():
         with pytest.raises(RuntimeError, match="pyfftw"):
             fb.resolve("auto", precision, platform="win32", machine="AMD64",
                        have=_have(mlx=False, pyfftw=False))
+    with pytest.raises(KeyError):
+        fb.make("numpy")
 
 
 def test_configure_sets_the_active_backend_and_its_precision():

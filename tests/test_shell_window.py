@@ -9,7 +9,7 @@ separate from whether the WTMM backend is fast today. The stub's result is shape
 WTMM stack -- ``scales`` / ``extrema`` / ``_shape`` -- so the REAL filters and the REAL canvas
 run over it; only the expensive transform is stood in for. ``test_real_wtmm_end_to_end`` then
 runs the actual chain, unguarded, exactly as ``tests/test_real_devices.py`` does: the WTMM
-backend under ``dynamix/core`` is a self-contained copy with a numpy fallback, so it needs no
+backend under ``dynamix/core`` is a self-contained copy on the FFT policy's engine, so it needs no
 optional package (``wtmm_ebsd`` is only needed by the chain-FILTER devices, which this chain
 does not use).
 """

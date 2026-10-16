@@ -326,7 +326,7 @@ def test_a_plane_wave_peaks_where_the_registry_lambda_reads_its_wavelength(name,
     wave = np.cos(2 * np.pi * x / L) + 0.05 * np.cos(2 * np.pi * y / 61.0)
     scales = compute_scales2d(4, 8)
     out = PythonWTMMBackend().cwt2d(wave, scales, wavelet=name, smoother_params=params,
-                                    _engine="numpy")
+                                    _engine="fftw")
     strengths = out["mod"].reshape(len(scales), -1).mean(axis=1)
     a = float(scales[int(np.argmax(strengths))])
     assert lambda_peak_px(a, name, 1, params=params) == pytest.approx(L, rel=2 ** (1 / 8) - 1 + 0.05)

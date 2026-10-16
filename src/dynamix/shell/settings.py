@@ -38,9 +38,8 @@ class Settings:
     #: Folders the footprint browser re-scans at every window open: raster headers
     #: only, milliseconds per folder. A folder that no longer exists is skipped, never an error.
     footprint_folders: list[str] = dataclasses.field(default_factory=list)
-    #: The master compute-engine choice: "auto" = mlx when importable, else
-    #: the numpy/FFT fallback (the auto-detect ``cwt2d`` always had); "mlx" / "numpy" force one
-    #: engine app-wide. Applied at startup (and on menu toggle) via
+    #: The master compute-engine choice: "auto" = mlx on Apple Silicon, else FFTW3; "mlx" /
+    #: "fftw" force one engine app-wide. Applied at startup (and on menu toggle) via
     #: ``dynamix.core.wtmm_backend.set_default_engine`` -- NEVER part of a cache key or recipe:
     #: the backends-agree-to-float32 law makes engine choice infrastructure, not physics.
     compute_engine: str = "auto"
