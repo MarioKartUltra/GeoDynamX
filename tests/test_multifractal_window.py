@@ -703,3 +703,8 @@ def test_the_gaussian_ensemble_overlays_d_h_points_from_the_maxima_moduli(qtbot)
     bare = MultifractalWindow(hd, hd)
     qtbot.addWidget(bare)
     assert not bare.gaussian_check.isEnabled()
+
+def test_the_cumulant_range_is_disabled_without_moduli_or_moments(qtbot):
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    assert not window.cumulant_range_check.isEnabled()
