@@ -6955,6 +6955,8 @@ both ``Canvas`` signals report the
         result = self._active_result
         if not isinstance(result, dict) or result.get("chain_product") is None:
             return "no computed chain product to export — run a WTMM transform first"
+        if result.get("_preview"):
+            return "the full stack is still computing — export when it lands (this is the preview)"
         if (result.get("_roi") or {}).get("roi"):
             return ("ROI results are not exportable yet — their coordinates are ROI-local and "
                     "the parent field's axes would mislabel them")
@@ -6990,6 +6992,8 @@ both ``Canvas`` signals report the
         """Write the .gprv record of the active layer's export at ``path`` beside it
         (:mod:`dynamix.engine.gprv_export`); returns the status-line tail. A record that cannot be
         written never fails the export: the tail says why."""
+        if isinstance(self._active_result, dict) and self._active_result.get("_preview"):
+            return " · no provenance record: the result on show is the preview"
         if self.layer is None:
             return " · no provenance record (no active layer)"
         try:
