@@ -631,3 +631,30 @@ def test_the_fitter_opens_inside_its_screen(qtbot):
     qtbot.wait(10)
     avail = (window.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()
     assert window.size().width() <= avail.width() and window.size().height() <= avail.height()
+
+
+def test_the_cumulants_can_take_their_own_scale_range(qtbot):
+    """"cumulant range" shows a second window on the three log₂ a panels; dragging it on
+    any panel moves it on all three and refits the cumulants only, the spectrum fit stays; off,
+    the cumulants follow the fit window again."""
+    q = np.linspace(-3.0, 3.0, 25)
+    hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
+    rng = np.random.default_rng(3)
+    scales = hd["scales"]
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 20000))
+            for a in scales]
+    window = MultifractalWindow(hd, hd, extrema_mods=mods, scales=scales)
+    qtbot.addWidget(window)
+    fit_before = np.asarray(window._cq_curve.getData()[1]).copy()
+    assert len(window._cum_regions) == 3 and not any(r.isVisible() for r in window._cum_regions)
+    window.cumulant_range_check.setChecked(True)
+    assert all(r.isVisible() for r in window._cum_regions)
+    assert window._cum_regions[0].getRegion() == pytest.approx(window._region.getRegion())
+    window._cum_regions[1].setRegion((0.0, 0.5))                # one scale inside: no fit
+    assert window._cum_regions[0].getRegion() == pytest.approx((0.0, 0.5))
+    assert np.isnan(window.current_cumulants()["c2"])
+    np.testing.assert_allclose(window._cq_curve.getData()[1], fit_before)
+    assert "log₂ a" in window._cq_label.text()
+    window.cumulant_range_check.setChecked(False)
+    assert not any(r.isVisible() for r in window._cum_regions)
+    np.testing.assert_allclose(window.current_cumulants()["c2"], 0.3, atol=0.03)

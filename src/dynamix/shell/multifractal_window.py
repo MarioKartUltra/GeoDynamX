@@ -206,6 +206,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._family_lines_by_table: dict[str, list] = {k: [] for k, _ in FAMILY_TABLES}
         self._fit_lines: dict | None = None
         self._region_syncing = False
+        self._cum_syncing = False
 
         self._build_ui(eta_seed, forward_note)
         self._rebuild_family()
@@ -311,6 +312,10 @@ class MultifractalWindow(QtWidgets.QDialog):
         self.cumulant_check = QtWidgets.QCheckBox("cumulant spectrum")
         self.cumulant_check.toggled.connect(lambda _c: self._update_cumulant_overlay())
         controls.addWidget(self.cumulant_check)
+        # The cumulants' own scale range: a second window on the log2 a panels, in the
+        # cumulant curve's colour; off, they read the fit window.
+        self.cumulant_range_check = QtWidgets.QCheckBox("cumulant range")
+        self.cumulant_range_check.toggled.connect(self._on_cumulant_range_toggled)
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -370,6 +375,8 @@ class MultifractalWindow(QtWidgets.QDialog):
             label.setWordWrap(True)
             label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
                                 QtWidgets.QSizePolicy.Policy.Preferred)
+            if label is self._cq_label:
+                readouts.addWidget(self.cumulant_range_check)      # beside what it refits
             readouts.addWidget(label, 1)
         layout.addLayout(readouts)
 
@@ -390,6 +397,9 @@ class MultifractalWindow(QtWidgets.QDialog):
         span = (float(log2_s.min()), float(log2_s.max()))
         self._family_plots: dict[str, pg.PlotItem] = {}
         self._regions: list[pg.LinearRegionItem] = []
+        self._cum_regions: list[pg.LinearRegionItem] = []
+        warm = pg.mkColor(*Q_WARM)
+        warm.setAlpha(28)
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
             plot = self._glw.addPlot(row=0, col=2 * col, colspan=2, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", "log₂ a")
@@ -403,6 +413,13 @@ class MultifractalWindow(QtWidgets.QDialog):
             region.setBounds(span)
             region.sigRegionChanged.connect(self._on_region_changed)
             plot.addItem(region)
+            cum = pg.LinearRegionItem(values=span, orientation="vertical", brush=pg.mkBrush(warm),
+                                      pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine))
+            cum.setBounds(span)
+            cum.setVisible(False)
+            cum.sigRegionChanged.connect(self._on_cumulant_region_changed)
+            plot.addItem(cum)
+            self._cum_regions.append(cum)
             self._family_plots[key] = plot
             self._regions.append(region)
         # The tau panel/region remain the canonical names the public API and older callers use.
@@ -1072,7 +1089,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         heat = spectra.specific_heat(q, fit["tau"])
         self._cq_curve.setData(q[mask], heat[mask])
         hd = self._current_hd()
-        lo, hi = self._region.getRegion()
+        own = self.cumulant_range_check.isChecked()
+        lo, hi = (self._cum_regions[0] if own else self._region).getRegion()
         if self._extrema_mods is not None and self._scales_px is not None:
             c = spectra.cascade_cumulants(self._extrema_mods, self._scales_px, float(lo), float(hi))
         elif hd.get("lnT_moments") is not None:
@@ -1088,7 +1106,40 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._cq_ln_curve.setData(grid, c["c2"] * grid ** 2)
         self._cq_label.setText(
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
-            f"  ·  R²min={c['r2']:.2f}")
+            f"  ·  R²min={c['r2']:.2f}"
+            + (f"  ·  log₂ a {lo:.2f}–{hi:.2f}" if own else ""))
+
+    def _on_cumulant_range_toggled(self, on: bool) -> None:
+        """Show the cumulants' own window (starting on the fit window) or hide it, then refit
+        the cumulants."""
+        if on:
+            self._cum_syncing = True
+            try:
+                for region in self._cum_regions:
+                    region.setRegion(self._region.getRegion())
+            finally:
+                self._cum_syncing = False
+        for region in self._cum_regions:
+            region.setVisible(bool(on))
+        self._update_specific_heat()
+        self._update_cumulant_overlay()
+
+    def _on_cumulant_region_changed(self) -> None:
+        """A drag of the cumulants' window on any panel mirrors onto the other two, then the
+        cumulants refit; the spectrum fit stays."""
+        if self._cum_syncing:
+            return
+        sender = self.sender()
+        lo, hi = (sender if sender in self._cum_regions else self._cum_regions[0]).getRegion()
+        self._cum_syncing = True
+        try:
+            for region in self._cum_regions:
+                if region is not sender:
+                    region.setRegion((lo, hi))
+        finally:
+            self._cum_syncing = False
+        self._update_specific_heat()
+        self._update_cumulant_overlay()
 
     def _update_phase_tangent(self) -> None:
         """The D(h) tangent at the phase transition, from the y axis to a quarter past the
