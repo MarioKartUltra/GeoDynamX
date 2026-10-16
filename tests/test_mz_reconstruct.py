@@ -12,6 +12,9 @@ import pytest
 
 from dynamix.core import mz_edges as mz, mzlib
 
+#: Float64 identities and reconstruction gates: FFTW3 at 64-bit.
+pytestmark = pytest.mark.usefixtures("double_fft")
+
 DEM = pathlib.Path(__file__).resolve().parents[1] / "docs" / "demo" / "dem_crop.npz"
 
 

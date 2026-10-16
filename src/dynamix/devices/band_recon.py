@@ -30,6 +30,7 @@ import numpy as np
 from dynamix.devices.holder_map import HolderMap, field_values_2d, holder_arrays
 from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
 from dynamix.model.contracts import FIELD, HMAP
+from dynamix.model.device import keyed_params
 from dynamix.model.param import Param, ParamKind
 
 
@@ -100,7 +101,7 @@ class BandRecon:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
 
 # ----------------------------------------------------------------------------------------
@@ -226,7 +227,7 @@ class BandReconMeasure:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
 
 class BandReconMultiaffine:
@@ -280,4 +281,4 @@ class BandReconMultiaffine:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))

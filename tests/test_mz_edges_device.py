@@ -45,7 +45,7 @@ def test_param_surface(mz):
     assert names == ["n_levels", "algorithm", "wavelet", "alpha", "border", "colocate_l1",
                      "dither", "interpolate", "recon_live", "kappa", "clip", "run_mode", "iterations",
                      "tolerance", "coarse", "mode", "recon_levels", "per_level",
-                     "near_radius", "alpha_check", "alpha_tol", "alpha_fallback", "show"]
+                     "near_radius", "alpha_check", "alpha_tol", "alpha_fallback", "show", "precision"]
     defaults = {p.name: p.default for p in mz.params}
     assert defaults == {"n_levels": 4, "algorithm": "lastwave", "wavelet": "mz_spline",
                         "alpha": 3.0, "border": "mirror",
@@ -54,7 +54,7 @@ def test_param_surface(mz):
                         "iterations": 20, "tolerance": 1e-3, "coarse": "full",
                         "mode": "separable", "recon_levels": "", "per_level": False,
                         "near_radius": 1, "alpha_check": False, "alpha_tol": 0.5,
-                        "alpha_fallback": 0.0, "show": "edges"}
+                        "alpha_fallback": 0.0, "show": "edges", "precision": "f32"}
 
 
 def test_validate_rejects_unknown_keys(mz):

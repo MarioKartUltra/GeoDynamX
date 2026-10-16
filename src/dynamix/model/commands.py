@@ -38,6 +38,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("file.open_overview", "Open Full Extent (Overview)…", "File"),
     Command("file.export_chains", "Export Chains (.npz)…", "File"),
     Command("file.export_derived", "Export Derived Raster (.npz)…", "File"),
+    Command("file.write_provenance", "Write Provenance Record", "File"),
     Command("edit.undo_transect", "Undo Transect", "Edit", ("Ctrl+Z",)),
     Command("edit.undo_rack_drop", "Undo Rack Removal", "Edit", ("Ctrl+Shift+Z",)),
     Command("edit.cancel_transect", "Cancel Transect", "Edit", ("Esc",)),

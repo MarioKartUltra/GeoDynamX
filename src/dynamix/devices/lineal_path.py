@@ -77,7 +77,7 @@ class LinealPath:
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = frozenset({CURVE})
-    capabilities = frozenset({"SelfReporting"})
+    capabilities = frozenset({"SelfReporting", "RegionAware"})
     params = (
         Param("threshold", ParamKind.FLOAT, default=0.0, min=-1e30, max=1e30,
               label="Phase 1 above"),

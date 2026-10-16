@@ -1740,3 +1740,18 @@ def test_add_device_takes_the_drop_path_and_its_refusal_gate(qtbot, registered_b
         zone.add_device("wtmm2d")                       # a transform: clamped before the filters
     assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "wtmm2d", "scale_select"]
     assert zone.strip(2).device.name == "scale_select"
+
+
+def test_a_dropped_fft_tool_starts_at_the_settings_precision(qtbot, registered_builtins):
+    from dynamix.core import fft_policy
+    from dynamix.shell.browser import DEVICE_MIME
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    fft_policy.configure("fftw", 64)
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps([])
+    event = _StubDropEvent(QtCore.QPoint(10, 10), _mime(DEVICE_MIME, "holder_map"))
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.dropEvent(event)
+    assert sig.args[0][0]["params"]["precision"] == "f64"

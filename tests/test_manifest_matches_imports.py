@@ -59,7 +59,7 @@ def _declared_distributions() -> set[str]:
     out = set()
     for spec in specs:
         # strip version constraints / markers / extras: "numba>=0.60" -> "numba"
-        name = spec.split(";")[0].split("[")[0]
+        name = spec.split(";")[0].split("[")[0].split(" @ ")[0]   # "gprv @ git+..." -> "gprv"
         for sep in (">=", "<=", "==", "!=", "~=", ">", "<"):
             name = name.split(sep)[0]
         out.add(name.strip().lower())

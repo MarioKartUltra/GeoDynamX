@@ -27,6 +27,8 @@ from __future__ import annotations
 import numpy as np
 
 from dynamix.model.contracts import FIELD, HMAP
+from dynamix.devices.precision import PRECISION_PARAM
+from dynamix.model.device import keyed_params
 from dynamix.model.param import Param, ParamKind
 
 
@@ -146,6 +148,7 @@ class HolderMap:
               soft_min=1.1, soft_max=2.0, units="", label="q"),
         Param("beta", ParamKind.FLOAT, default=1.0, min=0.1, max=8.0,
               soft_min=0.5, soft_max=2.0, units="", label="β"),
+        PRECISION_PARAM,
     )
 
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
@@ -188,4 +191,4 @@ class HolderMap:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))

@@ -25,8 +25,9 @@ from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
-from dynamix.model.device import Output
+from dynamix.model.device import Output, keyed_params
 from dynamix.devices.wtmm import BAND_PER_PARAM, SMOOTHER_PARAMS, chaining_reading, smoother_params
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
 
@@ -123,6 +124,7 @@ class WTMM2DROI:
         # Mirrors wtmm2d's Show: the raster drawn in place of the field. View-only.
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "modulus", "argument"), label="Show", view=True),
+        PRECISION_PARAM,
     )
 
     #: wtmm2d's per-scale output rows, on the ROI's own grid.
@@ -239,7 +241,7 @@ class WTMM2DROI:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """The sigma line beside the ``aₘᵢₙ`` knob, now with the analyzing wavelet's bandpass

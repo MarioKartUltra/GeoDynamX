@@ -8,6 +8,9 @@ import pytest
 
 from dynamix.core import mz_edges, mzlib
 
+#: Float64 identities and the POCS divergence flag: FFTW3 at 64-bit.
+pytestmark = pytest.mark.usefixtures("double_fft")
+
 
 def _composite64():
     """Deterministic single sharp plateau + shallow ramp, 64x64 — the near-complete regime.
@@ -63,7 +66,9 @@ def test_line_ids_are_wrap_merged_components():
     img[3, 3] += 0.5  # isolated bump, far from the edge -- guarantees a singleton component
     b = mz_edges.analyze(img, 2)
     ext = b["extrema"][0]
-    edge = np.abs(ext["x"] - 16) <= 2
+    # The step sits between columns 15 and 16. Maxima a column or two beside it are round-off
+    # ties that differ from one FFT library to the next, so only the edge columns are read.
+    edge = (ext["x"] == 15) | (ext["x"] == 16)
     assert edge.sum() >= 16
     edge_ids = np.unique(ext["line_id"][edge])
     assert edge_ids.size <= 3  # the edge is one (rarely fragmented into 2-3) component, not 16
@@ -120,11 +125,13 @@ def test_diverging_flag_is_reachable():
     unreachable in this test file. A genuine field/field (SV-C) mismatch -- maxima extracted
     from one field, coarse pinned to a DIFFERENT field via preview()'s "full" recompute --
     must set it at a large enough n_iter (mirrors tests/test_mzlib_2d.py's own S=0 divergence
-    guard, same doctrine-12 mechanism, different inconsistency). Measured: resid ratio 1.99 at n_iter=150 (not yet flagged), 114.77 at n_iter=250
-    (comfortably past the 5x threshold -- not a hair-trigger pin)."""
+    guard, same doctrine-12 mechanism, different inconsistency). The onset is seeded by FFT
+    round-off, so it moves with the FFT library. Measured resid ratio on FFTW3 64-bit: 1.16 at
+    n_iter=250, 15.9 at 450, 231 at 600; mlx 32-bit: 74 at 600 (comfortably past the 5x
+    threshold -- not a hair-trigger pin)."""
     img = _composite64()
     b = mz_edges.analyze(img, 4)
-    _, diag = mz_edges.preview(-img, b, n_iter=250)
+    _, diag = mz_edges.preview(-img, b, n_iter=600)
     assert diag["diverging"] is True
     assert diag["resid"][-1] / min(diag["resid"]) >= 5.0
 

@@ -32,6 +32,7 @@ import numpy as np
 from dynamix.model.contracts import ALPHA, EXTREMA, FIELD
 from dynamix.model.origin import LASTWAVE_DERIVED
 from dynamix.model.device import Output, keyed_params
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
 _LASTWAVE = ("algorithm", ("lastwave",))
@@ -163,6 +164,7 @@ class MZEdges:
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
                        "residual", "modulus", "argument"), label="Show", view=True),
+        PRECISION_PARAM,
     )
 
     outputs = (

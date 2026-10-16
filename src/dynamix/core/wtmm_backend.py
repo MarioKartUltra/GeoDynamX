@@ -26,17 +26,14 @@ methods), the private maxima-line ordering kernels (:func:`_walk_lines_py`,
 :func:`_smooth_dips_py`, njit-compiled on demand by :func:`_line_kernels`,
 driven by :func:`_order_lines`), the shared single-scale NMS core
 (:func:`_nms_extrema_scale`), the private numpy transcription
-of ``wtmm_ebsd.cwt2d.cwt_2d_f32`` (:func:`_cwt2d_numpy`) used as the
-universal fallback engine when ``mlx`` is unavailable, the numpy
+of ``wtmm_ebsd.cwt2d.cwt_2d_f32`` (:func:`_cwt2d_numpy`, its FFTs from the
+FFT policy) used as the engine when ``mlx`` is unavailable, the numpy
 transcription of ``wtmm_ebsd.cwt2d.tensor_svd_3x2``
 (:func:`_tensor_svd_3x2_numpy`), the pure-Python ``xsmurf_wrapper``
 stand-ins that ``tensor2d`` dependency-injects into
 ``wtmm_ebsd.twtmm.alpha_jacobian_twtmm`` (:class:`_XsmShim`,
 :class:`_XImageShim`, :class:`_ExtImageShim` and the
-:func:`_make_chain_adapter` chainer), and the private numpy transcription
-of ``wtmm.cwt.cwtd_fftw``'s overlap-save algorithm (:func:`_cwtd_numpy`)
-used as the 1D CWT's universal fallback engine when neither ``mlx`` nor
-``pyfftw`` is available, the chain ``.npz`` export/import pair
+:func:`_make_chain_adapter` chainer), the chain ``.npz`` export/import pair
 (:func:`export_chains_npz`, :func:`load_chains_npz` -- schema v3, byte
 -compatible with ``topo_wtmm.export_extrema``'s v2 via delegation to
 :func:`dynamix.core.reflayers.load_topo_extrema`), and the staged pipeline
@@ -131,7 +128,8 @@ _DERIVATIVE_NAMES = ("dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "d
 
 
 def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
-                                  wavelet: str = "gaussian", params: "dict | None" = None) -> dict:
+                                  wavelet: str = "gaussian", params: "dict | None" = None,
+                                  dtype=np.float32) -> dict:
     """Fourier-domain derivative filters at one scale (numpy transcription).
 
     Exact transcription of ``wtmm_ebsd.cwt2d._build_wavelet_filters_f32``,
@@ -144,15 +142,17 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
 
     Any other name is one of :data:`dynamix.core.smoothers.NAMES`: its θ̂ is evaluated on
     the grid and the nine filters follow the same rule (:func:`smoothers.derivative_filters`);
-    ``params`` are that smoother's parameters (``alpha``, ``q``).
+    ``params`` are that smoother's parameters (``alpha``, ``q``). ``dtype`` is the real
+    precision: float32 (complex64 filters, the reference's) or float64 at 64-bit FFTs.
     """
-    sx = (kx * scale).astype(np.float32)
-    sy = (ky * scale).astype(np.float32)
-    gauss = np.exp(-(sx * sx + sy * sy)).astype(np.float32)
+    sx = (kx * scale).astype(dtype)
+    sy = (ky * scale).astype(dtype)
+    gauss = np.exp(-(sx * sx + sy * sy)).astype(dtype)
     zero = np.zeros_like(gauss)
+    complex_dtype = np.result_type(dtype, np.complex64)
 
     def to_complex(r, i):
-        return (r + 1j * i).astype(np.complex64)
+        return (r + 1j * i).astype(complex_dtype)
 
     if wavelet == "mexican":
         k2 = sx * sx + sy * sy
@@ -172,7 +172,7 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
         if wavelet not in NAMES:
             raise ValueError(f"unknown wavelet {wavelet!r}; expected one of {NAMES}")
         sm = smoother(wavelet, params)
-        return derivative_filters(sx, sy, sm.theta_hat(sx, sy), _DERIVATIVE_NAMES)
+        return derivative_filters(sx, sy, sm.theta_hat(sx, sy), _DERIVATIVE_NAMES, dtype=dtype)
     return {
         "dx":   to_complex(zero,                    sx * gauss),
         "dy":   to_complex(zero,                    sy * gauss),
@@ -196,23 +196,28 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     later tensor slice). Same reflect padding, same ``np.fft.fftfreq``
     wavenumber grids, same per-scale filter construction (see
     :func:`_build_wavelet_filters_numpy`), same modulus/argument
-    computation, same crop back to the input shape, float32 outputs.
+    computation, same crop back to the input shape, float32 outputs -- float64 throughout when
+    the FFT backend runs at 64 bits.
 
     Parameters mirror ``cwt_2d_f32`` exactly; see that docstring. ``params`` are the
     smoother's parameters for the registry's names (:func:`_build_wavelet_filters_numpy`).
     """
+    # ``fft``: an fft_policy backend (FFTW3 at 32/64-bit, or mlx); None takes the policy's
+    # active one. Its precision sets the real dtype of the whole transform.
+    if fft is None:
+        from dynamix.core import fft_policy
+        fft = fft_policy.active()
+    _F = fft
+    real = np.float64 if getattr(fft, "precision", 32) == 64 else np.float32
     image = np.asarray(image)
     ny, nx = image.shape
-    padded = np.pad(image, pad, mode="reflect").astype(np.float32)
+    padded = np.pad(image, pad, mode="reflect").astype(real)
     ny_p, nx_p = padded.shape
     crop = (slice(pad, pad + ny), slice(pad, pad + nx))
-    kx_np = np.fft.fftfreq(nx_p).astype(np.float32)
-    ky_np = np.fft.fftfreq(ny_p).astype(np.float32)
+    kx_np = np.fft.fftfreq(nx_p).astype(real)
+    ky_np = np.fft.fftfreq(ny_p).astype(real)
     kx, ky = np.meshgrid(kx_np, ky_np)
-    # ``fft``: an fft_policy backend (FFTW3 at 32/64-bit); None keeps numpy's FFT -- the
-    # reference path.
-    _F = np.fft if fft is None else fft
-    image_fft = _F.fft2(padded.astype(np.complex64))
+    image_fft = _F.fft2(padded.astype(np.result_type(real, np.complex64)))
 
     if derivs == "first":
         names = ["dx", "dy"]
@@ -220,17 +225,18 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
         names = ["dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"]
 
     n_scales = len(scales)
-    result = {n: np.zeros((n_scales, ny, nx), dtype=np.float32) for n in names}
-    result["mod"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
-    result["arg"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
+    result = {n: np.zeros((n_scales, ny, nx), dtype=real) for n in names}
+    result["mod"] = np.zeros((n_scales, ny, nx), dtype=real)
+    result["arg"] = np.zeros((n_scales, ny, nx), dtype=real)
     for i, scale in enumerate(scales):
-        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet, params=params)
+        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet, params=params,
+                                               dtype=real)
         for name in names:
             conv = _F.ifft2(image_fft * filters[name])
-            result[name][i] = conv.real.astype(np.float32)[crop]
+            result[name][i] = conv.real.astype(real)[crop]
         dx_s, dy_s = result["dx"][i], result["dy"][i]
         result["mod"][i] = np.sqrt(dx_s * dx_s + dy_s * dy_s)
-        result["arg"][i] = np.arctan2(dy_s, dx_s).astype(np.float32)
+        result["arg"][i] = np.arctan2(dy_s, dx_s).astype(real)
         if verbose and (i % max(1, n_scales // 4) == 0 or i == n_scales - 1):
             print(f"  Scale {i}/{n_scales - 1}: a={scale:.1f}")
     return result
@@ -321,105 +327,6 @@ def resolve_tensor_svd_3x2():
         return tensor_svd_3x2
     except ImportError:
         return _tensor_svd_3x2_numpy
-
-
-def _cwtd_numpy(signal, a_min, n_oct, n_voice, wavelet_name: str = "g2",
-                 expo: float = -1.0, border: str = "mirror"):
-    """Numpy/FFT transcription of ``wtmm.cwt.cwtd_fftw``'s overlap-save CWT.
-
-    Signature- and output-compatible with ``cwtd_fftw`` (matches it to
-    ~1e-10 relative tolerance when ``pyfftw`` is present -- see
-    ``test_cwt1d_numpy_matches_fftw``) so it can serve as the 1D CWT's
-    universal-binary fallback engine when neither ``mlx`` nor ``pyfftw``
-    is importable. Reuses ``wtmm.cwt``'s own private overlap-save
-    machinery (filter construction, mirror-border part extraction,
-    periodic filter extension) verbatim -- only the FFT calls themselves
-    are swapped from ``pyfftw`` to ``numpy.fft.rfft``/``irfft``, since that
-    is the one part of ``cwtd_fftw`` that hard-depends on ``pyfftw``.
-
-    Parameters mirror ``cwtd_fftw`` exactly; see that docstring. Only
-    ``border="mirror"`` is implemented (the only border ``cwt1d`` uses);
-    other values raise ``ValueError``.
-
-    Returns
-    -------
-    (coeffs, scales, valid_ranges)
-        ``coeffs`` : (n_scales, size) float64
-        ``scales`` : (n_scales,) float64
-        ``valid_ranges`` : list[(firstp, lastp)] per scale
-    """
-    if border != "mirror":
-        raise ValueError(f"_cwtd_numpy only implements border='mirror', got {border!r}")
-
-    from dynamix._vendor.wtmm.cwt import (_build_filter_vectorized, _get_part_mirror,
-                           _next_power_of_2, _periodic_extend_filter)
-    from dynamix._vendor.wtmm.wavelets import WAVELETS
-
-    signal = np.asarray(signal, dtype=np.float64)
-    size = len(signal)
-    factor = 2.0 ** (1.0 / n_voice)
-    n_scales = n_oct * n_voice
-
-    w = WAVELETS[wavelet_name]
-    d_x_min = w["x_min_factor"] * w["fact"]  # negative
-    d_x_max = w["x_max_factor"] * w["fact"]  # positive
-
-    coeffs = np.zeros((n_scales, size), dtype=np.float64)
-    scales_arr = np.zeros(n_scales, dtype=np.float64)
-    valid_ranges = []
-
-    a = float(a_min)
-    for idx in range(n_scales):
-        scales_arr[idx] = a
-
-        sizeD = int(a * d_x_max)
-        sizeG = int(-a * d_x_min)
-        sizeTot = sizeD + sizeG + 1
-
-        if sizeTot > size:
-            raise ValueError(f"Filter size {sizeTot} > signal size {size} at scale {a:.2f}")
-
-        firstp = sizeG
-        lastp = size - 1 - sizeD
-        valid_ranges.append((firstp, lastp))
-
-        filt = _build_filter_vectorized(sizeTot, sizeG, a, wavelet_name)
-
-        filter_begin = -sizeD
-        filter_end = sizeG
-
-        part_size = _next_power_of_2(2 * sizeTot)
-        size_of_exact_data = part_size - sizeTot + 1
-
-        filt_ext = _periodic_extend_filter(filt, filter_begin, filter_end, part_size)
-        filt_ft = np.fft.rfft(filt_ext)
-
-        nb_of_parts = int(np.ceil(size / size_of_exact_data))
-        result = np.zeros(size, dtype=np.float64)
-
-        for part_nb in range(nb_of_parts):
-            part_begin = part_nb * size_of_exact_data - filter_end
-            sig_part = _get_part_mirror(signal, size, part_begin, part_size)
-
-            sig_ft = np.fft.rfft(sig_part)
-            prod_ft = sig_ft * filt_ft
-            conv_result = np.fft.irfft(prod_ft, n=part_size)
-
-            copy_start = part_nb * size_of_exact_data
-            if part_nb < nb_of_parts - 1:
-                copy_len = size_of_exact_data
-            else:
-                copy_len = size - copy_start
-
-            result[copy_start:copy_start + copy_len] = \
-                conv_result[filter_end:filter_end + copy_len]
-
-        mult = a ** expo
-        coeffs[idx] = result * mult
-
-        a *= factor
-
-    return coeffs, scales_arr, valid_ranges
 
 
 # ---------------------------------------------------------------------------
@@ -859,8 +766,8 @@ def _load_wtmm_ebsd_module(name: str):
         return module
 
 
-#: The app-wide default cwt2d engine. ``None`` = the auto-detect ``cwt2d`` always had (mlx when
-#: importable, else the numpy/FFT fallback); "mlx"/"numpy" force one engine for every call that
+#: The app-wide default cwt2d engine. ``None`` = follow the FFT policy (mlx on Apple Silicon,
+#: else FFTW3); "mlx"/"fftw" force one engine for every call that
 #: does not pass its own ``_engine``. Set by the shell from ``Settings.compute_engine`` at
 #: startup and on menu toggle. NEVER consulted by cache keys -- the backends-agree-to-float32
 #: law makes engine choice infrastructure, not physics, so switching engines must keep every
@@ -870,14 +777,14 @@ _DEFAULT_ENGINE: "str | None" = None
 
 def set_default_engine(engine: "str | None") -> None:
     """Set the app-wide default cwt2d engine: None/"auto" (follow the FFT policy,
-    :mod:`dynamix.core.fft_policy`), "mlx", "fftw", or "numpy"."""
+    :mod:`dynamix.core.fft_policy`), "mlx" or "fftw"."""
     global _DEFAULT_ENGINE
     if engine in (None, "auto"):
         _DEFAULT_ENGINE = None
-    elif engine in ("mlx", "fftw", "numpy"):
+    elif engine in ("mlx", "fftw"):
         _DEFAULT_ENGINE = engine
     else:
-        raise ValueError(f"unknown engine {engine!r}; expected 'auto', 'mlx', 'fftw' or 'numpy'")
+        raise ValueError(f"unknown engine {engine!r}; expected 'auto', 'mlx' or 'fftw'")
 
 
 def get_default_engine() -> "str | None":
@@ -903,9 +810,10 @@ def _resolve_cwt2d_engine():
             return cwt_2d_f32
         except ImportError:
             pass
-    # FFTW3 at the policy precision; numpy's FFT only as the policy's last resort
+    # The transcription on the policy backend: FFTW3 at the policy precision, or mlx's FFT
+    # when the vendored mlx loop cannot be imported
     import functools
-    return functools.partial(_cwt2d_numpy, fft=be if be.name != "mlx" else None)
+    return functools.partial(_cwt2d_numpy, fft=be)
 
 
 def _cut_edge_extrema(extrema: dict, lx: int, ly: int, border_percent: float) -> dict:
@@ -1023,12 +931,11 @@ class PythonWTMMBackend:
         smoother_params : dict or None
             The registry smoother's parameters (``{"alpha": ...}``, ``{"q": ...}``);
             validated here before dispatch; ignored by the Gaussian pair.
-        _engine : {None, "mlx", "fftw", "numpy"}
-            Private test hook. ``None`` (default) auto-selects ``mlx`` when
-            importable, else the numpy fallback. ``"mlx"`` forces the mlx
-            engine and raises ``ImportError`` if mlx is unavailable.
-            ``"numpy"`` forces the pure-numpy fallback engine regardless of
-            mlx availability (used to parity-test the two engines).
+        _engine : {None, "mlx", "fftw"}
+            Private test hook. ``None`` (default) follows the FFT policy (mlx
+            on Apple Silicon, else FFTW3). ``"mlx"`` forces the mlx engine and
+            raises ``ImportError`` if mlx is unavailable. ``"fftw"`` forces the
+            numpy transcription on FFTW3 (used to parity-test the two engines).
 
         Returns
         -------
@@ -1056,9 +963,9 @@ class PythonWTMMBackend:
             engine = _DEFAULT_ENGINE          # the app-wide master setting, when one is set
         if engine is None:
             # Follow the FFT policy -- mlx (32-bit) on Apple Silicon, else FFTW3 at the
-            # configured precision; numpy only as the policy's warned last resort.
+            # configured precision.
             from dynamix.core import fft_policy
-            engine = {"mlx": "mlx", "pyfftw": "fftw"}.get(fft_policy.active().name, "numpy")
+            engine = {"mlx": "mlx", "pyfftw": "fftw"}[fft_policy.active().name]
 
         if engine == "mlx":
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
@@ -1076,21 +983,20 @@ class PythonWTMMBackend:
                 be = fft_policy.make("pyfftw", 32)
             raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
                                 wavelet=wavelet, verbose=False, fft=be, params=smoother_params)
-        elif engine == "numpy":
-            raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
-                                wavelet=wavelet, verbose=False, params=smoother_params)
         else:
             raise ValueError(f"unknown cwt2d engine {engine!r}")
 
+        # float32 (xsmurf's contract), float64 when the FFTs ran at 64 bits
+        real = np.float64 if np.asarray(raw["mod"]).dtype == np.float64 else np.float32
         out = {
-            "mod": np.asarray(raw["mod"], dtype=np.float32),
-            "arg": np.asarray(raw["arg"], dtype=np.float32),
+            "mod": np.asarray(raw["mod"], dtype=real),
+            "arg": np.asarray(raw["arg"], dtype=real),
         }
         if derivs == "all":
             # The follow detector's derivative stacks -- both engines produce the
             # same nine keys (the numpy filter bank is an exact transcription of the mlx one).
             for name in ("dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"):
-                out[name] = np.asarray(raw[name], dtype=np.float32)
+                out[name] = np.asarray(raw[name], dtype=real)
         return out
 
     def extrema2d(self, cwt: dict, scales, *, thresh: float = 1e-3,
@@ -1691,10 +1597,8 @@ class PythonWTMMBackend:
               expo: float = -1.0) -> tuple:
         """1D continuous wavelet transform (thin delegation to ``wtmm.cwt``).
 
-        Engine auto-select, in order of preference: ``mlx.core`` importable
-        -> ``wtmm.cwt.cwtd_mlx``; else ``pyfftw`` importable ->
-        ``wtmm.cwt.cwtd_fftw``; else the pure-numpy overlap-save mirror
-        :func:`_cwtd_numpy` (the universal-binary fallback).
+        Engine: the FFT policy's -- ``wtmm.cwt.cwtd_mlx`` when the policy runs
+        on mlx, else ``wtmm.cwt.cwtd_fftw`` (FFTW3).
 
         Returns
         -------
@@ -1715,14 +1619,8 @@ class PythonWTMMBackend:
         else:
             from dynamix._vendor.wtmm.cwt import cwtd_mlx
             return cwtd_mlx(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
-        try:
-            import pyfftw  # noqa: F401
-        except ImportError:
-            pass
-        else:
-            from dynamix._vendor.wtmm.cwt import cwtd_fftw
-            return cwtd_fftw(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
-        return _cwtd_numpy(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
+        from dynamix._vendor.wtmm.cwt import cwtd_fftw
+        return cwtd_fftw(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
 
     def extrema1d(self, coeffs, scales, *, valid_ranges=None,
                   epsilon: float = 1e-6) -> tuple:
@@ -2414,7 +2312,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                                 smoother_params=resolved["smoother_params"])
             if mod is None:
                 ny, nx = one["mod"].shape[1:]
-                mod = np.empty((n_sc, ny, nx), dtype=np.float32)
+                mod = np.empty((n_sc, ny, nx), dtype=one["mod"].dtype)
                 arg = np.empty_like(mod)
                 kapa = np.empty_like(mod)
                 kapap = np.empty_like(mod)

@@ -45,6 +45,7 @@ import functools
 from dynamix.devices.holder_map import MOMENT_SOURCE, field_values_2d, projection_tables
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.device import Output, keyed_params
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
 
@@ -461,7 +462,7 @@ class HolderMeasure:
         Param("wavelet", ParamKind.CHOICE, default="gaussian",
               choices=("gaussian", "q_gaussian", "lorentzian", "frac_gaussian"),
               label="Wavelet"),
-    ) + _FAMILY_KNOBS + _width_knobs("q_gaussian") + (_CONSTRUCTION,)
+    ) + _FAMILY_KNOBS + _width_knobs("q_gaussian") + (_CONSTRUCTION, PRECISION_PARAM)
     #: The h-map engine's knobs; band_recon_measure carries them verbatim.
     engine_params = params
     params = engine_params + _MFA_VIEW_PARAMS
@@ -531,7 +532,7 @@ class HolderMultiaffine:
         Param("wavelet", ParamKind.CHOICE, default="g2",
               choices=("g1", "g2", "g3", "q_mexican", "lorentzian_marr", "frac_gaussian"),
               label="Wavelet"),
-    ) + _MULTIAFFINE_KNOBS + _width_knobs("q_mexican") + (_CONSTRUCTION,)
+    ) + _MULTIAFFINE_KNOBS + _width_knobs("q_mexican") + (_CONSTRUCTION, PRECISION_PARAM)
     #: The h-map engine's knobs; band_recon_multiaffine carries them verbatim.
     engine_params = params
     params = engine_params + _MFA_VIEW_PARAMS

@@ -147,9 +147,9 @@ def _dynamix_settings_isolated(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fft_policy_reset():
-    """The FFT engine policy is process-global (fft_policy.configure also re-points mzlib's
-    FFT); a MainWindow applies Settings at startup -- put the unconfigured default back after
-    every test so no test leaks an engine/precision into the next."""
+    """The FFT engine policy is process-global (mzlib's FFT follows it); a MainWindow applies
+    Settings at startup -- put the unconfigured default back after every test so no test
+    leaks an engine/precision into the next."""
     yield
     from dynamix.core import fft_policy
 
@@ -195,3 +195,13 @@ def _warm_numba_kernels():
         DEVICES.clear()
         DEVICES.update(saved)
         fft_policy.reset()
+
+
+@pytest.fixture
+def double_fft():
+    """FFTW3 at 64-bit for a test that asserts float64 identities (round trips, exact
+    reconstruction): the unconfigured policy runs at 32-bit, as the app does by default."""
+    from dynamix.core import fft_policy
+
+    fft_policy.configure("fftw", 64)
+    yield
