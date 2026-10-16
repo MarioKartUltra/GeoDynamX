@@ -22,6 +22,10 @@ _REPO = pathlib.Path(__file__).resolve().parent.parent
 _RESEARCH = _REPO / "research" / "reconstruction"
 
 
+#: The research gates are float64 identities, and mzlib's FFT follows the policy.
+pytestmark = pytest.mark.usefixtures("double_fft")
+
+
 # ---------------------------------------------------------------- drift guard
 
 #: The ONE recorded edit: the public copy states the backend-agreement rule without citing the

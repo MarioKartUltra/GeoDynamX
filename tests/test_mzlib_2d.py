@@ -4,8 +4,12 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from dynamix.core import mzlib
+
+#: Float64 identities: mzlib's FFT follows the policy, pinned here to FFTW3 at 64-bit.
+pytestmark = pytest.mark.usefixtures("double_fft")
 
 
 def _composite64():
@@ -110,10 +114,14 @@ def test_edges_only_diverges_without_the_coarse_channel():
     for a comfortable margin past onset. First-run MEASURED ratio at n_iter=200: x11.7 (resid
     1.474e+01 -> 1.725e+02), consistent with script 22's own note
     that growth is structural but the exact ratio is not (post-divergence trajectories are
-    1-ulp-chaotic; the gate pins >=5x, not a tight value)."""
+    1-ulp-chaotic; the gate pins >=5x, not a tight value).
+
+    Those counts were measured on numpy's FFT. The onset is seeded by round-off, so it moves
+    with the FFT library: on FFTW3 64-bit the ratio is x0.98 at 200, x5.8 at 400 and x207 at
+    600 (FFTW3 32-bit x192, mlx x75 at 600), hence n_iter=600."""
     img = _composite64()
     J = 4
     S, _, maxima = _maxima_for(img, J)
-    _, resid, _ = mzlib.pocs2d(maxima, np.zeros_like(S), img.shape, J, n_iter=200)
+    _, resid, _ = mzlib.pocs2d(maxima, np.zeros_like(S), img.shape, J, n_iter=600)
     early = min(resid[:15])
     assert resid[-1] / early >= 5.0

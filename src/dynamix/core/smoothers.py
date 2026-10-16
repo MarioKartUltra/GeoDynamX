@@ -166,7 +166,9 @@ def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 1
     kx, ky = np.meshgrid(kappa, kappa)
     sx, sy = np.pi * np.sqrt(2.0) * kx, np.pi * np.sqrt(2.0) * ky   # s = k a = κ (a/σ)
     filt = theta_hat(sx, sy) * (1j * sx) ** int(deriv_order)
-    row = np.fft.ifft2(filt)[0]
+    from dynamix.core.fft_policy import double
+
+    row = double().ifft2(filt)[0]
     y = np.real(np.fft.fftshift(row))[1:]                    # drop −n/2: a grid symmetric about 0
     u = (np.arange(1, n) - n // 2) * du
     keep = np.abs(u) <= float(span)
