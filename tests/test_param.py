@@ -205,4 +205,4 @@ def test_cdf_edges_labels_its_edge_readouts_and_stores_mz_and_marr():
 
     p = next(p for p in CDFEdges.params if p.name == "edge_mode")
     assert p.choices == ("mz", "marr") and p.default == "mz"
-    assert p.choice_labels == ("Canny (Re)", "Marr (Im)")
+    assert p.choice_labels == ("u gradient maxima (app)", "v zero crossings (edge detector)")
