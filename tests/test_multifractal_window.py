@@ -708,3 +708,26 @@ def test_the_cumulant_range_is_disabled_without_moduli_or_moments(qtbot):
     window = MultifractalWindow(*_pair())
     qtbot.addWidget(window)
     assert not window.cumulant_range_check.isEnabled()
+
+
+def test_a_q_picked_on_the_c_q_panel_sets_the_d_h_tangent(qtbot):
+    """A vertical line on c(q) picks the q of the D(h) tangent (slope q, through the fitted
+    (h(q), D(q))), snapped to the fitted q grid; before any pick it sits at the automatic
+    convexity-loss q_c, and a refit keeps the picked q."""
+    window = MultifractalWindow(*_broken_pair())
+    qtbot.addWidget(window)
+    pick = window._q_pick_line
+    assert pick.isVisible() and not window._tangent_line.isVisible()     # std: concave
+    pick.setValue(-1.3)                                                 # a drag
+    pick.sigPositionChangeFinished.emit(pick)
+    assert pick.value() == pytest.approx(-1.5)                          # the q grid steps 0.5
+    fit = window.current_fit()
+    i = int(np.argmin(np.abs(np.asarray(fit["q_list"]) + 1.5)))
+    line = window._tangent_line
+    assert line.isVisible()
+    x, y = line.xData, line.yData
+    assert (y[-1] - y[0]) / (x[-1] - x[0]) == pytest.approx(-1.5)
+    assert y[0] == pytest.approx(fit["D"][i] + 1.5 * fit["h"][i])
+    assert "q = -1.5" in window._tangent_label.textItem.toPlainText()
+    window._table_combo.setCurrentText("sup (cmax)")
+    assert window._tangent_line.isVisible() and pick.value() == pytest.approx(-1.5)
