@@ -587,7 +587,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         hd = self._current_hd()
         q_list = np.asarray(hd["q_list"], dtype=np.float64)
         lo, hi = float(self._lo_spin.value()), float(self._hi_spin.value())
-        sup = self._table_combo.currentText() == TABLE_CHOICES[0]
+        sup = self._table_combo.currentText() == "sup (cmax)"
         for curve, mask in ((self._dom_curve, dom), (self._non_curve, ~dom)):
             if not mask.any():
                 curve.setData([], [])

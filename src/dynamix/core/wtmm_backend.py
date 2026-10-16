@@ -1219,7 +1219,10 @@ class PythonWTMMBackend:
 
     def chains2d(self, extrema: list, scales, *, similitude: float = 0.8,
                  box_ratio: float = 1.0, dist2_max: float = 50.0,
-                 min_len: int = 2, smooth: bool = True, band_per: str = "voice") -> list:
+                 min_len: int = 2, smooth: bool = True, band_per: str = "voice",
+                 angle_test: bool = False, angle_threshold: float = 0.8,
+                 radius_rule: str = "xsmurf", radius_c: float = 1.0,
+                 tie_break: str = "distance") -> list:
         """Cross-scale WTMM chains -- an exact port of xsmurf's ``vchain``.
 
         Transcribes ``vert_chain`` (``xsmurf/wt2d/chain2.c``) together with the
@@ -1285,6 +1288,18 @@ class PythonWTMMBackend:
             Chains spanning fewer than this many scales are dropped.
         smooth : bool
             Forwarded to :meth:`single_maxima2d` (xsmurf ``ssm -smooth``).
+        angle_test, angle_threshold : bool, float
+            Off by default (xsmurf: the test is commented out of ``vchain``). On, a candidate
+            also needs ``1 - |Δarg|/π > angle_threshold`` for Δarg or Δarg − π (a gradient
+            flipped by π is accepted).
+        radius_rule, radius_c : str, float
+            ``"xsmurf"`` (default): the box and the squared-distance cap above.
+            ``"scale_proportional"``: radius ``r = radius_c · a_{s+1} · (a_{s+1}/a_s − 1)`` (the
+            normalized scales are already in pixels, ``a_px = a · 6 / 0.86``), as the box
+            half-size and the distance cap.
+        tie_break : str
+            ``"distance"`` (default): a coarser maximum keeps its closest claimant (xsmurf).
+            ``"modulus"``: the claimant whose modulus is closest (smallest ``|ln ratio|``).
 
         Returns
         -------
@@ -1306,9 +1321,13 @@ class PythonWTMMBackend:
         mods = [np.asarray(e["mod"], dtype=np.float64) for e in sm]
         pts = [np.column_stack([xs[s], ys[s]]) for s in range(n_sc)]
 
-        r_max = float(np.sqrt(dist2_max))
         if band_per not in BAND_PER:
             raise ValueError(f"band_per {band_per!r}; known: {BAND_PER}")
+        if radius_rule not in ("xsmurf", "scale_proportional"):
+            raise ValueError(f"radius_rule {radius_rule!r}; known: ('xsmurf', 'scale_proportional')")
+        if tie_break not in ("distance", "modulus"):
+            raise ValueError(f"tie_break {tie_break!r}; known: ('distance', 'modulus')")
+        args = [np.asarray(e["arg"], dtype=np.float64) for e in sm] if angle_test else None
 
         # --- vchain, scale pair by scale pair (the ONLY loop over scales) ---
         parent = [np.full(len(pts[s]), -1, dtype=np.int64) for s in range(n_sc)]
@@ -1322,7 +1341,12 @@ class PythonWTMMBackend:
                 linked = nxt_linked
                 continue
 
-            box = max(1, int(box_ratio * np.log2(scales[s + 1]) * 2))
+            if radius_rule == "scale_proportional":
+                radius = radius_c * scales[s + 1] * (scales[s + 1] / scales[s] - 1.0)
+                box, cap2 = max(1.0, radius), radius * radius
+            else:
+                box, cap2 = max(1, int(box_ratio * np.log2(scales[s + 1]) * 2)), dist2_max
+            r_max = float(np.sqrt(cap2))
             # The modulus-ratio band: xsmurf's, per voice (one step of the ladder); per octave, the
             # similitude bounds the ratio over a whole octave and this step takes its share.
             lo_band = (similitude ** float(np.log2(scales[s + 1] / scales[s]))
@@ -1360,7 +1384,11 @@ class PythonWTMMBackend:
                        & (np.abs(cx[jj] - fx[todo][:, None]) <= box)
                        & (np.abs(cy[jj] - fy[todo][:, None]) <= box)
                        & (ratio > lo_band) & (ratio < hi_band)
-                       & (d2 < dist2_max))
+                       & (d2 < cap2))
+                if angle_test:
+                    turn = np.abs(np.angle(np.exp(1j * (args[s + 1][jj]
+                                                        - args[s][elig][todo][:, None]))))
+                    adm &= np.maximum(1.0 - turn / np.pi, turn / np.pi) > angle_threshold
                 # nearest admissible, ties broken by lowest candidate index
                 key_d = np.where(adm, d2, np.inf)
                 key_j = np.where(adm, jj, n_c)
@@ -1374,12 +1402,14 @@ class PythonWTMMBackend:
                 truncated = np.isfinite(d[:, -1]) if k < n_c else np.zeros(todo.size, bool)
                 todo = todo[~got & truncated]
 
-            # --- pass (b): each coarser single max keeps its closest claimant
+            # --- pass (b): each coarser single max keeps its closest claimant (xsmurf), or the
+            # claimant whose modulus is closest (tie_break="modulus")
             has = best_j >= 0
             if has.any():
                 f_idx = elig[has]
                 c_idx = best_j[has]
-                d2_win = best_d2[has]
+                d2_win = (best_d2[has] if tie_break == "distance"
+                          else np.abs(np.log(cmod[c_idx] / fmod[has])))
                 order = np.lexsort((d2_win, c_idx))     # by target, then dist
                 first = np.ones(order.size, dtype=bool)
                 first[1:] = c_idx[order][1:] != c_idx[order][:-1]
@@ -1931,6 +1961,8 @@ _WTMM2D_PARAM_DEFAULTS = {
     # The chainer (dynamix.core.chaining): the benchmark by default, so the chains stage's key is
     # what it was for every recipe that names none.
     "chainer": "xsmurf_bench",
+    # Spec 14's chaining options, off by default (xsmurf's behaviour); see chaining.OPTION_DEFAULTS.
+    **chaining.OPTION_DEFAULTS,
     "q_list": DEFAULT_Q,
     "pad": 32,
     # No pseudo-fractional integration unless asked: with eta = 0 a chain's log2-modulus slope is
@@ -2401,9 +2433,13 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         chains_key["band_per"] = resolved["band_per"]
     if resolved["chainer"] != chaining.DEFAULT:
         chains_key["chainer"] = resolved["chainer"]
+    for name, default in chaining.OPTION_DEFAULTS.items():   # off: the stage keys stay as they were
+        if resolved[name] != default:
+            chains_key[name] = resolved[name]
 
     def compute_chains():
-        return chaining.link(extrema, scales, resolved, backend)
+        return chaining.link(extrema, scales, resolved, backend,
+                             shape=tuple(field.values.shape)[:2])
 
     _ck()
     chains = _run_stage("chains", chains_key, out_dir, field.name, compute_chains,

@@ -58,6 +58,32 @@ def smoother_params(params: dict) -> dict | None:
 
 
 #: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
+#: Spec 14's chaining options (``dynamix.core.chaining.OPTION_DEFAULTS``), off by default
+#: (xsmurf's behaviour), in the inspector's advanced section, out of the key at their defaults.
+CHAINING_OPTION_PARAMS = (
+    Param("angle_test", ParamKind.BOOL, default=False, label="Angle test", level="advanced",
+          keyed_at_default=False),
+    Param("angle_threshold", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0, soft_min=0.5,
+          soft_max=0.95, label="Angle similarity", level="advanced", keyed_at_default=False,
+          active_when=("angle_test", (True,))),
+    Param("radius_rule", ParamKind.CHOICE, default="xsmurf",
+          choices=("xsmurf", "scale_proportional"), choice_labels=("xsmurf box", "∝ scale"),
+          label="Search radius", level="advanced", keyed_at_default=False),
+    Param("radius_c", ParamKind.FLOAT, default=1.0, min=0.01, max=100.0, soft_min=0.5,
+          soft_max=4.0, label="Radius c", level="advanced", keyed_at_default=False,
+          active_when=("radius_rule", ("scale_proportional",))),
+    Param("tie_break", ParamKind.CHOICE, default="distance", choices=("distance", "modulus"),
+          choice_labels=("closer wins (xsmurf)", "modulus closer"), label="Tie-break",
+          level="advanced", keyed_at_default=False),
+    Param("border_policy", ParamKind.CHOICE, default="none",
+          choices=("none", "coi_trim", "coi_drop"),
+          choice_labels=("none (xsmurf)", "trim at COI", "drop at COI"), label="Border",
+          level="advanced", keyed_at_default=False),
+    Param("coi_k", ParamKind.FLOAT, default=2.0, min=0.1, max=10.0, soft_min=1.0, soft_max=4.0,
+          label="COI k", level="advanced", keyed_at_default=False,
+          active_when=("border_policy", ("coi_trim", "coi_drop"))),
+)
+
 BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
                        choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
 
@@ -182,6 +208,7 @@ class WTMM2D:
         Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
+        *CHAINING_OPTION_PARAMS,
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -237,6 +264,7 @@ class WTMM2D:
                 "detector": params["detector"],
                 "band_per": params["band_per"],
                 "chainer": params["chainer"],
+                **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
             },
             progress=progress,
             cancel=cancel,
