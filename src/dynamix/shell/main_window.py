@@ -73,6 +73,7 @@ from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
+from dynamix.devices.precision import placement_params
 from dynamix.model.device import (declared_outputs, defaults_for, get_device, is_transform,
                                   keyed_params, validate_params)
 from dynamix.model.forking import drop_states, is_primary, routing_head, ships_to
@@ -2777,7 +2778,7 @@ off / z from this layer's own values / z from another loaded
             return
         recon_name = _band_device_for(self._names)
         producer = next((n for n in _BAND_FOR_ANALYZER if n in self._names), None)
-        engine = dict(defaults_for(get_device(recon_name)))
+        engine = placement_params(get_device(recon_name))
         if producer is not None:
             # The variant takes the producer's params it declares: the engine and band knobs.
             engine.update({k: v for k, v in self._params[self._names.index(producer)].items()
@@ -4688,8 +4689,8 @@ both ``Canvas`` signals report the
         saved = update_settings(compute_precision=int(precision))
         note = " (64-bit runs on FFTW3)" if int(precision) == 64 else ""
         warn = precision_note(saved.compute_engine, int(precision))
-        self._notify(f"FFT precision set to {int(precision)}-bit{note} — restart DynamiX to "
-                     "apply" + (f". {warn}" if warn else ""), "status")
+        self._notify(f"FFT precision set to {int(precision)}-bit{note} for newly placed tools — "
+                     "restart DynamiX to apply" + (f". {warn}" if warn else ""), "status")
 
     def _on_engine_selected(self, engine: str) -> None:
         """Settings > Compute engine: persisted; applied at the next start through fft_policy
@@ -8236,6 +8237,12 @@ both ``Canvas`` signals report the
             # the region -- on the ROI alone -- and the user is told what that costs.
             self._notify("this tool declares no ROI margin — it ran on the ROI alone, so the "
                          "ROI border carries ordinary edge effects", "status")
+        if "precision" in (renderable.analysis_params or {}):
+            from dynamix.devices.precision import precision_reading
+
+            note = precision_reading(renderable.analysis_params)
+            if note:
+                self._notify(f"{renderable.analysis_device}: {note}", "status")
         # `scales` is a numpy ARRAY from the real transform, so no truthiness test may touch it --
         # `x or ()` on an ndarray raises, and it raised here inside a worker-signal slot, where Qt
         # prints the traceback and carries on as if nothing happened.

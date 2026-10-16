@@ -223,6 +223,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.chain import Chain, DeviceRef
+from dynamix.devices.precision import placement_params
 from dynamix.model.device import Device, defaults_for, get_device, is_transform
 from dynamix.model.families import label_of
 from dynamix.model.param import Param
@@ -1272,7 +1273,7 @@ class WorkflowZone(QtWidgets.QFrame):
             self._pending_placement = (name, self._placement_message(name))
         index = clamped
         self._pending_scroll_to = index
-        self._descriptors.insert(index, {"device": name, "params": defaults_for(device),
+        self._descriptors.insert(index, {"device": name, "params": placement_params(device),
                                          "bypassed": False, "rack": rack})
 
     def _handle_preset_drop(self, name: str) -> None:

@@ -1723,3 +1723,18 @@ def test_an_inactive_box_shows_its_reason_and_keeps_its_params_and_bypass(qtbot,
     box.set_reading("kept 3/4")
     box.set_inactive("")
     assert box.reading_label.text() == "kept 3/4"          # an ordinary reading is kept
+
+
+def test_a_dropped_fft_tool_starts_at_the_settings_precision(qtbot, registered_builtins):
+    from dynamix.core import fft_policy
+    from dynamix.shell.browser import DEVICE_MIME
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    fft_policy.configure("fftw", 64)
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps([])
+    event = _StubDropEvent(QtCore.QPoint(10, 10), _mime(DEVICE_MIME, "holder_map"))
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.dropEvent(event)
+    assert sig.args[0][0]["params"]["precision"] == "f64"

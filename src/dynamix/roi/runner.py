@@ -24,6 +24,7 @@ import inspect
 
 import numpy as np
 
+from dynamix.core import fft_policy
 from dynamix.model.contracts import stamp_fill
 
 __all__ = ["crop_result_to_roi", "read_processing_window", "roi_margin_of",
@@ -347,17 +348,19 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
     roi_values = np.asarray(window.values)[m:m + h, m:m + w].copy()
     for device, params in steps[:-1]:                        # the field stage (noise, fill, ...)
         kw = {"cancel": cancel} if getattr(device, "wants_cancel", False) else {}
-        window = device.compute(window, params, progress=progress, **kw)
+        with fft_policy.scope_for(device, params):
+            window = device.compute(window, params, progress=progress, **kw)
     analyzer, aparams = steps[-1]
     compute_roi = getattr(analyzer, "compute_roi", None)
     if compute_roi is not None:
         rkw = {"cancel": cancel} if "cancel" in inspect.signature(compute_roi).parameters else {}
-        res = dict(compute_roi(window, (m, m, h, w), aparams, info=info, progress=progress, **rkw))
+        with fft_policy.scope_for(analyzer, aparams):
+            res = dict(compute_roi(window, (m, m, h, w), aparams, info=info, progress=progress,
+                                   **rkw))
     else:
-        if getattr(analyzer, "wants_cancel", False):
-            full = analyzer.compute(window, aparams, progress=progress, cancel=cancel)
-        else:
-            full = analyzer.compute(window, aparams, progress=progress)
+        kw = {"cancel": cancel} if getattr(analyzer, "wants_cancel", False) else {}
+        with fft_policy.scope_for(analyzer, aparams):
+            full = analyzer.compute(window, aparams, progress=progress, **kw)
         had_product = "chain_product" in full
         res = crop_result_to_roi(full, m, h, w, np.asarray(window.values).shape[:2])
         for level in res.get("extrema") or []:

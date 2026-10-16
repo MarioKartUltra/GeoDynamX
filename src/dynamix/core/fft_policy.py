@@ -10,8 +10,12 @@ Every FFT runs on mlx or FFTW3, never numpy. So:
 - neither installed is an error: pyfftw is a dependency on every platform.
 
 Set once at startup from ``Settings.compute_engine`` / ``Settings.compute_precision`` (changes apply after a restart) via :func:`configure`. Every FFT consumer calls :func:`active`
-at call time. Engine and precision are INFRASTRUCTURE, never part of a cache key: the project's
+at call time. The engine is INFRASTRUCTURE, never part of a cache key: the project's
 backends-agree-to-float32 law (tests/test_fft_policy.py pins the agreement for every engine).
+Precision reaches a key only as an ordinary device param (``precision``, f32 or f64): the engine
+runs a device's compute inside :func:`using` its precision, so :func:`active` hands every FFT in it
+a backend at that precision; mlx has no 64-bit FFT, so a 64-bit request there runs on FFTW3 and
+:func:`resolve` says so in its note, never a silent downcast.
 
 ``fftbackend.py`` and ``mzlib.py`` are VERBATIM copies of the research repo
 (tests/test_mzlib_port.py) and are never edited: the policy reaches mzlib by reassigning its
@@ -20,12 +24,15 @@ pyfftw and mlx are imported lazily, inside the backends.
 """
 from __future__ import annotations
 
+import contextlib
 import os
+import threading
 
 import numpy as np
 
-__all__ = ["ENGINES", "PRECISIONS", "active", "configure", "double", "make", "precision_note",
-           "reset", "resolve"]
+__all__ = ["ENGINES", "PRECISIONS", "active", "bits", "configure", "configured_precision",
+           "context", "double", "make", "note", "precision_note", "reset", "resolve", "scope_for",
+           "using"]
 
 ENGINES = ("auto", "mlx", "fftw")
 PRECISIONS = (32, 64)
@@ -78,12 +85,15 @@ class _PyFFTW:
 
 class _MLX:
     """mlx.core.fft, single precision always (complex64/float32), converting at the
-    numpy<->mlx boundary on every call."""
+    numpy<->mlx boundary on every call. A 64-bit request is refused: :func:`resolve` sends it
+    to FFTW3 with a note, never a silent downcast."""
     name = "mlx"
 
     def __init__(self, precision=32):
         import mlx.core as mx
 
+        if bits(precision) == 64:
+            raise ValueError(MLX_NO_DOUBLE)
         self._mx = mx
         self.precision = 32
 
@@ -140,27 +150,45 @@ def _importable(mod: str) -> bool:
         return False
 
 
+#: The note when a 64-bit FFT is asked where the engine would be mlx.
+MLX_NO_DOUBLE = "mlx has no double FFT; using FFTW3 double"
+#: The note for the reserved CUDA engine.
+CUDA_NOT_INSTALLED = "CUDA is not installed; using the default engine"
+
+
+def bits(precision) -> int:
+    """32 or 64 from ``"f32"``/``"f64"``, ``"float32"``/``"float64"`` or the number itself."""
+    text = str(precision)
+    return 64 if text in ("64", "f64", "float64") else 32
+
+
 def resolve(engine="auto", precision=32, *, platform=None, machine=None, have=None):
-    """``(backend_name, precision)`` for a requested engine/precision on this machine; a
-    RuntimeError when neither mlx nor pyfftw is installed."""
+    """``(backend_name, precision, note)`` for a requested engine/precision on this machine. The
+    note is empty unless the request could not be met as asked (64-bit where the engine would be
+    mlx, or the reserved ``cuda``); a RuntimeError when neither mlx nor pyfftw is installed."""
     import platform as _pf
     import sys
 
-    precision = 64 if int(precision) == 64 else 32
+    precision = bits(precision)
     platform = sys.platform if platform is None else platform
     machine = _pf.machine() if machine is None else machine
     if have is None:
         have = {"mlx": _importable("mlx"), "pyfftw": _importable("pyfftw")}
+    note = ""
+    if engine == "cuda":
+        note, engine = CUDA_NOT_INSTALLED, "auto"
     apple_silicon = platform == "darwin" and machine == "arm64"
     want = engine if engine in ("mlx", "fftw") else ("mlx" if apple_silicon else "fftw")
+    if precision == 64 and want == "mlx" and (apple_silicon or have.get("mlx")) and have.get("mlx"):
+        note = note or MLX_NO_DOUBLE
     if precision == 64 or not apple_silicon:
         want = "fftw"
     if want == "mlx" and have.get("mlx"):
-        return "mlx", 32
+        return "mlx", 32, note
     if have.get("pyfftw"):
-        return "pyfftw", precision
+        return "pyfftw", precision, note
     if have.get("mlx") and precision == 32:
-        return "mlx", 32
+        return "mlx", 32, note
     raise RuntimeError("neither mlx nor pyfftw is installed; every FFT runs on one of them "
                        "(pip install pyfftw)")
 
@@ -170,7 +198,7 @@ def precision_note(engine: str, precision: int, **machine) -> str:
     64-bit float only on the CPU and its FFT still returns complex64 (it has no complex128), so
     64-bit FFTs run on FFTW3 on the CPU instead of mlx on the GPU. Empty otherwise. ``machine``
     passes :func:`resolve`'s ``platform`` / ``machine`` / ``have``."""
-    if int(precision) != 64 or resolve(engine, 32, **machine)[0] != "mlx":
+    if bits(precision) != 64 or resolve(engine, 32, **machine)[0] != "mlx":
         return ""
     return "⚠ 64-bit FFTs run on FFTW3 on the CPU, not on mlx's GPU: mlx has no 64-bit FFT"
 
@@ -193,17 +221,93 @@ def configure(engine="auto", precision=32):
     """Set the app-wide policy backend (mzlib follows it); returns the resolved
     ``(name, precision)``."""
     global _ACTIVE, _CONFIG
-    name, prec = resolve(engine, precision)
+    name, prec, _note = resolve(engine, precision)
     _ACTIVE = make(name, prec)
-    _CONFIG = (engine, int(precision))
+    _CONFIG = (engine, bits(precision))
+    _BY_PRECISION.clear()
     return name, prec
 
 
+#: The precision a device's compute asked for, per thread (the engine computes in workers).
+_SCOPE = threading.local()
+#: Backends made for a scoped precision other than the configured one, by precision.
+_BY_PRECISION: dict = {}
+
+
+@contextlib.contextmanager
+def using(precision):
+    """Every :func:`active` call in this thread, inside the block, answers with a backend at
+    ``precision`` (``"f32"``/``"f64"``/32/64) on the configured engine: the engine runs a device's
+    compute, outputs and preview inside its ``precision`` param. Nests; restores on exit."""
+    previous = getattr(_SCOPE, "precision", None)
+    _SCOPE.precision = bits(precision)
+    try:
+        yield
+    finally:
+        _SCOPE.precision = previous
+
+
+def scope_for(device, params: dict):
+    """:func:`using` the device's ``precision`` param when it declares one, else a no-op."""
+    if any(getattr(p, "name", None) == "precision" for p in getattr(device, "params", ())):
+        return using(params.get("precision", "f32"))
+    return contextlib.nullcontext()
+
+
+def configured_precision() -> int:
+    """The app-wide precision :func:`configure` set (32 until it runs): the FFTs outside a tool's
+    compute run at it, and a newly placed tool's knob starts at it."""
+    return _CONFIG[1]
+
+
+def _wanted(precision) -> int:
+    return bits(precision) if precision is not None else (getattr(_SCOPE, "precision", None)
+                                                          or _CONFIG[1])
+
+
+def note(precision=None) -> str:
+    """The fallback note for ``precision`` (the scoped or configured one by default) on the
+    configured engine; empty when it runs as asked."""
+    return resolve(_CONFIG[0], _wanted(precision))[2]
+
+
+def context(precision=None) -> dict:
+    """The execution context of an FFT run at ``precision`` (the scoped or configured one by
+    default) on the configured engine, in gprv 0.2's terms (§6.2): the precision actually used,
+    the backend that runs it (name, library version, planner, binding) and the fallback note
+    when the request could not run as asked."""
+    name, prec, why = resolve(_CONFIG[0], _wanted(precision))
+    if name == "pyfftw":
+        import pyfftw
+        import pyfftw.config
+
+        backend = {"name": "fftw", "version": str(pyfftw.fftw_version),
+                   "planner": str(pyfftw.config.PLANNER_EFFORT),
+                   "binding": f"pyfftw {pyfftw.__version__}"}
+    else:
+        import mlx.core as mx
+
+        backend = {"name": "mlx", "version": str(mx.__version__), "planner": None,
+                   "binding": None}
+    out = {"precision": "float64" if prec == 64 else "float32", "backend": backend}
+    if why:
+        out["fallback"] = why
+    return out
+
+
 def active():
-    """The app-wide policy backend (``auto``/32 until :func:`configure` runs)."""
+    """The policy backend: at the scoped precision inside :func:`using`, else the app-wide one
+    (``auto``/32 until :func:`configure` runs)."""
     global _ACTIVE
+    scoped = getattr(_SCOPE, "precision", None)
+    if scoped is not None and scoped != _CONFIG[1]:
+        be = _BY_PRECISION.get(scoped)
+        if be is None:
+            name, prec, _note = resolve(_CONFIG[0], scoped)
+            be = _BY_PRECISION[scoped] = make(name, prec)
+        return be
     if _ACTIVE is None:
-        name, prec = resolve(*_CONFIG)
+        name, prec, _note = resolve(*_CONFIG)
         _ACTIVE = make(name, prec)
     return _ACTIVE
 
@@ -213,11 +317,14 @@ def reset():
     global _ACTIVE, _CONFIG
     _ACTIVE = None
     _CONFIG = ("auto", 32)
+    _BY_PRECISION.clear()
+    _SCOPE.precision = None
 
 
 class _Following:
     """mzlib's ``FFT`` global: every attribute is the :func:`active` backend's at the time of
-    the call, so mzlib runs on the configured engine and precision without being edited."""
+    the call, so mzlib runs on the configured engine, and inside a device's :func:`using` scope
+    at its precision, without being edited."""
 
     def __getattr__(self, name):
         return getattr(active(), name)

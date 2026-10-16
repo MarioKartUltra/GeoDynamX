@@ -43,8 +43,9 @@ class Settings:
     #: ``dynamix.core.wtmm_backend.set_default_engine`` -- NEVER part of a cache key or recipe:
     #: the backends-agree-to-float32 law makes engine choice infrastructure, not physics.
     compute_engine: str = "auto"
-    #: FFT precision for EVERY FFT in the app, 32 (the default,
-    #: xsmurf's own single precision) or 64 (runs on FFTW3 -- mlx is single precision only).
+    #: The startup FFT precision, 32 (the default, xsmurf's own single precision) or 64 (runs on
+    #: FFTW3 -- mlx is single precision only): a newly placed tool's "FFT precision" knob starts
+    #: at it, and the FFTs outside a tool's compute run at it. A placed tool runs at its own knob.
     #: Engine choices are "auto" (mlx on Apple Silicon, else FFTW3), "mlx", "fftw"; a file
     #: saved with a "numpy" choice loads as the CPU engine, "fftw". Applied at STARTUP
     #: through dynamix.core.fft_policy.configure (restart to apply).

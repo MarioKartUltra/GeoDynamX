@@ -55,13 +55,14 @@ _ORDERS = {"dx": (1, 0), "dy": (0, 1), "dxx": (2, 0), "dxy": (1, 1), "dyy": (0, 
            "dxxx": (3, 0), "dxxy": (2, 1), "dxyy": (1, 2), "dyyy": (0, 3)}
 
 
-def derivative_filters(sx, sy, theta_hat, names) -> dict:
-    """``{name: complex64}`` -- the filters ``(i s_x)^p (i s_y)^q θ̂`` for the derivative names,
+def derivative_filters(sx, sy, theta_hat, names, dtype=np.float32) -> dict:
+    """``{name: complex}`` -- the filters ``(i s_x)^p (i s_y)^q θ̂`` for the derivative names,
     written as explicit real and imaginary parts order by order, the backend's structure:
-    first order imaginary +, second real −, third imaginary −."""
-    sx = np.asarray(sx, dtype=np.float32)
-    sy = np.asarray(sy, dtype=np.float32)
-    th = np.asarray(theta_hat, dtype=np.float32)
+    first order imaginary +, second real −, third imaginary −. ``dtype`` is the real precision
+    (float32, complex64 filters, the transform's default; float64 at 64-bit FFTs)."""
+    sx = np.asarray(sx, dtype=dtype)
+    sy = np.asarray(sy, dtype=dtype)
+    th = np.asarray(theta_hat, dtype=dtype)
     zero = np.zeros_like(th)
     out = {}
     for name in names:
@@ -78,7 +79,7 @@ def derivative_filters(sx, sy, theta_hat, names) -> dict:
             real, imag = -mag, zero
         else:
             real, imag = zero, -mag
-        out[name] = (real + 1j * imag).astype(np.complex64)
+        out[name] = (real + 1j * imag).astype(np.result_type(dtype, np.complex64))
     return out
 
 

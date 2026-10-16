@@ -21,16 +21,17 @@ def _have(mlx=True, pyfftw=True):
     ("darwin", "arm64", _have(mlx=False), ("pyfftw", 32)),     # mlx missing -> FFTW3
 ])
 def test_auto_picks_mlx_on_apple_silicon_and_fftw3_elsewhere(platform, machine, have, want):
-    assert fb.resolve("auto", 32, platform=platform, machine=machine, have=have) == want
+    assert fb.resolve("auto", 32, platform=platform, machine=machine, have=have)[:2] == want
 
 
 def test_64_bit_always_falls_to_fftw3_because_mlx_is_32_bit_only():
     kw = dict(platform="darwin", machine="arm64", have=_have())
-    assert fb.resolve("auto", 64, **kw) == ("pyfftw", 64)
-    assert fb.resolve("mlx", 64, **kw) == ("pyfftw", 64)
-    assert fb.resolve("fftw", 32, **kw) == ("pyfftw", 32)
+    assert fb.resolve("auto", 64, **kw) == ("pyfftw", 64, fb.MLX_NO_DOUBLE)
+    assert fb.resolve("mlx", 64, **kw) == ("pyfftw", 64, fb.MLX_NO_DOUBLE)
+    assert fb.resolve("fftw", 32, **kw) == ("pyfftw", 32, "")
+    assert fb.resolve("fftw", 64, **kw) == ("pyfftw", 64, "")           # asked for FFTW: no note
     assert fb.resolve("mlx", 32, platform="win32", machine="AMD64",
-                      have=_have(mlx=False)) == ("pyfftw", 32)
+                      have=_have(mlx=False)) == ("pyfftw", 32, "")
 
 
 def test_without_mlx_or_pyfftw_the_policy_refuses():

@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from dynamix.core import fft_policy
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
 from dynamix.model.contracts import input_contract, stamp_fill, step_states
@@ -160,7 +161,9 @@ def preview_resolve(layer, field, level: int | None = None):
     preview = getattr(first, "preview", None)
     if preview is None:
         return None
-    result = preview(field, validate_params(first, steps[0].params))
+    first_params = validate_params(first, steps[0].params)
+    with fft_policy.scope_for(first, first_params):
+        result = preview(field, first_params)
     if level is not None:
         result = _at_level(result, level)
     for ref in steps[1:]:
@@ -348,7 +351,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                     kw["cancel"] = cancel
                 if getattr(d, "uses_stage_cache", False):
                     kw["stage_cache"] = cache.stages
-                return stamp_fill(d.compute(s, p, progress=progress, **kw), s)
+                with fft_policy.scope_for(d, p):         # the tool's FFT precision
+                    return stamp_fill(d.compute(s, p, progress=progress, **kw), s)
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
             analysis_raw = result
@@ -526,10 +530,12 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
         window, _info = read_processing_window(field, (row, col, h, w), m)
         for d, p in roi_steps[:-1]:
             kw = {"cancel": cancel} if getattr(d, "wants_cancel", False) else {}
-            window = d.compute(window, p, progress=progress, **kw)
+            with fft_policy.scope_for(d, p):
+                window = d.compute(window, p, progress=progress, **kw)
         kw = {"cancel": cancel} if getattr(analyzer, "wants_cancel", False) else {}
-        return {"window": window, "raw": analyzer.compute(window, aparams, progress=progress,
-                                                          **kw)}
+        with fft_policy.scope_for(analyzer, aparams):
+            raw = analyzer.compute(window, aparams, progress=progress, **kw)
+        return {"window": window, "raw": raw}
 
     window_key = f"{r.analysis_key}|window"
 
@@ -550,9 +556,10 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
                                   for l in range(1, len(raw.get("extrema") or ()) + 1)]
             if out.per_level:
                 extra["level"] = lvl
-            return device.compute_output(other, np.asarray(win["window"].values), raw,
-                                         r.analysis_params, fetch=window_output,
-                                         progress=progress, cancel=cancel, **extra)
+            with fft_policy.scope_for(device, r.analysis_params):
+                return device.compute_output(other, np.asarray(win["window"].values), raw,
+                                             r.analysis_params, fetch=window_output,
+                                             progress=progress, cancel=cancel, **extra)
 
         return cache.get_or_compute(key, _compute)
 
@@ -623,7 +630,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
                               for l in range(1, len(raw.get("extrema") or ()) + 1)]
         if output.per_level:
             extra["level"] = lvl
-        return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
-                                     progress=progress, cancel=cancel, **extra)
+        with fft_policy.scope_for(device, r.analysis_params):
+            return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
+                                         progress=progress, cancel=cancel, **extra)
 
     return cache.get_or_compute(key, _compute)

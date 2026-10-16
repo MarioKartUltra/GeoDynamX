@@ -128,7 +128,8 @@ _DERIVATIVE_NAMES = ("dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "d
 
 
 def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
-                                  wavelet: str = "gaussian", params: "dict | None" = None) -> dict:
+                                  wavelet: str = "gaussian", params: "dict | None" = None,
+                                  dtype=np.float32) -> dict:
     """Fourier-domain derivative filters at one scale (numpy transcription).
 
     Exact transcription of ``wtmm_ebsd.cwt2d._build_wavelet_filters_f32``,
@@ -141,15 +142,17 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
 
     Any other name is one of :data:`dynamix.core.smoothers.NAMES`: its θ̂ is evaluated on
     the grid and the nine filters follow the same rule (:func:`smoothers.derivative_filters`);
-    ``params`` are that smoother's parameters (``alpha``, ``q``).
+    ``params`` are that smoother's parameters (``alpha``, ``q``). ``dtype`` is the real
+    precision: float32 (complex64 filters, the reference's) or float64 at 64-bit FFTs.
     """
-    sx = (kx * scale).astype(np.float32)
-    sy = (ky * scale).astype(np.float32)
-    gauss = np.exp(-(sx * sx + sy * sy)).astype(np.float32)
+    sx = (kx * scale).astype(dtype)
+    sy = (ky * scale).astype(dtype)
+    gauss = np.exp(-(sx * sx + sy * sy)).astype(dtype)
     zero = np.zeros_like(gauss)
+    complex_dtype = np.result_type(dtype, np.complex64)
 
     def to_complex(r, i):
-        return (r + 1j * i).astype(np.complex64)
+        return (r + 1j * i).astype(complex_dtype)
 
     if wavelet == "mexican":
         k2 = sx * sx + sy * sy
@@ -169,7 +172,7 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
         if wavelet not in NAMES:
             raise ValueError(f"unknown wavelet {wavelet!r}; expected one of {NAMES}")
         sm = smoother(wavelet, params)
-        return derivative_filters(sx, sy, sm.theta_hat(sx, sy), _DERIVATIVE_NAMES)
+        return derivative_filters(sx, sy, sm.theta_hat(sx, sy), _DERIVATIVE_NAMES, dtype=dtype)
     return {
         "dx":   to_complex(zero,                    sx * gauss),
         "dy":   to_complex(zero,                    sy * gauss),
@@ -193,26 +196,28 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     later tensor slice). Same reflect padding, same ``np.fft.fftfreq``
     wavenumber grids, same per-scale filter construction (see
     :func:`_build_wavelet_filters_numpy`), same modulus/argument
-    computation, same crop back to the input shape, float32 outputs.
+    computation, same crop back to the input shape, float32 outputs -- float64 throughout when
+    the FFT backend runs at 64 bits.
 
     Parameters mirror ``cwt_2d_f32`` exactly; see that docstring. ``params`` are the
     smoother's parameters for the registry's names (:func:`_build_wavelet_filters_numpy`).
     """
-    image = np.asarray(image)
-    ny, nx = image.shape
-    padded = np.pad(image, pad, mode="reflect").astype(np.float32)
-    ny_p, nx_p = padded.shape
-    crop = (slice(pad, pad + ny), slice(pad, pad + nx))
-    kx_np = np.fft.fftfreq(nx_p).astype(np.float32)
-    ky_np = np.fft.fftfreq(ny_p).astype(np.float32)
-    kx, ky = np.meshgrid(kx_np, ky_np)
     # ``fft``: an fft_policy backend (FFTW3 at 32/64-bit, or mlx); None takes the policy's
-    # active one.
+    # active one. Its precision sets the real dtype of the whole transform.
     if fft is None:
         from dynamix.core import fft_policy
         fft = fft_policy.active()
     _F = fft
-    image_fft = _F.fft2(padded.astype(np.complex64))
+    real = np.float64 if getattr(fft, "precision", 32) == 64 else np.float32
+    image = np.asarray(image)
+    ny, nx = image.shape
+    padded = np.pad(image, pad, mode="reflect").astype(real)
+    ny_p, nx_p = padded.shape
+    crop = (slice(pad, pad + ny), slice(pad, pad + nx))
+    kx_np = np.fft.fftfreq(nx_p).astype(real)
+    ky_np = np.fft.fftfreq(ny_p).astype(real)
+    kx, ky = np.meshgrid(kx_np, ky_np)
+    image_fft = _F.fft2(padded.astype(np.result_type(real, np.complex64)))
 
     if derivs == "first":
         names = ["dx", "dy"]
@@ -220,17 +225,18 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
         names = ["dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"]
 
     n_scales = len(scales)
-    result = {n: np.zeros((n_scales, ny, nx), dtype=np.float32) for n in names}
-    result["mod"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
-    result["arg"] = np.zeros((n_scales, ny, nx), dtype=np.float32)
+    result = {n: np.zeros((n_scales, ny, nx), dtype=real) for n in names}
+    result["mod"] = np.zeros((n_scales, ny, nx), dtype=real)
+    result["arg"] = np.zeros((n_scales, ny, nx), dtype=real)
     for i, scale in enumerate(scales):
-        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet, params=params)
+        filters = _build_wavelet_filters_numpy(kx, ky, scale, wavelet=wavelet, params=params,
+                                               dtype=real)
         for name in names:
             conv = _F.ifft2(image_fft * filters[name])
-            result[name][i] = conv.real.astype(np.float32)[crop]
+            result[name][i] = conv.real.astype(real)[crop]
         dx_s, dy_s = result["dx"][i], result["dy"][i]
         result["mod"][i] = np.sqrt(dx_s * dx_s + dy_s * dy_s)
-        result["arg"][i] = np.arctan2(dy_s, dx_s).astype(np.float32)
+        result["arg"][i] = np.arctan2(dy_s, dx_s).astype(real)
         if verbose and (i % max(1, n_scales // 4) == 0 or i == n_scales - 1):
             print(f"  Scale {i}/{n_scales - 1}: a={scale:.1f}")
     return result
@@ -961,15 +967,17 @@ class PythonWTMMBackend:
         else:
             raise ValueError(f"unknown cwt2d engine {engine!r}")
 
+        # float32 (xsmurf's contract), float64 when the FFTs ran at 64 bits
+        real = np.float64 if np.asarray(raw["mod"]).dtype == np.float64 else np.float32
         out = {
-            "mod": np.asarray(raw["mod"], dtype=np.float32),
-            "arg": np.asarray(raw["arg"], dtype=np.float32),
+            "mod": np.asarray(raw["mod"], dtype=real),
+            "arg": np.asarray(raw["arg"], dtype=real),
         }
         if derivs == "all":
             # The follow detector's derivative stacks -- both engines produce the
             # same nine keys (the numpy filter bank is an exact transcription of the mlx one).
             for name in ("dx", "dy", "dxx", "dxy", "dyy", "dxxx", "dxxy", "dxyy", "dyyy"):
-                out[name] = np.asarray(raw[name], dtype=np.float32)
+                out[name] = np.asarray(raw[name], dtype=real)
         return out
 
     def extrema2d(self, cwt: dict, scales, *, thresh: float = 1e-3,
@@ -2274,7 +2282,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                                 smoother_params=resolved["smoother_params"])
             if mod is None:
                 ny, nx = one["mod"].shape[1:]
-                mod = np.empty((n_sc, ny, nx), dtype=np.float32)
+                mod = np.empty((n_sc, ny, nx), dtype=one["mod"].dtype)
                 arg = np.empty_like(mod)
                 kapa = np.empty_like(mod)
                 kapap = np.empty_like(mod)

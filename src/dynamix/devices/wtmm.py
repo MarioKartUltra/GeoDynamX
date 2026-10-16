@@ -10,8 +10,9 @@ from __future__ import annotations
 import numpy as np
 
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
-from dynamix.model.device import Output
+from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import XSMURF_DERIVED
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
 #: The params a per-scale output reads: the scale grid, the wavelet, the lift and the detector
@@ -156,6 +157,7 @@ class WTMM2D:
         # Transport shows. View-only, so the analysis key never sees it.
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "modulus", "argument"), label="Show", view=True),
+        PRECISION_PARAM,
     )
 
     #: The layer panel's output rows, a radio over ``show``, off by default: the lifted
@@ -330,7 +332,7 @@ class WTMM2D:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """The sigma line beside the ``aₘᵢₙ`` knob, now with the analyzing wavelet's bandpass
