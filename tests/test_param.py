@@ -206,3 +206,30 @@ def test_cdf_edges_labels_its_edge_readouts_and_stores_mz_and_marr():
     p = next(p for p in CDFEdges.params if p.name == "edge_mode")
     assert p.choices == ("mz", "marr") and p.default == "mz"
     assert p.choice_labels == ("Canny (Re)", "Marr (Im)")
+
+
+def test_param_level_is_basic_by_default_advanced_on_request_and_never_keyed():
+    import types
+
+    from dynamix.engine.cache import cache_key
+    from dynamix.model.device import keyed_params
+    from dynamix.model.param import Param, ParamKind
+
+    basic = Param("a", ParamKind.INT, default=1, min=0, max=9)
+    advanced = Param("a", ParamKind.INT, default=1, min=0, max=9, level="advanced")
+    assert basic.level == "basic" and advanced.level == "advanced"
+    with pytest.raises(ValueError):
+        Param("a", ParamKind.INT, default=1, min=0, max=9, level="expert")
+    # Two devices whose declarations differ only in level key identically: level never reaches a key.
+    d_basic = types.SimpleNamespace(name="d", params=(basic,))
+    d_adv = types.SimpleNamespace(name="d", params=(advanced,))
+    assert keyed_params(d_basic, {"a": 1}) == keyed_params(d_adv, {"a": 1}) == {"a": 1}
+    assert cache_key("d", "s", keyed_params(d_basic, {"a": 1})) == cache_key("d", "s", keyed_params(d_adv, {"a": 1}))
+    # A declaration payload carries its presentation fields (section, label, level); a saved chain
+    # carries only names and values, so level never reaches a project file.
+    assert Param.from_payload(advanced.to_payload()) == advanced
+    from dynamix.model.chain import Chain, DeviceRef
+
+    payload = Chain(steps=(DeviceRef("d", {"a": 1}),)).to_payload()
+    assert all("level" not in step and "level" not in step.get("params", {})
+               for step in payload["steps"])

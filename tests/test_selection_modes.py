@@ -79,37 +79,27 @@ def test_canvas_set_selection_mode_stores_whatever_it_is_given(qtbot):
 
 def test_c_hotkey_switches_to_click_mode(qtbot, loaded):
     loaded.set_selection_mode("lasso")
-    shortcuts = [s for s in loaded.findChildren(QtGui.QShortcut)
-                 if s.key() == QtGui.QKeySequence(QtCore.Qt.Key_C)]
-    assert len(shortcuts) == 1
-    assert shortcuts[0].context() == QtCore.Qt.WindowShortcut
-
-    shortcuts[0].activated.emit()
-
+    action = loaded.commands["view.selection.click"]
+    assert [k.toString() for k in action.shortcuts()] == ["C"]
+    assert action.shortcutContext() == QtCore.Qt.WindowShortcut
+    action.trigger()
     assert loaded._selection_mode == "click"
 
 
 def test_v_hotkey_cycles_box_lasso_transect_box(qtbot, loaded):
-    shortcuts = [s for s in loaded.findChildren(QtGui.QShortcut)
-                 if s.key() == QtGui.QKeySequence(QtCore.Qt.Key_V)]
-    assert len(shortcuts) == 1
-    assert shortcuts[0].context() == QtCore.Qt.WindowShortcut
-
+    action = loaded.commands["view.selection.cycle"]
+    assert [k.toString() for k in action.shortcuts()] == ["V"]
+    assert action.shortcutContext() == QtCore.Qt.WindowShortcut
     order = []
     for _ in range(4):
-        shortcuts[0].activated.emit()
+        action.trigger()
         order.append(loaded._selection_mode)
-
     assert order == ["box", "lasso", "transect", "box"]
 
 
 def test_v_hotkey_from_click_mode_starts_the_cycle_at_box(qtbot, loaded):
     assert loaded._selection_mode == "click"
-    shortcuts = [s for s in loaded.findChildren(QtGui.QShortcut)
-                 if s.key() == QtGui.QKeySequence(QtCore.Qt.Key_V)]
-
-    shortcuts[0].activated.emit()
-
+    loaded.commands["view.selection.cycle"].trigger()
     assert loaded._selection_mode == "box"
 
 

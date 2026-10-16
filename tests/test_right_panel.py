@@ -31,11 +31,9 @@ from tests.test_shell_window import _FIELD, loaded, stub_devices, window  # noqa
 def test_display_knobs_live_right_not_left(qtbot, clean_registry):
     w = MainWindow()
     qtbot.addWidget(w)
-    host = w._work_split.widget(2)
     assert w.right_panel.isAncestorOf(w._display_controls["opacity"])
-    left = w._work_split.widget(0)
-    assert not left.isAncestorOf(w._display_controls["opacity"])
-    assert host is w.right_panel or host.isAncestorOf(w.right_panel)
+    assert w.docks["dock.inspector"].isAncestorOf(w._display_controls["opacity"])
+    assert not w.docks["dock.browser"].isAncestorOf(w._display_controls["opacity"])
 
 
 def test_style_edit_reaches_canvas_and_tags(qtbot, loaded):
@@ -73,7 +71,7 @@ def test_fresh_settings_uncollapse_right_slot_to_a_default_width(qtbot, tmp_path
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
     w = MainWindow()
     qtbot.addWidget(w)
-    assert w._work_split.sizes()[2] > 0
+    assert w.docks["dock.inspector"].width() > 0
 
 
 def test_stored_splitter_sizes_still_win_over_the_fresh_default(qtbot, tmp_path, monkeypatch,
@@ -97,8 +95,8 @@ def test_stored_splitter_sizes_still_win_over_the_fresh_default(qtbot, tmp_path,
     w.resize(1400, 900)
     w.show()
     qtbot.waitExposed(w)
-    assert w._work_split.sizes()[0] == 180
-    assert w._work_split.sizes()[2] == 220             # non-stretch panes hold their stored size
+    assert w.docks["dock.browser"].width() == 180
+    assert w.docks["dock.inspector"].width() == 220    # the stored splitter widths seed the docks once
 
 
 def test_wheel_over_a_display_knob_scrolls_the_panel_not_the_knob(qtbot, clean_registry):
@@ -659,3 +657,30 @@ def test_a_refresh_with_genuinely_changed_rows_does_rebuild(qtbot, chain_window)
     w._refresh_topology_panel()
 
     assert w._topology_panel._list.count() == 0
+
+
+def test_a_wheel_over_an_open_combo_popup_scrolls_the_list_not_the_panel(qtbot, clean_registry):
+    from PySide6 import QtCore, QtGui
+
+    panel = RightPanel(())
+    qtbot.addWidget(panel)
+    combo = QtWidgets.QComboBox()
+    combo.addItems([f"item {i}" for i in range(60)])
+    combo.setMaxVisibleItems(8)
+    panel.add_section("Combo", combo)
+    panel.resize(300, 200)
+    panel.show()
+    qtbot.waitExposed(panel)
+    combo.showPopup()
+    view = combo.view()
+    qtbot.waitExposed(view)
+    before_popup = view.verticalScrollBar().value()
+    before_panel = panel.verticalScrollBar().value()
+    pos = QtCore.QPointF(10, 10)
+    event = QtGui.QWheelEvent(pos, view.viewport().mapToGlobal(pos.toPoint()),
+                              QtCore.QPoint(0, -120), QtCore.QPoint(0, -120), QtCore.Qt.NoButton,
+                              QtCore.Qt.NoModifier, QtCore.Qt.ScrollUpdate, False)
+    QtWidgets.QApplication.sendEvent(view.viewport(), event)
+    assert view.verticalScrollBar().value() > before_popup
+    assert panel.verticalScrollBar().value() == before_panel
+    combo.hidePopup()

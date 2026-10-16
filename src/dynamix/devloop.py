@@ -94,7 +94,8 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: against every `from dynamix.shell...` import in the package) -- a runtime topological sort
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
-    "theme", "knobs", "knob_widgets", "worker", "opening", "point_import", "units", "settings",
+    "theme", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
+    "point_import", "units", "settings",
     "window_fit", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "map_view", "inspector", "roi_panel",
     "right_panel", "layer_panel", "layers_panel", "arrangement_facade", "view_dialog", "topology_panel",
@@ -108,6 +109,9 @@ _MODULE_ORDER = (
 #: would leave chain_strip's DeviceStrip closing over the STALE make_control function.
 _DEPENDS_ON = {
     "theme": (),
+    "docks": (),
+    "commands": (),
+    "controller": (),
     "import_dialog": (),
     "fork_dialog": (),
     "sends_dialog": ("bus_dialog", ),
@@ -203,7 +207,7 @@ _DEPENDS_ON = {
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("theme", "canvas", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
+    "main_window": ("theme", "docks", "commands", "controller", "canvas", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"
