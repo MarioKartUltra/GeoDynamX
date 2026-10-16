@@ -203,13 +203,15 @@ def test_a_bare_array_field_is_handled_like_the_old_getattr_fallback():
 # --------------------------------------------------------------------------- WTMM2D.derived_reading
 
 
-def test_derived_reading_is_none_for_every_param_but_a_min():
+def test_derived_reading_is_none_for_every_param_but_a_min_and_similitude():
+    """Two knobs carry a reading: a_min (sigma and lambda) and similitude (the chainable h and
+    the h the wavelet resolves, ``tests/test_chain_band.py``)."""
     from dynamix.devices.wtmm import WTMM2D
 
     dev = WTMM2D()
     field = _field(1.0, units="px")
     for p in dev.params:
-        if p.name == "a_min":
+        if p.name in ("a_min", "similitude"):
             continue
         assert dev.derived_reading(p.name, p.default, field) is None
 
