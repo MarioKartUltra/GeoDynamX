@@ -763,3 +763,18 @@ def test_show_v_chains_and_the_layers_v_chains_row_are_one_switch(geo_window, qt
     assert win.layer.tags["ui.show_trails"] == "False"
     assert not win.right_panel.trails_check.isChecked() and not win.canvas.vtrail_item.isVisible()
     assert not drawn()
+
+
+def test_r_frames_the_view_in_front(geo_window, qtbot):
+    from PySide6 import QtCore
+
+    win = geo_window
+    action = win.commands["view.zoom_to_dataset"]
+    assert "R" in [s.toString() for s in action.shortcuts()] and action.text() == "Zoom to Layer"
+    win._set_center_view("map")
+    rect = win.map_view.item_rect(f"src:{win.layer.source_id}")
+    win.map_view.view.setRange(QtCore.QRectF(rect.center().x(), rect.center().y(), 1.0, 1.0),
+                               padding=0)                    # far inside the raster
+    action.trigger()
+    (x0, x1), (y0, y1) = win.map_view.view.viewRange()
+    assert x0 <= rect.left() and x1 >= rect.right() and y0 <= rect.top() and y1 >= rect.bottom()

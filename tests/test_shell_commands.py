@@ -38,7 +38,7 @@ def test_shortcuts_keep_their_keys_and_window_context(qtbot, clean_registry):
         action = w.commands[cid]
         assert key in [s.toString() for s in action.shortcuts()], cid
         assert action.shortcutContext() == QtCore.Qt.WindowShortcut, cid
-    assert [s.toString() for s in w._zoom_action.shortcuts()] == ["Ctrl+0", "F"]
+    assert [s.toString() for s in w._zoom_action.shortcuts()] == ["R", "Ctrl+0", "F"]
 
 
 def test_settings_groups_are_exclusive_and_reflect_the_settings_file(qtbot, clean_registry):
@@ -189,7 +189,7 @@ def test_the_palette_shows_every_shortcut_and_save_layout_as_sits_in_the_layouts
     w._palette.filter("zoom")
     label = w._palette.list.item(0).text()
     native = QtGui.QKeySequence.NativeText
-    for key in ("Ctrl+0", "F"):
+    for key in ("R", "Ctrl+0", "F"):
         assert QtGui.QKeySequence(key).toString(native) in label
     view = w.menus["View"]
     plain = [a.text() for a in view.actions() if a.menu() is None]

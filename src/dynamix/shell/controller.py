@@ -49,9 +49,25 @@ class CommandController:
         w.set_selection_mode(SELECTION_MODE_CYCLE[(i + 1) % len(SELECTION_MODE_CYCLE)])
 
     def zoom_to_dataset(self) -> None:
-        """Fit the raster view to the selected row: its ROI window when it runs on one, else the
-        raster on screen (the same framing an open does)."""
+        """Frame the view in front on the selected layer. Raster: its ROI window when it runs on
+        one, else the raster on screen (the same framing an open does). Map: the Layers panel's
+        current row or group, else the layer's dataset group. Vector and Globe: the camera reset
+        the scene's own r key makes."""
         w = self._w
+        if w._center_view == "map":
+            stack = w.project.layer_stack
+            nid = w.layers_panel.current_id() if w.layers_panel is not None else None
+            if nid is None and w.layer is not None:
+                nid = next((n for n in (f"ds:{w.layer.source_id}", f"prod:{w.layer.layer_id}",
+                                        f"src:{w.layer.source_id}") if stack.node(n) is not None),
+                           None)
+            if nid is not None:
+                w._on_layers_zoom(nid)
+            return
+        if w._center_view in ("vector", "geo"):
+            if w._arrangement is not None:
+                w._arrangement.reset_camera()
+            return
         window = w.layer.tags.get("roi.window") if w.layer is not None else None
         if window:
             r, c, h, wd = (int(v) for v in window.split(","))
