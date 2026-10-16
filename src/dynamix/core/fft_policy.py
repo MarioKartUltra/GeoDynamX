@@ -7,7 +7,7 @@ Every FFT runs on mlx or FFTW3, never numpy by default. So:
 - ``auto``: mlx on Apple Silicon (when installed), FFTW3 (pyfftw) everywhere else;
 - 64-bit always runs on FFTW3 (mlx is single precision only);
 - a requested engine that is not installed falls to the other;
-- numpy's FFT only when NEITHER is installed, with a RuntimeWarning.
+- neither installed is an error: pyfftw is a dependency on every platform.
 
 Set once at startup from ``Settings.compute_engine`` / ``Settings.compute_precision`` (changes apply after a restart) via :func:`configure`. Every FFT consumer calls :func:`active`
 at call time. Engine and precision are INFRASTRUCTURE, never part of a cache key: the project's
@@ -15,7 +15,7 @@ backends-agree-to-float32 law (tests/test_fft_policy.py pins the agreement for e
 
 ``fftbackend.py`` and ``mzlib.py`` are VERBATIM copies of the research repo
 (tests/test_mzlib_port.py) and are never edited: the policy reaches mzlib by reassigning its
-``FFT`` module global in :func:`configure` (and :func:`reset` restores the import-time one).
+``FFT`` module global, at this module's import, to a proxy that follows :func:`active`.
 pyfftw and mlx are imported lazily, inside the backends.
 """
 from __future__ import annotations
@@ -24,8 +24,8 @@ import os
 
 import numpy as np
 
-__all__ = ["ENGINES", "PRECISIONS", "active", "configure", "make", "precision_note", "reset",
-           "resolve"]
+__all__ = ["ENGINES", "PRECISIONS", "active", "configure", "double", "make", "precision_note",
+           "reset", "resolve"]
 
 ENGINES = ("auto", "mlx", "fftw")
 PRECISIONS = (32, 64)
@@ -160,7 +160,7 @@ class _Numpy:
 _BACKENDS = {"pyfftw": _PyFFTW, "mlx": _MLX, "numpy": _Numpy}
 _ACTIVE = None
 _CONFIG = ("auto", 32)
-_MZLIB_LEGACY = None
+_DOUBLE = None
 
 
 def _importable(mod: str) -> bool:
@@ -173,10 +173,10 @@ def _importable(mod: str) -> bool:
 
 
 def resolve(engine="auto", precision=32, *, platform=None, machine=None, have=None):
-    """``(backend_name, precision)`` for a requested engine/precision on this machine."""
+    """``(backend_name, precision)`` for a requested engine/precision on this machine; a
+    RuntimeError when neither mlx nor pyfftw is installed."""
     import platform as _pf
     import sys
-    import warnings
 
     precision = 64 if int(precision) == 64 else 32
     platform = sys.platform if platform is None else platform
@@ -193,9 +193,8 @@ def resolve(engine="auto", precision=32, *, platform=None, machine=None, have=No
         return "pyfftw", precision
     if have.get("mlx") and precision == 32:
         return "mlx", 32
-    warnings.warn("neither mlx nor pyfftw is installed -- falling back to numpy's FFT, which "
-                  "is slow (pip install pyfftw)", RuntimeWarning, stacklevel=2)
-    return "numpy", precision
+    raise RuntimeError("neither mlx nor pyfftw is installed; every FFT runs on one of them "
+                       "(pip install pyfftw)")
 
 
 def precision_note(engine: str, precision: int, **machine) -> str:
@@ -213,18 +212,22 @@ def make(name: str, precision: int = 32):
     return _BACKENDS[name](precision=precision)
 
 
+def double():
+    """FFTW3 at 64-bit, whatever the configured engine: filter design and kernel sections that
+    are computed once in float64 (mlx has no double FFT)."""
+    global _DOUBLE
+    if _DOUBLE is None:
+        _DOUBLE = make(resolve("fftw", 64)[0], 64)
+    return _DOUBLE
+
+
 def configure(engine="auto", precision=32):
-    """Set the app-wide policy backend (and route mzlib through it); returns the resolved
+    """Set the app-wide policy backend (mzlib follows it); returns the resolved
     ``(name, precision)``."""
-    global _ACTIVE, _CONFIG, _MZLIB_LEGACY
+    global _ACTIVE, _CONFIG
     name, prec = resolve(engine, precision)
     _ACTIVE = make(name, prec)
     _CONFIG = (engine, int(precision))
-    from dynamix.core import mzlib
-
-    if _MZLIB_LEGACY is None:
-        _MZLIB_LEGACY = mzlib.FFT
-    mzlib.FFT = _ACTIVE
     return name, prec
 
 
@@ -238,12 +241,24 @@ def active():
 
 
 def reset():
-    """Back to the unconfigured default (tests): mzlib gets its import-time FFT back."""
-    global _ACTIVE, _CONFIG, _MZLIB_LEGACY
-    if _MZLIB_LEGACY is not None:
-        from dynamix.core import mzlib
-
-        mzlib.FFT = _MZLIB_LEGACY
-        _MZLIB_LEGACY = None
+    """Back to the unconfigured default (tests); mzlib keeps following the policy."""
+    global _ACTIVE, _CONFIG
     _ACTIVE = None
     _CONFIG = ("auto", 32)
+
+
+class _Following:
+    """mzlib's ``FFT`` global: every attribute is the :func:`active` backend's at the time of
+    the call, so mzlib runs on the configured engine and precision without being edited."""
+
+    def __getattr__(self, name):
+        return getattr(active(), name)
+
+
+def _route_mzlib() -> None:
+    from dynamix.core import mzlib
+
+    mzlib.FFT = _Following()
+
+
+_route_mzlib()

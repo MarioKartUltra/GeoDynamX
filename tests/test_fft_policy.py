@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""FFT engine + precision policy: mlx by default on Apple Silicon, FFTW3 elsewhere; engine and 32/64-bit precision are settable, and 64-bit falls to FFTW3 -- never numpy's FFT by default; numpy only as a last resort when neither is installed.
+"""FFT engine + precision policy: mlx by default on Apple Silicon, FFTW3 elsewhere; engine and 32/64-bit precision are settable, and 64-bit falls to FFTW3. numpy's FFT is never an engine: with neither mlx nor pyfftw installed the policy refuses.
 """
 from __future__ import annotations
-
-import warnings
 
 import numpy as np
 import pytest
@@ -35,11 +33,11 @@ def test_64_bit_always_falls_to_fftw3_because_mlx_is_32_bit_only():
                       have=_have(mlx=False)) == ("pyfftw", 32)
 
 
-def test_numpy_is_only_a_warned_last_resort():
-    with pytest.warns(RuntimeWarning, match="numpy"):
-        got = fb.resolve("auto", 32, platform="win32", machine="AMD64",
-                         have=_have(mlx=False, pyfftw=False))
-    assert got == ("numpy", 32)
+def test_without_mlx_or_pyfftw_the_policy_refuses():
+    for precision in (32, 64):
+        with pytest.raises(RuntimeError, match="pyfftw"):
+            fb.resolve("auto", precision, platform="win32", machine="AMD64",
+                       have=_have(mlx=False, pyfftw=False))
 
 
 def test_configure_sets_the_active_backend_and_its_precision():
@@ -54,18 +52,32 @@ def test_configure_sets_the_active_backend_and_its_precision():
         fb.reset()
 
 
-def test_configure_routes_mzlib_without_editing_it_and_reset_restores_it():
+def test_mzlib_follows_the_policy_without_editing_it():
     """mzlib and fftbackend are VERBATIM research copies (test_mzlib_port): the policy
-    reaches mzlib by reassigning its FFT module global, never by editing either file."""
+    reaches mzlib by reassigning its FFT module global, never by editing either file. The
+    global follows the active backend from import on, configured or not."""
     from dynamix.core import mzlib
 
-    legacy = mzlib.FFT
+    one = np.ones((4, 4))
     try:
         fb.configure("fftw", 64)
-        assert mzlib.FFT is fb.active() and mzlib.FFT.name == "pyfftw"
+        assert mzlib.FFT.name == "pyfftw" and mzlib.FFT.fft2(one).dtype == np.complex128
+        fb.configure("fftw", 32)
+        assert mzlib.FFT.fft2(one).dtype == np.complex64
     finally:
         fb.reset()
-    assert mzlib.FFT is legacy
+    assert mzlib.FFT.name == fb.active().name
+
+
+def test_the_double_backend_is_fftw3_at_64_bit():
+    """Filter design and kernel sections run once in float64, whatever the configured engine."""
+    try:
+        fb.configure("auto", 32)
+        be = fb.double()
+        assert (be.name, be.precision) == ("pyfftw", 64)
+        assert be.ifft(np.ones(8)).dtype == np.complex128
+    finally:
+        fb.reset()
 
 
 @pytest.mark.parametrize("engine,precision,tol", [("fftw", 64, 1e-12), ("fftw", 32, 2e-5),
@@ -117,6 +129,24 @@ def _run_consumers():
     return out
 
 
+def _run_kernel_builders():
+    """The small float64 FFTs: filter design, the scale bar's profiles, a smoother's section and
+    the 1-D wavelet transform."""
+    pytest.importorskip("pywt")
+    from dynamix.core import wavelet_profiles as wp
+    from dynamix.core.dwt import battle_lemarie_filters
+    from dynamix.core.smoothers import smoother
+    from dynamix.core.wtmm_backend import get_backend
+
+    battle_lemarie_filters(3)
+    wp.mz_profile(2)
+    wp.dwt_profile("db4", 3)
+    wp.tang_you_profile("tang_you", 4.0)
+    smoother("frac_bspline", {"alpha": 2.5}).section(2.0, 1)
+    get_backend("python").cwt1d(np.cumsum(np.random.default_rng(0).standard_normal(256)),
+                                1.0, 2, 4)
+
+
 @pytest.mark.parametrize("engine,precision", _ENGINES)
 def test_no_numpy_fft_transform_runs_under_the_policy(engine, precision, monkeypatch):
     """-- a trap on every numpy FFT
@@ -131,22 +161,34 @@ def test_no_numpy_fft_transform_runs_under_the_policy(engine, precision, monkeyp
     for name in _TRANSFORMS:
         monkeypatch.setattr(np.fft, name, _trap)
     _run_consumers()
+    _run_kernel_builders()
+
+
+def test_no_numpy_fft_transform_runs_before_the_policy_is_configured(monkeypatch):
+    """Headless use (tests, scripts, batch runs) never calls configure: the defaults still
+    run on mlx or FFTW3, mzlib's paths included."""
+    fb.reset()
+
+    def _trap(*a, **k):
+        raise AssertionError("numpy FFT transform called before configure")
+
+    for name in _TRANSFORMS:
+        monkeypatch.setattr(np.fft, name, _trap)
+    _run_consumers()
+    _run_kernel_builders()
 
 
 @pytest.mark.parametrize("engine,precision", _ENGINES)
-def test_every_consumer_agrees_with_the_numpy_reference(engine, precision):
+def test_every_consumer_agrees_with_the_double_reference(engine, precision):
     """Backends agree to float32 tolerance -- 64-bit FFTW3 to float64."""
     if engine == "mlx":
         pytest.importorskip("mlx.core")
     from dynamix.core.wtmm_backend import set_default_engine
 
-    fb.configure("auto", 32)
-    set_default_engine("numpy")
+    fb.configure("fftw", 64)
+    set_default_engine("fftw")
     try:
-        fb.reset()
-        # the numpy reference, every consumer forced onto numpy's FFT at 64-bit
-        fb._ACTIVE = fb.make("numpy", 64)
-        ref = _run_consumers()
+        ref = _run_consumers()             # the reference: every consumer on FFTW3 at 64-bit
     finally:
         set_default_engine(None)
     fb.configure(engine, precision)

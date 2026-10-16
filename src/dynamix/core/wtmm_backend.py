@@ -209,9 +209,12 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     kx_np = np.fft.fftfreq(nx_p).astype(np.float32)
     ky_np = np.fft.fftfreq(ny_p).astype(np.float32)
     kx, ky = np.meshgrid(kx_np, ky_np)
-    # ``fft``: an fft_policy backend (FFTW3 at 32/64-bit); None keeps numpy's FFT -- the
-    # reference path.
-    _F = np.fft if fft is None else fft
+    # ``fft``: an fft_policy backend (FFTW3 at 32/64-bit, or mlx); None takes the policy's
+    # active one.
+    if fft is None:
+        from dynamix.core import fft_policy
+        fft = fft_policy.active()
+    _F = fft
     image_fft = _F.fft2(padded.astype(np.complex64))
 
     if derivs == "first":
@@ -903,9 +906,10 @@ def _resolve_cwt2d_engine():
             return cwt_2d_f32
         except ImportError:
             pass
-    # FFTW3 at the policy precision; numpy's FFT only as the policy's last resort
+    # The transcription on the policy backend: FFTW3 at the policy precision, or mlx's FFT
+    # when the vendored mlx loop cannot be imported
     import functools
-    return functools.partial(_cwt2d_numpy, fft=be if be.name != "mlx" else None)
+    return functools.partial(_cwt2d_numpy, fft=be)
 
 
 def _cut_edge_extrema(extrema: dict, lx: int, ly: int, border_percent: float) -> dict:
@@ -1665,10 +1669,8 @@ class PythonWTMMBackend:
               expo: float = -1.0) -> tuple:
         """1D continuous wavelet transform (thin delegation to ``wtmm.cwt``).
 
-        Engine auto-select, in order of preference: ``mlx.core`` importable
-        -> ``wtmm.cwt.cwtd_mlx``; else ``pyfftw`` importable ->
-        ``wtmm.cwt.cwtd_fftw``; else the pure-numpy overlap-save mirror
-        :func:`_cwtd_numpy` (the universal-binary fallback).
+        Engine: the FFT policy's -- ``wtmm.cwt.cwtd_mlx`` when the policy runs
+        on mlx, else ``wtmm.cwt.cwtd_fftw`` (FFTW3).
 
         Returns
         -------
@@ -1689,14 +1691,8 @@ class PythonWTMMBackend:
         else:
             from dynamix._vendor.wtmm.cwt import cwtd_mlx
             return cwtd_mlx(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
-        try:
-            import pyfftw  # noqa: F401
-        except ImportError:
-            pass
-        else:
-            from dynamix._vendor.wtmm.cwt import cwtd_fftw
-            return cwtd_fftw(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
-        return _cwtd_numpy(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
+        from dynamix._vendor.wtmm.cwt import cwtd_fftw
+        return cwtd_fftw(signal, a_min, n_oct, n_voice, wavelet_name=wavelet, expo=expo)
 
     def extrema1d(self, coeffs, scales, *, valid_ranges=None,
                   epsilon: float = 1e-6) -> tuple:
