@@ -333,6 +333,33 @@ def test_wheel_over_the_colormap_combo_scrolls_the_panel_not_the_combo(qtbot, cl
     assert bar.value() != 0
 
 
+
+def test_the_open_colormap_list_scrolls_itself_not_the_panel(qtbot, clean_registry):
+    """The closed combo hands the wheel to the panel (above); the OPEN list is a popup window of
+    its own, and a wheel over it scrolls the list, never the panel behind it."""
+    from PySide6 import QtCore, QtGui
+
+    w = MainWindow()
+    qtbot.addWidget(w)
+    w.show()
+    combo = w.right_panel.cmap_combo
+    bar = w.right_panel.verticalScrollBar()
+    bar.setRange(0, 100)
+    bar.setValue(0)
+    combo.showPopup()
+    view = combo.view()
+    qtbot.waitUntil(view.isVisible)
+    list_bar = view.verticalScrollBar()
+    list_bar.setValue(0)
+    event = QtGui.QWheelEvent(
+        QtCore.QPointF(5, 5), QtCore.QPointF(5, 5), QtCore.QPoint(0, 0), QtCore.QPoint(0, -120),
+        QtCore.Qt.NoButton, QtCore.Qt.NoModifier, QtCore.Qt.ScrollUpdate, False)
+    QtWidgets.QApplication.sendEvent(view.viewport(), event)
+    assert bar.value() == 0
+    assert list_bar.value() > 0
+    combo.hidePopup()
+
+
 # --------------------------------------------------------------- Topology links
 #
 # TopologyPanel (``shell/topology_panel.py``) lives in a THIRD right-panel section, not
