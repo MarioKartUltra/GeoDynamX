@@ -113,7 +113,9 @@ def test_device_box_exposes_one_control_per_param_including_the_five_new_ones(
     box = DeviceBox(0, dev, defaults_for(dev))
     qtbot.addWidget(box)
 
-    assert set(box.controls) == {p.name for p in dev.params}
+    # every knob but the advanced ones, which live in the inspector's collapsed section
+    assert set(box.controls) == {p.name for p in dev.params if p.level != "advanced"}
+    assert "angle_test" in {p.name for p in dev.params} and "angle_test" not in box.controls
     for new_param in ("smooth", "thresh", "dist2_max", "box_ratio", "similitude"):
         assert new_param in box.controls
 

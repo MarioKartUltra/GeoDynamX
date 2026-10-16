@@ -30,6 +30,15 @@ DEFAULT = "xsmurf_bench"
 _KERNELS = None
 
 
+#: Spec 14's chaining options, off by default (xsmurf's behaviour): the angle test and its
+#: threshold, the search-radius rule and its constant, the tie-break between claimants, and the
+#: border policy at the cone of influence (``coi_k`` times the scale in pixels from the edge).
+OPTION_DEFAULTS = {"angle_test": False, "angle_threshold": 0.8, "radius_rule": "xsmurf",
+                   "radius_c": 1.0, "tie_break": "distance", "border_policy": "none",
+                   "coi_k": 2.0}
+BORDER_POLICIES = ("none", "coi_trim", "coi_drop")
+
+
 class Chainer(Protocol):
     name: str
 
@@ -48,10 +57,15 @@ class XsmurfBench:
     name = "xsmurf_bench"
 
     def link(self, extrema: list, scales, params: dict, backend) -> list:
+        opt = {k: params.get(k, v) for k, v in OPTION_DEFAULTS.items()}
         return backend.chains2d(extrema, scales, similitude=params["similitude"],
                                 box_ratio=params["box_ratio"], dist2_max=params["dist2_max"],
                                 min_len=params["min_chain_len"], smooth=params["smooth"],
-                                band_per=params.get("band_per", "voice"))
+                                band_per=params.get("band_per", "voice"),
+                                angle_test=bool(opt["angle_test"]),
+                                angle_threshold=float(opt["angle_threshold"]),
+                                radius_rule=opt["radius_rule"], radius_c=float(opt["radius_c"]),
+                                tie_break=opt["tie_break"])
 
 
 def _kernels():
@@ -245,6 +259,35 @@ def chainer(name: str) -> Chainer:
         raise KeyError(f"no chainer named {name!r}; known: {sorted(CHAINERS)}") from None
 
 
-def link(extrema: list, scales, params: dict, backend) -> list:
-    """V-chains by the chainer ``params["chainer"]`` names (:data:`DEFAULT` when absent)."""
-    return chainer(params.get("chainer", DEFAULT)).link(extrema, scales, params, backend)
+def border_trimmed(chains: list, shape, policy: str, coi_k: float, min_len: int) -> list:
+    """The chains under a border policy: ``"coi_trim"`` cuts a chain at the first scale where it
+    comes within ``coi_k`` scales (the normalized scale, in pixels) of the image edge, and drops it
+    when fewer than ``min_len`` scales remain; ``"coi_drop"`` drops any chain that enters that
+    zone; ``"none"`` keeps them all (xsmurf)."""
+    if policy == "none" or shape is None:
+        return chains
+    if policy not in BORDER_POLICIES:
+        raise ValueError(f"border_policy {policy!r}; known: {BORDER_POLICIES}")
+    ny, nx = int(shape[0]), int(shape[1])
+    out = []
+    for c in chains:
+        x, y = np.asarray(c["x"], dtype=np.float64), np.asarray(c["y"], dtype=np.float64)
+        reach = coi_k * 2.0 ** np.asarray(c["log2_scales"], dtype=np.float64)
+        inside = np.minimum.reduce([x, y, nx - 1 - x, ny - 1 - y]) >= reach
+        if inside.all():
+            out.append(c)
+        elif policy == "coi_trim":
+            keep = int(np.argmin(inside))           # the first scale inside the zone
+            if keep >= min_len:
+                out.append({k: (v[:keep] if isinstance(v, np.ndarray) and len(v) == len(x) else v)
+                            for k, v in c.items()})
+    return out
+
+
+def link(extrema: list, scales, params: dict, backend, *, shape=None) -> list:
+    """V-chains by the chainer ``params["chainer"]`` names (:data:`DEFAULT` when absent), under
+    the border policy when ``shape`` (the image's ``(ny, nx)``) is given."""
+    chains = chainer(params.get("chainer", DEFAULT)).link(extrema, scales, params, backend)
+    return border_trimmed(chains, shape, params.get("border_policy", "none"),
+                          float(params.get("coi_k", OPTION_DEFAULTS["coi_k"])),
+                          int(params.get("min_chain_len", 2)))

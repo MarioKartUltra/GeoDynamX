@@ -26,7 +26,8 @@ from __future__ import annotations
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
-from dynamix.devices.wtmm import BAND_PER_PARAM, SMOOTHER_PARAMS, chaining_reading, smoother_params
+from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTHER_PARAMS,
+                                  chaining_reading, smoother_params)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
@@ -111,6 +112,7 @@ class WTMM2DROI:
         Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
+        *CHAINING_OPTION_PARAMS,
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -176,6 +178,7 @@ class WTMM2DROI:
             "similitude": params["similitude"],
             "band_per": params["band_per"],
             "chainer": params["chainer"],
+            **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)
