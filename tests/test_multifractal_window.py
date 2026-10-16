@@ -663,3 +663,43 @@ def test_the_cumulants_can_take_their_own_scale_range(qtbot):
     window.cumulant_range_check.setChecked(False)
     assert not any(r.isVisible() for r in window._cum_regions)
     np.testing.assert_allclose(window.current_cumulants()["c2"], 0.3, atol=0.03)
+
+
+def test_the_kink_check_marks_q_star_and_the_bridged_h_interval(qtbot):
+    """Spec 15, off by default: a τ(q) with a first-order transition gets a line at q* on τ(q)
+    and the h interval the Legendre spectrum bridges shaded on D(h); a smooth τ gets neither."""
+    q = np.linspace(-3.0, 3.0, 61)
+    window = MultifractalWindow(*(lambda hd: (hd, hd))(_hd_q(q, np.minimum(0.3 * q, 0.7 * q))))
+    qtbot.addWidget(window)
+    assert not window.kink_check.isChecked() and not window._kink_lines
+    window.kink_check.setChecked(True)
+    (line,), (band,) = window._kink_lines, window._kink_bands
+    assert line.value() == pytest.approx(0.0, abs=0.1)
+    assert band.getRegion() == pytest.approx((0.3, 0.7), abs=1e-6)
+    assert "q*" in window._kink_label.text()
+    window.kink_check.setChecked(False)
+    assert not window._kink_lines and window._kink_label.text() == ""
+    smooth = MultifractalWindow(*(lambda hd: (hd, hd))(_hd_q(q, 0.5 * q - 0.05 * q ** 2)))
+    qtbot.addWidget(smooth)
+    smooth.kink_check.setChecked(True)
+    assert not smooth._kink_lines
+
+
+def test_the_gaussian_ensemble_overlays_d_h_points_from_the_maxima_moduli(qtbot):
+    q = np.linspace(-3.0, 3.0, 25)
+    hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
+    rng = np.random.default_rng(3)
+    scales = hd["scales"]
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 4000))
+            for a in scales]
+    window = MultifractalWindow(hd, hd, extrema_mods=mods, scales=scales, log2_L=12.0)
+    qtbot.addWidget(window)
+    assert window.gaussian_check.isEnabled() and not window.gaussian_check.isChecked()
+    window.gaussian_check.setChecked(True)
+    x, y = window._gaussian_points.getData()
+    assert x is not None and len(x) > 10 and np.all(np.isfinite(x)) and np.all(np.isfinite(y))
+    window.gaussian_check.setChecked(False)
+    assert not window._gaussian_points.isVisible()
+    bare = MultifractalWindow(hd, hd)
+    qtbot.addWidget(bare)
+    assert not bare.gaussian_check.isEnabled()

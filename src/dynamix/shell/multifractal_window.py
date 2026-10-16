@@ -318,6 +318,17 @@ class MultifractalWindow(QtWidgets.QDialog):
         # cumulant curve's colour; off, they read the fit window.
         self.cumulant_range_check = QtWidgets.QCheckBox("cumulant range")
         self.cumulant_range_check.toggled.connect(self._on_cumulant_range_toggled)
+        # Nonconcave spectra (core/nonconcave.py), off by default: the kink check on tau(q) and
+        # the Gaussian ensemble's D(h) points from the maxima moduli.
+        self.kink_check = QtWidgets.QCheckBox("kinks")
+        self.kink_check.toggled.connect(lambda _c: self._update_kinks())
+        self.gaussian_check = QtWidgets.QCheckBox("Gaussian γ")
+        self.gaussian_check.setEnabled(self._extrema_mods is not None and self._scales_px is not None)
+        self.gaussian_check.toggled.connect(lambda _c: self._update_gaussian())
+        self._kink_label = QtWidgets.QLabel("")
+        self._kink_label.setStyleSheet(f"color: {current().ink_muted};")
+        self._kink_lines: list = []
+        self._kink_bands: list = []
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -380,6 +391,12 @@ class MultifractalWindow(QtWidgets.QDialog):
             if label is self._cq_label:
                 readouts.addWidget(self.cumulant_range_check)      # beside what it refits
             readouts.addWidget(label, 1)
+        self._kink_label.setWordWrap(True)
+        self._kink_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
+                                       QtWidgets.QSizePolicy.Policy.Preferred)
+        readouts.addWidget(self.kink_check)
+        readouts.addWidget(self.gaussian_check)
+        readouts.addWidget(self._kink_label, 1)
         layout.addLayout(readouts)
 
         self._glw = pg.GraphicsLayoutWidget()
@@ -999,6 +1016,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._refit_sources()
         self._update_dh_hist()
         self._update_cumulant_overlay()
+        self._update_kinks()
+        self._update_gaussian()
         self._sync_dh_legend()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
@@ -1110,6 +1129,63 @@ class MultifractalWindow(QtWidgets.QDialog):
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
             f"  ·  R²min={c['r2']:.2f}"
             + (f"  ·  log₂ a {lo:.2f}–{hi:.2f}" if own else ""))
+
+    def _update_kinks(self) -> None:
+        """The kink check (spec 15): a dashed line at each q* on tau(q) and the h interval the
+        Legendre spectrum bridges there shaded on D(h); cleared when off or when tau is smooth."""
+        from dynamix.core.nonconcave import kink_flags
+
+        for item in self._kink_lines:
+            self._spectrum_plots["tau"].removeItem(item)
+        for item in self._kink_bands:
+            self._spectrum_plots["D"].removeItem(item)
+        self._kink_lines, self._kink_bands = [], []
+        fit = self._fit
+        if not self.kink_check.isChecked() or fit is None:
+            self._kink_label.setText("")
+            return
+        flags = kink_flags(fit["q_list"], fit["tau"])
+        warm = pg.mkColor(*Q_WARM)
+        band_brush = pg.mkColor(*Q_WARM)
+        band_brush.setAlpha(40)
+        for k in flags:
+            line = pg.InfiniteLine(pos=k["q"], angle=90,
+                                   pen=pg.mkPen(warm, style=QtCore.Qt.DashLine))
+            self._spectrum_plots["tau"].addItem(line)
+            band = pg.LinearRegionItem(values=(k["h_lo"], k["h_hi"]), orientation="vertical",
+                                       brush=pg.mkBrush(band_brush), pen=pg.mkPen(warm),
+                                       movable=False)
+            self._spectrum_plots["D"].addItem(band)
+            self._kink_lines.append(line)
+            self._kink_bands.append(band)
+        self._kink_label.setText(
+            "  ·  ".join(f"kink at q* = {k['q']:.2f}: h jumps {k['h_lo']:.2f} → {k['h_hi']:.2f}"
+                         for k in flags) or "no kink")
+
+    def _update_gaussian(self) -> None:
+        """The Gaussian ensemble's D(h) points (spec 15) over the fit window, from the maxima
+        moduli, with the integral scale L the field's extent (else four times the largest
+        scale); the q grid widens with gamma so the saddles reach inside a dip."""
+        if not hasattr(self, "_gaussian_points"):
+            self._gaussian_points = pg.ScatterPlotItem(size=4, pen=None,
+                                                       brush=pg.mkBrush(*Q_WARM, 160))
+            self._spectrum_plots["D"].addItem(self._gaussian_points)
+        on = (self.gaussian_check.isChecked() and self._fit is not None
+              and self._extrema_mods is not None and self._scales_px is not None)
+        self._gaussian_points.setVisible(on)
+        if not on:
+            return
+        from dynamix.core.nonconcave import gaussian_ensemble
+
+        lo, hi = self._region.getRegion()
+        gammas = np.array([0.5, 1.0, 2.0, 4.0, 8.0])
+        q = np.asarray(self._fit["q_list"], dtype=np.float64)
+        grid = np.linspace(q.min() - 2.0 * gammas.max(), q.max() + 2.0 * gammas.max(), 81)
+        length = 2.0 ** self._log2_L if self._log2_L is not None else None
+        g = gaussian_ensemble(self._extrema_mods, self._scales_px, grid, gammas, float(lo),
+                              float(hi), length_px=length)
+        keep = np.isfinite(g["h"]) & np.isfinite(g["D"]) & (g["D"] >= 0.0)     # a dimension
+        self._gaussian_points.setData(g["h"][keep], g["D"][keep])
 
     def _on_cumulant_range_toggled(self, on: bool) -> None:
         """Show the cumulants' own window (starting on the fit window) or hide it, then refit
