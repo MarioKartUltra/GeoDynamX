@@ -34,6 +34,7 @@ from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
 from dynamix.devices.band_select import BandSelect
 from dynamix.devices.bus import Bus
 from dynamix.devices.noise import Noise
+from dynamix.devices.periodic_extension import PeriodicExtension
 from dynamix.devices.mz_edges import MZEdges
 from dynamix.devices.pm_edges import PMEdges
 from dynamix.devices.stubs import StubHolder, StubWavelet, StubWedge
@@ -72,10 +73,12 @@ from dynamix.model.device import DEVICES, register_device
 #: tools -- one device per method, each with only the wavelet class its method admits.
 #: `HolderMap` (the conflated predecessor) STAYS registered: saved projects name it, and the
 #: never-delete rule holds -- the browser routes it to the Dev category instead.
+#: `PeriodicExtension` makes a field periodic by a DAF-filled gap after it (spec 25), its real block stamped.
 #: `DWT2D` is the orthogonal dyadic pyramid (PyWavelets, periodization, a mirror-extended working image) with per-level band rows; `Inpaint` fills declared regions by cycle-spun sparsity or by the Pottier-Turiel-Garcon cascade with guides on their own grids; `Fill` is the same engine as a field stage whose clone carries the fill's stamps.
 BUILTIN_DEVICES = (
     Noise,
     Fill,
+    PeriodicExtension,
     BandSelect,
     Bus,
     WTMM2D,

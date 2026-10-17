@@ -172,28 +172,31 @@ class SelfTuned:
     fallback: "str | None"
 
 
-def self_tune(values) -> SelfTuned:
-    """Every setting of the periodic extension from the data (spec 22 §3.4)."""
+def self_tune(values, frac: float = BAND_FRAC, M: int = M_SELF, lam: float = LAM) -> SelfTuned:
+    """Every setting of the periodic extension from the data (spec 22 §3.4): the band limit at
+    ``frac`` of the power, the gap 2/f_b, σ for the gain at that limit under order ``M``, ``lam``.
+    The defaults are the self-tuned ones; Periodic extension (DAF) offers them as overrides."""
     a = np.atleast_2d(np.asarray(values, dtype=np.float64))
-    f_b = band_limit(a)
+    M = int(M)
+    f_b = band_limit(a, float(frac))
     if not f_b > 0.0:
-        return SelfTuned(0.0, MIN_GAP, M_SELF, 0.0, LAM, math.inf,
+        return SelfTuned(0.0, MIN_GAP, M, 0.0, float(lam), math.inf,
                          "the field has no band limit (it is constant)")
     ppw = 1.0 / f_b
     gap = max(MIN_GAP, int(round(2.0 / f_b)))
-    sigma = sigma_for_gain(f_b, M_SELF)
+    sigma = sigma_for_gain(f_b, M)
     fallback = None
     if ppw < MIN_PPW:
         fallback = (f"fewer than {MIN_PPW:g} points per wavelength at the band limit "
                     f"({ppw:.1f} px at f_b = {f_b:.3f} cycles/px): the data are not band-limited "
                     "enough for the DAF extension; reflection used")
     else:
-        half = hermite_daf(sigma, M_SELF).size // 2
+        half = hermite_daf(sigma, M).size // 2
         shortest = min(a.shape) if a.shape[0] > 1 else a.shape[1]
         if 2 * half >= shortest + gap:
             fallback = (f"the DAF stencil (±{half} px at σ = {sigma:.1f} px) does not fit a "
                         f"{shortest} px line with its {gap} px gap; reflection used")
-    return SelfTuned(f_b, gap, M_SELF, sigma, LAM, ppw, fallback)
+    return SelfTuned(f_b, gap, M, sigma, float(lam), ppw, fallback)
 
 
 def extend_2d(values, tuned: SelfTuned) -> np.ndarray:

@@ -19,6 +19,9 @@ from dynamix.core.rasterfield import RasterField
 #: derived_vectors reads its derivative FILE (the frozen vectors), never the field's pixels.
 _NOT_FIELD_READERS = {"chain_topology", "backproject", "stub_wavelet", "wtmm2d_roi",
                       "derived_vectors"}
+#: Tools that run on whole rasters only, never over an ROI's processing window, so no margin applies:
+#: Periodic extension's gap would change the window's size (spec 25 §3.1).
+_WHOLE_RASTER_ONLY = {"periodic_extension"}
 
 
 @pytest.fixture
@@ -33,7 +36,7 @@ def test_every_builtin_field_reading_transform_declares_its_roi_margin(builtins)
     from dynamix.model.device import is_transform
 
     missing = sorted(name for name, dev in builtins.items()
-                     if is_transform(dev) and name not in _NOT_FIELD_READERS
+                     if is_transform(dev) and name not in _NOT_FIELD_READERS | _WHOLE_RASTER_ONLY
                      and not hasattr(dev, "roi_margin"))
     assert missing == [], f"no roi_margin declared: {missing}"
 

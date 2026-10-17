@@ -402,6 +402,9 @@
    "mod": [],
    "raster_out": 2.5334767997264862e-05
   },
+  "periodic_extension": {
+   "field": -94318.44675307727
+  },
   "pm_edges": {
    "chains": 0,
    "filtered": -94318.44675307728,

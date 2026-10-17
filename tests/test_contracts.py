@@ -360,6 +360,7 @@ _E, _V = frozenset({EXTREMA}), frozenset({VCHAINS})
 #: id -> (consumes at default params, what it receives, what it then produces).
 DECLARATIONS = {
     "noise": (((FIELD,), (STACK,)), {STACK}, {STACK}),
+    "periodic_extension": (((FIELD,),), {FIELD}, {FIELD}),
     "band_select": (((STACK,), (FIELD,)), {STACK}, {FIELD}),
     "bus": (((FIELD,), (STACK,)), {FIELD}, {STACK}),
     "wtmm2d": (((FIELD,),), {FIELD}, {EXTREMA, VCHAINS}),

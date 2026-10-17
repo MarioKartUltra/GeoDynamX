@@ -59,6 +59,7 @@ def test_an_empty_families_tuple_lists_the_device_in_no_family():
 LABELS = {
     "band_select": "Band select",
     "noise": "Noise / dither",
+    "periodic_extension": "Periodic extension (DAF)",
     "wtmm2d": "WTMM 2D",
     "wtmm2d_roi": "WTMM 2D, ROI",
     "mz_edges": "Mallat–Zhong edges",
@@ -94,7 +95,7 @@ LABELS = {
 
 #: family -> the ids listed under it.
 FAMILY_TREE = {
-    "Data preparation": {"band_select", "noise", "fill"},
+    "Data preparation": {"band_select", "noise", "fill", "periodic_extension"},
     "Edge detection": {"wtmm2d", "wtmm2d_roi", "mz_edges", "cdf_edges", "pm_edges"},
     "Regularity": {"wtmm2d", "wtmm2d_roi", "mz_edges", "holder_measure", "holder_multiaffine"},
     "Skeletons": {"wavelet_skeleton"},
