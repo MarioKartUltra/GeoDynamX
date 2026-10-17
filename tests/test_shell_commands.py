@@ -85,6 +85,14 @@ def test_play_toggles_exactly_once_per_trigger_and_once_per_space_with_the_butto
     assert tr.clock.playing
 
 
+def test_closing_the_window_stops_its_playback(qtbot, loaded):
+    w = loaded
+    w.commands["transport.play"].trigger()
+    assert w.transport.clock.playing and w.transport._timer.isActive()
+    w.close()
+    assert not w.transport.clock.playing and not w.transport._timer.isActive()
+
+
 def test_the_palette_opens_on_ctrl_k_filters_and_returns_focus(qtbot, loaded):
     from PySide6 import QtTest
 

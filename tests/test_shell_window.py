@@ -147,7 +147,8 @@ def window(qtbot, stub_devices):
 
     win = MainWindow(steps=STUB_CHAIN)
     qtbot.addWidget(win)
-    return win
+    yield win
+    win.close()     # before the stub registry goes: a live window's timers still reach its devices
 
 
 @pytest.fixture
@@ -1007,7 +1008,8 @@ def chains_window(qtbot, stub_chain_devices):
 
     win = MainWindow(steps=STUB_CHAIN_WITH_CHAINS)
     qtbot.addWidget(win)
-    return win
+    yield win
+    win.close()     # before the stub registry goes: a live window's timers still reach its devices
 
 
 @pytest.fixture

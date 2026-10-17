@@ -10531,6 +10531,8 @@ both ``Canvas`` signals report the
             # in-flight compute leaves the window fully alive, and an inspector closed by hand
             # while it waits is still the user closing it.
             self._shutting_down = True
+            # A closed window plays nothing: its playback timer would go on stepping the scale.
+            self.transport.play_button.setChecked(False)
             # The arrangement at closing, under its own key: a user's named layout never clashes.
             update_settings(view_options={**load_settings().view_options,
                                           "dock_state": self._dock_entry()})
