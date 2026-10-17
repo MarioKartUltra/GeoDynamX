@@ -228,3 +228,23 @@ def pytest_unconfigure(config):
         sys.stderr.flush()
         os._exit(status)
     return result
+
+
+@pytest.fixture(autouse=True)
+def _collect_on_the_main_thread():
+    """In a session that loaded Qt, no collection starts during a test, where a compute worker could
+    trip one and free a Qt object off its thread (dynamix.shell.gc_guard does the same for the
+    app); each test's garbage is collected after it, on the main thread."""
+    if "PySide6" not in sys.modules:
+        yield
+        return
+    import gc
+
+    was = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        gc.collect()
+        if was:
+            gc.enable()

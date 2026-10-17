@@ -94,7 +94,7 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: against every `from dynamix.shell...` import in the package) -- a runtime topological sort
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
-    "theme", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
+    "gc_guard", "theme", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
     "point_import", "units", "settings",
     "window_fit", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "map_view", "inspector", "roi_panel",
@@ -108,6 +108,7 @@ _MODULE_ORDER = (
 #: changed set to its dependents -- reloading chain_strip.py alone after knob_widgets.py changed
 #: would leave chain_strip's DeviceStrip closing over the STALE make_control function.
 _DEPENDS_ON = {
+    "gc_guard": (),
     "theme": (),
     "docks": (),
     "commands": (),
@@ -454,6 +455,9 @@ def main(argv=None) -> int:
     from PySide6 import QtCore, QtWidgets
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from dynamix.shell import gc_guard
+
+    gc_guard.install(app)                     # collections on the GUI thread only (gc_guard)
     window = _build_window(app)
     if path:
         try:

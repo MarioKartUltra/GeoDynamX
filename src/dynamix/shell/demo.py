@@ -330,6 +330,9 @@ def main(argv=None) -> int:
     npz = argv[0] if argv else _default_npz()
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    from dynamix.shell import gc_guard
+
+    gc_guard.install(app)                     # collections on the GUI thread only (gc_guard)
     win = DemoWindow(npz)
     win.resize(1280, 760)
 
