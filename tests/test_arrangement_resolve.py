@@ -34,8 +34,7 @@ from dynamix.core.frames import LocalFrame
 from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import Chain, DeviceRef
 
-from tests.test_shell_window import (STUB_CHAIN, _BlockingStack, _FIELD, _StubStack,
-                                     _close_before_the_registry_goes, _stub_stack,
+from tests.test_shell_window import (STUB_CHAIN, _BlockingStack, _FIELD, _StubStack, _stub_stack,
                                      stub_devices, window)  # noqa: F401
 
 
@@ -131,7 +130,9 @@ def arranged_window(qtbot, stub_devices, tmp_path):
 
     assert win.layer is cached       # the fixture's own invariant: no incidental re-selection
     yield win, cached, pending, nogeoref
-    _close_before_the_registry_goes(qtbot, win)
+    # A compute still running when the stub registry goes lands as an error against it; waited
+    # out here. qtbot closes the window afterwards, as before.
+    qtbot.waitUntil(lambda: win._thread is None, timeout=30000)
 
 
 # --------------------------------------------------------------------------- classification
