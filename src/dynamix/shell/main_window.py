@@ -182,6 +182,8 @@ _SELECTION_MODES = ("click", "box", "lasso", "transect", "mask")
 #: never visits it either. The controller walks it, so it lives there; this is its old name.
 _SELECTION_MODE_CYCLE = SELECTION_MODE_CYCLE
 
+#: The status line while a finest-scale preview is on the canvas and the full stack still computes.
+_PREVIEW_NOTICE = "preview (finest scale) — computing full stack…"
 _PANEL_WIDTH = 220          # left zone's default splitter width -- a first-run
                             # hint only; the boundary drags freely and Settings.splitter_sizes
                             # overrides this the moment the user has ever moved it
@@ -8222,6 +8224,10 @@ both ``Canvas`` signals report the
         thread, self._thread, self._worker = self._thread, None, None
         if hasattr(self, "_stop_btn"):
             self._stop_btn.setVisible(False)
+        if getattr(self, "_status_message", None) == _PREVIEW_NOTICE:
+            # The run the preview stood in for is over, however it ended.
+            self._status_message = ""
+            self.statusBar().clearMessage()
         if thread is not None:
             thread.quit()
             thread.wait()
@@ -8352,7 +8358,7 @@ both ``Canvas`` signals report the
         layers = result["extrema"]
         idx = 0 if len(layers) == 1 else int(result.get("_scale_idx", 0))
         self.canvas.set_result(result, min(idx, len(layers) - 1))
-        self._notify("preview (finest scale) — computing full stack…", "status")
+        self._notify(_PREVIEW_NOTICE, "status")
 
     def _on_cancelled(self) -> None:
         """A worker abandoned its run at our request (progressive compute, design §3).
