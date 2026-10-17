@@ -184,10 +184,23 @@ def _run_warnings(plan, roi_margins, mode: str) -> list:
     return [w for w in (honest_halo_warning(plan), corner_warning(rows, mode)) if w]
 
 
-def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float, mode: str) -> dict:
+def _cut_of(plan, params: dict, offset, parent_shape) -> "dict | None":
+    """The core's ``cut`` under ``edge = "cut"``, else None."""
+    if params.get("edge", "reflect") != "cut":
+        return None
+    from dynamix.core.edges import cut_borders
+
+    scope = params.get("cut_scope", "largest")
+    return {"borders": cut_borders(plan, scope), "scope": scope,
+            "offset": tuple(int(v) for v in offset),
+            "parent_shape": tuple(int(v) for v in parent_shape[:2])}
+
+
+def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float, mode: str,
+                cut=None) -> dict:
     """The ``_edge`` record of a run: the halo each scale used, its reach and where the
-    halo's pixels came from, per side."""
-    return {"device": device, "mode": mode, "eps": float(eps),
+    halo's pixels came from, per side; under a cut, each scale's border."""
+    stamp = {"device": device, "mode": mode, "eps": float(eps),
             "parent_shape": None if parent_shape is None else [int(v) for v in parent_shape[:2]],
             "budget_px": WHOLE_PARENT_MAX_PIXELS,
             "scales": [{"a": float(sh.a), "margin": sh.margin, "whole": sh.whole,
@@ -196,6 +209,11 @@ def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float, mode: 
                         "converged": sh.reach.converged,
                         "real_px": dict(m["real_px"]), "synthetic_px": dict(m["synthetic_px"])}
                        for sh, m in zip(plan, roi_margins)]}
+    if cut is not None:
+        stamp["cut_scope"] = cut.get("scope")
+        for row, b in zip(stamp["scales"], cut["borders"]):
+            row["border"] = int(b)
+    return stamp
 
 #: Reported edge names, in this order.
 _EDGES = ("N", "S", "E", "W")
@@ -445,8 +463,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     def _window_for(sh):
         return _read_halo(source, parent_rect, (r0, c0, h, w), sh.margin, nodata, whole=sh.whole)
 
+    cut = _cut_of(plan, params, (r0 - parent_rect[0], c0 - parent_rect[1]), parent_rect[2:])
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
 
     out = {
         "chains": chains, "extrema": extrema, "scales": scales,
@@ -457,7 +476,7 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": _edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode),
+        "_edge": _edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode, cut),
     }
     warnings = _run_warnings(plan, roi_margins, mode)
     if warnings:
@@ -507,7 +526,7 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
             "margin": margin}
 
 
-def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None):
+def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
     """The per-scale halo loop shared by :func:`run_wtmm2d_roi` (halos read off the FILE) and
     :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale of
     ``plan`` (:func:`halo_plan`), ``window_for(scale_halo) -> (window, info)`` supplies ROI + that
@@ -515,7 +534,10 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None):
     ``real_frac`` / ``reflected_edges`` / ``missing`` / ``offset_in_window`` (the ROI's row and
     column in the window) / ``real_px`` / ``synthetic_px``; the CWT + extrema run on it, the
     extrema are cropped to the ROI, and only THEN are they chained and partitioned -- chaining
-    happens inside the ROI.
+    happens inside the ROI. ``cut`` (``edge = "cut"``: ``borders`` per scale, the ROI's
+    ``offset`` in the parent, the ``parent_shape``) trims the chains at each scale's cone of
+    influence (spec 14's ``coi_trim``, or ``coi_drop`` when that is the border policy) and drops
+    the maxima inside it, before the partition functions are built.
 
     Extracted verbatim from :func:`run_wtmm2d_roi` so both
     entries run one implementation; ``tests/test_roi_halo.py`` is the file path's oracle,
@@ -582,6 +604,16 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None):
     from dynamix.core.chaining import link
 
     chains = link(extrema, scales, resolved, backend)
+    if cut is not None:
+        from dynamix.core.chaining import border_trimmed
+        from dynamix.core.edges import chain_reach, drop_in_cone
+
+        policy = "coi_drop" if resolved.get("border_policy") == "coi_drop" else "coi_trim"
+        chains = border_trimmed(chains, cut["parent_shape"], policy, 0.0,
+                                int(resolved["min_chain_len"]),
+                                reach_at=chain_reach(scales, cut["borders"]),
+                                offset=cut["offset"])
+        extrema = drop_in_cone(extrema, cut["borders"], cut["offset"], cut["parent_shape"])
     hd_std, hd_cmax = backend.partition2d(chains, scales, q_list=resolved["q_list"],
                                           min_chain_len=resolved["min_chain_len"])
 
@@ -589,7 +621,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None):
 
 
 def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, params: dict,
-                             *, progress=None, parent_shape=None) -> dict:
+                             *, progress=None, parent_shape=None, roi_origin=None) -> dict:
     """:func:`run_wtmm2d_roi` over an IN-MEMORY processing window.
 
     ``window_values`` is ROI + ``offset`` px on every side, already read by
@@ -601,7 +633,9 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
     ``_missing_mask``/``real_frac``, never interpolated). ``offset`` must cover the widest halo
     that is not the whole parent. A scale that reads the whole parent slices the real rect of the
     window, allowed only when that rect is the whole dataset, ``parent_shape`` ``(H, W)`` (the
-    runner reads it whole when a step asks and the budget allows). Returns the same keys as
+    runner reads it whole when a step asks and the budget allows). roi_origin is the ROI's
+    (row, col) in that dataset, for a cut at its edges (the window's real rect stands in
+    without it). Returns the same keys as
     :func:`run_wtmm2d_roi` (``_roi`` without a source: the caller stamps the region)."""
     from dynamix.core.wtmm_backend import _resolve_wtmm2d_params, compute_scales2d
 
@@ -656,8 +690,12 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
                      "missing": missing, "offset_in_window": (m, m),
                      "real_px": {k: m - v for k, v in synth.items()}, "synthetic_px": synth}
 
+    if roi_origin is not None and parent_shape is not None:
+        cut = _cut_of(plan, params, roi_origin, parent_shape)
+    else:
+        cut = _cut_of(plan, params, (o - pr0, o - pc0), (pr1 - pr0, pc1 - pc0))
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
     out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
@@ -667,7 +705,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": _edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode),
+        "_edge": _edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode, cut),
     }
     warnings = _run_warnings(plan, roi_margins, mode)
     if warnings:

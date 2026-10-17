@@ -102,6 +102,43 @@ def eta_warning(params: dict) -> "str | None":
             f"pixel lattice (warning level {level:.0e}).")
 
 
+def cut_whole(res: dict, params: dict, shape) -> dict:
+    """``edge = "cut"`` on a whole raster: each scale's maxima inside its cone of influence (the
+    measured reach, ``dynamix.core.edges.cut_borders``) dropped, the chains trimmed there (spec
+    14's ``coi_trim``, or ``coi_drop`` when that is the border policy) and the partition functions
+    rebuilt from them; ``_edge`` records the borders."""
+    from dynamix.core import edges
+    from dynamix.core.chaining import border_trimmed
+    from dynamix.core.wtmm_backend import get_backend
+    from dynamix.roi.halo import halo_plan
+
+    scales = np.asarray(res["scales"])
+    plan = halo_plan(scales, params.get("wavelet", "mexican"), smoother_params(params),
+                     float(params.get("edge_eps", 1e-3)), None)
+    scope = params.get("cut_scope", "largest")
+    borders = edges.cut_borders(plan, scope)
+    policy = "coi_drop" if params.get("border_policy") == "coi_drop" else "coi_trim"
+    resolved = res["params"]
+    out = dict(res)
+    out["chains"] = border_trimmed(res["chains"], shape, policy, 0.0,
+                                   int(resolved["min_chain_len"]),
+                                   reach_at=edges.chain_reach(scales, borders))
+    out["extrema"] = edges.drop_in_cone(res["extrema"], borders, (0, 0), shape)
+    out["hd_std"], out["hd_cmax"] = get_backend("python").partition2d(
+        out["chains"], scales, q_list=resolved["q_list"], min_chain_len=resolved["min_chain_len"])
+    pad = int(resolved.get("pad", 0))
+    out["_edge"] = {
+        "device": "wtmm2d", "mode": "cut", "cut_scope": scope,
+        "eps": float(params.get("edge_eps", 1e-3)),
+        "parent_shape": [int(shape[0]), int(shape[1])], "budget_px": None,
+        "scales": [{"a": float(sh.a), "margin": None, "whole": True, "radius": sh.reach.radius,
+                    "measured": sh.reach.measured, "ratio": sh.reach.ratio,
+                    "grids": list(sh.reach.grids), "converged": sh.reach.converged,
+                    "real_px": {s: 0 for s in "NSEW"}, "synthetic_px": {s: pad for s in "NSEW"},
+                    "border": int(b)} for sh, b in zip(plan, borders)]}
+    return out
+
+
 def width_reading(params: dict) -> str:
     """The two lines beside the ``q width`` knob: the β the q smoother runs with and what the
     width holds -- fixed keeps β, so q moves the width with the shape; q-paired keeps the escort
@@ -346,6 +383,8 @@ class WTMM2D:
         # Carry the field's own axes through so filters and views can convert pixels to physical
         # units without reaching back to the source.
         res = dict(res)
+        if params.get("edge", "reflect") == "cut":
+            res = cut_whole(res, params, tuple(field.values.shape)[:2])
         res["_frame"] = getattr(field, "frame", None)
         res["_shape"] = tuple(field.values.shape)
         # H-line ordering, paid HERE on the worker: run on the MAIN thread, the _order_lines
@@ -454,12 +493,17 @@ class WTMM2D:
             lsb = measure_lsb(values)
             if lsb:
                 values = _dithered(values, lsb)
-        full = (getattr(window_field, "provenance", None) or {}).get("full_dims")
+        prov = getattr(window_field, "provenance", None) or {}
+        full = prov.get("full_dims")
+        win = prov.get("window")
+        origin = (None if win is None else
+                  (int(win["row_off"]) + int(r0), int(win["col_off"]) + int(core[1])))
         res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
                                        dict({k: params[k] for k in self._ROI_KEYS},
                                             smoother_params=smoother_params(params),
                                             **{p.name: params[p.name] for p in EDGE_PARAMS}),
-                                       progress=progress, parent_shape=full)
+                                       progress=progress, parent_shape=full,
+                                       roi_origin=origin)
         res = dict(res)
         res["_frame"] = getattr(window_field, "frame", None)
         attach_chain_product(res)

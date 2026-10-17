@@ -9,7 +9,11 @@ warning says), ``"cut"`` keeps the padding out of the result by dropping the con
 """
 from __future__ import annotations
 
-__all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "deficits"]
+import math
+
+import numpy as np
+
+__all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "cut_borders", "deficits", "drop_in_cone"]
 
 #: The edge modes, in the order the knob lists them.
 EDGES = ("reflect", "cut")
@@ -27,6 +31,48 @@ def deficits(roi, parent_shape, margin: int) -> dict:
     m = int(margin)
     return {"N": max(0, m - r0), "S": max(0, r0 + h + m - H),
             "W": max(0, m - c0), "E": max(0, c0 + w + m - W)}
+
+
+def cut_borders(plan, scope: str) -> list:
+    """Per-scale cut border (px, finest first) from a halo plan's reaches: the coarsest scale's
+    reach at every scale for ``"largest"``; each scale's own for ``"per_scale"``, never wider than
+    the coarsest's, and the coarsest's where a scale's reach does not converge. Where the coarsest
+    scale's reach does not converge either, its larger grid's radius stands in."""
+    top = plan[-1].reach
+    b_max = int(math.ceil(top.radius if top.converged else top.measured))
+    if scope == "largest":
+        return [b_max] * len(plan)
+    return [min(b_max, int(math.ceil(sh.reach.radius))) if sh.reach.converged else b_max
+            for sh in plan]
+
+
+def drop_in_cone(levels, borders, offset, parent_shape) -> list:
+    """Each level's maxima at least its border from every edge of the parent: positions on a grid
+    whose origin sits at ``offset`` = ``(row, col)`` of a parent of ``parent_shape`` = ``(H, W)``;
+    every per-point array of a level is subset in step."""
+    oy, ox = (int(v) for v in offset)
+    H, W = int(parent_shape[0]), int(parent_shape[1])
+    out = []
+    for level, b in zip(levels, borders):
+        x = np.asarray(level["x"], dtype=np.float64) + ox
+        y = np.asarray(level["y"], dtype=np.float64) + oy
+        keep = np.minimum.reduce([x, y, W - 1 - x, H - 1 - y]) >= b
+        n = keep.size
+        out.append({k: (v[keep] if isinstance(v, np.ndarray) and v.ndim >= 1 and len(v) == n
+                        else v) for k, v in level.items()})
+    return out
+
+
+def chain_reach(scales, borders):
+    """The ``reach_at`` callable :func:`dynamix.core.chaining.border_trimmed` takes: a chain's
+    ``log2_scales`` to the border of the nearest scale."""
+    log2 = np.log2(np.asarray(scales, dtype=np.float64))
+    b = np.asarray(borders, dtype=np.float64)
+
+    def reach_at(log2_scales):
+        ls = np.asarray(log2_scales, dtype=np.float64)
+        return b[np.abs(ls[:, None] - log2[None, :]).argmin(axis=1)]
+    return reach_at
 
 
 def corner_warning(rows, mode: str) -> "str | None":
