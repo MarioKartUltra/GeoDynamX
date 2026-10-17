@@ -104,3 +104,21 @@ def test_the_spectrum_window_is_freed_when_dropped(qtbot):
     from tests.test_multifractal_window import _pair
 
     assert _freed_without_the_collector(lambda: SpectrumWindow(*_pair()))
+
+
+def test_the_fitters_physical_axis_does_not_keep_the_window(qtbot, clean_registry):
+    """The fitter keeps the window's log2 a -> length function; the window keeps the fitter."""
+    from dynamix.shell.main_window import MainWindow
+    from tests.conftest import make_field
+
+    register_builtin_devices()
+    dev = get_device("wtmm2d")
+    gc.disable()
+    w = MainWindow()
+    w.field, w._bar_device = make_field(), ("wtmm2d", defaults_for(dev))
+    of = w._physical_of_log2a()
+    assert of(3.0) is not None
+    ref = weakref.ref(w)
+    shiboken6.delete(w)
+    del w
+    assert ref() is None and of(3.0) is None
