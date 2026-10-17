@@ -19,7 +19,7 @@ import math
 import numpy as np
 
 __all__ = ["BORDER_CUTS", "CUT_SCOPES", "EDGES", "PAD_WIDTHS", "border_widths", "corner_warning",
-           "cut_borders", "deficits",
+           "cut_borders", "deficits", "drop_outside",
            "dominant_wavelength", "drop_in_cone", "pad_widths", "taper_band", "taper_check",
            "taper_profile", "tapered"]
 
@@ -131,6 +131,22 @@ def drop_in_cone(levels, borders, offset, parent_shape) -> list:
         n = keep.size
         out.append({k: (v[keep] if isinstance(v, np.ndarray) and v.ndim >= 1 and len(v) == n
                         else v) for k, v in level.items()})
+    return out
+
+
+def drop_outside(levels, block) -> list:
+    """Each level's maxima inside ``block`` = ``(rows, cols)``, the top-left real block of a
+    Periodic extension output (spec 25 §3.1); every per-point array subset in step, and the
+    follow detector's line runs, which index the uncut points, left out."""
+    rows, cols = int(block[0]), int(block[1])
+    out = []
+    for level in levels:
+        x = np.asarray(level["x"], dtype=np.float64)
+        y = np.asarray(level["y"], dtype=np.float64)
+        keep = (x < cols) & (y < rows)
+        n = keep.size
+        out.append({k: (v[keep] if isinstance(v, np.ndarray) and v.ndim >= 1 and len(v) == n else v)
+                    for k, v in level.items() if k not in ("_xs_runs", "_xs_closed")})
     return out
 
 

@@ -157,3 +157,36 @@ def test_the_border_cut_runs_before_the_v_chains():
                                             int(got["params"]["min_chain_len"]))
     assert [len(c["x"]) for c in got["chains"]] != [len(c["x"]) for c in trimmed_after]
     assert got["_border_cut"]["borders"] == borders
+
+
+# --------------------------------------------------------------------- the filled gap (§3.1)
+
+def test_the_threshold_reads_the_real_block_and_the_gap_keeps_no_maxima():
+    """A Periodic extension output's gap is synthetic: no maxima there, and the threshold's maximum
+    is the real block's, so a strong gap never raises the bar for the data."""
+    from dynamix.core.wtmm_backend import PythonWTMMBackend
+
+    rng = np.random.default_rng(7)
+    real = np.abs(rng.standard_normal((1, 40, 40))).cumsum(1) / 40
+    mod = np.full((1, 56, 56), 1000.0)
+    mod[:, :40, :40] = real
+    mod[:, 40:, 40:] += rng.standard_normal((1, 16, 16))       # gap maxima candidates
+    cwt = {"mod": mod, "arg": np.zeros_like(mod)}
+    be = PythonWTMMBackend()
+    plain = be.extrema2d(cwt, [2.0], thresh=0.01)
+    kept = be.extrema2d(cwt, [2.0], thresh=0.01, real_block=(40, 40))
+    in_real = lambda e: int(((e["x"] < 40) & (e["y"] < 40)).sum())      # noqa: E731
+    assert in_real(plain[0]) == 0                       # 1 % of the gap's 1000 drowns the data
+    assert in_real(kept[0]) > 0 and len(kept[0]["x"]) == in_real(kept[0])
+
+
+def test_run_wtmm2d_keeps_no_maxima_in_the_gap_on_either_detector():
+    from dynamix.core.wtmm_backend import run_wtmm2d
+
+    f = _rf(_field(80, seed=9))
+    for detector in ("nms", "follow"):
+        res = run_wtmm2d(f, {"n_oct": 2, "n_voice": 2, "a_min": 1.0, "detector": detector,
+                             "real_block": (64, 60)})
+        for e in res["extrema"]:
+            assert (np.asarray(e["x"]) < 60).all() and (np.asarray(e["y"]) < 64).all(), detector
+        assert sum(len(e["x"]) for e in res["extrema"]) > 0, detector

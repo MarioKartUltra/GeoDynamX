@@ -523,7 +523,7 @@ def _order_lines(x, y, line_id, grid, nx, ny):
 
 
 def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
-                        radius: int = 0, grid=None) -> dict:
+                        radius: int = 0, grid=None, real_block=None) -> dict:
     """Single-scale NMS modulus maxima -- the core shared by both entry points.
 
     :meth:`PythonWTMMBackend.extrema2d` calls this once per scale, and
@@ -565,8 +565,17 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
     fore = map_coordinates(m, [yy + sy, xx + cx], order=1, mode="nearest")
     back = map_coordinates(m, [yy - sy, xx - cx], order=1, mode="nearest")
 
-    mmax = m.max()
+    if real_block is None:
+        mmax = m.max()
+    else:
+        # A Periodic extension output (spec 25 §3.1): the real data are the top-left block, the
+        # rest a filled gap -- its maxima are not the data's, and its moduli set no threshold.
+        rows, cols = (int(v) for v in real_block)
+        mmax = m[:rows, :cols].max()
     mask = (m >= fore) & (m >= back) & (m >= thresh * mmax)
+    if real_block is not None:
+        mask[rows:, :] = False
+        mask[:, cols:] = False
 
     if invalid is not None and invalid.any():
         # 8-connectivity (full 3x3) structuring element so each iteration grows
@@ -1037,7 +1046,7 @@ class PythonWTMMBackend:
         return out
 
     def extrema2d(self, cwt: dict, scales, *, thresh: float = 1e-3,
-                   field: "np.ndarray | None" = None) -> list:
+                   field: "np.ndarray | None" = None, real_block=None) -> list:
         """Per-scale non-maximum-suppression (NMS) modulus maxima.
 
         For each scale, a pixel is kept when its modulus is >= both of its
@@ -1072,6 +1081,9 @@ class PythonWTMMBackend:
             pixels -- touches a pixel that was NaN/inf in ``field`` are
             dropped (the NaN-fill in ``cwt2d`` would otherwise fabricate
             spurious ridge structure right at the mask boundary).
+        real_block : (rows, cols) or None
+            A Periodic extension output's real data, the top-left block (spec 25
+            §3.1): no extrema outside it, and the threshold's maximum is the block's.
 
         Returns
         -------
@@ -1095,7 +1107,7 @@ class PythonWTMMBackend:
         return [
             _nms_extrema_scale(mod_stack[s], arg_stack[s], thresh=thresh,
                                 invalid=invalid, radius=int(np.ceil(scales[s])),
-                                grid=grid)
+                                grid=grid, real_block=real_block)
             for s in range(n_sc)
         ]
 
@@ -1992,6 +2004,9 @@ _WTMM2D_PARAM_DEFAULTS = {
     "pad": 32,
     # What the FFT torus holds beyond the field (PAD_MODES): mirrored by default, as it always was.
     "pad_mode": "reflect",
+    # A Periodic extension output's real block, (rows, cols) (spec 25 §3.1): no maxima in the filled
+    # gap, and the threshold from the real data. None: the whole field is data.
+    "real_block": None,
     # The Border cut (spec 25 §3.3; dynamix.core.edges.border_widths): off here, so a direct caller's
     # run is unchanged; the WTMM tool sets its own default.
     "border_cut": "none",
@@ -2422,6 +2437,10 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                        fracint_alpha=resolved["fracint_alpha"],
                        interpolate=resolved["interpolate"],
                        detector=resolved["detector"])
+    real_block = resolved["real_block"]
+    if real_block is not None:                    # the whole field as data keeps its stage keys
+        real_block = (int(real_block[0]), int(real_block[1]))
+        extrema_key["real_block"] = real_block
 
     def compute_extrema():
         if follow:
@@ -2440,14 +2459,21 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
             fvals = np.asarray(field.values)
             if not np.all(np.isfinite(fvals)):
                 invalid = ~np.isfinite(fvals)
-            return [
+            found = [
                 follow_extrema_scale_exact(cwt["mod"][si], cwt["arg"][si],
                                            cwt["kapa"][si], cwt["kapap"][si],
                                            thresh=resolved["thresh"], invalid=invalid,
                                            radius=int(np.ceil(scales[si])))
                 for si in range(len(scales))
             ]
-        ext = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values)
+            if real_block is not None:
+                # Follow thresholds inside its exact port, against the whole array; the gap's
+                # maxima are dropped here, and their line runs index the uncut points.
+                from dynamix.core import edges as _edges
+                found = _edges.drop_outside(found, real_block)
+            return found
+        ext = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values,
+                                real_block=real_block)
         if resolved["interpolate"]:
             # Parabolic refinement along the gradient (dynamix.core.subpixel): the refined
             # MODULUS replaces ``mod`` -- it feeds chaining and Z(q,a), the xsmurf follow /
