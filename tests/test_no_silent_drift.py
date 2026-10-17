@@ -44,6 +44,8 @@ INTENTIONALLY_DIVERGED = {
                    "unknown); from_file hands a GeoTIFF's path to rasterio as given, so a "
                    "GDAL virtual path (/vsizip/C:/...) keeps its forward slashes on Windows",
     "wtmm_backend": "cleanup 3/3 — the reflayers import follows load_topo_extrema to extrema_io; "
+                    "the cwt2d pad_mode (spec 25): what the FFT torus holds beyond the field "
+                    "(reflect, edge_pad, zero_pad, or periodic with nothing padded); "
                     "unknown-wavelet fall-through now raises ValueError; "
                     "progressive compute — ComputeCancelled + a cancel= stage-boundary "
                     "check in run_wtmm2d, and run_wtmm2d_preview (finest-scale-only), added; "

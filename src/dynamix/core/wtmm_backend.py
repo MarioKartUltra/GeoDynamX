@@ -186,9 +186,26 @@ def _build_wavelet_filters_numpy(kx: np.ndarray, ky: np.ndarray, scale: float,
     }
 
 
+#: What the FFT torus holds beyond the real data, by edge mode (spec 25): the numpy pad mode, or None
+#: for ``periodic``, where the raster itself is the torus and nothing is padded. Every convolution here
+#: is circular; the padding decides what the wrap-around runs across.
+PAD_MODES = {"reflect": "reflect", "edge_pad": "edge", "zero_pad": "constant", "periodic": None}
+
+
+def _padded(image, pad: int, pad_mode: str):
+    """``(padded image, the pad actually applied)`` for ``pad_mode`` (:data:`PAD_MODES`)."""
+    if pad_mode not in PAD_MODES:
+        raise ValueError(f"unknown pad_mode {pad_mode!r}; expected one of {tuple(PAD_MODES)}")
+    np_mode = PAD_MODES[pad_mode]
+    image = np.asarray(image)
+    if np_mode is None or int(pad) <= 0:
+        return image, 0
+    return np.pad(image, int(pad), mode=np_mode), int(pad)
+
+
 def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "first",
                   wavelet: str = "gaussian", verbose: bool = True, fft=None,
-                  params: "dict | None" = None) -> dict:
+                  params: "dict | None" = None, pad_mode: str = "reflect") -> dict:
     """Numpy/FFT transcription of ``wtmm_ebsd.cwt2d.cwt_2d_f32``.
 
     Signature-compatible with the ``mlx`` original so either engine can be
@@ -211,7 +228,8 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
     real = np.float64 if getattr(fft, "precision", 32) == 64 else np.float32
     image = np.asarray(image)
     ny, nx = image.shape
-    padded = np.pad(image, pad, mode="reflect").astype(real)
+    padded, pad = _padded(image, pad, pad_mode)
+    padded = padded.astype(real)
     ny_p, nx_p = padded.shape
     crop = (slice(pad, pad + ny), slice(pad, pad + nx))
     kx_np = np.fft.fftfreq(nx_p).astype(real)
@@ -244,7 +262,7 @@ def _cwt2d_numpy(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "fir
 
 def _cwt2d_mlx(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "first",
                wavelet: str = "gaussian", verbose: bool = True,
-               params: "dict | None" = None) -> dict:
+               params: "dict | None" = None, pad_mode: str = "reflect") -> dict:
     """The vendored ``cwt_2d_f32`` loop on the device with the registry's filters.
 
     Same reflect padding, wavenumber grids, one ``fft2`` of the padded image, per scale
@@ -258,7 +276,8 @@ def _cwt2d_mlx(image: np.ndarray, scales, *, pad: int = 32, derivs: str = "first
 
     image = np.asarray(image)
     ny, nx = image.shape
-    padded = np.pad(image, pad, mode="reflect").astype(np.float32)
+    padded, pad = _padded(image, pad, pad_mode)
+    padded = padded.astype(np.float32)
     ny_p, nx_p = padded.shape
     crop = (slice(pad, pad + ny), slice(pad, pad + nx))
     kx_np = np.fft.fftfreq(nx_p).astype(np.float32)
@@ -921,7 +940,7 @@ class PythonWTMMBackend:
 
     def cwt2d(self, field, scales, *, wavelet: str = "gaussian", pad: int = 32,
               derivs: str = "first", smoother_params: "dict | None" = None,
-              _engine: "str | None" = None) -> dict:
+              _engine: "str | None" = None, pad_mode: str = "reflect") -> dict:
         """2D continuous wavelet transform.
 
         Parameters
@@ -939,7 +958,11 @@ class PythonWTMMBackend:
             ``mlx`` engine calls ``wtmm_ebsd.cwt2d.cwt_2d_f32`` directly and never touches
             :func:`_build_wavelet_filters_numpy`.
         pad : int
-            Reflect-pad width in pixels.
+            Pad width in pixels.
+        pad_mode : str
+            What the FFT torus holds beyond the field (:data:`PAD_MODES`): ``"reflect"``
+            (mirrored), ``"edge_pad"`` (the edge values repeated), ``"zero_pad"``, or
+            ``"periodic"`` (nothing padded; the field itself is the torus).
         smoother_params : dict or None
             The registry smoother's parameters (``{"alpha": ...}``, ``{"q": ...}``);
             validated here before dispatch; ignored by the Gaussian pair.
@@ -981,20 +1004,22 @@ class PythonWTMMBackend:
 
         if engine == "mlx":
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
-            if USE_VENDORED and not registry:
+            if USE_VENDORED and not registry and pad_mode == "reflect":
                 from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
                 raw = cwt_2d_f32(field, scales, pad=pad, derivs=derivs,
                                   wavelet=wavelet, verbose=False)
             else:
                 raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
-                                 wavelet=wavelet, verbose=False, params=smoother_params)
+                                 wavelet=wavelet, verbose=False, params=smoother_params,
+                                 pad_mode=pad_mode)
         elif engine == "fftw":
             from dynamix.core import fft_policy
             be = fft_policy.active()
             if be.name != "pyfftw":
                 be = fft_policy.make("pyfftw", 32)
             raw = _cwt2d_numpy(field, scales, pad=pad, derivs=derivs,
-                                wavelet=wavelet, verbose=False, fft=be, params=smoother_params)
+                                wavelet=wavelet, verbose=False, fft=be, params=smoother_params,
+                                pad_mode=pad_mode)
         else:
             raise ValueError(f"unknown cwt2d engine {engine!r}")
 
