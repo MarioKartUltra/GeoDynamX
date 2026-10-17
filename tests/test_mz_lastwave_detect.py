@@ -34,7 +34,15 @@ def test_extrema2_is_bit_exact_with_the_authors_c(path):
         assert np.array_equal(np.where(ex.mask[l], ex.mag[l], 0), g[f"extmagn_{l}"]), (path, l)
         dm, _ = ex.denormalised(l)
         assert np.array_equal(np.where(ex.mask[l], dm, 0), g[f"extmag_{l}"]), (path, l)
-        assert np.array_equal(np.where(ex.mask[l], ex.arg[l], 0), g[f"extarg_{l}"]), (path, l)
+        arg = np.where(ex.mask[l], ex.arg[l], 0)
+        if sys.platform == "darwin":
+            # The golden files come from the authors' C on macOS: the same libm, bit for bit.
+            assert np.array_equal(arg, g[f"extarg_{l}"]), (path, l)
+        else:
+            # The argument is atan2(Wy, Wx), lowered to the platform's C library; glibc's and
+            # the Windows CRT's differ from Apple's in the last bit for some inputs.
+            np.testing.assert_allclose(arg, g[f"extarg_{l}"], rtol=0,
+                                       atol=4 * np.finfo(float).eps * np.pi, err_msg=f"{path} {l}")
 
 
 def test_colocation_uses_the_two_tap_average_and_keeps_raw_anchors():
