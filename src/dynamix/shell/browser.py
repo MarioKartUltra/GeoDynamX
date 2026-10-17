@@ -15,6 +15,8 @@ on this module without this module depending back.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model import DEVICES, is_transform
@@ -116,7 +118,7 @@ class DeviceBrowser(QtWidgets.QTreeWidget):
                 continue
             # A plugin that failed to import or validate: its file (or entry point) as a row that
             # cannot be dragged, the error in the tooltip, so the folder's problem is seen at once.
-            title = result.path.rsplit("/", 1)[-1] if result.path else result.origin
+            title = Path(result.path).name if result.path else result.origin
             item = QtWidgets.QTreeWidgetItem(self._categories["Dev"], [title, result.name])
             item.setFlags(item.flags() & ~QtCore.Qt.ItemIsDragEnabled & ~QtCore.Qt.ItemIsEnabled)
             item.setForeground(0, self._muted)
