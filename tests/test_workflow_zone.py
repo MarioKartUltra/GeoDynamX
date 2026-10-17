@@ -1318,8 +1318,10 @@ def test_hints_rebind_soft_bounds_and_snap_the_value_to_the_data_floor(
     result = box.device.apply(kam64_stack, box._params)
     box.sync_from_result(result)
 
-    assert control._spec.lo == pytest.approx(-1.2845051091543018, abs=1e-6)
-    assert control._spec.hi == pytest.approx(0.6942832452452513, abs=1e-6)
+    # Hölder exponents of a float32 WTMM run: the FFT engines agree to float32 tolerance
+    # (FFTW3 on ubuntu put the floor 1.6e-6 away from mlx on this machine).
+    assert control._spec.lo == pytest.approx(-1.2845051091543018, rel=1e-5)
+    assert control._spec.hi == pytest.approx(0.6942832452452513, rel=1e-5)
     assert control._spec.step != original_step          # re-scaled to the real data spread
     assert box._params["cutoff"] == pytest.approx(control._spec.lo)
     assert control._value == pytest.approx(control._spec.lo)     # display followed the snap
@@ -1344,7 +1346,7 @@ def test_rebound_step_reaches_a_real_key_press_on_the_cutoff_control(
     result = box.device.apply(kam64_stack, box._params)
     box.sync_from_result(result)          # rebinds + snaps to the data floor (-1.2845...)
     rebound_step = control._spec.step
-    assert rebound_step == pytest.approx(0.019787883543995532, abs=1e-9)
+    assert rebound_step == pytest.approx(0.019787883543995532, rel=1e-5)   # float32 engines
 
     value_before = control._value
     with qtbot.waitSignal(control.valueChanged) as sig:
