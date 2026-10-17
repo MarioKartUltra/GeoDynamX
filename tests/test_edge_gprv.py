@@ -137,3 +137,12 @@ def test_a_spike_in_the_padded_zone_and_what_it_reaches(tmp_path, monkeypatch, e
             assert np.allclose(value, spiked["hd_std"][key], rtol=1e-3, atol=1e-6, equal_nan=True)
     else:
         assert moved > 0                       # the spike reaches the maxima under reflect (318)
+
+
+def test_a_daf_record_names_its_tuning_or_its_fallback(clean_registry, tmp_path):
+    """The test DEM is a random walk, not band-limited: the record says the DAF fell back and
+    why, with the band limit it measured."""
+    edge = _report(_record(tmp_path, [("wtmm2d", {"n_oct": 2, "n_voice": 2, "precision": "f64",
+                                                  "edge": "daf_periodic"})], "daf"), "edge")
+    assert edge["requested"] == "daf_periodic" and edge["mode"] == "reflect"
+    assert "points per wavelength" in edge["fallback"] and edge["f_b"] > 0 and edge["M"] == 12

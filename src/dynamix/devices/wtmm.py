@@ -185,8 +185,9 @@ CHAINING_OPTION_PARAMS = (
 #: a scale's reach where real data runs out (``dynamix.core.edges``), whose cone of influence a cut
 #: uses, and the mass fraction the reach leaves outside (``dynamix.core.reach``).
 EDGE_PARAMS = (
-    Param("edge", ParamKind.CHOICE, default="reflect", choices=("reflect", "cut", "gaussian_taper"),
-          choice_labels=("reflect", "cut at COI", "Gaussian taper"), label="Edge",
+    Param("edge", ParamKind.CHOICE, default="reflect",
+          choices=("reflect", "cut", "gaussian_taper", "daf_periodic"),
+          choice_labels=("reflect", "cut at COI", "Gaussian taper", "DAF periodic"), label="Edge",
           keyed_at_default=False),
     Param("cut_scope", ParamKind.CHOICE, default="largest", choices=("largest", "per_scale"),
           choice_labels=("largest scale's COI", "each scale's COI"), label="Cut scope",
@@ -377,7 +378,7 @@ class WTMM2D:
                 **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
         }
         res, fell_back = None, None
-        if params.get("edge", "reflect") == "gaussian_taper":
+        if params.get("edge", "reflect") in ("gaussian_taper", "daf_periodic"):
             # An edge mode that changes the data runs scale by scale over the whole raster as
             # its own ROI (dynamix.roi.halo); where it does not fit, the backend's run stands.
             from dynamix.roi.halo import run_whole_through_core
@@ -428,11 +429,11 @@ class WTMM2D:
         if warning:
             out["a_min"] = warning
         values = getattr(field, "values", None)
-        if params.get("edge") == "gaussian_taper" and values is not None:
-            from dynamix.roi.halo import taper_fallback
+        if params.get("edge") in ("gaussian_taper", "daf_periodic") and values is not None:
+            from dynamix.roi.halo import edge_fallback
 
             v = np.asarray(values)
-            reason = taper_fallback(v, v.shape[:2], params, smoother_params(params))
+            reason = edge_fallback(v, v.shape[:2], params, smoother_params(params))
             if reason:
                 out["edge"] = reason
         return out
@@ -467,8 +468,18 @@ class WTMM2D:
         idx = int(np.clip(0 if level is None else int(level), 0, n - 1))
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 0.0)
-        one = run_wtmm2d_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
-                                            smoother_params=smoother_params(params)), idx)
+        one = None
+        if params.get("edge", "reflect") in ("gaussian_taper", "daf_periodic"):
+            # the window the analysis transformed (tapered, or extended by the DAF)
+            from dynamix.roi.halo import run_whole_level
+
+            one = run_whole_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
+                                               smoother_params=smoother_params(params),
+                                               **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                                  idx)
+        if one is None:
+            one = run_wtmm2d_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
+                                                smoother_params=smoother_params(params)), idx)
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 1.0)
         raster = one["mod"] if name == "modulus" else one["arg"]

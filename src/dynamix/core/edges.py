@@ -8,7 +8,9 @@ where a reach does not converge). Where the halo still runs past the raster, ``e
 warning says), ``"cut"`` keeps the padding out of the result by dropping the cone of influence,
 ``"gaussian_taper"`` rolls the real data off to their mean in a band at the raster's edges (Jones and
 Gunaratne 1998, p. 446: the data tapered near the boundaries so that the field vanishes there) and
-drops the band's maxima, since its values are no longer the data's.
+drops the band's maxima, since its values are no longer the data's, and ``"daf_periodic"`` makes the
+real data periodic with the self-tuned DAF extension (:mod:`dynamix.core.daf`) and transforms it
+without padding.
 """
 from __future__ import annotations
 
@@ -20,7 +22,7 @@ __all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "cut_borders", "deficits",
            "dominant_wavelength", "drop_in_cone", "taper_check", "taper_profile", "tapered"]
 
 #: The edge modes, in the order the knob lists them.
-EDGES = ("reflect", "cut", "gaussian_taper")
+EDGES = ("reflect", "cut", "gaussian_taper", "daf_periodic")
 #: Longest side the dominant-wavelength estimate looks at; a larger field is decimated to it.
 _DOMINANT_SIDE = 512
 #: Whose cone of influence a cut uses: the coarsest scale's for every scale, or each scale's own.

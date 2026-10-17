@@ -53,17 +53,24 @@ def _halo_warning(field, params: dict) -> "str | None":
     return honest_halo_warning(plan)
 
 
-def _taper_warning(field, params: dict) -> "str | None":
-    """Why the Gaussian taper would fall back to reflection on this ROI, read off the source."""
-    if params.get("edge") != "gaussian_taper":
+def _edge_mode_warning(field, params: dict) -> "str | None":
+    """Why the Gaussian taper or the DAF extension would fall back to reflection on this ROI,
+    read off the source."""
+    if params.get("edge") not in ("gaussian_taper", "daf_periodic"):
         return None
     prov = getattr(field, "provenance", None) or {}
     source, full = prov.get("source"), prov.get("full_dims")
-    if not source or full is None:
+    if not source:
         return None
     import numpy as np
 
-    from dynamix.roi.halo import _read_halo, taper_fallback
+    if full is None:
+        from dynamix.core.rasterfield import geotiff_info
+
+        info = geotiff_info(source)
+        full = (info["height"], info["width"])
+
+    from dynamix.roi.halo import _read_halo, edge_fallback
 
     roi = tuple(int(params.get(k, d)) for k, d in (("roi_row", 0), ("roi_col", 0),
                                                     ("roi_h", 512), ("roi_w", 512)))
@@ -72,8 +79,8 @@ def _taper_warning(field, params: dict) -> "str | None":
         block, info = _read_halo(source, parent, roi, 0, None)
     except (OSError, ValueError):
         return None
-    return taper_fallback(np.where(info["missing"], np.nan, block), parent[2:], params,
-                          smoother_params(params))
+    return edge_fallback(np.where(info["missing"], np.nan, block), parent[2:], params,
+                         smoother_params(params))
 
 
 def _corner_warning(field, params: dict) -> "str | None":
@@ -278,7 +285,7 @@ class WTMM2DROI:
         found = [w for w in (_halo_warning(field, params), _corner_warning(field, params),
                              eta_warning(params)) if w]
         out = {"a_min": "\n\n".join(found)} if found else {}
-        reason = _taper_warning(field, params)
+        reason = _edge_mode_warning(field, params)
         if reason:
             out["edge"] = reason
         return out
@@ -318,7 +325,8 @@ class WTMM2DROI:
             source, (info["height"], info["width"]), (r0, c0, h, w),
             dict({k: params[k] for k in ("n_oct", "n_voice", "a_min", "wavelet",
                                          "fracint_alpha", "detector")},
-                 smoother_params=smoother_params(params)),
+                 smoother_params=smoother_params(params),
+                 **{p.name: params[p.name] for p in EDGE_PARAMS}),
             idx, boundary=roi["boundary"])
         grid = RasterField.from_geotiff_window(source, row_off=r0, col_off=c0, height=h,
                                                width=w)
