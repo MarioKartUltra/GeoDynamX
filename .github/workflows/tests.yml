@@ -64,10 +64,15 @@ jobs:
           echo "## ruff" >> "$GITHUB_STEP_SUMMARY"
           ruff check --exit-zero --output-format concise src tools | tee -a "$GITHUB_STEP_SUMMARY" | tail -3
           ruff format --check src tools >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+      # Each gate reports whatever the other did, within its own time limit, so the job's limit never
+      # swallows a log; a test that hangs past faulthandler_timeout prints its stack, naming it.
       - name: Headless gate
-        run: python -m pytest -q -p no:cacheprovider -m "not pyvista" $(cat headless.txt)
+        timeout-minutes: 20
+        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat headless.txt)
       - name: Qt-only gate (offscreen)
-        run: python -m pytest -q -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
 
   lint-imports:
     name: layering gate
