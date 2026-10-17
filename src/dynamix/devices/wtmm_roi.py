@@ -53,6 +53,29 @@ def _halo_warning(field, params: dict) -> "str | None":
     return honest_halo_warning(plan)
 
 
+def _taper_warning(field, params: dict) -> "str | None":
+    """Why the Gaussian taper would fall back to reflection on this ROI, read off the source."""
+    if params.get("edge") != "gaussian_taper":
+        return None
+    prov = getattr(field, "provenance", None) or {}
+    source, full = prov.get("source"), prov.get("full_dims")
+    if not source or full is None:
+        return None
+    import numpy as np
+
+    from dynamix.roi.halo import _read_halo, taper_fallback
+
+    roi = tuple(int(params.get(k, d)) for k, d in (("roi_row", 0), ("roi_col", 0),
+                                                    ("roi_h", 512), ("roi_w", 512)))
+    parent = ((0, 0) + tuple(full) if params.get("boundary", "auto") == "auto" else roi)
+    try:
+        block, info = _read_halo(source, parent, roi, 0, None)
+    except (OSError, ValueError):
+        return None
+    return taper_fallback(np.where(info["missing"], np.nan, block), parent[2:], params,
+                          smoother_params(params))
+
+
 def _corner_warning(field, params: dict) -> "str | None":
     """The reflection warning before the run: the scales whose halo runs past the parent at this
     ROI (``dynamix.core.edges``). The coarsest halo is the widest; an ROI it fits needs no more."""
@@ -254,7 +277,11 @@ class WTMM2DROI:
         params = params or {}
         found = [w for w in (_halo_warning(field, params), _corner_warning(field, params),
                              eta_warning(params)) if w]
-        return {"a_min": "\n\n".join(found)} if found else {}
+        out = {"a_min": "\n\n".join(found)} if found else {}
+        reason = _taper_warning(field, params)
+        if reason:
+            out["edge"] = reason
+        return out
 
     def view(self, result: dict, params: dict) -> dict:
         """``show`` picks a per-scale output, which the window computes and caches under its

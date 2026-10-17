@@ -185,8 +185,9 @@ CHAINING_OPTION_PARAMS = (
 #: a scale's reach where real data runs out (``dynamix.core.edges``), whose cone of influence a cut
 #: uses, and the mass fraction the reach leaves outside (``dynamix.core.reach``).
 EDGE_PARAMS = (
-    Param("edge", ParamKind.CHOICE, default="reflect", choices=("reflect", "cut"),
-          choice_labels=("reflect", "cut at COI"), label="Edge", keyed_at_default=False),
+    Param("edge", ParamKind.CHOICE, default="reflect", choices=("reflect", "cut", "gaussian_taper"),
+          choice_labels=("reflect", "cut at COI", "Gaussian taper"), label="Edge",
+          keyed_at_default=False),
     Param("cut_scope", ParamKind.CHOICE, default="largest", choices=("largest", "per_scale"),
           choice_labels=("largest scale's COI", "each scale's COI"), label="Cut scope",
           keyed_at_default=False, active_when=("edge", ("cut",))),
@@ -356,9 +357,7 @@ class WTMM2D:
             if lsb:
                 field = dataclasses.replace(field, values=_dithered(field.values, lsb),
                                             name=f"{field.name}+dither")
-        res = run_wtmm2d(
-            field,
-            {
+        backend_params = {
                 "n_oct": params["n_oct"],
                 "n_voice": params["n_voice"],
                 "a_min": params["a_min"],
@@ -376,13 +375,27 @@ class WTMM2D:
                 "band_per": params["band_per"],
                 "chainer": params["chainer"],
                 **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
-            },
-            progress=progress,
-            cancel=cancel,
-        )
+        }
+        res, fell_back = None, None
+        if params.get("edge", "reflect") == "gaussian_taper":
+            # An edge mode that changes the data runs scale by scale over the whole raster as
+            # its own ROI (dynamix.roi.halo); where it does not fit, the backend's run stands.
+            from dynamix.roi.halo import run_whole_through_core
+
+            res, fell_back = run_whole_through_core(
+                field.values, dict(backend_params, **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                progress=progress)
+        if res is None:
+            res = run_wtmm2d(field, backend_params, progress=progress, cancel=cancel)
         # Carry the field's own axes through so filters and views can convert pixels to physical
         # units without reaching back to the source.
         res = dict(res)
+        if fell_back and "_edge" not in res:
+            from dynamix.roi.halo import whole_fallback_stamp
+
+            res["_edge"] = whole_fallback_stamp(
+                dict(backend_params, **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                tuple(field.values.shape)[:2], fell_back)
         if params.get("edge", "reflect") == "cut":
             res = cut_whole(res, params, tuple(field.values.shape)[:2])
         res["_frame"] = getattr(field, "frame", None)
@@ -408,9 +421,21 @@ class WTMM2D:
 
     def knob_warnings(self, field, params: dict) -> dict:
         """The knobs whose value the grid cannot carry honestly, for the strip's ⚠: ``a_min`` by
-        :func:`eta_warning`."""
-        warning = eta_warning(params or {})
-        return {"a_min": warning} if warning else {}
+        :func:`eta_warning`, ``edge`` where the Gaussian taper would not fit this field."""
+        params = params or {}
+        out = {}
+        warning = eta_warning(params)
+        if warning:
+            out["a_min"] = warning
+        values = getattr(field, "values", None)
+        if params.get("edge") == "gaussian_taper" and values is not None:
+            from dynamix.roi.halo import taper_fallback
+
+            v = np.asarray(values)
+            reason = taper_fallback(v, v.shape[:2], params, smoother_params(params))
+            if reason:
+                out["edge"] = reason
+        return out
 
     def view(self, result: dict, params: dict) -> dict:
         """``show`` picks a per-scale output, which the window computes and caches under its

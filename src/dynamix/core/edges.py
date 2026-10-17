@@ -5,7 +5,10 @@
 Real parent data comes first (:mod:`dynamix.roi.halo` reads each scale's halo, or the whole parent
 where a reach does not converge). Where the halo still runs past the raster, ``edge`` decides:
 ``"reflect"`` mirrors the data (the default; the mirror lines can carry false maxima, which the
-warning says), ``"cut"`` keeps the padding out of the result by dropping the cone of influence.
+warning says), ``"cut"`` keeps the padding out of the result by dropping the cone of influence,
+``"gaussian_taper"`` rolls the real data off to their mean in a band at the raster's edges (Jones and
+Gunaratne 1998, p. 446: the data tapered near the boundaries so that the field vanishes there) and
+drops the band's maxima, since its values are no longer the data's.
 """
 from __future__ import annotations
 
@@ -13,10 +16,13 @@ import math
 
 import numpy as np
 
-__all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "cut_borders", "deficits", "drop_in_cone"]
+__all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "cut_borders", "deficits",
+           "dominant_wavelength", "drop_in_cone", "taper_check", "taper_profile", "tapered"]
 
 #: The edge modes, in the order the knob lists them.
-EDGES = ("reflect", "cut")
+EDGES = ("reflect", "cut", "gaussian_taper")
+#: Longest side the dominant-wavelength estimate looks at; a larger field is decimated to it.
+_DOMINANT_SIDE = 512
 #: Whose cone of influence a cut uses: the coarsest scale's for every scale, or each scale's own.
 CUT_SCOPES = ("largest", "per_scale")
 
@@ -73,6 +79,63 @@ def chain_reach(scales, borders):
         ls = np.asarray(log2_scales, dtype=np.float64)
         return b[np.abs(ls[:, None] - log2[None, :]).argmin(axis=1)]
     return reach_at
+
+
+def dominant_wavelength(values) -> float:
+    """The field's dominant wavelength in px: one over the radial frequency where its
+    Hann-windowed power (mean removed, summed over rings of one frequency step) peaks, the zero
+    frequency left out. A field longer than 512 px is decimated first. A red spectrum peaks at the
+    first ring, so its dominant wavelength is the field's own size."""
+    from dynamix.core import fft_policy
+
+    a = np.asarray(values, dtype=np.float64)
+    a = a.reshape(-1, a.shape[-1]) if a.ndim == 1 else a
+    step = max(1, int(math.ceil(max(a.shape) / _DOMINANT_SIDE)))
+    a = a[::step, ::step]
+    finite = np.isfinite(a)
+    a = np.where(finite, a, a[finite].mean() if finite.any() else 0.0)
+    a = (a - a.mean()) * np.outer(np.hanning(a.shape[0]), np.hanning(a.shape[1]))
+    power = np.abs(fft_policy.double().rfft2(a)) ** 2
+    dk = 1.0 / max(a.shape)
+    k = np.hypot(np.fft.fftfreq(a.shape[0])[:, None], np.fft.rfftfreq(a.shape[1])[None, :])
+    rings = np.bincount(np.floor(k / dk + 0.5).astype(np.int64).ravel(), weights=power.ravel())
+    rings[0] = 0.0
+    return step / (int(np.argmax(rings)) * dk)
+
+
+def taper_profile(t, w_t: float):
+    """1 from ``w_t`` px inside the edge on, exp(−½((w_t − t)/(w_t/4))²) nearer, ``t`` px from
+    it (e⁻⁸, 3.4e-4, at the edge itself)."""
+    t = np.asarray(t, dtype=np.float64)
+    return np.where(t >= w_t, 1.0, np.exp(-0.5 * ((w_t - t) / (0.25 * w_t)) ** 2))
+
+
+def tapered(block, rows, cols, parent_shape, mu: float, w_t: float):
+    """``block`` with the taper applied: ``rows`` and ``cols`` are its rows' and columns' indices
+    in a parent of ``parent_shape``; inside it, values within ``w_t`` px of the parent's edge are
+    rolled off towards ``mu`` (the rest untouched), and outside it the field is ``mu``."""
+    H, W = int(parent_shape[0]), int(parent_shape[1])
+    r = np.asarray(rows)[:, None]
+    c = np.asarray(cols)[None, :]
+    inside = (r >= 0) & (r < H) & (c >= 0) & (c < W)
+    t = np.minimum(np.minimum(r, H - 1 - r), np.minimum(c, W - 1 - c))
+    block = np.asarray(block, dtype=np.float64)
+    rolled = mu + (block - mu) * taper_profile(t, w_t)
+    return np.where(inside, np.where(t >= w_t, block, rolled), mu)
+
+
+def taper_check(parent_shape, dominant: float, reach_max: float):
+    """``(w_t, reason)``: the taper width, the field's dominant wavelength or the coarsest
+    scale's reach r(s_max), whichever is longer, and None, or the reason the taper is off (it
+    would take more than a quarter of the raster's shorter side)."""
+    w_t = max(float(dominant), float(reach_max))
+    limit = min(int(parent_shape[0]), int(parent_shape[1])) / 4.0
+    if w_t <= limit:
+        return w_t, None
+    return w_t, (f"Gaussian taper off, reflect used: the taper must span the field's dominant "
+                 f"wavelength ({dominant:.1f} px) and the coarsest scale's reach r(s_max) "
+                 f"({reach_max:.1f} px), {w_t:.1f} px, more than a quarter of the raster's "
+                 f"shorter side ({limit:.0f} px).")
 
 
 def corner_warning(rows, mode: str) -> "str | None":

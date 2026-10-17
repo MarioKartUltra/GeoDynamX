@@ -94,8 +94,9 @@ import numpy as np
 
 __all__ = ["MARGIN_PER_SCALE", "SIGMA_PER_A_MIN", "SIGMA_PER_SCALE", "ScaleHalo",
            "WHOLE_PARENT_MAX_PIXELS", "halo_margin", "halo_plan", "honest_halo_warning",
-           "read_halo_window", "run_wtmm2d_roi", "run_wtmm2d_roi_level",
-           "run_wtmm2d_roi_on_window", "sigma_px_amin", "sigma_px_scale"]
+           "read_halo_window", "run_whole_through_core", "run_wtmm2d_roi",
+           "run_wtmm2d_roi_level", "run_wtmm2d_roi_on_window", "sigma_px_amin", "sigma_px_scale",
+           "taper_fallback"]
 
 #: Pixels of real-space Gaussian sigma per unit of the ``a_min`` MULTIPLIER. The one home of this
 #: number: the device readings and ``dynamix.shell.units`` import it from here.
@@ -184,14 +185,38 @@ def _run_warnings(plan, roi_margins, mode: str) -> list:
     return [w for w in (honest_halo_warning(plan), corner_warning(rows, mode)) if w]
 
 
-def _cut_of(plan, params: dict, offset, parent_shape) -> "dict | None":
-    """The core's ``cut`` under ``edge = "cut"``, else None."""
-    if params.get("edge", "reflect") != "cut":
-        return None
-    from dynamix.core.edges import cut_borders
+def _taper_fill(roi_values, parent_shape, plan):
+    """``(fill, extras)`` for ``edge = "gaussian_taper"``: the taper (``{"mu", "w_t"}``, the ROI's
+    mean and the band width) or None where it would not fit, and what the record says of it (the
+    width, the field's dominant wavelength, the fallback's reason)."""
+    from dynamix.core.edges import dominant_wavelength, taper_check
 
-    scope = params.get("cut_scope", "largest")
-    return {"borders": cut_borders(plan, scope), "scope": scope,
+    v = np.asarray(roi_values, dtype=np.float64)
+    finite = np.isfinite(v)
+    mu = float(v[finite].mean()) if finite.any() else 0.0
+    top = plan[-1].reach
+    dominant = dominant_wavelength(v)
+    w_t, reason = taper_check(parent_shape, dominant, top.radius if top.converged else top.measured)
+    extras = {"requested": "gaussian_taper", "taper_px": w_t, "dominant_px": dominant}
+    if reason:
+        extras["fallback"] = reason
+        return None, extras
+    return {"mu": mu, "w_t": w_t}, extras
+
+
+def _cut_of(plan, params: dict, offset, parent_shape, fill=None) -> "dict | None":
+    """The core's ``cut``: each scale's border under ``edge = "cut"``, the taper band under the
+    Gaussian taper; else None."""
+    if fill is not None:
+        borders, scope = [int(math.ceil(fill["w_t"]))] * len(plan), None
+    elif params.get("edge", "reflect") == "cut":
+        from dynamix.core.edges import cut_borders
+
+        scope = params.get("cut_scope", "largest")
+        borders = cut_borders(plan, scope)
+    else:
+        return None
+    return {"borders": borders, "scope": scope,
             "offset": tuple(int(v) for v in offset),
             "parent_shape": tuple(int(v) for v in parent_shape[:2])}
 
@@ -275,9 +300,11 @@ def _reflect_pad(arr: np.ndarray, top: int, bottom: int, left: int, right: int) 
     return out
 
 
-def _read_halo(source, parent_rect, roi, margin, nodata, whole=False):
+def _read_halo(source, parent_rect, roi, margin, nodata, whole=False, fill=None):
     """``roi + margin``, clamped to ``parent_rect``, nodata zero-filled, deficit reflect-padded;
-    with ``whole``, the parent rect itself and nothing padded.
+    with ``whole``, the parent rect itself and nothing padded. ``fill`` (the Gaussian taper's
+    ``{"mu", "w_t"}``) rolls the parent's data off near its edges and puts its mean beyond them
+    (``dynamix.core.edges.tapered``) in place of the reflection.
 
     ``parent_rect`` is ``(row_off, col_off, height, width)`` of the sub-rect of ``source`` that
     counts as "the parent": the whole file for ``boundary="auto"``, the ROI itself for
@@ -322,6 +349,11 @@ def _read_halo(source, parent_rect, roi, margin, nodata, whole=False):
 
     window = _reflect_pad(values, top, bottom, left, right)
     missing = _reflect_pad(missing.astype(np.uint8), top, bottom, left, right).astype(bool)
+    if fill is not None:
+        from dynamix.core.edges import tapered
+
+        window = tapered(window, want_r0 - pr0 + np.arange(win_h), want_c0 - pc0 + np.arange(win_w),
+                         (ph, pw), fill["mu"], fill["w_t"])
     # Zero-filled cells are fabricated too -- they are not "real data" for the honesty reading.
     real = (read_r1 - read_r0) * (read_c1 - read_c0) - n_missing
     reflected = {"N": top > 0, "S": bottom > 0, "W": left > 0, "E": right > 0}
@@ -458,12 +490,19 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
                    else (r0, c0, h, w))
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
                      parent_rect[2:])
-    mode = params.get("edge", "reflect")
+    mode, fill, extras = params.get("edge", "reflect"), None, {}
+    if mode == "gaussian_taper":
+        block, info0 = _read_halo(source, parent_rect, (r0, c0, h, w), 0, nodata)
+        fill, extras = _taper_fill(np.where(info0["missing"], np.nan, block), parent_rect[2:],
+                                   plan)
+        mode = "gaussian_taper" if fill else "reflect"
 
     def _window_for(sh):
-        return _read_halo(source, parent_rect, (r0, c0, h, w), sh.margin, nodata, whole=sh.whole)
+        return _read_halo(source, parent_rect, (r0, c0, h, w), sh.margin, nodata, whole=sh.whole,
+                          fill=fill)
 
-    cut = _cut_of(plan, params, (r0 - parent_rect[0], c0 - parent_rect[1]), parent_rect[2:])
+    cut = _cut_of(plan, params, (r0 - parent_rect[0], c0 - parent_rect[1]), parent_rect[2:],
+                  fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
      coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
 
@@ -476,7 +515,8 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": _edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode, cut),
+        "_edge": {**_edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode, cut),
+                  **extras},
     }
     warnings = _run_warnings(plan, roi_margins, mode)
     if warnings:
@@ -659,16 +699,33 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
                 and (pr1 - pr0, pc1 - pc0) == (int(parent_shape[0]), int(parent_shape[1])))
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
                      parent_shape if whole_ok else None)
-    mode = params.get("edge", "reflect")
+    if roi_origin is not None and parent_shape is not None:
+        origin, pshape = tuple(roi_origin), tuple(parent_shape)
+    else:
+        origin, pshape = (o - pr0, o - pc0), (pr1 - pr0, pc1 - pc0)
+    mode, fill, extras = params.get("edge", "reflect"), None, {}
+    if mode == "gaussian_taper":
+        fill, extras = _taper_fill(values[o:o + h, o:o + w], pshape, plan)
+        mode = "gaussian_taper" if fill else "reflect"
     need = max([sh.margin for sh in plan if not sh.whole], default=0)
     if o < need:
         raise ValueError(f"window margin {offset} px < the widest halo {need} px")
+
+    def _filled(win, y0, x0):
+        """The window under the taper, ``y0``/``x0`` its first row and column in the window."""
+        if fill is None:
+            return win
+        from dynamix.core.edges import tapered
+
+        rows = origin[0] + y0 - o + np.arange(win.shape[0])
+        cols = origin[1] + x0 - o + np.arange(win.shape[1])
+        return tapered(win, rows, cols, pshape, fill["mu"], fill["w_t"])
 
     def _window_for(sh):
         if sh.whole:
             sub = values[pr0:pr1, pc0:pc1]
             missing = ~np.isfinite(sub)
-            win = np.where(missing, 0.0, sub) if missing.any() else sub.copy()
+            win = _filled(np.where(missing, 0.0, sub) if missing.any() else sub.copy(), pr0, pc0)
             oy, ox = o - pr0, o - pc0
             return win, {"real_frac": float((~missing).mean()), "reflected_edges": (),
                          "missing": missing, "offset_in_window": (oy, ox),
@@ -679,7 +736,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         sl = (slice(o - m, o + h + m), slice(o - m, o + w + m))
         sub, rsub = values[sl], real[sl]
         missing = ~np.isfinite(sub)
-        win = np.where(missing, 0.0, sub) if missing.any() else sub.copy()
+        win = _filled(np.where(missing, 0.0, sub) if missing.any() else sub.copy(), o - m, o - m)
         edges = {"N": not rsub[0].any(), "S": not rsub[-1].any(),
                  "W": not rsub[:, 0].any(), "E": not rsub[:, -1].any()}
         r_any, c_any = rsub.any(axis=1), rsub.any(axis=0)
@@ -690,10 +747,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
                      "missing": missing, "offset_in_window": (m, m),
                      "real_px": {k: m - v for k, v in synth.items()}, "synthetic_px": synth}
 
-    if roi_origin is not None and parent_shape is not None:
-        cut = _cut_of(plan, params, roi_origin, parent_shape)
-    else:
-        cut = _cut_of(plan, params, (o - pr0, o - pc0), (pr1 - pr0, pc1 - pc0))
+    cut = _cut_of(plan, params, origin, pshape, fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
      coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
     out = {
@@ -705,9 +759,90 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": _edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode, cut),
+        "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode, cut),
+                  **extras},
     }
     warnings = _run_warnings(plan, roi_margins, mode)
     if warnings:
         out["_warnings"] = warnings
     return out
+
+
+def _whole_plan(resolved: dict, eps: float) -> list:
+    """Every scale reading the whole raster, with its reach (for the record and the borders)."""
+    from dynamix.core.reach import reach
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
+    return [ScaleHalo(a, 0, True, reach(resolved["wavelet"], resolved["smoother_params"],
+                                        float(a), eps)) for a in scales]
+
+
+def run_whole_through_core(values, params: dict, *, progress=None):
+    """``wtmm2d`` over a whole raster under an edge mode that changes its data (the Gaussian
+    taper): the raster is its own ROI, every scale reads it whole, the mode fills it, and the
+    maxima outside the band the mode made are chained and partitioned. Returns ``(result,
+    extras)``, ``result`` None where the mode falls back to the backend's own run (``extras``
+    then says why)."""
+    from dynamix.core.wtmm_backend import _resolve_wtmm2d_params
+
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
+    if resolved["mode"] != "scalar":
+        raise ValueError(f"wtmm2d: edge = {params.get('edge')!r} runs scale by scale and is "
+                         "scalar-only (the tensor pipeline has no per-scale seam)")
+    v = np.asarray(values, dtype=np.float64)
+    H, W = v.shape[:2]
+    missing = ~np.isfinite(v)
+    plan = _whole_plan(resolved, eps)
+    fill, extras = _taper_fill(np.where(missing, np.nan, v), (H, W), plan)
+    if fill is None:
+        return None, extras
+    from dynamix.core.edges import tapered
+
+    window = tapered(np.where(missing, 0.0, v), np.arange(H), np.arange(W), (H, W), fill["mu"],
+                     fill["w_t"])
+    info = {"real_frac": float((~missing).mean()), "reflected_edges": (), "missing": missing,
+            "offset_in_window": (0, 0), "real_px": {s: 0 for s in _EDGES},
+            "synthetic_px": {s: 0 for s in _EDGES}}
+    cut = _cut_of(plan, params, (0, 0), (H, W), fill)
+    (extrema, chains, hd_std, hd_cmax, roi_margins, _missing,
+     _radii) = _wtmm2d_roi_core(lambda _sh: (window, info), H, W, resolved, plan, progress, cut)
+    return {"chains": chains, "extrema": extrema, "scales": np.asarray([sh.a for sh in plan]),
+            "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None, "params": resolved,
+            "cache_hits": set(),
+            "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, (H, W), eps,
+                                    "gaussian_taper", cut), **extras}}, extras
+
+
+def whole_fallback_stamp(params: dict, shape, extras: dict) -> dict:
+    """The ``_edge`` of a whole-raster run whose edge mode fell back to the backend's run."""
+    from dynamix.core.wtmm_backend import _resolve_wtmm2d_params
+
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
+    plan = _whole_plan(resolved, eps)
+    return {"device": "wtmm2d", "mode": "reflect", "eps": eps,
+            "parent_shape": [int(shape[0]), int(shape[1])], "budget_px": None,
+            "scales": [{"a": float(sh.a), "radius": sh.reach.radius,
+                        "measured": sh.reach.measured, "ratio": sh.reach.ratio,
+                        "grids": list(sh.reach.grids), "converged": sh.reach.converged}
+                       for sh in plan], **extras}
+
+
+def taper_fallback(values, parent_shape, params: dict, smoother_params) -> "str | None":
+    """Before a run: why the Gaussian taper would fall back to reflection on ``values`` (the ROI's
+    or the raster's) in a parent of ``parent_shape``, or None; ``smoother_params`` as the device
+    resolves them."""
+    from dynamix.core.edges import dominant_wavelength, taper_check
+    from dynamix.core.reach import reach
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    top = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
+                           float(params.get("a_min", 1.0)))[-1]
+    r = reach(params.get("wavelet", "mexican"), smoother_params, float(top),
+              float(params.get("edge_eps", 1e-3)))
+    if r.measured is None:
+        return None
+    return taper_check(parent_shape, dominant_wavelength(values),
+                       r.radius if r.converged else r.measured)[1]
