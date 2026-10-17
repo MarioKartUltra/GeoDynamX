@@ -244,9 +244,11 @@ def pytest_unconfigure(config):
 def _collect_on_the_main_thread():
     """In a session that loaded Qt, no collection starts during a test, where a compute worker could
     trip one and free a Qt object off its thread (dynamix.shell.gc_guard does the same for the
-    app); after each test the main thread collects the young generation, and an older one when the
-    collector's own threshold says so. A full collection after every test slowed the gates by
-    half."""
+    app). Once a Qt application exists, each test's garbage is collected whole at its own end, on
+    the main thread: a generational collection left some of a test's Qt and VTK objects to a later
+    test's teardown, and freeing them there aborted on ubuntu. Without an application (a headless
+    session that only imported Qt) the collector's own thresholds decide, since a full collection
+    after every headless test slowed that gate by half."""
     if "PySide6" not in sys.modules:
         yield
         return
@@ -257,8 +259,13 @@ def _collect_on_the_main_thread():
     try:
         yield
     finally:
-        _c0, c1, c2 = gc.get_count()
-        _t0, t1, t2 = gc.get_threshold()
-        gc.collect(2 if c2 > t2 else 1 if c1 > t1 else 0)
+        from PySide6 import QtCore
+
+        if QtCore.QCoreApplication.instance() is not None:
+            gc.collect()
+        else:
+            _c0, c1, c2 = gc.get_count()
+            _t0, t1, t2 = gc.get_threshold()
+            gc.collect(2 if c2 > t2 else 1 if c1 > t1 else 0)
         if was:
             gc.enable()
