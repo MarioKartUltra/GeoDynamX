@@ -143,7 +143,7 @@ _DEPENDS_ON = {
     # The per-source floating inspector HOSTS the existing Canvas and the
     # existing Transport (that reuse is the point of it -- see inspector.py's own docstring), so
     # both are real module-level imports and both already sit earlier in _MODULE_ORDER.
-    "inspector": ("canvas", "transport"),
+    "inspector": ("canvas", "transport", "gc_guard"),
     "roi_panel": ("knobs", "knob_widgets"),
     # "canvas": right_panel.py's swatch defaults are derived from
     # canvas.py's own HCHAIN_COLOR/VTRAIL_COLOR/EXTREMA_COLOR constants (see right_panel.py's own

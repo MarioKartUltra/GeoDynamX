@@ -108,9 +108,15 @@ class CommandPalette(QtWidgets.QFrame):
     filtered as you type; Enter runs the current row, Esc closes and hands focus back. Entries are
     command ids and ``device.<name>``; a device entry takes the drop path at the end of the chain."""
 
+    @property
+    def _window(self) -> QtWidgets.QMainWindow:
+        """The window: the palette's Qt parent, read back from there (an attribute of its own would
+        be a reference cycle with the window that keeps the palette)."""
+        return self.parentWidget()
+
     def __init__(self, window: QtWidgets.QMainWindow, actions: dict[str, QtGui.QAction]) -> None:
         super().__init__(window, QtCore.Qt.Popup | QtCore.Qt.FramelessWindowHint)
-        self._window, self._actions = window, actions
+        self._actions = actions
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         self.line = QtWidgets.QLineEdit()

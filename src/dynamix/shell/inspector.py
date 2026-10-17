@@ -39,6 +39,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.model.provenance import raster_key
 from dynamix.shell.canvas import Canvas
+from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.transport import Transport
 
 #: What the status strip says before any result has ever reached this window. Honest, not blank
@@ -452,8 +453,9 @@ class InspectorWindow(QtWidgets.QWidget):
     def set_level_resolver(self, resolver: "Callable[[str, int], dict | None] | None") -> None:
         """Let this window show a level of its own: ``resolver(source_id, idx)`` returns its
         source's latest result at level ``idx`` from the shared cache, or ``None`` when that
-        would need a compute. ``MainWindow`` gives every inspector one."""
-        self._level_resolver = resolver
+        would need a compute. ``MainWindow`` gives every inspector one, its own method, which is
+        held weakly: the window keeps its inspectors."""
+        self._level_resolver = weak_method(resolver)
 
     def _hold_level(self, want: int) -> None:
         """Replace a held ONE-level result at another scale with the resolver's result at

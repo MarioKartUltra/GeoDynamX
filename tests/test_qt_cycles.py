@@ -14,6 +14,7 @@ from PySide6 import QtWidgets
 
 from dynamix.devices import register_builtin_devices
 from dynamix.model.device import defaults_for, get_device
+from tests.test_shell_window import stub_devices  # noqa: F401
 
 
 def _freed_without_the_collector(make) -> bool:
@@ -61,3 +62,31 @@ def test_a_main_window_is_freed_when_dropped(qtbot, clean_registry):
     from dynamix.shell.main_window import MainWindow
 
     assert _freed_without_the_collector(MainWindow)
+
+
+def test_a_main_window_with_its_palette_opened_is_freed_when_dropped(qtbot, clean_registry):
+    from dynamix.shell.main_window import MainWindow
+
+    def make():
+        w = MainWindow()
+        w.show_palette()
+        return w
+
+    assert _freed_without_the_collector(make)
+
+
+def test_a_main_window_with_an_inspector_open_is_freed_when_dropped(qtbot, stub_devices):
+    from dynamix.shell.main_window import MainWindow
+    from tests.test_shell_window import _FIELD, STUB_CHAIN, _open_inspector
+
+    def make():
+        w = MainWindow(steps=STUB_CHAIN)
+        with qtbot.waitSignal(w.resolved, timeout=10000):
+            w.load_field(_FIELD, "mem:stub")
+        qtbot.waitUntil(lambda: w._thread is None, timeout=10000)
+        if w.layer.source_id not in w._inspectors:      # the settings can bring it back already open
+            _open_inspector(w, w.layer.source_id)
+        assert w._inspectors
+        return w
+
+    assert _freed_without_the_collector(make)
