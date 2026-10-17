@@ -113,3 +113,47 @@ def test_run_wtmm2d_pads_by_its_pad_mode_and_keys_it():
     n_r = sum(len(e["x"]) for e in reflect["extrema"])
     assert n_r == sum(len(e["x"]) for e in again["extrema"])
     assert [len(e["x"]) for e in zero["extrema"]] != [len(e["x"]) for e in reflect["extrema"]]
+
+
+# --------------------------------------------------------------------- the Border cut (§3.3)
+
+def test_the_border_by_each_sizing_and_scope():
+    import math
+
+    from dynamix.core.edges import border_widths
+    from dynamix.core.reach import reach
+
+    scales = [8.0, 16.0, 32.0]
+    kw = dict(wavelet="mexican", eps=1e-3)
+    assert border_widths(scales, "none", **kw) == [0, 0, 0]
+    own = [int(math.ceil(reach("mexican", None, s, 1e-3).radius)) for s in scales]
+    assert border_widths(scales, "measured_reach", scope="per_scale", **kw) == own
+    assert border_widths(scales, "measured_reach", scope="largest", **kw) == [own[-1]] * 3
+    assert border_widths(scales, "border_pct", pct=0.72, scope="largest", **kw) == [int(32 * 0.72)] * 3
+    assert border_widths(scales, "border_pct", pct=0.72, scope="per_scale", **kw) == [int(s * 0.72) for s in scales]
+    assert border_widths(scales, "k_scale", k=2.0, scope="per_scale", **kw) == [2.0 * s for s in scales]
+
+
+def test_the_border_cut_runs_before_the_v_chains():
+    """xsmurf's order (study.tcl: follow, rm_ext, then vchain): the chains are those the chaining
+    makes from the cut maxima, so a border maximum never takes part in the linking."""
+    from dynamix.core import chaining, edges
+    from dynamix.core.wtmm_backend import get_backend, run_wtmm2d
+
+    f = _rf(_field(96, seed=5))
+    base = {"n_oct": 2, "n_voice": 3, "a_min": 1.0}
+    cut = dict(base, border_cut="k_scale", border_k=2.0, border_scope="per_scale")
+    raw = run_wtmm2d(f, dict(base))
+    got = run_wtmm2d(f, cut)
+    scales = list(got["scales"])
+    borders = edges.border_widths(scales, "k_scale", wavelet="mexican", k=2.0, scope="per_scale")
+    expected_ext = edges.drop_in_cone(raw["extrema"], borders, (0, 0), (96, 96))
+    assert [len(e["x"]) for e in got["extrema"]] == [len(e["x"]) for e in expected_ext]
+    assert sum(len(e["x"]) for e in expected_ext) < sum(len(e["x"]) for e in raw["extrema"])
+    expected = chaining.link(expected_ext, scales, got["params"], get_backend("python"), shape=(96, 96))
+    assert len(got["chains"]) == len(expected)
+    assert all(np.array_equal(a["x"], b["x"]) for a, b in zip(got["chains"], expected))
+    trimmed_after = chaining.border_trimmed(raw["chains"], (96, 96), "coi_trim", 2.0,
+                                            int(got["params"]["min_chain_len"]))
+    assert [len(c["x"]) for c in got["chains"]] != [len(c["x"]) for c in trimmed_after]
+    assert got["_border_cut"]["borders"] == borders

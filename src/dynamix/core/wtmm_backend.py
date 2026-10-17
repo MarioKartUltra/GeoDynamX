@@ -1992,6 +1992,13 @@ _WTMM2D_PARAM_DEFAULTS = {
     "pad": 32,
     # What the FFT torus holds beyond the field (PAD_MODES): mirrored by default, as it always was.
     "pad_mode": "reflect",
+    # The Border cut (spec 25 §3.3; dynamix.core.edges.border_widths): off here, so a direct caller's
+    # run is unchanged; the WTMM tool sets its own default.
+    "border_cut": "none",
+    "border_pct": 0.72,
+    "border_k": 2.0,
+    "border_scope": "largest",
+    "edge_eps": 1e-3,
     # No pseudo-fractional integration unless asked: with eta = 0 a chain's log2-modulus slope is
     # its Hölder exponent itself; eta > 0 reads h + eta, which the spectrum fit undoes.
     "fracint_alpha": 0.0,
@@ -2455,9 +2462,31 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
     extrema = _run_stage("extrema", extrema_key, out_dir, field.name, compute_extrema,
                         _save_extrema, _load_extrema, cache_hits, progress)
 
+    # The Border cut (spec 25 §3.3), in xsmurf's order: each scale's maxima inside its border go
+    # before the V-chains link them (study.tcl: follow, rm_ext, then vchain), so a border maximum
+    # never competes for a link. The stored extrema stage stays the uncut one.
+    border_info = None
+    if resolved["border_cut"] != "none":
+        from dynamix.core import edges as _edges
+        shape2 = tuple(field.values.shape)[:2]
+        borders = _edges.border_widths(
+            list(scales), resolved["border_cut"], wavelet=resolved["wavelet"],
+            smoother_params=resolved["smoother_params"], eps=resolved["edge_eps"],
+            pct=resolved["border_pct"], k=resolved["border_k"], scope=resolved["border_scope"],
+            run_grid=max(shape2) + 2 * int(resolved["pad"]))
+        extrema = _edges.drop_in_cone(extrema, borders, (0, 0), shape2)
+        for level in extrema:            # the follow detector's line runs index the uncut points
+            level.pop("_xs_runs", None), level.pop("_xs_closed", None)
+        border_info = {"border_cut": resolved["border_cut"], "border_scope": resolved["border_scope"],
+                       "borders": borders}
+
     chains_key = dict(extrema_key, similitude=resolved["similitude"],
                       box_ratio=resolved["box_ratio"], dist2_max=resolved["dist2_max"],
                       smooth=resolved["smooth"], min_chain_len=resolved["min_chain_len"])
+    if border_info is not None:                   # no cut: the stage keys stay as they were
+        chains_key.update(border_cut=resolved["border_cut"], border_scope=resolved["border_scope"],
+                          border_pct=resolved["border_pct"], border_k=resolved["border_k"],
+                          edge_eps=resolved["edge_eps"])
     if resolved["band_per"] != "voice":          # xsmurf's band keeps the stage keys it had
         chains_key["band_per"] = resolved["band_per"]
     if resolved["chainer"] != chaining.DEFAULT:
@@ -2499,6 +2528,8 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": npz_path,
         "params": resolved, "cache_hits": cache_hits,
     }
+    if border_info is not None:
+        out["_border_cut"] = border_info
     if resolved["detector"] == "follow":
         # The C's own hsearch ordering (search_lines walk) becomes the display runs --
         # closed rings carry their LINE_CLOSED flag so both views can close the polyline.

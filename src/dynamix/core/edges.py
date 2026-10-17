@@ -18,7 +18,8 @@ import math
 
 import numpy as np
 
-__all__ = ["CUT_SCOPES", "EDGES", "PAD_WIDTHS", "corner_warning", "cut_borders", "deficits",
+__all__ = ["BORDER_CUTS", "CUT_SCOPES", "EDGES", "PAD_WIDTHS", "border_widths", "corner_warning",
+           "cut_borders", "deficits",
            "dominant_wavelength", "drop_in_cone", "pad_widths", "taper_band", "taper_check",
            "taper_profile", "tapered"]
 
@@ -31,6 +32,8 @@ CUT_SCOPES = ("largest", "per_scale")
 #: How wide the padding is (spec 25 §3.2): each scale's measured reach, a fixed width, or xsmurf's
 #: border percentage of the scale.
 PAD_WIDTHS = ("measured_reach", "fixed_px", "border_pct")
+#: How wide WTMM's Border cut is (spec 25 §3.3), the band whose maxima are removed before the V-chains.
+BORDER_CUTS = ("none", "measured_reach", "border_pct", "k_scale")
 
 _SIDES = ("E", "N", "S", "W")
 
@@ -66,6 +69,29 @@ def pad_widths(scales, how: str, *, wavelet: str, smoother_params=None, eps: flo
                      + (f"the widest converged scale's reach, {fallback} px" if converged
                         else f"the fixed width, {fallback} px"))
     return widths, notes
+
+
+def border_widths(scales, how: str, *, wavelet: str, smoother_params=None, eps: float = 1e-3,
+                  pct: float = 0.72, k: float = 2.0, scope: str = "largest", run_grid=None) -> list:
+    """Per scale the Border cut's width in px (finest first), for ``how`` in :data:`BORDER_CUTS`:
+    ``"measured_reach"`` each scale's reach as :func:`pad_widths` gives it, ``"border_pct"``
+    xsmurf's ``int(s · pct)``, ``"k_scale"`` ``k · s`` (the old ``coi_k`` zone), ``"none"`` zero.
+    Under ``scope = "largest"`` every scale takes the coarsest scale's width, as xsmurf's
+    ``rm_ext`` does; under ``"per_scale"`` each its own."""
+    if how not in BORDER_CUTS:
+        raise ValueError(f"unknown border_cut {how!r}; expected one of {BORDER_CUTS}")
+    if scope not in CUT_SCOPES:
+        raise ValueError(f"unknown border_scope {scope!r}; expected one of {CUT_SCOPES}")
+    if how == "none":
+        return [0] * len(scales)
+    if how == "measured_reach":
+        own, _ = pad_widths(scales, "measured_reach", wavelet=wavelet,
+                            smoother_params=smoother_params, eps=eps, run_grid=run_grid)
+    elif how == "border_pct":
+        own = [int(float(s) * float(pct)) for s in scales]
+    else:
+        own = [float(k) * float(s) for s in scales]
+    return [own[-1]] * len(own) if scope == "largest" else list(own)
 
 
 def deficits(roi, parent_shape, margin: int) -> dict:
