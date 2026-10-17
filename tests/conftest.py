@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+import os
+import sys
+
 import numpy as np
 import pytest
 
@@ -205,3 +208,23 @@ def double_fft():
 
     fft_policy.configure("fftw", 64)
     yield
+
+
+# --------------------------------------------------------------------- leaving a Qt or VTK session
+
+def pytest_sessionfinish(session, exitstatus):
+    session.config._session_exitstatus = int(exitstatus)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_unconfigure(config):
+    """Once pytest is done, a session that loaded Qt or VTK leaves with pytest's own status rather
+    than through the interpreter's teardown: Qt and VTK objects still alive there are destroyed out
+    of order ("pure virtual method called", an abort after every test had passed on ubuntu)."""
+    result = yield
+    status = getattr(config, "_session_exitstatus", None)
+    if status is not None and ({"PySide6", "vtkmodules"} & set(sys.modules)):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(status)
+    return result

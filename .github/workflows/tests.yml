@@ -35,6 +35,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Software OpenGL for VTK on Windows (Mesa3D)
+        # GitHub's Windows runners have no GPU driver: a VTK render window crashed with an access
+        # violation. The action installs Mesa's off-screen renderer and points VTK at it.
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@v5
       - name: Linux libraries Qt and VTK load even offscreen
         if: runner.os == 'Linux'
         run: |
@@ -72,7 +77,8 @@ jobs:
       - name: Qt-only gate (offscreen)
         if: ${{ !cancelled() }}
         timeout-minutes: 25
-        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
+        # verbose on Windows, where a native crash ended the gate with no traceback: the last name printed is it
+        run: python -m pytest ${{ runner.os == 'Windows' && '-v' || '-q' }} -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
 
   lint-imports:
     name: layering gate
@@ -114,6 +120,11 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Software OpenGL for VTK on Windows (Mesa3D)
+        # GitHub's Windows runners have no GPU driver: a VTK render window crashed with an access
+        # violation. The action installs Mesa's off-screen renderer and points VTK at it.
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@v5
       - name: Linux libraries Qt and VTK load even offscreen
         if: runner.os == 'Linux'
         run: |
