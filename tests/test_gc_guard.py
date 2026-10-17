@@ -55,3 +55,28 @@ def test_a_worker_thread_never_collects_while_the_collector_runs(qtbot):
     finally:
         gc.callbacks.pop()
         gc_guard.uninstall(app)
+
+
+def test_a_devloop_reload_keeps_the_one_collector(qtbot):
+    """The devloop reloads ``gc_guard`` with the other shell modules; the collector lives on the
+    application, so the reloaded module's ``install`` finds it and starts no second timer."""
+    import importlib
+
+    from PySide6 import QtCore
+
+    from dynamix import devloop
+    from dynamix.shell import gc_guard
+
+    app = QtWidgets.QApplication.instance()
+    collector = gc_guard.install(app, interval_ms=1000)
+    try:
+        devloop._reload(["dynamix.shell.gc_guard"])
+        reloaded = importlib.import_module("dynamix.shell.gc_guard")
+        assert reloaded is gc_guard and reloaded.install(app) is collector
+        assert gc.isenabled() is False
+        collectors = [o for o in app.findChildren(QtCore.QObject)
+                      if type(o).__name__ == "MainThreadCollector"]
+        assert collectors == [collector]
+        assert [t.isActive() for t in collector.findChildren(QtCore.QTimer)] == [True]
+    finally:
+        importlib.import_module("dynamix.shell.gc_guard").uninstall(app)

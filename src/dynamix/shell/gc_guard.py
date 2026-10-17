@@ -12,6 +12,10 @@ generation if anything was allocated since the last one: the collector's count i
 deallocations, so a burst of frees (a rebuilt window's deferred deletes) can hide cyclic garbage
 below the threshold a sampled check would wait for. The older generations follow the collector's
 own thresholds. Reference counting still frees everything outside a cycle at once.
+
+This is a safety net. The reference cycles that leave Qt objects to the collector at all are what
+``tests/gc_audit.py`` finds (``DYNAMIX_GC_AUDIT=1`` over the Qt tests); each one broken is a widget
+freed the moment its window lets go of it.
 """
 from __future__ import annotations
 
@@ -60,8 +64,10 @@ def install(app, interval_ms: int = 500) -> MainThreadCollector:
 
 
 def uninstall(app) -> None:
-    """Stop the application's collector and give the collector its automatic mode back."""
+    """Stop the application's collector, detach it from the application and give the collector
+    its automatic mode back."""
     collector = getattr(app, _ATTR, None)
     if collector is not None:
         collector.stop()
+        collector.setParent(None)
         setattr(app, _ATTR, None)
