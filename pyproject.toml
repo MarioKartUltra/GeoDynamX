@@ -55,11 +55,13 @@ io = ["rasterio>=1.4,<1.5.2", "Pillow>=10"]
 provenance = ["gprv @ git+https://github.com/MarioKartUltra/GeoDynamX-Provenance@v0.2.0"]
 
 # HDF4 (ASTER-class HDF-EOS2) via pyhdf, lazily imported by core/ingest and roi/picture.
-# <0.11.7: that release's macOS wheels are tagged macosx_26_0, so on older macOS pip skips
-# them and falls back to the sdist, which compiles libhdf4 at install time. 0.11.6 ships
-# macosx_14_0 arm64 + win_amd64 wheels (a macOS wheel tag is a MINIMUM, so it installs on
-# every newer macOS too). Raise the ceiling when a release restores lower tags.
-hdf4 = ["pyhdf>=0.11.6,<0.11.7"]
+# <0.11.7 off Windows: that release's macOS wheels are tagged macosx_26_0 and its Linux wheels
+# manylinux_2_28, so older systems skip them and fall back to the sdist, which compiles libhdf4 at
+# install time; 0.11.6 ships macosx_14_0 arm64 and manylinux2014 wheels (a wheel tag is a MINIMUM,
+# so they install on every newer system too). >=0.11.7 on Windows: 0.11.6's win_amd64 wheel ships
+# _hdfext without the HDF4, jpeg, zlib and xdr DLLs it links ("DLL load failed"); 0.11.7 bundles
+# them in pyhdf.libs/. Raise the ceiling when a release restores lower tags.
+hdf4 = ["pyhdf>=0.11.6,<0.11.7; sys_platform != 'win32'", "pyhdf>=0.11.7; sys_platform == 'win32'"]
 
 # The arrangement (session/arrangement Tab-flip) view: a VTK surface via pyvista/pyvistaqt.
 # Lazily imported behind dynamix.shell.arrangement.view._import_pyvista -- absent, the Tab flip
@@ -85,7 +87,8 @@ catalog = ["pyyaml>=6.0"]
 # GeoDynamix_Beta: everything the app needs, in one extra -- `pip install -e ".[app]"`.
 app = ["numba>=0.60", "scipy>=1.11", "PyWavelets>=1.8", "rasterio>=1.4,<1.5.2", "Pillow>=10", "PySide6>=6.5",
        "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11",
-       "pyhdf>=0.11.6,<0.11.7",   # same pin as the hdf4 extra, for the same reason
+       "pyhdf>=0.11.6,<0.11.7; sys_platform != 'win32'",   # the hdf4 extra's pins, for its reasons
+       "pyhdf>=0.11.7; sys_platform == 'win32'",
        "gprv @ git+https://github.com/MarioKartUltra/GeoDynamX-Provenance@v0.2.0"]
 
 # The vendored `wtmm` package's own optional features (its NN and dataset helpers), lazily
