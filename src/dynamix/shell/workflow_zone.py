@@ -275,18 +275,20 @@ class _TitleBar(QtWidgets.QWidget):
     dot, bypass/remove buttons) can ever see one of these presses.
 
     Click and drag share the same press: released before crossing
-    ``QApplication.startDragDistance()`` is a click (``on_click``, if given); moved past it starts
-    a :class:`QtGui.QDrag` instead (``on_drag``) -- the same disambiguation every native
-    title-bar drag uses. Neither handler calls ``super()``: leaving the event in its default
+    ``QApplication.startDragDistance()`` is a click (``clicked``); moved past it asks for a
+    :class:`QtGui.QDrag` instead (``dragRequested``) -- the same disambiguation every native
+    title-bar drag uses. Signals, so the bar holds no reference back to its box: a box its zone
+    drops is freed at once. Neither handler calls ``super()``: leaving the event in its default
     "accepted" state is what keeps it from also propagating up to the owning box's OWN
     ``mousePressEvent`` (the whole-box click-to-select fallback for everywhere the title bar does
     not itself cover).
     """
 
-    def __init__(self, on_drag, on_click=None, parent=None):
+    dragRequested = QtCore.Signal()
+    clicked = QtCore.Signal()
+
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._on_drag = on_drag
-        self._on_click = on_click
         self._press_pos: QtCore.QPoint | None = None
 
     def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
@@ -298,12 +300,11 @@ class _TitleBar(QtWidgets.QWidget):
                 (event.pos() - self._press_pos).manhattanLength() >=
                 QtWidgets.QApplication.startDragDistance()):
             self._press_pos = None
-            self._on_drag()
+            self.dragRequested.emit()
 
     def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
-        if (event.button() == QtCore.Qt.LeftButton and self._press_pos is not None and
-                self._on_click is not None):
-            self._on_click()
+        if event.button() == QtCore.Qt.LeftButton and self._press_pos is not None:
+            self.clicked.emit()
         self._press_pos = None
 
 
@@ -413,7 +414,9 @@ class DeviceBox(QtWidgets.QFrame):
         # be told apart from one meant for a generated control, and so its own drag gesture never
         # also falls through to this box's whole-background click-to-select below -- see
         # ``_TitleBar``'s docstring, and the module docstring's drag-drop section.
-        self._title_bar = _TitleBar(on_drag=self._start_drag, on_click=self.selected.emit)
+        self._title_bar = _TitleBar()
+        self._title_bar.dragRequested.connect(self._start_drag)
+        self._title_bar.clicked.connect(self.selected)
         title_row = QtWidgets.QHBoxLayout(self._title_bar)
         title_row.setContentsMargins(0, 0, 0, 0)
         self.name_label = QtWidgets.QLabel(label_of(device))
@@ -834,7 +837,8 @@ class RackBox(QtWidgets.QFrame):
         outer = QtWidgets.QVBoxLayout(self)
         outer.setContentsMargins(*_MARGINS)
 
-        self._title_bar = _TitleBar(on_drag=self._start_drag)
+        self._title_bar = _TitleBar()
+        self._title_bar.dragRequested.connect(self._start_drag)
         title_row = QtWidgets.QHBoxLayout(self._title_bar)
         title_row.setContentsMargins(0, 0, 0, 0)
         self.title_label = QtWidgets.QLabel(title)
