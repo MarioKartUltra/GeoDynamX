@@ -27,9 +27,9 @@ from __future__ import annotations
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
-from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTHER_PARAMS,
-                                  chaining_reading, eta_warning, smoother_params,
-                                  width_reading)
+from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_PARAMS,
+                                  SMOOTHER_PARAMS, chaining_reading, eta_warning,
+                                  smoother_params, width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_ROI_SIDE, halo_plan, honest_halo_warning
@@ -51,6 +51,34 @@ def _halo_warning(field, params: dict) -> "str | None":
     except ValueError:                           # a q the smoother refuses: the run says so
         return None
     return honest_halo_warning(plan)
+
+
+def _corner_warning(field, params: dict) -> "str | None":
+    """The reflection warning before the run: the scales whose halo runs past the parent at this
+    ROI (``dynamix.core.edges``). The coarsest halo is the widest; an ROI it fits needs no more."""
+    from dynamix.core import edges
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    full = (getattr(field, "provenance", None) or {}).get("full_dims")
+    roi = tuple(int(params.get(k, d)) for k, d in (("roi_row", 0), ("roi_col", 0),
+                                                    ("roi_h", 512), ("roi_w", 512)))
+    if params.get("boundary") == "reflective":
+        full, roi = roi[2:], (0, 0) + roi[2:]
+    if full is None or params.get("edge", "reflect") != "reflect":
+        return None
+    scales = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
+                              float(params.get("a_min", 1.0)))
+    args = (params.get("wavelet", "mexican"), smoother_params(params),
+            float(params.get("edge_eps", 1e-3)), full)
+    try:
+        top = halo_plan(scales[-1:], *args)[0]
+        if not top.whole and not any(edges.deficits(roi, full, top.margin).values()):
+            return None
+        plan = halo_plan(scales, *args)
+    except ValueError:                           # a q the smoother refuses: the run says so
+        return None
+    return edges.corner_warning([(sh.a, edges.deficits(roi, full, sh.margin))
+                                 for sh in plan if not sh.whole], "reflect")
 
 
 class WTMM2DROI:
@@ -131,6 +159,7 @@ class WTMM2DROI:
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
         *CHAINING_OPTION_PARAMS,
+        *EDGE_PARAMS,
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -197,6 +226,7 @@ class WTMM2DROI:
             "band_per": params["band_per"],
             "chainer": params["chainer"],
             **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
+            **{p.name: params[p.name] for p in EDGE_PARAMS},
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)
@@ -222,7 +252,8 @@ class WTMM2DROI:
         unknown without a field) is too large to read whole, and the under-sampling of the finest
         scale (``wtmm.eta_warning``)."""
         params = params or {}
-        found = [w for w in (_halo_warning(field, params), eta_warning(params)) if w]
+        found = [w for w in (_halo_warning(field, params), _corner_warning(field, params),
+                             eta_warning(params)) if w]
         return {"a_min": "\n\n".join(found)} if found else {}
 
     def view(self, result: dict, params: dict) -> dict:

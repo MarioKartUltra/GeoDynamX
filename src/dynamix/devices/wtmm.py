@@ -144,6 +144,19 @@ CHAINING_OPTION_PARAMS = (
           active_when=("border_policy", ("coi_trim", "coi_drop"))),
 )
 
+#: Spec 22's edge knobs, shared by wtmm2d and wtmm2d_roi, out of the key at their defaults: what fills
+#: a scale's reach where real data runs out (``dynamix.core.edges``), whose cone of influence a cut
+#: uses, and the mass fraction the reach leaves outside (``dynamix.core.reach``).
+EDGE_PARAMS = (
+    Param("edge", ParamKind.CHOICE, default="reflect", choices=("reflect", "cut"),
+          choice_labels=("reflect", "cut at COI"), label="Edge", keyed_at_default=False),
+    Param("cut_scope", ParamKind.CHOICE, default="largest", choices=("largest", "per_scale"),
+          choice_labels=("largest scale's COI", "each scale's COI"), label="Cut scope",
+          keyed_at_default=False, active_when=("edge", ("cut",))),
+    Param("edge_eps", ParamKind.FLOAT, default=1e-3, min=1e-6, max=0.1, soft_min=1e-4,
+          soft_max=1e-2, label="Edge ε", level="advanced", keyed_at_default=False),
+)
+
 BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
                        choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
 
@@ -269,6 +282,7 @@ class WTMM2D:
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
         *CHAINING_OPTION_PARAMS,
+        *EDGE_PARAMS,
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -444,7 +458,7 @@ class WTMM2D:
         res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
                                        dict({k: params[k] for k in self._ROI_KEYS},
                                             smoother_params=smoother_params(params),
-                                            edge_eps=float(params.get("edge_eps", 1e-3))),
+                                            **{p.name: params[p.name] for p in EDGE_PARAMS}),
                                        progress=progress, parent_shape=full)
         res = dict(res)
         res["_frame"] = getattr(window_field, "frame", None)

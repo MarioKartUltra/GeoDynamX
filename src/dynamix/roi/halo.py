@@ -176,10 +176,18 @@ def honest_halo_warning(plan) -> "str | None":
             "to read whole. Analyse the whole raster for a reference.")
 
 
-def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float) -> dict:
+def _run_warnings(plan, roi_margins, mode: str) -> list:
+    """A run's edge warnings: the honest-halo limit, then the reflection at the raster's edges."""
+    from dynamix.core.edges import corner_warning
+
+    rows = [(m["a"], m["synthetic_px"]) for m in roi_margins if not m["whole"]]
+    return [w for w in (honest_halo_warning(plan), corner_warning(rows, mode)) if w]
+
+
+def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float, mode: str) -> dict:
     """The ``_edge`` record of a run: the halo each scale used, its reach and where the
     halo's pixels came from, per side."""
-    return {"device": device, "mode": "reflect", "eps": float(eps),
+    return {"device": device, "mode": mode, "eps": float(eps),
             "parent_shape": None if parent_shape is None else [int(v) for v in parent_shape[:2]],
             "budget_px": WHOLE_PARENT_MAX_PIXELS,
             "scales": [{"a": float(sh.a), "margin": sh.margin, "whole": sh.whole,
@@ -432,7 +440,7 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
                    else (r0, c0, h, w))
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
                      parent_rect[2:])
-    warning = honest_halo_warning(plan)
+    mode = params.get("edge", "reflect")
 
     def _window_for(sh):
         return _read_halo(source, parent_rect, (r0, c0, h, w), sh.margin, nodata, whole=sh.whole)
@@ -449,10 +457,11 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": _edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps),
+        "_edge": _edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode),
     }
-    if warning:
-        out["_warnings"] = [warning]
+    warnings = _run_warnings(plan, roi_margins, mode)
+    if warnings:
+        out["_warnings"] = warnings
     return out
 
 
@@ -616,7 +625,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
                 and (pr1 - pr0, pc1 - pc0) == (int(parent_shape[0]), int(parent_shape[1])))
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
                      parent_shape if whole_ok else None)
-    warning = honest_halo_warning(plan)
+    mode = params.get("edge", "reflect")
     need = max([sh.margin for sh in plan if not sh.whole], default=0)
     if o < need:
         raise ValueError(f"window margin {offset} px < the widest halo {need} px")
@@ -658,8 +667,9 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": _edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps),
+        "_edge": _edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode),
     }
-    if warning:
-        out["_warnings"] = [warning]
+    warnings = _run_warnings(plan, roi_margins, mode)
+    if warnings:
+        out["_warnings"] = warnings
     return out
