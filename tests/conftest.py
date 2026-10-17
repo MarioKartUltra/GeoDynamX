@@ -210,6 +210,16 @@ def double_fft():
     yield
 
 
+@pytest.fixture(scope="session")
+def qapp_args(pytestconfig):
+    """pytest-qt's application arguments, plus the app's base style (``theme.BASE_STYLE``) where it
+    has one: the launch sets it, so a widget test sees the control metrics a user's window has."""
+    from dynamix.shell import theme
+
+    args = [pytestconfig.getini("qt_qapp_name")]
+    return args if theme.BASE_STYLE is None else [*args, "-style", theme.BASE_STYLE]
+
+
 # --------------------------------------------------------------------- leaving a Qt or VTK session
 
 def pytest_sessionfinish(session, exitstatus):

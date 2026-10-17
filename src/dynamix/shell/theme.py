@@ -11,6 +11,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import sys
 from pathlib import Path
 
 #: The bundled theme files (``<name>.json``) and their SVG assets (``assets/<name>/``).
@@ -119,6 +120,11 @@ _HEX = re.compile(r"#[0-9a-fA-F]{6}\Z")
 #: The theme last applied (``apply_theme``); Restrained Dark until one is.
 _CURRENT: list[Theme] = [RESTRAINED_DARK]
 
+#: The Qt style under the stylesheet: Fusion everywhere but macOS, which keeps its own. The flat
+#: theme is drawn over Fusion's control metrics, the style the offscreen tests run under on every
+#: platform; Windows' own style sizes its controls differently.
+BASE_STYLE: str | None = None if sys.platform == "darwin" else "Fusion"
+
 
 def current() -> Theme:
     """The theme the application wears now: what a Theme-Rule carve-out reads its role from."""
@@ -189,11 +195,14 @@ QComboBox::down-arrow {{ image: {_url(t, "arrow_down.svg")}; width: 10px; height
 
 
 def apply_theme(app, theme: Theme) -> None:
-    """Dress the application in ``theme``: the generated stylesheet, the base font, and
-    :func:`current` for the carve-outs. Called at launch (``app.main``), on a Settings ▸ Theme
-    pick and when a watched theme file changes (the window, which then re-tints its canvas)."""
+    """Dress the application in ``theme``: the base style, the generated stylesheet, the base
+    font, and :func:`current` for the carve-outs. Called at launch (``app.main``), on a Settings ▸
+    Theme pick and when a watched theme file changes (the window, which then re-tints its
+    canvas)."""
     from PySide6 import QtGui
 
     _CURRENT[0] = theme
+    if BASE_STYLE is not None:
+        app.setStyle(BASE_STYLE)
     app.setStyleSheet(generate_qss(theme))
     app.setFont(QtGui.QFont(theme.sans_family, theme.base_pt))
