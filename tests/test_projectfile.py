@@ -8,6 +8,7 @@ folder is moved or sent to someone else.
 from __future__ import annotations
 
 import json
+import os
 import warnings
 from pathlib import Path
 
@@ -67,7 +68,7 @@ def test_paths_under_the_project_directory_are_stored_relative(tmp_path, _regist
     save_project(p, path)
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["sources"][0]["path"] == "data/dem.tif"
-    assert not payload["sources"][0]["path"].startswith("/")
+    assert not os.path.isabs(payload["sources"][0]["path"])
 
 
 def test_a_moved_project_folder_still_resolves_its_sources(tmp_path, _registry):
@@ -148,7 +149,7 @@ def test_symlinked_project_directory_still_stores_relative_paths(tmp_path, _regi
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["sources"][0]["path"] == "data/dem.tif"
-    assert not payload["sources"][0]["path"].startswith("/")
+    assert not os.path.isabs(payload["sources"][0]["path"])
 
     moved = tmp_path.parent / "moved_symlinked_project"
     tmp_path.rename(moved)
@@ -168,7 +169,7 @@ def test_paths_outside_the_project_directory_stay_absolute(tmp_path, _registry):
     p.add_layer("x", s.source_id, Chain(()))
     path = proj_dir / f"p{EXT}"
     save_project(p, path)
-    assert json.loads(path.read_text(encoding="utf-8"))["sources"][0]["path"].startswith("/")
+    assert os.path.isabs(json.loads(path.read_text(encoding="utf-8"))["sources"][0]["path"])
     outside.unlink()
 
 
@@ -209,7 +210,7 @@ def test_save_as_into_an_unrelated_directory_does_not_lose_the_source(tmp_path, 
     sid = next(iter(reread.sources))
     assert missing_sources(reread, dest) == []
     assert resolve_source(reread, sid, dest).read_bytes() == b"THE REAL RASTER"
-    assert json.loads(dest.read_text(encoding="utf-8"))["sources"][0]["path"].startswith("/")
+    assert os.path.isabs(json.loads(dest.read_text(encoding="utf-8"))["sources"][0]["path"])
 
 
 def test_reopening_and_saving_in_place_keeps_the_stored_path_relative(tmp_path, _registry):

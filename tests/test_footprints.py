@@ -8,6 +8,8 @@ the footprint's corners are carried in WGS84 lon/lat so any display mode can pla
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -47,7 +49,7 @@ def test_scan_finds_every_raster_recursively_and_ignores_sidecars(folder):
     f = fps[0]
     assert (f.width, f.height, f.count, f.dtype) == (10, 10, 1, "int16")
     assert f.crs == "EPSG:4326"
-    assert f.path.endswith("Aster_DEM/batch1/ASTGTMV003_S22E119_dem.tif")
+    assert Path(f.path).as_posix().endswith("Aster_DEM/batch1/ASTGTMV003_S22E119_dem.tif")
 
 
 def test_corners_are_wgs84_lon_lat_counter_clockwise_from_south_west(folder):
