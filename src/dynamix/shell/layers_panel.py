@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.layer_stack import Group
+from dynamix.shell.gc_guard import weak_method
 
 _ID = QtCore.Qt.UserRole
 DEFAULT_HEIGHT = 240
@@ -53,7 +54,7 @@ class LayersPanel(QtWidgets.QWidget):
 
     def __init__(self, stack, label_of, parent=None, height: int = DEFAULT_HEIGHT):
         super().__init__(parent)
-        self._stack, self._label_of = stack, label_of
+        self._stack, self._label_of = stack, weak_method(label_of)     # the window's own method
         self._items: dict[str, QtWidgets.QTreeWidgetItem] = {}
         self._reasons: dict[str, str] = {}
         self._building = False

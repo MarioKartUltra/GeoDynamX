@@ -120,7 +120,7 @@ _DEPENDS_ON = {
     "inpaint_window": (),
     "components_window": ("theme", ),
     "anisotropy_window": ("window_fit", "theme", ),
-    "layers_panel": (),
+    "layers_panel": ("gc_guard", ),
     "map_view": ("canvas", "units", "wavelet_bar", "theme", ),
     "wavelet_bar": ("canvas", "theme", "units", ),
     "window_fit": ("settings", ),
@@ -138,7 +138,7 @@ _DEPENDS_ON = {
     "workflow_zone": ("knobs", "knob_widgets", "browser"),
     # The rack editor dialog: the family tree (browser) and the zone's DeviceBox knobs.
     "rack_editor": ("browser", "workflow_zone"),
-    "transport": (),
+    "transport": ("gc_guard", ),
     "canvas": ("theme", "units", "wavelet_bar", ),
     # The per-source floating inspector HOSTS the existing Canvas and the
     # existing Transport (that reuse is the point of it -- see inspector.py's own docstring), so
@@ -171,13 +171,13 @@ _DEPENDS_ON = {
     # below.
     "view_dialog": ("theme", "knobs", "knob_widgets", "settings", "arrangement"),
     # The "Topology" right-panel section -- self-contained (only
-    # ``dynamix.topology.codes``, no other ``dynamix.shell.*`` module), same shape as "transport"/
+    # ``dynamix.topology.codes``, no other ``dynamix.shell.*`` module), same shape as
     # "layer_panel" above.
     "topology_panel": (),
     # The "Skeleton plot…" dialog -- self-contained (only
     # ``dynamix.core.chain_stats``, no other ``dynamix.shell.*`` module -- see
     # ``skeleton_dialog.py``'s own module docstring, "Highlight color" section, for why it does
-    # NOT import ``theme``), same shape as "topology_panel"/"transport" above.
+    # NOT import ``theme``), same shape as "topology_panel" above.
     "skeleton_dialog": (),
     # The transect list -- self-contained (only
     # ``dynamix.model.project`` for the ``TransectRecord`` dataclass, no other ``dynamix.shell.*``

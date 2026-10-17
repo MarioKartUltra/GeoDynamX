@@ -51,6 +51,7 @@ import json
 import re
 import sys
 import time
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -10422,8 +10423,10 @@ both ``Canvas`` signals report the
             refresh()
 
     def command_enabled(self) -> dict:
-        """The commands that need an open raster; everything else is always enabled."""
-        has_field = lambda: self.field is not None
+        """The commands that need an open raster; everything else is always enabled. The window
+        keeps these checks (``refresh_commands``), so they hold it weakly."""
+        window = weakref.ref(self)
+        has_field = lambda: (w := window()) is not None and w.field is not None
         return {cid: has_field for cid in ("chain.run", "file.export_chains", "file.export_derived",
                                            "layer.roi")}
 

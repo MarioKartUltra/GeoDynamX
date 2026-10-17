@@ -80,3 +80,22 @@ def test_a_devloop_reload_keeps_the_one_collector(qtbot):
         assert [t.isActive() for t in collector.findChildren(QtCore.QTimer)] == [True]
     finally:
         importlib.import_module("dynamix.shell.gc_guard").uninstall(app)
+
+
+def test_weak_method_holds_a_bound_method_weakly_and_a_function_as_it_is():
+    import weakref
+
+    from dynamix.shell import gc_guard
+
+    class Owner:
+        def label(self, x):
+            return f"#{x}"
+
+    owner = Owner()
+    call = gc_guard.weak_method(owner.label)
+    assert call(3) == "#3"
+    ref = weakref.ref(owner)
+    del owner
+    assert ref() is None and call(3) is None             # the owner went; the call does nothing
+    plain = lambda x: x                                   # noqa: E731
+    assert gc_guard.weak_method(plain) is plain           # nothing else would keep it alive

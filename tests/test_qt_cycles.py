@@ -55,3 +55,9 @@ def test_the_right_panel_is_freed_when_dropped(qtbot, clean_registry):
     from dynamix.shell.right_panel import RightPanel
 
     assert _freed_without_the_collector(lambda: RightPanel(()))
+
+
+def test_a_main_window_is_freed_when_dropped(qtbot, clean_registry):
+    from dynamix.shell.main_window import MainWindow
+
+    assert _freed_without_the_collector(MainWindow)

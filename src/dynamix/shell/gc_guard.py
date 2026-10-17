@@ -20,10 +20,12 @@ freed the moment its window lets go of it.
 from __future__ import annotations
 
 import gc
+import types
+import weakref
 
 from PySide6 import QtCore
 
-__all__ = ["MainThreadCollector", "install", "uninstall"]
+__all__ = ["MainThreadCollector", "install", "uninstall", "weak_method"]
 
 _ATTR = "_gdx_main_thread_collector"
 
@@ -71,3 +73,18 @@ def uninstall(app) -> None:
         collector.stop()
         collector.setParent(None)
         setattr(app, _ATTR, None)
+
+
+def weak_method(fn):
+    """``fn`` for a child to keep: a bound method is held weakly, so a widget that stores its
+    owner's method makes no reference cycle with the owner; the call does nothing once the owner
+    is gone. Any other callable is returned as it is (nothing else would keep a lambda alive)."""
+    if not isinstance(fn, types.MethodType):
+        return fn
+    ref = weakref.WeakMethod(fn)
+
+    def call(*args, **kwargs):
+        method = ref()
+        return None if method is None else method(*args, **kwargs)
+
+    return call
