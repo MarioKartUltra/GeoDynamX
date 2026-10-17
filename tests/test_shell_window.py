@@ -59,11 +59,21 @@ class _StubStack:
     name = "stub_stack"
     params = (Param("n_scales", ParamKind.INT, default=3, min=1, max=8, label="Scales"),)
 
+    #: (event, seconds, thread name) per compute, so a compute that never ends says whether the
+    #: worker reached the device at all.
+    calls: list = []
+
     def compute(self, field, params, *, progress=None):
+        import time
+
+        now, who = round(time.perf_counter(), 3), threading.current_thread().name
+        _StubStack.calls.append(("enter", now, who))
         if progress:
             progress("stub", 0.0)
             progress("stub", 1.0)
-        return _stub_stack(field, int(params["n_scales"]))
+        out = _stub_stack(field, int(params["n_scales"]))
+        _StubStack.calls.append(("leave", round(time.perf_counter(), 3), who))
+        return out
 
     def cache_key(self, source_id, params):
         from dynamix.engine.cache import cache_key
@@ -152,6 +162,7 @@ def _wait_out_the_compute(qtbot, win):
     kept alive."""
     import faulthandler
     import tempfile
+    import time
 
     try:
         qtbot.waitUntil(lambda: win._thread is None, timeout=30000)
@@ -165,7 +176,8 @@ def _wait_out_the_compute(qtbot, win):
         raise AssertionError(
             f"the window's compute never ended: worker {type(win._worker).__name__}, thread "
             f"running {thread.isRunning()} finished {thread.isFinished()}, dispatched "
-            f"{win._dispatched}; every thread:\n{stacks}") from None
+            f"{win._dispatched}, now {round(time.perf_counter(), 3)}, the stub's last computes "
+            f"{_StubStack.calls[-6:]}; every thread:\n{stacks}") from None
 
 
 def _close_before_the_registry_goes(qtbot, win):
