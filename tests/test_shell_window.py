@@ -177,7 +177,32 @@ def _wait_out_the_compute(qtbot, win):
             f"the window's compute never ended: worker {type(win._worker).__name__}, thread "
             f"running {thread.isRunning()} finished {thread.isFinished()}, dispatched "
             f"{win._dispatched}, now {round(time.perf_counter(), 3)}, the stub's last computes "
-            f"{_StubStack.calls[-6:]}; every thread:\n{stacks}") from None
+            f"{_StubStack.calls[-6:]}, the window's computes "
+            f"{len(getattr(win, '_compute_log', []))}: {getattr(win, '_compute_log', [])[-10:]}; "
+            f"every thread:\n{stacks}") from None
+
+
+def _log_computes(win) -> None:
+    """The window's dispatches and landings, in ``win._compute_log``: each dispatch with its layer
+    and whether that layer's result was already cached, each teardown of a worker thread. Both
+    methods are called directly, never through a signal, so the wrapper cannot change the thread
+    they run on."""
+    import time
+
+    win._compute_log = []
+    start_for, teardown = win._start_worker_for, win._teardown_thread
+
+    def logged_start_for(layer, *args, **kwargs):
+        key = win._arr_tail_key(layer)
+        win._compute_log.append(("dispatch", layer.layer_id, key in win.cache if key else None,
+                                 round(time.perf_counter(), 3)))
+        return start_for(layer, *args, **kwargs)
+
+    def logged_teardown():
+        win._compute_log.append(("teardown", win._thread is not None, round(time.perf_counter(), 3)))
+        return teardown()
+
+    win._start_worker_for, win._teardown_thread = logged_start_for, logged_teardown
 
 
 def _close_before_the_registry_goes(qtbot, win):
@@ -194,6 +219,7 @@ def window(qtbot, stub_devices):
 
     win = MainWindow(steps=STUB_CHAIN)
     qtbot.addWidget(win)
+    _log_computes(win)
     yield win
     _close_before_the_registry_goes(qtbot, win)
 
@@ -1055,6 +1081,7 @@ def chains_window(qtbot, stub_chain_devices):
 
     win = MainWindow(steps=STUB_CHAIN_WITH_CHAINS)
     qtbot.addWidget(win)
+    _log_computes(win)
     yield win
     _close_before_the_registry_goes(qtbot, win)
 

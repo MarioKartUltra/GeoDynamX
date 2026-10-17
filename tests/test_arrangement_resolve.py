@@ -35,7 +35,8 @@ from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import Chain, DeviceRef
 
 from tests.test_shell_window import (STUB_CHAIN, _BlockingStack, _FIELD, _StubStack, _stub_stack,
-                                     _wait_out_the_compute, stub_devices, window)  # noqa: F401
+                                     _log_computes, _wait_out_the_compute, stub_devices,
+                                     window)  # noqa: F401
 
 
 class _BlockingBoomStack(_StubStack):
@@ -112,6 +113,7 @@ def arranged_window(qtbot, stub_devices, tmp_path):
 
     win = MainWindow(steps=STUB_CHAIN)
     qtbot.addWidget(win)
+    _log_computes(win)
 
     cached_field = _geo_field(tmp_path, "cached")
     with qtbot.waitSignal(win.resolved, timeout=10000):
