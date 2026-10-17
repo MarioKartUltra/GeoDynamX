@@ -604,12 +604,12 @@ def _width_report(window):
     minimum width is what a row adds up."""
     from PySide6 import QtWidgets
 
-    app = QtWidgets.QApplication.instance()
+    from tests.test_shell_docks import _font_report
+
     widest = sorted(((w.minimumSizeHint().width(), type(w).__name__, w.objectName())
                      for w in window.findChildren(QtWidgets.QWidget) if w.isVisibleTo(window)),
                     reverse=True)[:8]
-    return (f"style {app.style().name()!r} font {app.font().family()!r} "
-            f"{app.font().pointSizeF()}pt, widest {widest}")
+    return f"{_font_report()}, widest {widest}"
 
 
 def test_the_control_strip_never_sets_the_window_width(qtbot):

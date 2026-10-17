@@ -13,13 +13,26 @@ def _areas(w):
     return {name: w.dockWidgetArea(w.docks[name]) for name in DOCK_NAMES}
 
 
-def _layout_report(w):
-    """The window's style and widths beside a dock-width assertion: a dock narrower than asked
-    is a central widget whose minimum width took the rest."""
+def _font_report() -> str:
+    """The font as it renders: the family asked for and the one found, its pixel size and a
+    sample's width, beside the screen's dots per inch."""
+    from PySide6 import QtGui
+
     app = QtWidgets.QApplication.instance()
+    font, screen = app.font(), app.primaryScreen()
+    info = QtGui.QFontInfo(font)
+    return (f"style {app.style().name()!r} font {font.family()!r} {font.pointSizeF()}pt -> "
+            f"{info.family()!r} {info.pixelSize()}px, 'cumulant spectrum' "
+            f"{QtGui.QFontMetrics(font).horizontalAdvance('cumulant spectrum')}px; screen dpi "
+            f"{screen.logicalDotsPerInch():g} logical, {screen.physicalDotsPerInch():g} physical, "
+            f"ratio {screen.devicePixelRatio():g}")
+
+
+def _layout_report(w):
+    """The window's font and widths beside a dock-width assertion: a dock narrower than asked
+    is a central widget whose minimum width took the rest."""
     docks = {n: (w.docks[n].width(), w.docks[n].minimumSizeHint().width()) for n in DOCK_NAMES}
-    return (f"style {app.style().name()!r} font {app.font().family()!r} {app.font().pointSizeF()}pt, "
-            f"window {w.width()}, central {w.centralWidget().width()} "
+    return (f"{_font_report()}; window {w.width()}, central {w.centralWidget().width()} "
             f"(min {w.centralWidget().minimumSizeHint().width()}), docks (width, min) {docks}")
 
 
