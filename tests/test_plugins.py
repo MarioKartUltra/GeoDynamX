@@ -36,8 +36,8 @@ BAD_CONTRACT = GOOD.replace('consumes = (("Field",),)', 'consumes = (("Fields",)
 
 
 def test_discovery_registers_the_good_file_and_reports_the_broken_one(tmp_path, clean_registry):
-    (tmp_path / "double.py").write_text(GOOD)
-    (tmp_path / "broken.py").write_text(BROKEN)
+    (tmp_path / "double.py").write_text(GOOD, encoding="utf-8")
+    (tmp_path / "broken.py").write_text(BROKEN, encoding="utf-8")
     results = discover(tmp_path, entry_group="geodynamix.tests.none")
     by_name = {r.path.rsplit("/", 1)[-1]: r for r in results}
     assert by_name["double.py"].error is None and "plug_double" in DEVICES
@@ -47,30 +47,30 @@ def test_discovery_registers_the_good_file_and_reports_the_broken_one(tmp_path, 
 
 
 def test_a_plugin_naming_an_unknown_contract_is_refused(tmp_path, clean_registry):
-    (tmp_path / "bad.py").write_text(BAD_CONTRACT)
+    (tmp_path / "bad.py").write_text(BAD_CONTRACT, encoding="utf-8")
     results = discover(tmp_path, entry_group="geodynamix.tests.none")
     assert len(results) == 1 and "Fields" in results[0].error and "plug_bad" not in DEVICES
 
 
 def test_discovery_runs_once_per_process(tmp_path, clean_registry):
-    (tmp_path / "double.py").write_text(GOOD)
+    (tmp_path / "double.py").write_text(GOOD, encoding="utf-8")
     first = discover(tmp_path, entry_group="geodynamix.tests.none")
     second = discover(tmp_path, entry_group="geodynamix.tests.none")
     assert first == second and [r.error for r in second] == [None] and "plug_double" in DEVICES
 
 
 def test_a_file_that_exits_or_cannot_be_read_is_a_row_and_the_next_file_still_loads(tmp_path, clean_registry):
-    (tmp_path / "a_quits.py").write_text("import sys\nsys.exit(3)\n")
+    (tmp_path / "a_quits.py").write_text("import sys\nsys.exit(3)\n", encoding="utf-8")
     (tmp_path / "b_folder.py").mkdir()
-    (tmp_path / "c_double.py").write_text(GOOD)
+    (tmp_path / "c_double.py").write_text(GOOD, encoding="utf-8")
     results = discover(tmp_path, entry_group="geodynamix.tests.none")
     assert [r.error and r.error.split(":")[0] for r in results] == ["SystemExit", "IsADirectoryError", None]
     assert results[1].origin == "user:b_folder.py" and "plug_double" in DEVICES
 
 
 def test_a_duplicate_id_is_an_error_and_the_first_stands(tmp_path, clean_registry):
-    (tmp_path / "a.py").write_text(GOOD)
-    (tmp_path / "b.py").write_text(GOOD)
+    (tmp_path / "a.py").write_text(GOOD, encoding="utf-8")
+    (tmp_path / "b.py").write_text(GOOD, encoding="utf-8")
     results = sorted(discover(tmp_path, entry_group="geodynamix.tests.none"), key=lambda r: r.path)
     assert results[0].error is None and "already registered" in results[1].error
     assert get_device("plug_double") is not None
@@ -91,7 +91,7 @@ def test_a_bad_declaration_is_refused_at_discovery_not_in_the_shell(tmp_path, cl
     from dynamix.devices import register_builtin_devices
 
     register_builtin_devices()
-    (tmp_path / "variant.py").write_text(_variant(declaration))
+    (tmp_path / "variant.py").write_text(_variant(declaration), encoding="utf-8")
     results = discover(tmp_path, entry_group="geodynamix.tests.none")
     assert len(results) == 1 and word in results[0].error and "plug_variant" not in DEVICES
 
@@ -128,7 +128,7 @@ def test_a_plugin_step_is_keyed_with_its_origin(tmp_path, clean_registry):
     from dynamix.engine.resolve import resolve
     from tests.conftest import make_field, make_layer
 
-    (tmp_path / "double.py").write_text(GOOD)
+    (tmp_path / "double.py").write_text(GOOD, encoding="utf-8")
     assert discover(tmp_path, entry_group="geodynamix.tests.none")[0].error is None
     layer = make_layer(("plug_double", {"gain": 2.0}))
     r = resolve(layer, make_field(), Cache())

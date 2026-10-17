@@ -68,7 +68,7 @@ def _write_shapefile(base: Path, shape_type: int, records, fields, rows, prj_wkt
             txt = (f"{val:>{length}.{dec}f}" if ftype in "NF" else str(val).ljust(length))[:length]
             body += txt.encode("latin-1")
     (base.with_suffix(".dbf")).write_bytes(hdr + body + b"\x1a")
-    (base.with_suffix(".prj")).write_text(prj_wkt)
+    (base.with_suffix(".prj")).write_text(prj_wkt, encoding="utf-8")
 
 
 @pytest.fixture

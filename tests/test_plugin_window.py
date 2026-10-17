@@ -17,7 +17,7 @@ def _folder(*files):
     folder = devices_dir()
     folder.mkdir(parents=True, exist_ok=True)
     for name, text in files:
-        (folder / name).write_text(text)
+        (folder / name).write_text(text, encoding="utf-8")
     return folder
 
 

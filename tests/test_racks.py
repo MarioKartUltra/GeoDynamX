@@ -80,15 +80,15 @@ def test_an_unknown_device_or_param_is_listed_with_the_reason(builtins, store):
 
     def write(stem, steps):
         (store / f"{stem}.json").write_text(json.dumps(
-            {"format": RACK_FORMAT, "schema": 1, "name": stem.upper(), "steps": steps}))
+            {"format": RACK_FORMAT, "schema": 1, "name": stem.upper(), "steps": steps}), encoding="utf-8")
 
     write("a", [{"device": "no_such_device", "params": {}}])
     write("b", [{"device": "wtmm2d", "params": {"bogus": 1}}])
     write("c", [{"device": "chain_holder", "params": {}}, {"device": "wtmm2d", "params": {}}])
-    (store / "d.json").write_text("{not json")
+    (store / "d.json").write_text("{not json", encoding="utf-8")
     write("e", [{"device": "wtmm2d", "params": {}}])
     (store / "f.json").write_text(json.dumps(
-        {"format": RACK_FORMAT, "schema": 2, "name": "F", "steps": []}))
+        {"format": RACK_FORMAT, "schema": 2, "name": "F", "steps": []}), encoding="utf-8")
 
     by_file = {e.path.stem: e for e in load_racks(store)}
     assert by_file["a"].rack.name == "A" and "no_such_device" in by_file["a"].problem

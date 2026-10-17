@@ -65,7 +65,7 @@ def test_paths_under_the_project_directory_are_stored_relative(tmp_path, _regist
     moves or is sent to someone else."""
     p, path, _ = _project_with_data(tmp_path)
     save_project(p, path)
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["sources"][0]["path"] == "data/dem.tif"
     assert not payload["sources"][0]["path"].startswith("/")
 
@@ -91,7 +91,7 @@ def test_source_kind_round_trips_through_save_and_open(tmp_path, _registry):
     raster = data / "dem.tif"
     raster.write_bytes(b"not really a geotiff, but it hashes")
     quakes = data / "quakes.csv"
-    quakes.write_text("lon,lat\n1.0,2.0\n")
+    quakes.write_text("lon,lat\n1.0,2.0\n", encoding="utf-8")
 
     p = Project(title="T")
     raster_src = p.add_source(str(raster))
@@ -119,7 +119,7 @@ def test_a_project_file_saved_before_kind_existed_opens_every_source_as_raster(t
         "layers": [], "topologies": [],
     }
     path = tmp_path / f"proj{EXT}"
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     back = open_project(path)
     assert back.sources["src0"].kind == "raster"
 
@@ -146,7 +146,7 @@ def test_symlinked_project_directory_still_stores_relative_paths(tmp_path, _regi
     path = link / f"proj{EXT}"
     save_project(p, path)
 
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["sources"][0]["path"] == "data/dem.tif"
     assert not payload["sources"][0]["path"].startswith("/")
 
@@ -168,7 +168,7 @@ def test_paths_outside_the_project_directory_stay_absolute(tmp_path, _registry):
     p.add_layer("x", s.source_id, Chain(()))
     path = proj_dir / f"p{EXT}"
     save_project(p, path)
-    assert json.loads(path.read_text())["sources"][0]["path"].startswith("/")
+    assert json.loads(path.read_text(encoding="utf-8"))["sources"][0]["path"].startswith("/")
     outside.unlink()
 
 
@@ -209,7 +209,7 @@ def test_save_as_into_an_unrelated_directory_does_not_lose_the_source(tmp_path, 
     sid = next(iter(reread.sources))
     assert missing_sources(reread, dest) == []
     assert resolve_source(reread, sid, dest).read_bytes() == b"THE REAL RASTER"
-    assert json.loads(dest.read_text())["sources"][0]["path"].startswith("/")
+    assert json.loads(dest.read_text(encoding="utf-8"))["sources"][0]["path"].startswith("/")
 
 
 def test_reopening_and_saving_in_place_keeps_the_stored_path_relative(tmp_path, _registry):
@@ -218,14 +218,14 @@ def test_reopening_and_saving_in_place_keeps_the_stored_path_relative(tmp_path, 
     p, path, _ = _project_with_data(tmp_path)
     save_project(p, path)
     save_project(open_project(path), path)
-    assert json.loads(path.read_text())["sources"][0]["path"] == "data/dem.tif"
+    assert json.loads(path.read_text(encoding="utf-8"))["sources"][0]["path"] == "data/dem.tif"
 
 
 def test_open_project_absolutises_source_paths_in_memory(tmp_path, _registry):
     """The invariant itself, stated once: relative on disk, absolute in memory."""
     p, path, raster = _project_with_data(tmp_path)
     save_project(p, path)
-    assert json.loads(path.read_text())["sources"][0]["path"] == "data/dem.tif"
+    assert json.loads(path.read_text(encoding="utf-8"))["sources"][0]["path"] == "data/dem.tif"
     back = open_project(path)
     stored = back.sources[next(iter(back.sources))].path
     assert Path(stored).is_absolute()
@@ -251,7 +251,7 @@ def test_save_hashes_a_source_the_caller_never_hashed(tmp_path, _registry):
     assert p.sources[sid].sha256 is None                     # the ordinary caller passed none
     save_project(p, path)
     assert p.sources[sid].sha256 == sha256_of(raster)        # stamped on the live SourceRef
-    assert json.loads(path.read_text())["sources"][0]["sha256"] == sha256_of(raster)
+    assert json.loads(path.read_text(encoding="utf-8"))["sources"][0]["sha256"] == sha256_of(raster)
 
 
 def test_changed_source_is_detected_by_hash(tmp_path, _registry):
@@ -276,7 +276,7 @@ def test_a_source_that_does_not_resolve_keeps_its_hash_and_still_saves(tmp_path,
     raster.unlink()
     save_project(p, path)                                    # must not raise
     assert p.sources[sid].sha256 == stamped
-    assert json.loads(path.read_text())["sources"][0]["sha256"] == stamped
+    assert json.loads(path.read_text(encoding="utf-8"))["sources"][0]["sha256"] == stamped
 
 
 def test_re_saving_re_stamps_and_clears_a_drift_warning(tmp_path, _registry):
@@ -413,7 +413,7 @@ def test_relocate_source_rejects_a_path_that_is_not_a_file(tmp_path, _registry):
 
 def test_opening_a_foreign_json_fails_clearly(tmp_path):
     path = tmp_path / f"x{EXT}"
-    path.write_text(json.dumps({"hello": "world"}))
+    path.write_text(json.dumps({"hello": "world"}), encoding="utf-8")
     with pytest.raises(ProjectFormatError, match="not a DynamiX project"):
         open_project(path)
 
@@ -422,7 +422,7 @@ def test_opening_a_non_json_file_fails_as_a_format_error(tmp_path):
     """One error type for 'this is not my file', whatever shape the rubbish takes. A raw
     JSONDecodeError leaks the parser at the UI, which cannot sensibly catch it."""
     path = tmp_path / f"x{EXT}"
-    path.write_text("this is a GeoTIFF, not JSON at all")
+    path.write_text("this is a GeoTIFF, not JSON at all", encoding="utf-8")
     with pytest.raises(ProjectFormatError, match="not valid JSON"):
         open_project(path)
 
@@ -430,14 +430,14 @@ def test_opening_a_non_json_file_fails_as_a_format_error(tmp_path):
 def test_opening_a_json_array_fails_as_a_format_error(tmp_path):
     """A JSON array used to raise AttributeError: 'list' object has no attribute 'get'."""
     path = tmp_path / f"x{EXT}"
-    path.write_text(json.dumps([{"format": "dynamix-project"}]))
+    path.write_text(json.dumps([{"format": "dynamix-project"}]), encoding="utf-8")
     with pytest.raises(ProjectFormatError, match="expected an object"):
         open_project(path)
 
 
 def test_opening_a_json_scalar_fails_as_a_format_error(tmp_path):
     path = tmp_path / f"x{EXT}"
-    path.write_text("42")
+    path.write_text("42", encoding="utf-8")
     with pytest.raises(ProjectFormatError, match="expected an object"):
         open_project(path)
 
@@ -453,9 +453,9 @@ def test_opening_a_future_schema_fails_clearly(tmp_path, _registry):
     reproduces the wrong figure under the right filename."""
     p, path, _ = _project_with_data(tmp_path)
     save_project(p, path)
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     payload["schema"] = 99
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ProjectSchemaError, match="newer"):
         open_project(path)
 
@@ -485,7 +485,7 @@ def test_a_saved_chain_carries_values_only_never_declaration_keys(tmp_path, clea
         DeviceRef("stub_holder", {"h_min": 0.0, "h_max": 1.0}),
         DeviceRef("stub_wedge", {"centre": 40.0, "half_width": 20.0}),
     )))
-    payload = json.loads(save_project(p, tmp_path / f"decl{EXT}").read_text())
+    payload = json.loads(save_project(p, tmp_path / f"decl{EXT}").read_text(encoding="utf-8"))
 
     steps = [st for layer in payload["layers"] for st in layer["chain"]["steps"]]
     assert {st["device"] for st in steps} == {"stub_wavelet", "stub_holder", "stub_wedge"}
@@ -647,7 +647,7 @@ def test_cameras_survive_a_save_open_cycle(tmp_path, _registry):
 
     save_project(p, path)
 
-    on_disk = json.loads(path.read_text())
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert _CAMERA_KEY in on_disk["cameras"]                 # the JSON names the key
     assert on_disk["cameras"][_CAMERA_KEY]["position"] == [1.0, 2.0, 3.0]
 
@@ -665,10 +665,10 @@ def test_two_save_cycles_of_a_camera_are_byte_identical(tmp_path, _registry):
     p.cameras[_CAMERA_KEY] = dict(_CAMERA)
 
     save_project(p, path)
-    first = json.dumps(json.loads(path.read_text())["cameras"], indent=2)
+    first = json.dumps(json.loads(path.read_text(encoding="utf-8"))["cameras"], indent=2)
 
     save_project(open_project(path), path)
-    second = json.dumps(json.loads(path.read_text())["cameras"], indent=2)
+    second = json.dumps(json.loads(path.read_text(encoding="utf-8"))["cameras"], indent=2)
 
     assert first == second
 
@@ -689,7 +689,7 @@ def test_annotations_round_trip(tmp_path, _registry):
 
     save_project(p, path)
 
-    on_disk = json.loads(path.read_text())
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert on_disk["annotations"][0]["point"] == [12.5, 33.0]
     assert on_disk["annotations"][1]["target"]["kind"] == "line"
 
@@ -770,7 +770,7 @@ def test_a_pre_v2_project_file_carrying_none_of_the_new_keys_opens_unchanged(tmp
     assert "roi_id" not in payload["layers"][0]
 
     path = tmp_path / f"legacy{EXT}"
-    path.write_text(json.dumps(payload, indent=2))
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -802,7 +802,7 @@ def test_a_pre_v2_project_file_carrying_none_of_the_new_keys_opens_unchanged(tmp
 
     # No migration step: re-saving writes the new keys empty and changes nothing that was there.
     save_project(back, path)
-    on_disk = json.loads(path.read_text())
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
     assert on_disk["rois"] == [] and on_disk["cameras"] == {} and on_disk["annotations"] == []
     assert on_disk["layers"][0]["roi_id"] is None
     assert on_disk["transects"] == payload["transects"]
@@ -813,9 +813,9 @@ def test_opening_a_layer_with_an_unknown_device_names_the_layer(tmp_path, _regis
     where to look."""
     p, path, _ = _project_with_data(tmp_path)
     save_project(p, path)
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     payload["layers"][0]["chain"]["steps"][0]["device"] = "no_such_device"
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(KeyError, match=r"layer \d+ 'dem': no device named 'no_such_device'"):
         open_project(path)
 
@@ -823,8 +823,8 @@ def test_opening_a_layer_with_an_unknown_device_names_the_layer(tmp_path, _regis
 def test_opening_a_layer_with_an_unknown_parameter_names_the_layer(tmp_path, _registry):
     p, path, _ = _project_with_data(tmp_path)
     save_project(p, path)
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     payload["layers"][0]["chain"]["steps"][0]["params"]["bogus"] = 1
-    path.write_text(json.dumps(payload))
+    path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(ValueError, match=r"layer \d+ 'dem': t: unknown parameter"):
         open_project(path)

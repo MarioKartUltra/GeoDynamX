@@ -65,7 +65,7 @@ def test_the_dock_layout_persists_across_windows(qtbot, tmp_path, monkeypatch, c
     qtbot.waitExposed(w)
     w.addDockWidget(QtCore.Qt.LeftDockWidgetArea, w.docks["dock.inspector"])
     w.close()                                     # persistence hook fires here
-    d = json.loads((tmp_path / "s.json").read_text())
+    d = json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))
     assert d["view_options"]["dock_state"]["state"]
     w2 = _window(qtbot)
     w2.resize(1400, 900)

@@ -132,10 +132,10 @@ def main(argv: list[str] | None = None) -> int:
     body = _TRANSFORM_BODY if a.kind == "transform" else _FILTER_BODY
     produces_expr = f'frozenset({{"{produces}"}})' if produces else "frozenset()"
     device_path.write_text(_DEVICE.format(cls=cls, id=a.id, label=label, consumes=consumes,
-                                          produces_expr=produces_expr, body=body))
-    (folder / test_name).write_text(_TEST.format(id=a.id, test_name=test_name))
+                                          produces_expr=produces_expr, body=body), encoding="utf-8")
+    (folder / test_name).write_text(_TEST.format(id=a.id, test_name=test_name), encoding="utf-8")
     readme.parent.mkdir(parents=True, exist_ok=True)
-    readme.write_text(_README.format(id=a.id))
+    readme.write_text(_README.format(id=a.id), encoding="utf-8")
     for p in (device_path, folder / test_name, readme):
         print(f"wrote {p}")
     return 0

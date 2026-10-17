@@ -16,11 +16,11 @@ def test_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
     save_settings(Settings(auto_run_wtmm=True))
     assert load_settings().auto_run_wtmm is True
-    assert json.loads((tmp_path / "s.json").read_text())["auto_run_wtmm"] is True
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["auto_run_wtmm"] is True
 
 
 def test_corrupt_file_yields_defaults(tmp_path, monkeypatch):
-    p = tmp_path / "s.json"; p.write_text("{not json")
+    p = tmp_path / "s.json"; p.write_text("{not json", encoding="utf-8")
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(p))
     assert load_settings().auto_run_wtmm is False
 
@@ -50,7 +50,7 @@ def test_update_settings_preserves_other_fields(tmp_path, monkeypatch):
 def test_load_tolerates_garbage_new_fields(tmp_path, monkeypatch):
     p = tmp_path / "s.json"
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(p))
-    p.write_text('{"splitter_sizes": "nope", "view_options": 7}')
+    p.write_text('{"splitter_sizes": "nope", "view_options": 7}', encoding="utf-8")
     s = load_settings()                       # never raises (the :23-24 contract)
     assert s.splitter_sizes == {} and s.view_options == {}
 
@@ -67,9 +67,9 @@ def test_open_window_px_defaults_to_4096_and_rejects_garbage(tmp_path, monkeypat
     assert load_settings().open_window_px == 4096
     update_settings(open_window_px=1024)
     assert load_settings().open_window_px == 1024
-    (tmp_path / "s.json").write_text(json.dumps({"open_window_px": "big"}))
+    (tmp_path / "s.json").write_text(json.dumps({"open_window_px": "big"}), encoding="utf-8")
     assert load_settings().open_window_px == 4096
-    (tmp_path / "s.json").write_text(json.dumps({"open_window_px": 0}))
+    (tmp_path / "s.json").write_text(json.dumps({"open_window_px": 0}), encoding="utf-8")
     assert load_settings().open_window_px == 4096
 
 
@@ -78,7 +78,7 @@ def test_footprint_folders_default_empty_and_round_trip(tmp_path, monkeypatch):
     assert load_settings().footprint_folders == []
     update_settings(footprint_folders=["/Volumes/X/DynamiX_Ext", "/data/other"])
     assert load_settings().footprint_folders == ["/Volumes/X/DynamiX_Ext", "/data/other"]
-    (tmp_path / "s.json").write_text(json.dumps({"footprint_folders": "not-a-list"}))
+    (tmp_path / "s.json").write_text(json.dumps({"footprint_folders": "not-a-list"}), encoding="utf-8")
     assert load_settings().footprint_folders == []
 
 
@@ -97,9 +97,9 @@ def test_compute_engine_defaults_validates_and_roundtrips(tmp_path, monkeypatch)
     assert load_settings().compute_engine == "fftw"
     update_settings(compute_engine="fftw")
     assert load_settings().compute_engine == "fftw"
-    d = json.loads(settings_path().read_text())
+    d = json.loads(settings_path().read_text(encoding="utf-8"))
     d["compute_engine"] = "cuda-someday"
-    settings_path().write_text(json.dumps(d))
+    settings_path().write_text(json.dumps(d), encoding="utf-8")
     assert load_settings().compute_engine == "auto"
 
 
@@ -109,7 +109,7 @@ def test_open_max_pixels_defaults_to_64m_and_rejects_garbage(tmp_path, monkeypat
     assert load_settings().open_max_pixels == 64_000_000
     update_settings(open_max_pixels=1_000_000)
     assert load_settings().open_max_pixels == 1_000_000
-    (tmp_path / "s.json").write_text(json.dumps({"open_max_pixels": "big"}))
+    (tmp_path / "s.json").write_text(json.dumps({"open_max_pixels": "big"}), encoding="utf-8")
     assert load_settings().open_max_pixels == 64_000_000
 
 
@@ -120,7 +120,7 @@ def test_compute_precision_defaults_to_32_and_round_trips_64(tmp_path, monkeypat
     assert load_settings().compute_precision == 32
     update_settings(compute_precision=64)
     assert load_settings().compute_precision == 64
-    (tmp_path / "s.json").write_text(json.dumps({"compute_precision": 16}))
+    (tmp_path / "s.json").write_text(json.dumps({"compute_precision": 16}), encoding="utf-8")
     assert load_settings().compute_precision == 32
 
 

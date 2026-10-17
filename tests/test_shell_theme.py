@@ -105,7 +105,7 @@ def _written(tmp_path, **changes):
         else:
             d[k] = v
     p = tmp_path / "t.json"
-    p.write_text(json.dumps(d))
+    p.write_text(json.dumps(d), encoding="utf-8")
     return p
 
 
@@ -186,5 +186,5 @@ def test_the_qss_references_svg_assets_that_exist():
 def test_package_data_ships_the_themes():
     import pathlib
 
-    text = (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text()
+    text = (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     assert "shell/themes/*.json" in text and "shell/themes/assets/*/*.svg" in text

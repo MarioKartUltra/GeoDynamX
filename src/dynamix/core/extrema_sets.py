@@ -226,12 +226,12 @@ class ExtremaSetManager:
         """Write ``extrema_sets.json`` (the full snapshot, including provenance) under ``out_dir``."""
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
-        (out / EXTREMA_SETS_JSON).write_text(json.dumps(self.to_payload(), indent=2))
+        (out / EXTREMA_SETS_JSON).write_text(json.dumps(self.to_payload(), indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, out_dir) -> "ExtremaSetManager":
         """Reconstruct a manager from ``extrema_sets.json`` (exact round-trip)."""
-        payload = json.loads((Path(out_dir) / EXTREMA_SETS_JSON).read_text())
+        payload = json.loads((Path(out_dir) / EXTREMA_SETS_JSON).read_text(encoding="utf-8"))
         mgr = cls(payload.get("n_h_chains", 0), payload.get("n_v_chains", 0),
                   region=payload.get("region", "region"), n_scales=payload.get("n_scales", 1))
         for rec in payload.get("sets", []):

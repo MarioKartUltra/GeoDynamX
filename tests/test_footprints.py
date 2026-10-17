@@ -32,8 +32,8 @@ def folder(tmp_path):
     _tile(d / "ASTGTMV003_S22E119_dem.tif", 119.0, -21.0, 0.1, 10)          # covers 119..120 E, -22..-21
     _tile(d / "ASTGTMV003_S22E119_num.tif", 119.0, -21.0, 0.1, 10, dtype="uint8")
     _tile(d / "ASTGTMV003_S22E120_dem.tif", 120.0, -21.0, 0.1, 10)          # the eastern neighbour
-    (d / "ASTGTMV003_S22E119_dem.tif.aux.xml").write_text("<x/>")
-    (d / "README.txt").write_text("not a raster")
+    (d / "ASTGTMV003_S22E119_dem.tif.aux.xml").write_text("<x/>", encoding="utf-8")
+    (d / "README.txt").write_text("not a raster", encoding="utf-8")
     # a projected tile: UTM 50S, 10 km square starting at (500000, 7600000)
     _tile(tmp_path / "utm_tile.tif", 500000.0, 7600000.0, 1000.0, 10, crs="EPSG:32750", dtype="float32")
     return tmp_path

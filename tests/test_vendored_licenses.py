@@ -10,7 +10,7 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 SRC = REPO / "src" / "dynamix"
-NOTICE = (REPO / "NOTICE").read_text()
+NOTICE = (REPO / "NOTICE").read_text(encoding="utf-8")
 DERIVED_ROOTS = (SRC / "_vendor", SRC / "core" / "mz_lastwave")
 
 
@@ -42,7 +42,7 @@ def test_every_derived_tree_has_a_licence_file_or_a_notice_entry():
 def test_notice_lists_every_gpl_2_only_file():
     only = []
     for path in SRC.rglob("*.py"):
-        head = path.read_text().splitlines()[:3]
+        head = path.read_text(encoding="utf-8").splitlines()[:3]
         if any("SPDX-License-Identifier: GPL-2.0-only" in line for line in head):
             only.append(path.relative_to(REPO).as_posix())
     assert only, "the xsmurf ports carry GPL-2.0-only headers"

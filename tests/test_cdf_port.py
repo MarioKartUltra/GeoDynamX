@@ -66,8 +66,8 @@ def _def_block(text: str, name: str) -> list[str]:
 @pytest.mark.parametrize("ours_name", sorted(_LIFTS))
 def test_lifted_bodies_reverse_to_their_origins(ours_name):
     script, origin_name, edits = _LIFTS[ours_name]
-    ours = _def_block((_REPO / "src/dynamix/core/cdf.py").read_text(), ours_name)
-    theirs = _def_block((_RES / script).read_text(), origin_name)
+    ours = _def_block((_REPO / "src/dynamix/core/cdf.py").read_text(encoding="utf-8"), ours_name)
+    theirs = _def_block((_RES / script).read_text(encoding="utf-8"), origin_name)
     reverted = list(ours)
     for mine, orig in edits:
         assert mine in reverted, (ours_name, mine)

@@ -48,7 +48,7 @@ def _hd(slopes_tau, slopes_h, slopes_D, sigma=0.1, n_sc=6, intercepts=(1.0, -0.5
 def test_spectra_never_imports_wtmm_ebsd():
     """core/ stays free of the optional backend -- the module reimplements the fitter precisely so
     it works WITHOUT wtmm_ebsd installed. Import STATEMENTS only; comments may name it."""
-    with open(spectra.__file__) as f:
+    with open(spectra.__file__, encoding="utf-8") as f:
         lines = f.readlines()
     import_lines = [ln for ln in lines
                     if ln.strip().startswith(("import wtmm_ebsd", "from wtmm_ebsd",

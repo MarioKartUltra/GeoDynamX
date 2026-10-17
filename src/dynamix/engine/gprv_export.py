@@ -87,28 +87,28 @@ def _git_dirs(root: Path) -> tuple[Path, Path] | None:
     if dot.is_dir():
         return dot, dot
     if dot.is_file():
-        text = dot.read_text().strip()
+        text = dot.read_text(encoding="utf-8").strip()
         if text.startswith("gitdir:"):
             gitdir = (root / text.split(":", 1)[1].strip()).resolve()
             common = gitdir
             if (gitdir / "commondir").is_file():
-                common = (gitdir / (gitdir / "commondir").read_text().strip()).resolve()
+                common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
             return gitdir, common
     return None
 
 
 def _head_commit(gitdir: Path, common: Path) -> str | None:
     """The commit at HEAD, read from the files (no git process)."""
-    head = (gitdir / "HEAD").read_text().strip()
+    head = (gitdir / "HEAD").read_text(encoding="utf-8").strip()
     if not head.startswith("ref:"):
         return head or None
     ref = head.split(":", 1)[1].strip()
     for base in (gitdir, common):
         if (base / ref).is_file():
-            return (base / ref).read_text().strip()
+            return (base / ref).read_text(encoding="utf-8").strip()
     packed = common / "packed-refs"
     if packed.is_file():
-        for line in packed.read_text().splitlines():
+        for line in packed.read_text(encoding="utf-8").splitlines():
             if line.endswith(" " + ref):
                 return line.split(" ", 1)[0]
     return None

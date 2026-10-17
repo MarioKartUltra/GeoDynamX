@@ -859,7 +859,7 @@ def test_no_lambda_is_connected_to_a_worker_signal():
     """worker.py's documented trap: a lambda has no thread affinity, so Qt runs it ON THE WORKER
     THREAD, where touching a widget is a crash waiting to happen. Every worker signal must be
     connected to a bound method."""
-    src = Path("src/dynamix/shell/main_window.py").read_text()
+    src = Path("src/dynamix/shell/main_window.py").read_text(encoding="utf-8")
     for signal in ("progress", "finished", "error"):
         hits = re.findall(rf"\.{signal}\.connect\(([^)]*)\)", src)
         assert hits, f"nothing connects the worker's {signal} signal"
@@ -880,7 +880,7 @@ def test_dock_widgets_are_built_only_by_the_docks_module():
     """PRODUCT.md principle 4 as rewritten: a small fixed set of docks, built in one place."""
     for path in Path("src/dynamix/shell").rglob("*.py"):
         if path.name != "docks.py":
-            assert "QDockWidget(" not in path.read_text(), path
+            assert "QDockWidget(" not in path.read_text(encoding="utf-8"), path
 
 
 # --------------------------------------------------------------------------- the real thing
@@ -1425,7 +1425,7 @@ def _load_point_catalogue(window, tmp_path):
     from dynamix.shell.point_import import load_points
 
     path = tmp_path / "quakes.csv"
-    path.write_text(_POINT_CSV)
+    path.write_text(_POINT_CSV, encoding="utf-8")
     load_points(window, str(path))
     return window.layer.source_id
 
@@ -2092,7 +2092,7 @@ def _user_theme(tmp_path, monkeypatch, name="my", **changes):
     folder = tmp_path / "themes"
     folder.mkdir(exist_ok=True)
     data = dict(dataclasses.asdict(RESTRAINED_DARK), name=name, **changes)
-    (folder / f"{name}.json").write_text(json.dumps(data))
+    (folder / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
     monkeypatch.setattr(settings_mod, "themes_dir", lambda: folder)
     return folder / f"{name}.json"
 
@@ -2137,10 +2137,10 @@ def test_the_theme_named_in_settings_is_watched_from_launch(qtbot, stub_devices,
     qtbot.addWidget(win)
     try:
         assert str(path) in win._theme_watcher.files()
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         data["panel"] = "#222233"
         with qtbot.waitSignal(win.themeReloaded, timeout=5000):
-            path.write_text(json.dumps(data))
+            path.write_text(json.dumps(data), encoding="utf-8")
         assert current().panel == "#222233"
     finally:
         apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
@@ -2160,10 +2160,10 @@ def test_an_edited_theme_file_reloads_live(qtbot, stub_devices, tmp_path, monkey
     try:
         next(a for a in menu.actions() if a.text() == "my").trigger()
         assert current().name == "my"
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         data["panel"] = "#222233"
         with qtbot.waitSignal(win.themeReloaded, timeout=5000):
-            path.write_text(json.dumps(data))
+            path.write_text(json.dumps(data), encoding="utf-8")
         assert current().panel == "#222233"
     finally:
         from PySide6 import QtWidgets

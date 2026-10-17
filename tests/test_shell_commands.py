@@ -261,7 +261,7 @@ def test_the_controller_imports_no_shell_module():
 
     import dynamix.shell.controller as controller
 
-    tree = ast.parse(pathlib.Path(controller.__file__).read_text())
+    tree = ast.parse(pathlib.Path(controller.__file__).read_text(encoding="utf-8"))
     imported = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("dynamix.shell"):

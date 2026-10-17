@@ -33,7 +33,7 @@ _AMBIGUOUS_CSV = "x,y,z\n1.0,2.0,3.0\n4.0,5.0,6.0\n"
 
 def _write_csv(tmp_path, text: str = _CSV, name: str = "quakes.csv"):
     p = tmp_path / name
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     return p
 
 
@@ -309,7 +309,7 @@ def test_old_dynamix_file_with_no_kind_key_reopens_every_source_as_raster(qtbot,
         "topologies": [],
     }
     proj_path = tmp_path / "old.dynamix"
-    proj_path.write_text(json.dumps(payload))
+    proj_path.write_text(json.dumps(payload), encoding="utf-8")
 
     window._open_project_path(proj_path)
 

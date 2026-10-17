@@ -100,7 +100,7 @@ def devices_dir() -> Path:
 
 def load_settings() -> Settings:
     try:
-        d = json.loads(settings_path().read_text())
+        d = json.loads(settings_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return Settings()
     def _dict_of_int_lists(v):
@@ -148,7 +148,7 @@ def _positive_int(value, default: int) -> int:
 def save_settings(s: Settings) -> None:
     p = settings_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(dataclasses.asdict(s), indent=2))
+    p.write_text(json.dumps(dataclasses.asdict(s), indent=2), encoding="utf-8")
 
 def update_settings(**changes) -> Settings:
     """Read-modify-write: the only sanctioned single-field write. A bare

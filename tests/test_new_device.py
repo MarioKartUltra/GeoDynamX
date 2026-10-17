@@ -31,18 +31,18 @@ def test_a_generated_transform_registers_and_its_golden_test_records_then_compar
 
 def test_a_generated_filter_has_an_apply_body_and_an_unknown_contract_is_refused(tmp_path, clean_registry, capsys):
     assert main(["plug_keep", "--kind", "filter", "--dir", str(tmp_path)]) == 0
-    text = (tmp_path / "plug_keep.py").read_text()
+    text = (tmp_path / "plug_keep.py").read_text(encoding="utf-8")
     assert "def apply(self, extrema, params)" in text and "def compute" not in text
     assert 'consumes = (("ExtremaStack",),)' in text and "produces = frozenset()" in text
     assert main(["plug_bad", "--consumes", "Fields", "--dir", str(tmp_path)]) == 2
     assert "Fields" in capsys.readouterr().err
     assert main(["plug_keep", "--kind", "filter", "--dir", str(tmp_path)]) == 2      # never overwrites
     assert main(["plug_pts", "--kind", "filter", "--consumes", "Points", "--dir", str(tmp_path)]) == 0
-    assert 'consumes = (("Points",),)' in (tmp_path / "plug_pts.py").read_text()   # as given
+    assert 'consumes = (("Points",),)' in (tmp_path / "plug_pts.py").read_text(encoding="utf-8")   # as given
 
 
 def test_a_leftover_test_or_golden_folder_refuses_the_id(tmp_path, clean_registry, capsys):
-    (tmp_path / "test_plug_old.py").write_text("")
+    (tmp_path / "test_plug_old.py").write_text("", encoding="utf-8")
     assert main(["plug_old", "--dir", str(tmp_path)]) == 2 and "test_plug_old.py" in capsys.readouterr().err
     (tmp_path / "golden" / "plug_gold").mkdir(parents=True)
     assert main(["plug_gold", "--dir", str(tmp_path)]) == 2 and "plug_gold" in capsys.readouterr().err

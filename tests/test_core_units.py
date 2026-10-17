@@ -50,7 +50,7 @@ def test_shell_units_is_a_pure_re_export_of_core_units():
 def test_no_device_imports_the_shell():
     devices = pathlib.Path(__file__).resolve().parents[1] / "src" / "dynamix" / "devices"
     for path in sorted(devices.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             mod = node.module if isinstance(node, ast.ImportFrom) else None
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else []
             assert not (mod or "").startswith("dynamix.shell"), path

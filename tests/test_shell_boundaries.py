@@ -25,7 +25,7 @@ def test_theme_rule_no_literal_colors_or_fonts_outside_theme():
     for path in sorted(SHELL.rglob("*.py")):
         if path.name in ("theme.py", "demo.py"):      # demo.py predates the rule; grandfathered
             continue
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         if path.name in THEME_OFFENDERS:
             assert HEX.search(text) or FAMILY.search(text), \
                 f"{path.name} is clean now: drop it from THEME_OFFENDERS"
@@ -40,7 +40,7 @@ def test_dock_set_is_fixed():
     for path in sorted(SHELL.rglob("*.py")):
         if path.name == "docks.py":
             continue
-        assert "QDockWidget(" not in path.read_text(), f"{path.name} builds a dock"
+        assert "QDockWidget(" not in path.read_text(encoding="utf-8"), f"{path.name} builds a dock"
 
 
 def test_vtrail_color_is_the_theme_accent():
@@ -91,7 +91,7 @@ def test_devloop_is_the_only_shell_importer_outside_shell():
         if src / "shell" in path.parents or path.name == "devloop.py":
             continue
         imported = set()
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
                 imported |= {a.name.split(".")[0] for a in node.names}
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
@@ -240,7 +240,7 @@ def test_depends_on_covers_every_real_shell_import():
         if path.parent != SHELL or path.stem in excluded:
             continue
         imported = set()
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.level == 0 \
                     and (node.module or "").startswith("dynamix.shell."):
                 imported.add(node.module.split(".")[2])

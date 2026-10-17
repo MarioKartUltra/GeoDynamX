@@ -164,7 +164,7 @@ NEW_MODULES = ["units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_ed
 
 def _normalised(path: pathlib.Path) -> str:
     """File text with the import rewrite reversed, so a verbatim copy hashes to its original."""
-    return path.read_text().replace("dynamix.core.", "eqselect.")
+    return path.read_text(encoding="utf-8").replace("dynamix.core.", "eqselect.")
 
 
 def _sha(text: str) -> str:
@@ -187,7 +187,7 @@ def _diff_summary(a: str, b: str, name: str) -> str:
 def test_verbatim_modules_have_not_drifted(name):
     ours, theirs = CORE / f"{name}.py", EQSELECT / f"{name}.py"
     assert theirs.is_file(), f"missing EQSelect original for {name}"
-    a, b = _normalised(ours), theirs.read_text()
+    a, b = _normalised(ours), theirs.read_text(encoding="utf-8")
     assert _sha(a) == _sha(b), (
         f"{name}.py has drifted from its EQSelect original.\n"
         f"If the change is deliberate, move it into INTENTIONALLY_DIVERGED with a reason.\n\n"
@@ -201,7 +201,7 @@ def test_intentional_divergence_is_still_present(name, reason):
     that no longer exists."""
     ours, theirs = CORE / f"{name}.py", EQSELECT / f"{name}.py"
     assert theirs.is_file(), f"missing EQSelect original for {name}"
-    assert _sha(_normalised(ours)) != _sha(theirs.read_text()), (
+    assert _sha(_normalised(ours)) != _sha(theirs.read_text(encoding="utf-8")), (
         f"{name}.py is listed as intentionally diverged ({reason}) but now matches its EQSelect "
         f"original. Either the change was reverted, or the entry is stale and should be moved "
         f"to VERBATIM."
@@ -213,8 +213,8 @@ def test_extracted_bodies_differ_only_by_recorded_edits(name, spec):
     """extrema_io holds function bodies lifted from a module DynamiX does not copy. Reversing the
     recorded edits must reproduce the original byte-for-byte; anything else is undeclared drift."""
     src_name, first, last = spec["origin"]
-    original = (EQSELECT / f"{src_name}.py").read_text().splitlines()[first - 1:last]
-    ours = (CORE / f"{name}.py").read_text().splitlines()
+    original = (EQSELECT / f"{src_name}.py").read_text(encoding="utf-8").splitlines()[first - 1:last]
+    ours = (CORE / f"{name}.py").read_text(encoding="utf-8").splitlines()
     start = next((i for i, ln in enumerate(ours) if ln.startswith("def ")), None)
     assert start is not None, f"no function definitions found in {name}.py"
 

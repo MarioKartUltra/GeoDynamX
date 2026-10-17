@@ -167,7 +167,7 @@ def test_no_bare_scale_times_pixel_size_in_shell():
     shell = pathlib.Path(__file__).resolve().parent.parent / "src" / "dynamix" / "shell"
     offenders = []
     for py in shell.rglob("*.py"):
-        text = py.read_text()
+        text = py.read_text(encoding="utf-8")
         if any(p.search(text) for p in _OFFENDER_PATTERNS):
             offenders.append(py.name)
     assert offenders == []

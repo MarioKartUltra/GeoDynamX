@@ -583,7 +583,7 @@ def test_garbled_center_view_falls_back_to_raster(tmp_path, monkeypatch):
     from dynamix.shell.settings import settings_path
 
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "garbled.json"))
-    settings_path().write_text(json.dumps({"center_view": "not-a-real-view"}))
+    settings_path().write_text(json.dumps({"center_view": "not-a-real-view"}), encoding="utf-8")
 
     assert load_settings().center_view == "raster"
 

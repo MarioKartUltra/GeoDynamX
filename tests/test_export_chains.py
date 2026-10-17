@@ -91,7 +91,7 @@ def test_an_export_writes_its_record_beside_it_and_the_command_writes_it_again(
     win._active_result = _prod_result()
     msg = win._export_chain_product(str(path))
     assert "provenance chains.npz.gprv" in msg
-    record = json.loads((tmp_path / "chains.npz.gprv").read_text())
+    record = json.loads((tmp_path / "chains.npz.gprv").read_text(encoding="utf-8"))
     assert record["processStep"][-1]["processingInformation"]["identifier"]["code"] == \
         "export/chains_npz"
     win._on_write_provenance()

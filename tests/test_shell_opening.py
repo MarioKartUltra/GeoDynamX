@@ -63,7 +63,7 @@ def test_resolve_openable_zip_with_one_tif_builds_the_gdal_url(tmp_path):
 
 def test_resolve_openable_zip_with_no_tif_raises_naming_contents(tmp_path):
     other = tmp_path / "readme.txt"
-    other.write_text("hi")
+    other.write_text("hi", encoding="utf-8")
     zpath = tmp_path / "empty.zip"
     _write_zip(zpath, [other])
 
@@ -90,9 +90,9 @@ def test_resolve_openable_ignores_sidecars(tmp_path):
     ovr = tmp_path / "field.tif.ovr"
     ovr.write_bytes(b"not a tif")
     tfw = tmp_path / "field.tfw"
-    tfw.write_text("not a tif either")
+    tfw.write_text("not a tif either", encoding="utf-8")
     aux = tmp_path / "field.tif.aux.xml"
-    aux.write_text("<PAMDataset/>")
+    aux.write_text("<PAMDataset/>", encoding="utf-8")
     zpath = tmp_path / "sidecars.zip"
     _write_zip(zpath, [tif, ovr, tfw, aux])
 

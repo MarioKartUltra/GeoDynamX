@@ -63,7 +63,7 @@ def _run() -> dict:
 
 
 def test_every_chainer_finds_the_cusp_and_the_recorded_scores_reproduce():
-    golden = json.loads(GOLDEN.read_text())
+    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     now = _run()
     for name, by_h in now.items():
         for h, score in by_h.items():
@@ -81,7 +81,7 @@ def test_every_chainer_finds_the_cusp_and_the_recorded_scores_reproduce():
 if __name__ == "__main__" and "--record" in sys.argv:
     GOLDEN.parent.mkdir(parents=True, exist_ok=True)
     GOLDEN.write_text(json.dumps({"machine": _machine(), "scores": _run()}, indent=1,
-                                 sort_keys=True) + "\n")
+                                 sort_keys=True) + "\n", encoding="utf-8")
     print(f"recorded {GOLDEN}")
-    for name, by_h in json.loads(GOLDEN.read_text())["scores"].items():
+    for name, by_h in json.loads(GOLDEN.read_text(encoding="utf-8"))["scores"].items():
         print(name, {h: round(s["error"], 3) for h, s in by_h.items()})

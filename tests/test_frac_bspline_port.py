@@ -46,8 +46,8 @@ def _def_block(text: str, name: str) -> str:
 @pytest.mark.skipif(not _CREEP.is_file(), reason=f"Creep checkout not present at {_CREEP}")
 @pytest.mark.parametrize("name", _COPIED)
 def test_copied_bodies_are_byte_identical_to_creep(name):
-    ours = _def_block((_REPO / "src/dynamix/core/frac_bspline.py").read_text(), name)
-    theirs = _def_block(_CREEP.read_text(), name)
+    ours = _def_block((_REPO / "src/dynamix/core/frac_bspline.py").read_text(encoding="utf-8"), name)
+    theirs = _def_block(_CREEP.read_text(encoding="utf-8"), name)
     assert ours == theirs, (
         f"{name} has drifted from its Creep original (wtmm/wavelets.py). If the change is "
         f"deliberate, it must become a recorded edit here -- never a silent divergence."

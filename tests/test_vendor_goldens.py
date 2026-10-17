@@ -171,7 +171,7 @@ def _compare(piece: str, key: str, got: dict, want: dict) -> None:
 
 @pytest.mark.parametrize("piece", PIECES)
 def test_the_vendored_piece_reproduces_its_golden(piece):
-    meta = json.loads((GOLDEN / "machine.json").read_text())
+    meta = json.loads((GOLDEN / "machine.json").read_text(encoding="utf-8"))
     if meta["machine"] != _machine():
         pytest.skip(f"recorded on {meta['machine']}")
     want = dict(np.load(GOLDEN / f"{piece}.npz", allow_pickle=False))
@@ -194,7 +194,7 @@ def test_the_vendored_originals_still_reproduce_the_goldens_behind_the_flag(piec
     from dynamix.core import wtmm_backend
 
     pytest.importorskip("mlx.core")
-    meta = json.loads((GOLDEN / "machine.json").read_text())
+    meta = json.loads((GOLDEN / "machine.json").read_text(encoding="utf-8"))
     if meta["machine"] != _machine():
         pytest.skip(f"recorded on {meta['machine']}")
     want = dict(np.load(GOLDEN / f"{piece}.npz", allow_pickle=False))
@@ -215,4 +215,5 @@ if __name__ == "__main__" and "--record" in sys.argv:
         np.savez(GOLDEN / f"{piece}.npz", **flat)
         print(f"recorded {piece}: {len(flat)} arrays")
     (GOLDEN / "machine.json").write_text(json.dumps({"machine": _machine(),
-                                                      "snapshot": "vendored-snapshot-2026-10"}) + "\n")
+                                                      "snapshot": "vendored-snapshot-2026-10"}) + "\n",
+                                         encoding="utf-8")

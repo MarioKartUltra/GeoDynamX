@@ -68,24 +68,24 @@ def test_vendored_files_are_verbatim_except_the_recorded_edits(pkg):
     for path in sorted((VENDOR / pkg).glob("*.py")):
         if (pkg, path.name) in edited:
             continue
-        original = (SOURCE / pkg / path.name).read_text()
-        assert _normalised(path.read_text()) == original, f"{pkg}/{path.name} drifted"
+        original = (SOURCE / pkg / path.name).read_text(encoding="utf-8")
+        assert _normalised(path.read_text(encoding="utf-8")) == original, f"{pkg}/{path.name} drifted"
 
 
 @pytest.mark.skipif(not SOURCE.is_dir(), reason=f"source checkout not present at {SOURCE}")
 def test_the_two_edited_files_differ_only_by_their_recorded_edits():
-    ours = (VENDOR / "wtmm_ebsd" / "cwt2d.py").read_text().splitlines()
-    theirs = (SOURCE / "wtmm_ebsd" / "cwt2d.py").read_text().splitlines()
+    ours = (VENDOR / "wtmm_ebsd" / "cwt2d.py").read_text(encoding="utf-8").splitlines()
+    theirs = (SOURCE / "wtmm_ebsd" / "cwt2d.py").read_text(encoding="utf-8").splitlines()
     removed = [ln for ln in theirs if ln not in ours]
     assert removed == ["import mlx.core as mx"]
     added = [ln.split("#")[0].strip() for ln in ours if ln not in theirs]
     assert added == ["try:", "import mlx.core as mx", "except ImportError:", "mx = None",
                      "mx.eval(conv)"]
-    init = (VENDOR / "wtmm_ebsd" / "__init__.py").read_text()
+    init = (VENDOR / "wtmm_ebsd" / "__init__.py").read_text(encoding="utf-8")
     for gone in ("orientation", "symmetry", "grains", "demean", "cpo", "ipf", "kam",
                  "quality", "shuffles", "spatial_stats", "viewer"):
         assert f"from .{gone} import" not in init and f"    {gone},\n" not in init
-    init = (VENDOR / "wtmm" / "__init__.py").read_text()
+    init = (VENDOR / "wtmm" / "__init__.py").read_text(encoding="utf-8")
     for gone in ("colormaps", "hurst", "io", "datasets", "catalog", "spectra", "perline"):
         assert f"from .{gone} import" not in init and f"from . import {gone}" not in init
 
@@ -142,8 +142,8 @@ def test_wavelets_differs_only_by_the_borges_constant_fix():
     """Eqs. 17-18 of Borges et al. 2004 take Gamma(a)/Gamma(a - 5/2) and
     Gamma(a + 3/2)/Gamma(a + 1) with a ~ 2/|q - 1|; the literal ratio overflows to NaN for
     0.988 < q < 1.012. The same ratios as Pochhammer symbols are finite through q = 1."""
-    ours = _normalised((VENDOR / "wtmm" / "wavelets.py").read_text()).splitlines()
-    theirs = (SOURCE / "wtmm" / "wavelets.py").read_text().splitlines()
+    ours = _normalised((VENDOR / "wtmm" / "wavelets.py").read_text(encoding="utf-8")).splitlines()
+    theirs = (SOURCE / "wtmm" / "wavelets.py").read_text(encoding="utf-8").splitlines()
     diff = [ln for ln in difflib.unified_diff(theirs, ours, lineterm="", n=0)
             if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
     assert [ln[1:].strip() for ln in diff if ln[0] == "-"] == [

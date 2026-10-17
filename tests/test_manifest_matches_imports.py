@@ -36,7 +36,7 @@ def _third_party_imports() -> dict[str, set[str]]:
     stdlib = set(sys.stdlib_module_names)
     found: dict[str, set[str]] = {}
     for path in sorted(SRC.rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = [a.name.split(".")[0] for a in node.names]
@@ -52,7 +52,7 @@ def _third_party_imports() -> dict[str, set[str]]:
 
 def _declared_distributions() -> set[str]:
     """Every distribution named in pyproject, base plus all extras, normalised to lowercase."""
-    cfg = tomllib.loads(PYPROJECT.read_text())["project"]
+    cfg = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
     specs = list(cfg.get("dependencies", []))
     for extra in cfg.get("optional-dependencies", {}).values():
         specs.extend(extra)
@@ -88,7 +88,7 @@ def test_base_dependencies_are_numpy_plus_the_fft_engines():
     platform, mlx only behind its Apple Silicon marker.
     If this fails, either a dependency crept into the base list or the mlx marker was lost --
     losing it would make every Windows/Linux/Intel-Mac install try to fetch mlx."""
-    cfg = tomllib.loads(PYPROJECT.read_text())["project"]
+    cfg = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
     base = {s.split(">")[0].split("=")[0].split(";")[0].strip().lower()
             for s in cfg["dependencies"]}
     assert base == {"numpy", "pyfftw", "mlx"}, f"base dependencies drifted: {sorted(base)}"
@@ -115,7 +115,7 @@ def test_undeclarable_imports_stay_lazy(mod):
     import ast
 
     for path in sorted(SRC.rglob("*.py")):
-        tree = ast.parse(path.read_text())
+        tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.iter_child_nodes(tree):          # module top level only
             names = []
             if isinstance(node, ast.Import):

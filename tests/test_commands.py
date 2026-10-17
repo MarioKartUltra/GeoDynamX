@@ -53,7 +53,7 @@ def test_the_runner_lists_headless_commands_and_sets_a_setting(tmp_path):
     out = subprocess.run([sys.executable, "-m", "dynamix.run", "settings.engine.fftw"],
                          capture_output=True, text=True, env=env)
     assert out.returncode == 0, out.stderr
-    assert json.loads((tmp_path / "s.json").read_text())["compute_engine"] == "fftw"
+    assert json.loads((tmp_path / "s.json").read_text(encoding="utf-8"))["compute_engine"] == "fftw"
     out = subprocess.run([sys.executable, "-m", "dynamix.run", "file.open_project"],
                          capture_output=True, text=True, env=env)
     assert out.returncode == 2 and "needs a window" in out.stderr

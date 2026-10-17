@@ -53,14 +53,14 @@ class _GeometryMemory(QtCore.QObject):
             g = watched.geometry()
             try:
                 try:
-                    data = json.loads(self._path.read_text())
+                    data = json.loads(self._path.read_text(encoding="utf-8"))
                 except (OSError, ValueError):
                     data = {}
                 memory = data.get("window_geometry") if isinstance(data.get("window_geometry"), dict) else {}
                 memory[self._key] = [int(g.x()), int(g.y()), int(g.width()), int(g.height())]
                 data["window_geometry"] = memory
                 self._path.parent.mkdir(parents=True, exist_ok=True)
-                self._path.write_text(json.dumps(data, indent=2))
+                self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
             except OSError:
                 pass
         return False

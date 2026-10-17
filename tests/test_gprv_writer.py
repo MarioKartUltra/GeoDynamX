@@ -249,15 +249,15 @@ def test_uncommitted_source_changes_ride_as_a_patch(tmp_path):
 
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
-    (repo / "src" / "a.py").write_text("x = 1\n")
+    (repo / "src" / "a.py").write_text("x = 1\n", encoding="utf-8")
     git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
     subprocess.run(git[:3] + ["init", "-q"], check=True)
     subprocess.run(git + ["add", "."], check=True)
     subprocess.run(git + ["commit", "-q", "-m", "c"], check=True)
     clean = code_identity(repo)
     assert len(clean["commit"]) == 40 and clean["patch"] is None and clean["checked"]
-    (repo / "src" / "a.py").write_text("x = 2\n")
-    (repo / "src" / "b.py").write_text("y = 3\n")
+    (repo / "src" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    (repo / "src" / "b.py").write_text("y = 3\n", encoding="utf-8")
     dirty = code_identity(repo)
     assert dirty["commit"] == clean["commit"]
     assert b"+x = 2" in dirty["patch"] and b"+y = 3" in dirty["patch"]

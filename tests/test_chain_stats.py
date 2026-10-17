@@ -27,7 +27,7 @@ def test_chain_stats_never_imports_wtmm_ebsd():
     lazily, since its whole reason to exist is to work WITHOUT wtmm_ebsd installed. Checks for an
     actual import STATEMENT, not the bare substring -- the module's own docstring/comments
     legitimately name ``wtmm_ebsd`` throughout, explaining exactly why it is never imported."""
-    with open(chain_stats.__file__) as f:
+    with open(chain_stats.__file__, encoding="utf-8") as f:
         lines = f.readlines()
     import_lines = [ln for ln in lines
                     if ln.strip().startswith(("import wtmm_ebsd", "from wtmm_ebsd",
