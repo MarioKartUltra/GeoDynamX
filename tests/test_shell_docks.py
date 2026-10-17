@@ -13,6 +13,16 @@ def _areas(w):
     return {name: w.dockWidgetArea(w.docks[name]) for name in DOCK_NAMES}
 
 
+def _layout_report(w):
+    """The window's style and widths beside a dock-width assertion: a dock narrower than asked
+    is a central widget whose minimum width took the rest."""
+    app = QtWidgets.QApplication.instance()
+    docks = {n: (w.docks[n].width(), w.docks[n].minimumSizeHint().width()) for n in DOCK_NAMES}
+    return (f"style {app.style().name()!r} font {app.font().family()!r} {app.font().pointSizeF()}pt, "
+            f"window {w.width()}, central {w.centralWidget().width()} "
+            f"(min {w.centralWidget().minimumSizeHint().width()}), docks (width, min) {docks}")
+
+
 def test_the_dock_set_is_exactly_the_four_named_docks(qtbot, clean_registry):
     w = MainWindow()
     qtbot.addWidget(w)
@@ -68,7 +78,7 @@ def test_old_splitter_sizes_seed_the_dock_widths(qtbot, tmp_path, monkeypatch, c
     w.resize(1400, 900)
     w.show()
     qtbot.waitExposed(w)
-    assert w.docks["dock.browser"].width() == 180
+    assert w.docks["dock.browser"].width() == 180, _layout_report(w)
     assert w.docks["dock.inspector"].width() == 220
     assert w.docks["dock.chain"].height() == 150
 
@@ -159,7 +169,7 @@ def test_reset_layout_targets_the_constants_even_with_an_old_settings_file(qtbot
     w.resize(1400, 900)
     w.show()
     qtbot.waitExposed(w)
-    assert w.docks["dock.browser"].width() == 180                  # seeded this once
+    assert w.docks["dock.browser"].width() == 180, _layout_report(w)     # seeded this once
     w.reset_layout()
     qtbot.wait(20)
     assert w.docks["dock.browser"].width() == _PANEL_WIDTH         # the true default, not the seed

@@ -25,6 +25,7 @@ from PySide6 import QtWidgets
 from dynamix.devices import register_builtin_devices
 from dynamix.shell.main_window import MainWindow
 from dynamix.shell.right_panel import RightPanel
+from tests.test_shell_docks import _layout_report
 from tests.test_shell_window import _FIELD, loaded, stub_devices, window  # noqa: F401
 
 
@@ -95,7 +96,7 @@ def test_stored_splitter_sizes_still_win_over_the_fresh_default(qtbot, tmp_path,
     w.resize(1400, 900)
     w.show()
     qtbot.waitExposed(w)
-    assert w.docks["dock.browser"].width() == 180
+    assert w.docks["dock.browser"].width() == 180, _layout_report(w)
     assert w.docks["dock.inspector"].width() == 220    # the stored splitter widths seed the docks once
 
 

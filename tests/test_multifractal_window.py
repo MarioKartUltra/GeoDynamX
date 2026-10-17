@@ -599,6 +599,19 @@ def test_the_cumulant_spectrum_overlay_follows_the_fitted_cumulants(qtbot):
 
 # ------------------------------------------------------------------ the window never fights the screen
 
+def _width_report(window):
+    """The style, the font and the widest controls beside a width assertion: a control's
+    minimum width is what a row adds up."""
+    from PySide6 import QtWidgets
+
+    app = QtWidgets.QApplication.instance()
+    widest = sorted(((w.minimumSizeHint().width(), type(w).__name__, w.objectName())
+                     for w in window.findChildren(QtWidgets.QWidget) if w.isVisibleTo(window)),
+                    reverse=True)[:8]
+    return (f"style {app.style().name()!r} font {app.font().family()!r} "
+            f"{app.font().pointSizeF()}pt, widest {widest}")
+
+
 def test_the_control_strip_never_sets_the_window_width(qtbot):
     """The strip's labels change text with every fit (the focus readout, the two-segment
     readout); a one-row strip let them raise the window's minimum width past the screen and
@@ -610,7 +623,7 @@ def test_the_control_strip_never_sets_the_window_width(qtbot):
     window.show()
     # The bound is a small laptop's usable width, not a pixel count: the strip's widgets grow
     # with the app theme's font (874 px with it, 760 without), and the one-row strip was 1361.
-    assert window.minimumSizeHint().width() < 1000
+    assert window.minimumSizeHint().width() < 1000, _width_report(window)
     window.resize(1000, 700)
     qtbot.wait(10)
     assert window.size().width() == 1000
@@ -635,7 +648,8 @@ def test_the_fitter_opens_inside_its_screen(qtbot):
     window.show()
     qtbot.wait(10)
     avail = (window.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()
-    assert window.size().width() <= avail.width() and window.size().height() <= avail.height()
+    assert window.size().width() <= avail.width() and window.size().height() <= avail.height(), \
+        _width_report(window)
 
 
 def test_the_cumulants_can_take_their_own_scale_range(qtbot):
