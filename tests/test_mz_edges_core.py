@@ -258,3 +258,17 @@ def test_interpolate_adds_float_channels_and_keeps_pocs_support_integer():
         assert np.all(e_on["mod"] >= e_off["mod"] - 1e-9)
         assert rows.dtype.kind in "iu" and cols.dtype.kind in "iu"
     np.testing.assert_array_equal(on["mz_maxima"][0][2], off["mz_maxima"][0][2])
+
+
+def test_the_diverging_flag_reads_the_residual_trajectory(monkeypatch):
+    """The flag's rule on synthetic residual trajectories, whatever any platform's round-off
+    makes of a real one: diverging once the last residual passes 5x the smallest."""
+    img = _composite64()
+    b = mz_edges.analyze(img, 2)
+    for resid, want in (([3.0, 1.0, 1.2, 4.9], False), ([3.0, 1.0, 2.0, 5.1], True),
+                        ([2.0, 1.5, 1.0, 1.0], False)):
+        monkeypatch.setattr(mz_edges.mzlib, "pocs2d",
+                            lambda *a, _r=resid, **k: (np.zeros_like(img), np.asarray(_r), None))
+        _, diag = mz_edges.preview(img, b, n_iter=len(resid))
+        assert diag["diverging"] is want, resid
+        assert (mz_edges._recon_status(np.asarray(resid)) == "diverging") is want
