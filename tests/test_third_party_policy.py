@@ -44,7 +44,7 @@ def test_notice_and_spdx_headers_agree():
     block = notice.split("xsmurf -- ", 1)[1].split("\n\n", 1)[0]
     assert "GPL-2.0" in block
     named = {m.group(0) for m in re.finditer(r"src/dynamix/[\w/]+\.py", block)}
-    only = {str(p.relative_to(ROOT)) for p in SRC.rglob("*.py")
+    only = {p.relative_to(ROOT).as_posix() for p in SRC.rglob("*.py")
             if "SPDX-License-Identifier: GPL-2.0-only" in p.read_text(encoding="utf-8")[:300]}
     assert only, "no GPL-2.0-only header anywhere: the xsmurf-derived files lost theirs"
     assert named == only, {"NOTICE only": sorted(named - only), "header only": sorted(only - named)}

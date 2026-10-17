@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import textwrap
 
 import pytest
@@ -39,7 +40,7 @@ def test_discovery_registers_the_good_file_and_reports_the_broken_one(tmp_path, 
     (tmp_path / "double.py").write_text(GOOD, encoding="utf-8")
     (tmp_path / "broken.py").write_text(BROKEN, encoding="utf-8")
     results = discover(tmp_path, entry_group="geodynamix.tests.none")
-    by_name = {r.path.rsplit("/", 1)[-1]: r for r in results}
+    by_name = {os.path.basename(r.path): r for r in results}
     assert by_name["double.py"].error is None and "plug_double" in DEVICES
     assert "SyntaxError" in by_name["broken.py"].error and by_name["broken.py"].name == ""
     sha = hashlib.sha256((tmp_path / "double.py").read_bytes()).hexdigest()
@@ -64,7 +65,10 @@ def test_a_file_that_exits_or_cannot_be_read_is_a_row_and_the_next_file_still_lo
     (tmp_path / "b_folder.py").mkdir()
     (tmp_path / "c_double.py").write_text(GOOD, encoding="utf-8")
     results = discover(tmp_path, entry_group="geodynamix.tests.none")
-    assert [r.error and r.error.split(":")[0] for r in results] == ["SystemExit", "IsADirectoryError", None]
+    kinds = [r.error and r.error.split(":")[0] for r in results]
+    # Opening a directory raises IsADirectoryError on POSIX and PermissionError on Windows.
+    assert kinds[0] == "SystemExit" and kinds[2] is None
+    assert kinds[1] in ("IsADirectoryError", "PermissionError")
     assert results[1].origin == "user:b_folder.py" and "plug_double" in DEVICES
 
 

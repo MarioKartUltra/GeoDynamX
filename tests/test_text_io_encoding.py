@@ -54,12 +54,12 @@ def _unnamed(path: pathlib.Path) -> list:
             mode = _mode(node)
             if mode is not None and "b" in str(mode):
                 continue
-        out.append(f"{path.relative_to(ROOT)}:{node.lineno}")
+        out.append(f"{path.relative_to(ROOT).as_posix()}:{node.lineno}")
     return out
 
 
 def test_every_text_open_names_its_encoding():
     found = [hit for d in ("src", "tests") for p in sorted((ROOT / d).rglob("*.py"))
-             if "_vendor" not in p.parts and str(p.relative_to(ROOT)) not in _VERBATIM
+             if "_vendor" not in p.parts and p.relative_to(ROOT).as_posix() not in _VERBATIM
              for hit in _unnamed(p)]
     assert not found, "\n".join(found)
