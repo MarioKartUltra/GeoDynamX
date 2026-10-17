@@ -47,6 +47,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import chain_groups, spectra
+from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.multifractal_window import Q_COLD, Q_WARM, TABLE_CHOICES
 from dynamix.shell.theme import current
 
@@ -380,9 +381,9 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._plot.addItem(self._dom_curve)
         self._plot.addItem(self._non_curve)
         self._legend_entries = [
-            (self._canon_curve, lambda: self._source),
+            (self._canon_curve, lambda n=self._source: n),           # no self: no cycle
             (self._hull_curve, lambda: "Legendre hull of fitted τ(q)"),
-            (self._hist_curve, lambda: self._hist_curve_name()),
+            (self._hist_curve, weak_method(self._hist_curve_name)),
             (self._gh_curve, lambda: "gradient histogram (GH)"),
             (self._box_curve, lambda: "box-counting across r (eq. 20)"),
             (self._dom_curve, lambda: "dominant chains"),

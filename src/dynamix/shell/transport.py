@@ -18,6 +18,8 @@ from typing import Callable
 
 from PySide6 import QtCore, QtWidgets
 
+from dynamix.shell.gc_guard import weak_method
+
 PLAY_GLYPH = "▶"
 PAUSE_GLYPH = "❚❚"
 
@@ -84,7 +86,7 @@ class Transport(QtWidgets.QFrame):
                  fps: float = 8.0, parent=None):
         super().__init__(parent)
         self.clock = SweepClock(n_scales, fps=fps)
-        self._scale_reading = scale_reading
+        self._scale_reading = weak_method(scale_reading)       # the window's own method
 
         self.play_button = QtWidgets.QPushButton(PLAY_GLYPH)
         self.play_button.setCheckable(True)

@@ -122,11 +122,12 @@ def _make_cmap_combo(names=None) -> QtWidgets.QComboBox:
 class _WheelRedirect(QtCore.QObject):
     """A wheel event over any watched widget scrolls ``scroll_area`` instead of reaching that
     widget -- EQSelect's ``_PanelWheelFilter`` (see module docstring), ported. One instance per
-    panel, installed on the viewport and on every control ``add_section`` ever adds."""
+    panel, installed on the viewport and on every control ``add_section`` ever adds. The scroll
+    area is its Qt parent, read back from there: an attribute of its own would make a reference
+    cycle with the panel that keeps it."""
 
     def __init__(self, scroll_area: QtWidgets.QScrollArea):
         super().__init__(scroll_area)
-        self._scroll = scroll_area
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QtCore.QEvent.Wheel:
@@ -135,7 +136,7 @@ class _WheelRedirect(QtCore.QObject):
             window = obj.window() if isinstance(obj, QtWidgets.QWidget) else None
             if window is not None and (window.windowFlags() & QtCore.Qt.WindowType_Mask) == QtCore.Qt.Popup:
                 return False
-            bar = self._scroll.verticalScrollBar()
+            bar = self.parent().verticalScrollBar()
             bar.setValue(bar.value() - event.angleDelta().y())
             return True                              # consumed: never reaches the control
         return super().eventFilter(obj, event)

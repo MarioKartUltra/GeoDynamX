@@ -6,6 +6,8 @@ undo, the zoom to the dataset) and hands them in as the handlers of those comman
 the widgets they act on and its old method names as one-line aliases for the callers that use them."""
 from __future__ import annotations
 
+import weakref
+
 
 #: V's own cycle order (the non-click modes only): C owns click directly, and EQSelect's own V
 #: never visits it either. Lives here because the cycle is the controller's to walk.
@@ -16,7 +18,13 @@ class CommandController:
     """The handlers of the transport and key commands for one window."""
 
     def __init__(self, window) -> None:
-        self._w = window
+        self._window = weakref.ref(window)
+
+    @property
+    def _w(self):
+        """The window, held weakly: it owns this controller, and a strong reference back would be
+        a reference cycle through every widget it has."""
+        return self._window()
 
     def toggle_transport(self) -> None:
         """Space (``transport.play``): the play button's own toggle, so button and key agree."""

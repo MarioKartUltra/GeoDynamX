@@ -120,7 +120,7 @@ _DEPENDS_ON = {
     "inpaint_window": (),
     "components_window": ("theme", ),
     "anisotropy_window": ("window_fit", "theme", ),
-    "layers_panel": (),
+    "layers_panel": ("gc_guard", ),
     "map_view": ("canvas", "units", "wavelet_bar", "theme", ),
     "wavelet_bar": ("canvas", "theme", "units", ),
     "window_fit": ("settings", ),
@@ -138,12 +138,12 @@ _DEPENDS_ON = {
     "workflow_zone": ("knobs", "knob_widgets", "browser"),
     # The rack editor dialog: the family tree (browser) and the zone's DeviceBox knobs.
     "rack_editor": ("browser", "workflow_zone"),
-    "transport": (),
+    "transport": ("gc_guard", ),
     "canvas": ("theme", "units", "wavelet_bar", ),
     # The per-source floating inspector HOSTS the existing Canvas and the
     # existing Transport (that reuse is the point of it -- see inspector.py's own docstring), so
     # both are real module-level imports and both already sit earlier in _MODULE_ORDER.
-    "inspector": ("canvas", "transport"),
+    "inspector": ("canvas", "transport", "gc_guard"),
     "roi_panel": ("knobs", "knob_widgets"),
     # "canvas": right_panel.py's swatch defaults are derived from
     # canvas.py's own HCHAIN_COLOR/VTRAIL_COLOR/EXTREMA_COLOR constants (see right_panel.py's own
@@ -171,13 +171,13 @@ _DEPENDS_ON = {
     # below.
     "view_dialog": ("theme", "knobs", "knob_widgets", "settings", "arrangement"),
     # The "Topology" right-panel section -- self-contained (only
-    # ``dynamix.topology.codes``, no other ``dynamix.shell.*`` module), same shape as "transport"/
+    # ``dynamix.topology.codes``, no other ``dynamix.shell.*`` module), same shape as
     # "layer_panel" above.
     "topology_panel": (),
     # The "Skeleton plot…" dialog -- self-contained (only
     # ``dynamix.core.chain_stats``, no other ``dynamix.shell.*`` module -- see
     # ``skeleton_dialog.py``'s own module docstring, "Highlight color" section, for why it does
-    # NOT import ``theme``), same shape as "topology_panel"/"transport" above.
+    # NOT import ``theme``), same shape as "topology_panel" above.
     "skeleton_dialog": (),
     # The transect list -- self-contained (only
     # ``dynamix.model.project`` for the ``TransectRecord`` dataclass, no other ``dynamix.shell.*``
@@ -197,7 +197,7 @@ _DEPENDS_ON = {
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
     # core.spectra/core.chain_groups/core.microcanonical.
-    "spectrum_window": ("theme", "multifractal_window", "window_fit", ),
+    "spectrum_window": ("theme", "multifractal_window", "window_fit", "gc_guard", ),
     # The 3-D surface-source dialog -- pure Qt, self-contained (the
     # topology_panel/transect_panel shape).
     "surface_dialog": (),
@@ -208,7 +208,7 @@ _DEPENDS_ON = {
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("theme", "docks", "commands", "controller", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
+    "main_window": ("theme", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"

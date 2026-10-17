@@ -51,6 +51,7 @@ import json
 import re
 import sys
 import time
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -95,6 +96,7 @@ from dynamix.model.racks import (Rack, RackEntry, RackStep, builtin_racks, load_
                                  rack_from_descriptors, save_rack)
 from dynamix.roi.halo import _EDGES
 from dynamix.shell.commands import bind_commands, build_menus, watch_enabled
+from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.controller import SELECTION_MODE_CYCLE, CommandController
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
@@ -9318,10 +9320,11 @@ both ``Canvas`` signals report the
         if not device_params or self.field is None:
             return None
         device, params = device_params
+        in_bar_units = weak_method(self._in_bar_units)     # the fitter keeps this; no cycle
 
         def of(log2a: float):
             lam = lambda_px(device, params, 2.0 ** float(log2a))
-            return self._in_bar_units(lam) if np.isfinite(lam) else None   # the bars' units, live
+            return in_bar_units(lam) if np.isfinite(lam) else None   # the bars' units, live
 
         return of
 
@@ -10468,8 +10471,10 @@ both ``Canvas`` signals report the
             refresh()
 
     def command_enabled(self) -> dict:
-        """The commands that need an open raster; everything else is always enabled."""
-        has_field = lambda: self.field is not None
+        """The commands that need an open raster; everything else is always enabled. The window
+        keeps these checks (``refresh_commands``), so they hold it weakly."""
+        window = weakref.ref(self)
+        has_field = lambda: (w := window()) is not None and w.field is not None
         return {cid: has_field for cid in ("chain.run", "file.export_chains", "file.export_derived",
                                            "layer.roi")}
 
