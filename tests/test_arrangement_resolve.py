@@ -35,7 +35,7 @@ from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import Chain, DeviceRef
 
 from tests.test_shell_window import (STUB_CHAIN, _BlockingStack, _FIELD, _StubStack, _stub_stack,
-                                     _log_computes, _wait_out_the_compute, stub_devices,
+                                     _closed_after_its_compute, _log_computes, stub_devices,
                                      window)  # noqa: F401
 
 
@@ -112,7 +112,7 @@ def arranged_window(qtbot, stub_devices, tmp_path):
     from dynamix.shell.main_window import MainWindow
 
     win = MainWindow(steps=STUB_CHAIN)
-    qtbot.addWidget(win)
+    _closed_after_its_compute(qtbot, win)
     _log_computes(win)
 
     cached_field = _geo_field(tmp_path, "cached")
@@ -131,8 +131,7 @@ def arranged_window(qtbot, stub_devices, tmp_path):
     win.add_layer_row(nogeoref, _bare_field("nogeoref"))
 
     assert win.layer is cached       # the fixture's own invariant: no incidental re-selection
-    yield win, cached, pending, nogeoref
-    _wait_out_the_compute(qtbot, win)            # qtbot closes the window afterwards, as before
+    return win, cached, pending, nogeoref
 
 
 # --------------------------------------------------------------------------- classification

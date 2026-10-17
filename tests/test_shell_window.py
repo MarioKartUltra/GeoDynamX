@@ -205,12 +205,12 @@ def _log_computes(win) -> None:
     win._start_worker_for, win._teardown_thread = logged_start_for, logged_teardown
 
 
-def _close_before_the_registry_goes(qtbot, win):
-    """A window a test leaves computing or playing still reaches its devices from the event loop:
-    its compute is waited out (a close mid-compute is deferred until it lands) and the window
-    closed while the stub registry is still there."""
-    _wait_out_the_compute(qtbot, win)
-    win.close()
+def _closed_after_its_compute(qtbot, win):
+    """Register ``win`` with qtbot so its compute is waited out BEFORE qtbot closes it: pytest-qt
+    closes and deletes registered widgets ahead of every fixture's own teardown, and a window
+    deleted mid-compute never receives its worker's landing (on a slow runner the landing comes
+    after the close). The stub registry is still in place then."""
+    qtbot.addWidget(win, before_close_func=lambda w: _wait_out_the_compute(qtbot, w))
 
 
 @pytest.fixture
@@ -218,10 +218,9 @@ def window(qtbot, stub_devices):
     from dynamix.shell.main_window import MainWindow
 
     win = MainWindow(steps=STUB_CHAIN)
-    qtbot.addWidget(win)
+    _closed_after_its_compute(qtbot, win)
     _log_computes(win)
-    yield win
-    _close_before_the_registry_goes(qtbot, win)
+    return win
 
 
 @pytest.fixture
@@ -1080,10 +1079,9 @@ def chains_window(qtbot, stub_chain_devices):
     from dynamix.shell.main_window import MainWindow
 
     win = MainWindow(steps=STUB_CHAIN_WITH_CHAINS)
-    qtbot.addWidget(win)
+    _closed_after_its_compute(qtbot, win)
     _log_computes(win)
-    yield win
-    _close_before_the_registry_goes(qtbot, win)
+    return win
 
 
 @pytest.fixture
