@@ -33,6 +33,35 @@ def _machine() -> str:
     return f"{sys.platform}-{platform.machine()}"
 
 
+def _environment() -> dict:
+    """What the goldens' numbers depend on: the machine, its chip (the mlx GPU), and the versions of
+    the libraries the pieces compute through. A runner with another chip or newer libraries is not
+    the recording machine: its float32 transforms round differently."""
+    import importlib.metadata
+    import subprocess
+
+    env = {"machine": _machine()}
+    if sys.platform == "darwin":
+        try:
+            env["chip"] = subprocess.run(["sysctl", "-n", "machdep.cpu.brand_string"],
+                                         capture_output=True, text=True, check=False).stdout.strip()
+        except OSError:
+            pass
+    for name in ("numpy", "mlx", "PyWavelets"):
+        try:
+            env[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            pass
+    return env
+
+
+def _skip_off_the_recording_environment(meta: dict) -> None:
+    recorded = meta.get("environment", {"machine": meta["machine"]})
+    here = _environment()
+    if {k: here.get(k) for k in recorded} != recorded:
+        pytest.skip(f"recorded on {recorded}; this run is on {here}")
+
+
 def _field(values):
     from dynamix.core.frames import LocalFrame
     from dynamix.core.rasterfield import RasterField
@@ -172,8 +201,7 @@ def _compare(piece: str, key: str, got: dict, want: dict) -> None:
 @pytest.mark.parametrize("piece", PIECES)
 def test_the_vendored_piece_reproduces_its_golden(piece):
     meta = json.loads((GOLDEN / "machine.json").read_text(encoding="utf-8"))
-    if meta["machine"] != _machine():
-        pytest.skip(f"recorded on {meta['machine']}")
+    _skip_off_the_recording_environment(meta)
     want = dict(np.load(GOLDEN / f"{piece}.npz", allow_pickle=False))
     got = _flatten(_run(piece))
     assert sorted(got) == sorted(want), (sorted(set(got) ^ set(want)))
@@ -195,8 +223,7 @@ def test_the_vendored_originals_still_reproduce_the_goldens_behind_the_flag(piec
 
     pytest.importorskip("mlx.core")
     meta = json.loads((GOLDEN / "machine.json").read_text(encoding="utf-8"))
-    if meta["machine"] != _machine():
-        pytest.skip(f"recorded on {meta['machine']}")
+    _skip_off_the_recording_environment(meta)
     want = dict(np.load(GOLDEN / f"{piece}.npz", allow_pickle=False))
     wtmm_backend.USE_VENDORED = True
     try:
@@ -214,6 +241,6 @@ if __name__ == "__main__" and "--record" in sys.argv:
         flat = _flatten(_run(piece))
         np.savez(GOLDEN / f"{piece}.npz", **flat)
         print(f"recorded {piece}: {len(flat)} arrays")
-    (GOLDEN / "machine.json").write_text(json.dumps({"machine": _machine(),
+    (GOLDEN / "machine.json").write_text(json.dumps({"machine": _machine(), "environment": _environment(),
                                                       "snapshot": "vendored-snapshot-2026-10"}) + "\n",
                                          encoding="utf-8")
