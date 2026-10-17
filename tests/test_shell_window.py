@@ -141,11 +141,38 @@ def stub_devices(clean_registry):
     return clean_registry
 
 
+#: Worker threads of windows whose compute never ended, kept to the end of the session: a QThread
+#: destroyed while it runs aborts the process, and with it the rest of the gate.
+_WEDGED: list = []
+
+
+def _wait_out_the_compute(qtbot, win):
+    """A compute still running when the stub registry goes lands as an error against it, so it is
+    waited out. One that never ends fails the test with every thread's stack, and its thread is
+    kept alive."""
+    import faulthandler
+    import tempfile
+
+    try:
+        qtbot.waitUntil(lambda: win._thread is None, timeout=30000)
+    except Exception:
+        thread = win._thread
+        _WEDGED.append((thread, win._worker))
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as f:
+            faulthandler.dump_traceback(f, all_threads=True)
+            f.seek(0)
+            stacks = f.read()
+        raise AssertionError(
+            f"the window's compute never ended: worker {type(win._worker).__name__}, thread "
+            f"running {thread.isRunning()} finished {thread.isFinished()}, dispatched "
+            f"{win._dispatched}; every thread:\n{stacks}") from None
+
+
 def _close_before_the_registry_goes(qtbot, win):
     """A window a test leaves computing or playing still reaches its devices from the event loop:
     its compute is waited out (a close mid-compute is deferred until it lands) and the window
     closed while the stub registry is still there."""
-    qtbot.waitUntil(lambda: win._thread is None, timeout=30000)
+    _wait_out_the_compute(qtbot, win)
     win.close()
 
 
