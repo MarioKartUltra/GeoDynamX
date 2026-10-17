@@ -1990,6 +1990,8 @@ _WTMM2D_PARAM_DEFAULTS = {
     **chaining.OPTION_DEFAULTS,
     "q_list": DEFAULT_Q,
     "pad": 32,
+    # What the FFT torus holds beyond the field (PAD_MODES): mirrored by default, as it always was.
+    "pad_mode": "reflect",
     # No pseudo-fractional integration unless asked: with eta = 0 a chain's log2-modulus slope is
     # its Hölder exponent itself; eta > 0 reads h + eta, which the spectrum fit undoes.
     "fracint_alpha": 0.0,
@@ -2362,6 +2364,8 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         "a_min": resolved["a_min"], "n_oct": resolved["n_oct"],
         "n_voice": resolved["n_voice"], "pad": resolved["pad"],
     }
+    if resolved["pad_mode"] != "reflect":         # reflect keeps the stage keys it always had
+        cwt_key["pad_mode"] = resolved["pad_mode"]
     if resolved["smoother_params"] is not None:
         cwt_key["smoother_params"] = tuple(sorted(resolved["smoother_params"].items()))
     if follow:
@@ -2372,7 +2376,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
     def compute_cwt():
         if not follow:
             return backend.cwt2d(field.values, scales, wavelet=resolved["wavelet"],
-                                 pad=resolved["pad"],
+                                 pad=resolved["pad"], pad_mode=resolved["pad_mode"],
                                  smoother_params=resolved["smoother_params"])
         # Follow needs the nine derivative stacks per scale. One engine call per scale keeps
         # the transient footprint at eleven single-scale rasters (all-scales derivs='all' on a
@@ -2383,7 +2387,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         mod = arg = kapa = kapap = None
         for si, a in enumerate(scales):
             one = backend.cwt2d(field.values, [a], wavelet=resolved["wavelet"],
-                                pad=resolved["pad"], derivs="all",
+                                pad=resolved["pad"], pad_mode=resolved["pad_mode"], derivs="all",
                                 smoother_params=resolved["smoother_params"])
             if mod is None:
                 ny, nx = one["mod"].shape[1:]
@@ -2682,7 +2686,8 @@ def run_wtmm2d_preview(field, params: dict, *, backend=None) -> dict:
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])[:1]
     follow = resolved["detector"] == "follow"
     cwt = backend.cwt2d(field.values, scales, wavelet=resolved["wavelet"],
-                        pad=resolved["pad"], derivs="all" if follow else "first",
+                        pad=resolved["pad"], pad_mode=resolved["pad_mode"],
+                        derivs="all" if follow else "first",
                         smoother_params=resolved["smoother_params"])
     if follow:
         from dynamix.core.follow2d import kapa_fields

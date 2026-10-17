@@ -91,3 +91,25 @@ def test_an_unknown_padding_rule_is_refused():
 
     with pytest.raises(ValueError, match="pad_width"):
         pad_widths([2.0], "halo", wavelet="mexican")
+
+
+# --------------------------------------------------------------------- the pad mode through run_wtmm2d
+
+def _rf(values):
+    from tests.conftest import make_field
+
+    return make_field(values)
+
+
+def test_run_wtmm2d_pads_by_its_pad_mode_and_keys_it():
+    from dynamix.core.wtmm_backend import run_wtmm2d
+
+    f = _rf(_field(64, seed=3))
+    base = {"n_oct": 2, "n_voice": 2, "a_min": 1.0, "pad": 24}
+    reflect = run_wtmm2d(f, dict(base))
+    again = run_wtmm2d(f, dict(base, pad_mode="reflect"))
+    zero = run_wtmm2d(f, dict(base, pad_mode="zero_pad"))
+    assert reflect["params"]["pad_mode"] == "reflect" and zero["params"]["pad_mode"] == "zero_pad"
+    n_r = sum(len(e["x"]) for e in reflect["extrema"])
+    assert n_r == sum(len(e["x"]) for e in again["extrema"])
+    assert [len(e["x"]) for e in zero["extrema"]] != [len(e["x"]) for e in reflect["extrema"]]
