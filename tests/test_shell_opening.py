@@ -147,7 +147,7 @@ def test_from_file_hands_rasterio_the_path_as_given(monkeypatch):
         raise ValueError("captured")
 
     monkeypatch.setattr(RasterField, "_from_geotiff", classmethod(capture))
-    url = "/vsizip/C:/Users/someone/field.zip/field.tif"
+    url = "/vsizip/C:/data/field.zip/field.tif"
     with pytest.raises(ValueError):
         RasterField.from_file(url)
     assert seen == [url] and isinstance(seen[0], str)
