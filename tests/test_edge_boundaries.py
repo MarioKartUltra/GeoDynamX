@@ -49,3 +49,45 @@ def test_periodic_is_the_centre_tile_of_the_tiled_field(engine):
 def test_an_unknown_pad_mode_is_refused():
     with pytest.raises(ValueError, match="pad_mode"):
         PythonWTMMBackend().cwt2d(_field(16), [1.0], pad=4, pad_mode="toroidal", _engine="fftw")
+
+
+# --------------------------------------------------------------------- the padding width (§3.2)
+
+def test_the_padding_width_by_each_rule():
+    import math
+
+    from dynamix.core.edges import pad_widths
+    from dynamix.core.reach import reach
+
+    scales = [8.0, 16.0, 32.0]
+    fixed, notes = pad_widths(scales, "fixed_px", wavelet="mexican", pad_px=32)
+    assert fixed == [32, 32, 32] and notes == []
+    pct, _ = pad_widths(scales, "border_pct", wavelet="mexican", pad_pct=0.72)
+    assert pct == [int(s * 0.72) for s in scales]            # xsmurf's rule; s carries 6/0.86
+    measured, notes = pad_widths(scales, "measured_reach", wavelet="mexican", eps=1e-3)
+    assert measured == [int(math.ceil(reach("mexican", None, s, 1e-3).radius)) for s in scales]
+    assert measured == sorted(measured) and notes == []
+
+
+def test_a_scale_without_a_finite_reach_pads_like_the_widest_converged_one():
+    """The finest scales ring at Nyquist (spec 22 §3.1): their "measured" radius is the ringing's,
+    hundreds of px, never a width to pad by."""
+    import math
+
+    from dynamix.core.edges import pad_widths
+    from dynamix.core.reach import reach
+
+    assert not reach("mexican", None, 4.0, 1e-3).converged
+    widths, notes = pad_widths([4.0, 16.0], "measured_reach", wavelet="mexican")
+    widest = int(math.ceil(reach("mexican", None, 16.0, 1e-3).radius))
+    assert widths == [widest, widest]
+    assert notes and "did not converge at scale(s) 4 px" in notes[0]
+    alone, notes = pad_widths([4.0], "measured_reach", wavelet="mexican", pad_px=32)
+    assert alone == [32] and "fixed width" in notes[0]
+
+
+def test_an_unknown_padding_rule_is_refused():
+    from dynamix.core.edges import pad_widths
+
+    with pytest.raises(ValueError, match="pad_width"):
+        pad_widths([2.0], "halo", wavelet="mexican")

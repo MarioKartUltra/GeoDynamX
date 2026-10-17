@@ -18,9 +18,9 @@ import math
 
 import numpy as np
 
-__all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "cut_borders", "deficits",
-           "dominant_wavelength", "drop_in_cone", "taper_band", "taper_check", "taper_profile",
-           "tapered"]
+__all__ = ["CUT_SCOPES", "EDGES", "PAD_WIDTHS", "corner_warning", "cut_borders", "deficits",
+           "dominant_wavelength", "drop_in_cone", "pad_widths", "taper_band", "taper_check",
+           "taper_profile", "tapered"]
 
 #: The edge modes, in the order the knob lists them.
 EDGES = ("reflect", "cut", "gaussian_taper", "daf_periodic")
@@ -28,8 +28,44 @@ EDGES = ("reflect", "cut", "gaussian_taper", "daf_periodic")
 _DOMINANT_SIDE = 512
 #: Whose cone of influence a cut uses: the coarsest scale's for every scale, or each scale's own.
 CUT_SCOPES = ("largest", "per_scale")
+#: How wide the padding is (spec 25 §3.2): each scale's measured reach, a fixed width, or xsmurf's
+#: border percentage of the scale.
+PAD_WIDTHS = ("measured_reach", "fixed_px", "border_pct")
 
 _SIDES = ("E", "N", "S", "W")
+
+
+def pad_widths(scales, how: str, *, wavelet: str, smoother_params=None, eps: float = 1e-3,
+               pad_px: int = 32, pad_pct: float = 0.72, run_grid=None) -> tuple[list, list]:
+    """``(widths, notes)``: per scale the padding a padded edge mode needs, in px, and the warnings.
+
+    ``"measured_reach"`` pads each scale by its reach to ``eps`` of the analysing wavelet's mass
+    (:func:`dynamix.core.reach.reach`), rounded up. Where the reach does not converge (the finest
+    scales, whose sampled kernel rings at Nyquist, spec 22 §3.1) there is no finite width to pad by:
+    such a scale takes the widest converged scale's width, which the run pads by anyway, and a note
+    says so; with no converged scale at all, ``pad_px``. ``"fixed_px"`` is ``pad_px`` for every
+    scale (the width before spec 25), ``"border_pct"`` xsmurf's ``int(s · border_percent)`` (``s``
+    the CWT scale in px, which carries xsmurf's 6/0.86)."""
+    from dynamix.core import reach as reach_mod
+
+    if how not in PAD_WIDTHS:
+        raise ValueError(f"unknown pad_width {how!r}; expected one of {PAD_WIDTHS}")
+    if how == "fixed_px":
+        return [int(pad_px)] * len(scales), []
+    if how == "border_pct":
+        return [int(float(s) * float(pad_pct)) for s in scales], []
+    found = [reach_mod.reach(wavelet, smoother_params, float(s), float(eps), run_grid) for s in scales]
+    converged = [int(math.ceil(r.radius)) for r in found if r.converged]
+    fallback = max(converged) if converged else int(pad_px)
+    widths = [int(math.ceil(r.radius)) if r.converged else fallback for r in found]
+    unconverged = [float(s) for s, r in zip(scales, found) if not r.converged]
+    notes = []
+    if unconverged:
+        where = ", ".join(f"{s:g}" for s in unconverged)
+        notes.append(f"the reach did not converge at scale(s) {where} px; padded by "
+                     + (f"the widest converged scale's reach, {fallback} px" if converged
+                        else f"the fixed width, {fallback} px"))
+    return widths, notes
 
 
 def deficits(roi, parent_shape, margin: int) -> dict:
