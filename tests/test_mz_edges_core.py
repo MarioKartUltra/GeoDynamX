@@ -61,13 +61,14 @@ def test_line_ids_are_wrap_merged_components():
     extremum (controller ruling, mz-edges-port review: canvas.py/filters.py both
     special-case -1 as "not a line"). A component with 16+ members is never a singleton, so
     the edge chain's own ids must stay >= 0."""
-    img = np.zeros((32, 32))
-    img[:, 16:] = 1.0
+    # A sub-pixel smooth edge, off the half-pixel: an exact step makes equal moduli along and
+    # across it, whose ties the FFT's last bits break differently on x86 and on Apple arm64
+    # (a ubuntu/windows CI run split the edge into a component and a singleton).
+    x = np.arange(32.0)[None, :].repeat(32, axis=0)
+    img = 0.5 * (1.0 + np.tanh((x - 16.3) / 0.8))
     img[3, 3] += 0.5  # isolated bump, far from the edge -- guarantees a singleton component
     b = mz_edges.analyze(img, 2)
     ext = b["extrema"][0]
-    # The step sits between columns 15 and 16. Maxima a column or two beside it are round-off
-    # ties that differ from one FFT library to the next, so only the edge columns are read.
     edge = (ext["x"] == 15) | (ext["x"] == 16)
     assert edge.sum() >= 16
     edge_ids = np.unique(ext["line_id"][edge])
