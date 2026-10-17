@@ -106,7 +106,9 @@ def test_wtmm2d_roi_runs_below_a_min_one_and_carries_its_warnings(tmp_path):
     assert fine["extrema"] and len(fine["_warnings"]) == 1
     assert "η = " in fine["_warnings"][0]
     assert fine["_edge"]["scales"][0]["whole"] is True
-    assert run(1.0).get("_warnings", []) == []
+    # At a_min 1.0 the 18 and 25 px halos of this ROI, 16 px from the N and W edges, run past the
+    # parent: the reflection warning (spec 22), and nothing else.
+    assert [w for w in run(1.0).get("_warnings", []) if "mirror" not in w] == []
 
 
 # 5. The .gprv step carries the warning.
