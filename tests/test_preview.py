@@ -78,3 +78,20 @@ def test_on_preview_draws_the_finest_scale_on_the_canvas(qtbot, clean_registry):
     hx, _ = win.canvas.hchain_item.getData()
     assert hx is not None and len(hx) > 0                 # the finest scale's lines are drawn
     assert "preview" in win.statusBar().currentMessage().lower()
+
+
+def test_the_preview_notice_goes_when_the_full_stack_lands(qtbot, clean_registry):
+    """The notice says the full stack is still computing; once it has landed, it is gone."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.shell.main_window import MainWindow, DEMO_CHAIN
+
+    register_builtin_devices()
+    win = MainWindow(steps=DEMO_CHAIN)
+    qtbot.addWidget(win)
+    shown = []
+    win.statusBar().messageChanged.connect(shown.append)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.load_field(RasterField.load_npz(FIXTURE), FIXTURE)
+    qtbot.waitUntil(lambda: win._thread is None, timeout=60000)
+    assert any("preview" in m.lower() for m in shown)            # the preview did show
+    assert "preview" not in win.statusBar().currentMessage().lower()
