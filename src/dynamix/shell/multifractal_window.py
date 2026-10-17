@@ -557,7 +557,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         for name, curve in self._cum_curves.items():
             self._spectrum_plots[name].addItem(curve)
         self._dh_legend_entries = [
-            (self._spectrum_curves["D"], lambda: self._source),
+            (self._spectrum_curves["D"], lambda n=self._source: n),   # no self: no cycle
             (self._dh_hist_curve, lambda: "microcanonical histogram"),
             (self._dh_box_curve, lambda: "box-counting across r"),
             (self._cum_curves["D"], lambda: "cumulant spectrum")]

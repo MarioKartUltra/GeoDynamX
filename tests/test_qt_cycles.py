@@ -90,3 +90,17 @@ def test_a_main_window_with_an_inspector_open_is_freed_when_dropped(qtbot, stub_
         return w
 
     assert _freed_without_the_collector(make)
+
+
+def test_the_fitter_window_is_freed_when_dropped(qtbot):
+    from dynamix.shell.multifractal_window import MultifractalWindow
+    from tests.test_multifractal_window import _pair
+
+    assert _freed_without_the_collector(lambda: MultifractalWindow(*_pair()))
+
+
+def test_the_spectrum_window_is_freed_when_dropped(qtbot):
+    from dynamix.shell.spectrum_window import SpectrumWindow
+    from tests.test_multifractal_window import _pair
+
+    assert _freed_without_the_collector(lambda: SpectrumWindow(*_pair()))

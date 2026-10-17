@@ -197,7 +197,7 @@ _DEPENDS_ON = {
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
     # core.spectra/core.chain_groups/core.microcanonical.
-    "spectrum_window": ("theme", "multifractal_window", "window_fit", ),
+    "spectrum_window": ("theme", "multifractal_window", "window_fit", "gc_guard", ),
     # The 3-D surface-source dialog -- pure Qt, self-contained (the
     # topology_panel/transect_panel shape).
     "surface_dialog": (),
