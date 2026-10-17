@@ -34,7 +34,8 @@ from dynamix.core.frames import LocalFrame
 from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import Chain, DeviceRef
 
-from tests.test_shell_window import (STUB_CHAIN, _BlockingStack, _FIELD, _StubStack, _stub_stack,
+from tests.test_shell_window import (STUB_CHAIN, _BlockingStack, _FIELD, _StubStack,
+                                     _close_before_the_registry_goes, _stub_stack,
                                      stub_devices, window)  # noqa: F401
 
 
@@ -129,7 +130,8 @@ def arranged_window(qtbot, stub_devices, tmp_path):
     win.add_layer_row(nogeoref, _bare_field("nogeoref"))
 
     assert win.layer is cached       # the fixture's own invariant: no incidental re-selection
-    return win, cached, pending, nogeoref
+    yield win, cached, pending, nogeoref
+    _close_before_the_registry_goes(qtbot, win)
 
 
 # --------------------------------------------------------------------------- classification

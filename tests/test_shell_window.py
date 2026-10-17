@@ -141,6 +141,14 @@ def stub_devices(clean_registry):
     return clean_registry
 
 
+def _close_before_the_registry_goes(qtbot, win):
+    """A window a test leaves computing or playing still reaches its devices from the event loop:
+    its compute is waited out (a close mid-compute is deferred until it lands) and the window
+    closed while the stub registry is still there."""
+    qtbot.waitUntil(lambda: win._thread is None, timeout=30000)
+    win.close()
+
+
 @pytest.fixture
 def window(qtbot, stub_devices):
     from dynamix.shell.main_window import MainWindow
@@ -148,7 +156,7 @@ def window(qtbot, stub_devices):
     win = MainWindow(steps=STUB_CHAIN)
     qtbot.addWidget(win)
     yield win
-    win.close()     # before the stub registry goes: a live window's timers still reach its devices
+    _close_before_the_registry_goes(qtbot, win)
 
 
 @pytest.fixture
@@ -1009,7 +1017,7 @@ def chains_window(qtbot, stub_chain_devices):
     win = MainWindow(steps=STUB_CHAIN_WITH_CHAINS)
     qtbot.addWidget(win)
     yield win
-    win.close()     # before the stub registry goes: a live window's timers still reach its devices
+    _close_before_the_registry_goes(qtbot, win)
 
 
 @pytest.fixture
