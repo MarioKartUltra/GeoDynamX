@@ -104,7 +104,7 @@ def test_the_declarations_spell_out_param_dependent_contracts(make_tables, built
     assert r"\texttt{algorithm} $=$ \texttt{printed}: ExtremaStack" in rows[
         r"\tool{Mallat--Zhong edges}{mz\_edges}"]
     assert r"\texttt{mode} $=$ \texttt{sup\_all\_scales}: ExtremaStack + VChains" in rows[
-        r"\tool{H-line modulus}{hline\_modulus}"]
+        r"\tool{H-chain modulus}{hline\_modulus}"]
     assert rows[r"\tool{Noise / dither}{noise}"].endswith(r"& what it received \\")
 
 

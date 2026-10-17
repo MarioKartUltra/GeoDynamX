@@ -343,6 +343,17 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
     r, c, h, w = (int(v) for v in rect)
     margins = [roi_margin_of(d, p) for d, p in steps]
     m = sum(mm for mm, _ok in margins)
+    if any(getattr(d, "roi_whole_parent", lambda _p: False)(p) for d, p in steps):
+        # A step whose finest scales have no finite reach reads the whole parent when it fits
+        # the budget: the window then reaches every edge of the dataset.
+        from dynamix.roi.halo import WHOLE_PARENT_MAX_PIXELS
+
+        full = (getattr(field, "provenance", None) or {}).get("full_dims")
+        wr, wc = _window_offset(field)
+        ny, nx = np.asarray(field.values).shape[:2]
+        H, W = (int(full[0]), int(full[1])) if full is not None else (wr + ny, wc + nx)
+        if H * W <= WHOLE_PARENT_MAX_PIXELS:
+            m = max(m, r, c, H - r - h, W - c - w)
     window, info = read_processing_window(field, (r, c, h, w), m)
     # The ROI's own NATIVE values (raw, before any field stage): what a view drapes when it
     # shows this result on the region's own grid (the Vector scene).

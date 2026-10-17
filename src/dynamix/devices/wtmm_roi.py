@@ -8,29 +8,114 @@ edges. It delegates every bit of the actual halo/crop reasoning to
 :func:`dynamix.roi.halo.run_wtmm2d_roi`; see that module's docstring for the margin budget, the
 boundary modes and the missing-data convention.
 
-**Thresholding:** ``thresh`` is a FRACTION of the ANALYSED window's
-own modulus max, not the parent raster's -- and the analysed window is ``ROI ⊕ halo``, a different
-extent per scale. An ROI's extrema threshold is therefore always relative to its own window, never
-to the parent's global maximum: the same field can report differently "loud" extrema depending on
-where the box is drawn. This is inherent to relative thresholding over a windowed read, not a bug
-to fix here.
+**Thresholding:** ``thresh`` is a FRACTION of the modulus max over the analysed window's moduli
+that real data alone determine (``halo._real_thresh``): its real pixels farther than the scale's
+halo from any padded, filled, tapered or missing pixel and from the window's edge, so padding never
+moves it. That max is still the window's, not the parent raster's: the same field can report
+differently "loud" extrema depending on where the box is drawn, which is inherent to relative
+thresholding over a windowed read.
 
-**The ``a_min`` floor:** the engine refuses ``a_min < 1.0`` outright (the
-sampled kernel is close to all-pass at Nyquist below that, so no affordable halo margin is honest
--- see ``dynamix.roi.halo``'s module docstring). The Param below sets its hard ``min`` at that same
-floor so the knob itself cannot ask for a value the engine would reject; ``wtmm2d``'s own ``a_min``
-keeps its wider floor (0.25) because the whole-raster path has no halo to contaminate.
+**Where a scale's reach does not converge** (the sampled kernel rings at Nyquist; for the Mexican hat
+below about ``a_min`` 1.0, for heavier-tailed smoothers higher), no finite halo is honest
+(``dynamix.roi.halo``'s module docstring): the scale reads the whole parent when it fits the budget,
+and otherwise the run carries ``halo.honest_halo_warning`` in ``_warnings``; the strip shows it on the
+``a_min`` knob before the run (:meth:`WTMM2DROI.knob_warnings`), with the under-sampling warning
+``wtmm2d`` raises. The knob reaches the whole-raster floor.
 """
 from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
-from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTHER_PARAMS,
-                                  chaining_reading, smoother_params)
+from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_PARAMS,
+                                  SMOOTHER_PARAMS, chaining_reading, eta_warning,
+                                  smoother_params, width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
-from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
+from dynamix.roi.halo import MIN_ROI_SIDE, halo_plan, honest_halo_warning, roi_run_grid
+
+
+def _halo_warning(field, params: dict) -> "str | None":
+    """The honest-halo warning for these params before the run: the finest scales up to the first
+    whose reach converges (the coarser ones converge too), against the parent the run would read."""
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    a_min = float(params.get("a_min", 1.0))
+    scales = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)), a_min)
+    full = (getattr(field, "provenance", None) or {}).get("full_dims")
+    if params.get("boundary") == "reflective":
+        full = (params.get("roi_h", 512), params.get("roi_w", 512))
+    run_grid = roi_run_grid(params.get("roi_h", 512), params.get("roi_w", 512), scales)
+    try:
+        plan = halo_plan(scales, params.get("wavelet", "mexican"), smoother_params(params),
+                         float(params.get("edge_eps", 1e-3)), full, until_converged=True,
+                         run_grid=run_grid)
+    except ValueError:                           # a q the smoother refuses: the run says so
+        return None
+    return honest_halo_warning(plan)
+
+
+def _edge_mode_warning(field, params: dict) -> "str | None":
+    """Why the Gaussian taper or the DAF extension would fall back to reflection on this ROI,
+    read off the source."""
+    if params.get("edge") not in ("gaussian_taper", "daf_periodic"):
+        return None
+    prov = getattr(field, "provenance", None) or {}
+    source, full = prov.get("source"), prov.get("full_dims")
+    if not source:
+        return None
+    import numpy as np
+
+    if full is None:
+        from dynamix.core.rasterfield import geotiff_info
+
+        info = geotiff_info(source)
+        full = (info["height"], info["width"])
+
+    from dynamix.roi.halo import _read_halo, edge_fallback
+
+    roi = tuple(int(params.get(k, d)) for k, d in (("roi_row", 0), ("roi_col", 0),
+                                                    ("roi_h", 512), ("roi_w", 512)))
+    parent = ((0, 0) + tuple(full) if params.get("boundary", "auto") == "auto" else roi)
+    try:
+        block, info = _read_halo(source, parent, roi, 0, None)
+    except (OSError, ValueError):
+        return None
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    scales = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
+                              float(params.get("a_min", 1.0)))
+    return edge_fallback(np.where(info["missing"], np.nan, block), parent[2:], params,
+                         smoother_params(params), run_grid=roi_run_grid(roi[2], roi[3], scales))
+
+
+def _corner_warning(field, params: dict) -> "str | None":
+    """The reflection warning before the run: the scales whose halo runs past the parent at this
+    ROI (``dynamix.core.edges``). The coarsest halo is the widest; an ROI it fits needs no more."""
+    from dynamix.core import edges
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    full = (getattr(field, "provenance", None) or {}).get("full_dims")
+    roi = tuple(int(params.get(k, d)) for k, d in (("roi_row", 0), ("roi_col", 0),
+                                                    ("roi_h", 512), ("roi_w", 512)))
+    if params.get("boundary") == "reflective":
+        full, roi = roi[2:], (0, 0) + roi[2:]
+    if full is None or params.get("edge", "reflect") != "reflect":
+        return None
+    scales = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
+                              float(params.get("a_min", 1.0)))
+    args = (params.get("wavelet", "mexican"), smoother_params(params),
+            float(params.get("edge_eps", 1e-3)), full)
+    run_grid = roi_run_grid(roi[2], roi[3], scales)
+    try:
+        top = halo_plan(scales[-1:], *args)[0]
+        if not top.whole and not any(edges.deficits(roi, full, top.margin).values()):
+            return None
+        plan = halo_plan(scales, *args, run_grid=run_grid)
+    except ValueError:                           # a q the smoother refuses: the run says so
+        return None
+    return edges.corner_warning([(sh.a, edges.deficits(roi, full, sh.margin))
+                                 for sh in plan if not sh.whole], "reflect")
 
 
 class WTMM2DROI:
@@ -62,8 +147,8 @@ class WTMM2DROI:
     #: WINDOW, not a wavelet or a linking rule), so they land in the trailing unlabeled group
     #: ``workflow_zone.DeviceBox`` builds for params no entry names.
     param_groups = {
-        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth",
-                "fracint_alpha", "interpolate", "detector"),
+        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "q_pairing", "q_beta", "n_oct",
+                "n_voice", "smooth", "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
     }
@@ -73,12 +158,10 @@ class WTMM2DROI:
         # self-contained device declaration.
         Param("n_oct", ParamKind.INT, default=3, min=1, max=12, label="Octaves"),
         Param("n_voice", ParamKind.INT, default=4, min=1, max=64, label="Voices/octave"),
-        # a_min differs from wtmm2d's: hard min raised to MIN_A_MIN (1.0), the floor
-        # run_wtmm2d_roi enforces itself (contaminated-numbers regime -- see the module
-        # docstring). soft_min follows it up so the declaration stays internally consistent
-        # (Param.__post_init__ rejects a soft_min below the hard min).
-        Param("a_min", ParamKind.FLOAT, default=1.0, min=MIN_A_MIN, max=16.0,
-              soft_min=MIN_A_MIN, soft_max=4.0, units="", label="aₘᵢₙ"),
+        # a_min reaches wtmm2d's floor; below 1.0 the run carries the honest-halo warning (see
+        # the module docstring).
+        Param("a_min", ParamKind.FLOAT, default=1.0, min=0.01, max=16.0,
+              soft_min=0.5, soft_max=4.0, units="", label="aₘᵢₙ"),
         # The smoother θ and its parameters: wtmm2d's own declarations (the registry's names
         # must match between parent and ROI child, so these are shared rather than mirrored).
         *SMOOTHER_PARAMS,
@@ -113,6 +196,7 @@ class WTMM2DROI:
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
         *CHAINING_OPTION_PARAMS,
+        *EDGE_PARAMS,
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -179,6 +263,7 @@ class WTMM2DROI:
             "band_per": params["band_per"],
             "chainer": params["chainer"],
             **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
+            **{p.name: params[p.name] for p in EDGE_PARAMS},
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)
@@ -193,7 +278,24 @@ class WTMM2DROI:
         # run_wtmm2d_roi already set to the analysed window's (h, w).
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
+        warning = eta_warning(params)
+        if warning:
+            res["_warnings"] = list(res.get("_warnings", [])) + [warning]
         return res
+
+    def knob_warnings(self, field, params: dict) -> dict:
+        """The ``a_min`` knob's warnings, for the strip's ⚠: the honest-halo limit where the
+        finest scales' reach does not converge and the parent (``field.provenance["full_dims"]``,
+        unknown without a field) is too large to read whole, and the under-sampling of the finest
+        scale (``wtmm.eta_warning``)."""
+        params = params or {}
+        found = [w for w in (_halo_warning(field, params), _corner_warning(field, params),
+                             eta_warning(params)) if w]
+        out = {"a_min": "\n\n".join(found)} if found else {}
+        reason = _edge_mode_warning(field, params)
+        if reason:
+            out["edge"] = reason
+        return out
 
     def view(self, result: dict, params: dict) -> dict:
         """``show`` picks a per-scale output, which the window computes and caches under its
@@ -230,7 +332,8 @@ class WTMM2DROI:
             source, (info["height"], info["width"]), (r0, c0, h, w),
             dict({k: params[k] for k in ("n_oct", "n_voice", "a_min", "wavelet",
                                          "fracint_alpha", "detector")},
-                 smoother_params=smoother_params(params)),
+                 smoother_params=smoother_params(params),
+                 **{p.name: params[p.name] for p in EDGE_PARAMS}),
             idx, boundary=roi["boundary"])
         grid = RasterField.from_geotiff_window(source, row_off=r0, col_off=c0, height=h,
                                                width=w)
@@ -254,6 +357,8 @@ class WTMM2DROI:
         device for its side-effect-free body would be a stranger dependency than repeating it."""
         if name == "similitude":
             return chaining_reading(value, params or {})
+        if name == "q_pairing":
+            return width_reading(params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px

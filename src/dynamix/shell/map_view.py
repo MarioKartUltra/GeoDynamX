@@ -495,7 +495,7 @@ class MapView(QtWidgets.QWidget):
         result, s = content.result, content.scale_idx
         levels = result.get("extrema") or []
         if not levels:
-            self._hide(row_id, "no extrema")
+            self._hide(row_id, "no H-chains")
             return
         if self.extrema_style.get("blocks"):
             self._draw_extrema_blocks(row_id, content, opacity, z)

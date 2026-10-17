@@ -63,10 +63,20 @@ def _hex(rgb: tuple[int, int, int]) -> str:
 
 #: key (matches ``_display_style_of``'s dict and ``ui.<name>`` tag), button label, canvas default.
 _SWATCH_SPECS = (
-    ("color_hchain", "H chains", HCHAIN_COLOR),
-    ("color_vtrail", "V trails", VTRAIL_COLOR),
-    ("color_extrema", "Extrema", EXTREMA_COLOR),
+    ("color_hchain", "H-chains", HCHAIN_COLOR),
+    ("color_vtrail", "V-chains", VTRAIL_COLOR),
+    ("color_extrema", "Maxima", EXTREMA_COLOR),
 )
+
+#: What each swatch colours, in WTMM terms.
+_SWATCH_TIPS = {
+    "color_hchain": "H-chains: the modulus maxima (WTMM) at the current scale, linked along "
+                    "each maxima line",
+    "color_vtrail": "V-chains: the maxima of the modulus along the H-chains (WTMMM), followed "
+                    "from scale to scale",
+    "color_extrema": "Maxima: the modulus-maxima pixels at the current scale; the isolated ones "
+                     "(on no H-chain) show with Isolated maxima",
+}
 
 
 def _cmap_pixmap(name: str, w: int = 72, h: int = 14) -> QtGui.QPixmap:
@@ -282,7 +292,9 @@ class RightPanel(QtWidgets.QScrollArea):
         self._relevant_items["reconstruct"] = self.band_button
         for key, button in self._swatch_buttons.items():
             self._relevant_items[f"swatch:{key}"] = button
-        self.trails_check = QtWidgets.QCheckBox("Show V-trails")
+        self.trails_check = QtWidgets.QCheckBox("Show V-chains")
+        self.trails_check.setToolTip("V-chains on the Raster tab and the Map; the same switch as "
+                                     "the layer's V-chains row in the Layers panel")
         self.trails_check.toggled.connect(
             lambda checked: self.styleChanged.emit("show_trails", checked))
         column.addWidget(self.trails_check)
@@ -402,6 +414,7 @@ class RightPanel(QtWidgets.QScrollArea):
         for key, label, default_rgb in _SWATCH_SPECS:
             default_hex = _hex(default_rgb)
             button = QtWidgets.QPushButton(label)
+            button.setToolTip(_SWATCH_TIPS[key])
             button.setStyleSheet(f"background-color: {default_hex}")
             button.clicked.connect(lambda checked=False, k=key: self._on_swatch_clicked(k))
             self._swatch_buttons[key] = button

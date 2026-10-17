@@ -229,7 +229,7 @@ from dynamix.model.families import label_of
 from dynamix.model.param import Param
 from dynamix.model.racks import Rack, RackStep, contiguous_rack_titles, merge_rack
 from dynamix.shell.browser import DEVICE_MIME, PRESET_MIME
-from dynamix.shell.knob_widgets import make_control
+from dynamix.shell.knob_widgets import make_control, make_warning_icon, set_knob_warning
 from dynamix.shell.knobs import control_spec
 
 #: Column width for one param-pair slot -- ``DeviceBox`` is exactly ``n_columns`` of these wide
@@ -400,6 +400,7 @@ class DeviceBox(QtWidgets.QFrame):
         self._params = params
         self.controls: dict[str, QtWidgets.QWidget] = {}
         self._derived_labels: dict[str, QtWidgets.QLabel] = {}
+        self._warning_icons: dict[str, QtWidgets.QLabel] = {}
         self.inactive_reason = ""
 
         self.setProperty("strip", "true")     # reuse the strip QSS chrome -- no new properties
@@ -485,7 +486,13 @@ class DeviceBox(QtWidgets.QFrame):
                 cell.setSpacing(0)
                 mini = QtWidgets.QLabel(p.label or p.name)
                 mini.setProperty("muted", "true")
-                cell.addWidget(mini)
+                header = QtWidgets.QHBoxLayout()
+                header.setSpacing(2)
+                header.addWidget(mini)
+                self._warning_icons[p.name] = make_warning_icon()
+                header.addWidget(self._warning_icons[p.name])
+                header.addStretch(1)
+                cell.addLayout(header)
                 control = make_control(control_spec(p), params[p.name])
                 # Same-thread GUI signal, default-arg trick to bind the param name at connect
                 # time -- the pattern chain_strip.py's DeviceStrip already uses for this exact
@@ -522,6 +529,7 @@ class DeviceBox(QtWidgets.QFrame):
         # ``self._body``'s construction.
         self._body.setEnabled(not bypassed)
         self._apply_active_when()
+        self._refresh_warnings()
 
     def _apply_active_when(self) -> None:
         """Grey out every knob whose ``Param.active_when`` does not hold for the current params
@@ -565,7 +573,16 @@ class DeviceBox(QtWidgets.QFrame):
             text = self._derived_text(label_name, self._params[label_name])
             if text is not None:
                 label.setText(text)
+        self._refresh_warnings()
         self.paramChanged.emit(name, value)
+
+    def _refresh_warnings(self) -> None:
+        """Mirrors ``DeviceStrip._refresh_warnings``: each knob's ⚠ from the device's
+        ``knob_warnings``."""
+        hook = getattr(self.device, "knob_warnings", None)
+        found = hook(self._field, self._params) if hook is not None else {}
+        for name, icon in self._warning_icons.items():
+            set_knob_warning(icon, found.get(name))
 
     def set_selected(self, value: bool) -> None:
         self.setProperty("selected", "true" if value else "false")

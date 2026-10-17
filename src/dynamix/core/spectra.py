@@ -274,22 +274,27 @@ def negative_branch_convexity_loss(q_list, tau, *, rel_tol: float = 1e-3):
     return float(q_mid[bad].max())              # the loss CLOSEST to q = 0 on the way out
 
 
-def phase_transition_tangent(q_list, tau, h, D):
+def phase_transition_tangent(q_list, tau, h, D, *, q_pick: "float | None" = None):
     """The tangent to D(h) at the phase transition: the point ``(h(q_c), D(q_c))`` of the
     fitted spectrum at the negative-branch convexity-loss abscissa ``q_c``
     (:func:`negative_branch_convexity_loss`), with slope ``q_c`` because ``dD/dh = q`` under the
     Legendre transform. Its ``intercept`` is where it meets the y axis at ``h = 0``,
     ``D(q_c) - q_c h(q_c)``, which is ``-tau(q_c)`` for a Legendre-consistent spectrum. ``None``
-    when the branch stays concave or the point is not finite."""
-    q_c = negative_branch_convexity_loss(q_list, tau)
+    when the branch stays concave or the point is not finite. ``q_pick``: the user's q in place
+    of the convexity-loss one (the fitted q nearest to it); ``"picked"`` says which."""
+    q = np.asarray(q_list, dtype=np.float64)
+    if q_pick is not None and np.isfinite(q).any():
+        q_c = float(q[np.nanargmin(np.abs(q - float(q_pick)))])
+    else:
+        q_c = negative_branch_convexity_loss(q_list, tau)
     if q_c is None:
         return None
-    q = np.asarray(q_list, dtype=np.float64)
     i = int(np.argmin(np.abs(q - q_c)))
     h_c, D_c = float(np.asarray(h, dtype=np.float64)[i]), float(np.asarray(D, dtype=np.float64)[i])
     if not (np.isfinite(h_c) and np.isfinite(D_c)):
         return None
-    return {"q_c": float(q_c), "h_c": h_c, "D_c": D_c, "intercept": D_c - float(q_c) * h_c}
+    return {"q_c": float(q_c), "h_c": h_c, "D_c": D_c, "intercept": D_c - float(q_c) * h_c,
+            "picked": q_pick is not None}
 
 
 def _family_focus(x, rows, x0_min: float, *, generalized: bool, monotone: bool):

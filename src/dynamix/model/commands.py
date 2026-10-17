@@ -45,7 +45,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("layer.roi", "ROI…", "Layer"),
     Command("chain.run", "Run", "Layer", ("Ctrl+Return",)),
     Command("transport.play", "Play / Pause", "Layer", ("Space",)),
-    Command("view.zoom_to_dataset", "Zoom to Dataset", "View", ("Ctrl+0", "F")),
+    Command("view.zoom_to_dataset", "Zoom to Layer", "View", ("R", "Ctrl+0", "F")),
     Command("view.map_crs", "Map CRS…", "View"),
     Command("view.center.raster", "Raster", "View", checkable=True, group="view.center"),
     Command("view.center.map", "Map", "View", checkable=True, group="view.center"),
@@ -72,6 +72,7 @@ COMMANDS: tuple[Command, ...] = (
             group="settings.precision", headless=True, submenu="FFT precision"),
     Command("settings.precision.64", "64-bit (double, FFTW3)", "Settings", checkable=True,
             group="settings.precision", headless=True, submenu="FFT precision"),
+    Command("settings.eta_warn", "Under-sampling Warning Level…", "Settings"),
     Command("help.about", "About GeoDynamix", "Help"),
 )
 

@@ -247,12 +247,13 @@ def test_non_ok_entries_carry_colormap_and_vtrail_color_too(qtbot, arranged_wind
     assert "colormap" in noref_entry and "vtrail_color" in noref_entry
 
 
-def test_display_style_change_resyncs_arrangement_for_colormap_vtrail_and_points_color_only(
+def test_display_style_change_resyncs_arrangement_for_the_keys_the_scene_reads(
         qtbot, arranged_window):
-    """Only the three keys the SCENE actually reads (colormap for a layer's own drape,
-    color_vtrail as ``_chain_color``'s fallback, color_points for a point layer's own drape) trigger a resync while flipped in -- the other two new
-    keys (color_hchain/color_extrema; show_trails is session-canvas-only too) do not, so resyncing
-    for them would rebuild the arrangement for nothing it draws differently. See
+    """Only the keys the SCENE actually reads (colormap for a layer's own drape, color_vtrail as
+    ``_chain_color``'s fallback, color_points for a point layer's own drape, and show_trails through
+    the layer's V-chains row, which sets the entry's show_chains) trigger a resync while flipped in
+    -- color_hchain/color_extrema are session-canvas-only and do not, so resyncing for them would
+    rebuild the arrangement for nothing it draws differently. See
     ``MainWindow._on_display_style_changed``'s own comment for the documented choice.
 
     ``color_points`` was DORMANT at first (no live control emitted it yet), so this gate
@@ -274,8 +275,11 @@ def test_display_style_change_resyncs_arrangement_for_colormap_vtrail_and_points
     win._on_display_style_changed("opacity", 0.5)
     win._on_display_style_changed("color_hchain", "#112233")
     win._on_display_style_changed("color_extrema", "#445566")
-    win._on_display_style_changed("show_trails", True)
     assert calls == []
+
+    win._on_display_style_changed("show_trails", True)      # moves the V-chains row the scene reads
+    assert calls == [True]
+    calls.clear()
 
     # A colormap change on a PLAIN drape is an in-place LUT swap (ArrangementView.set_colormap),
     # never a resync; only a hillshaded drape (baked RGBA) still needs the rebuild.

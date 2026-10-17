@@ -12,6 +12,7 @@ import numpy as np
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import XSMURF_DERIVED
+from dynamix.devices import q_widths
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
@@ -24,6 +25,9 @@ _LEVEL_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "detecto
 #: Gaussian pair, (the device's param name, the registry's key).
 _SMOOTHER_KNOBS = {"frac_bspline": ("alpha", "alpha"), "q_gaussian": ("q_tsallis", "q"),
                    "q_mexican": ("q_tsallis", "q"), "q_meyer": ("q_tsallis", "q")}
+
+#: The q smoothers with a width β; the q-Meyer taper has none (q-paired, it holds its band peak).
+_BETA_SMOOTHERS = ("q_gaussian", "q_mexican")
 
 #: The smoother choice and its two parameters, shared with the ROI device. The choice names
 #: the smoothing function θ; the analysing wavelets are its gradient components: g3 for the
@@ -43,18 +47,114 @@ SMOOTHER_PARAMS = (
     Param("q_tsallis", ParamKind.FLOAT, default=1.5, min=0.05, max=1.95, soft_min=0.5,
           soft_max=1.8, units="", label="q (Tsallis)",
           active_when=("wavelet", ("q_gaussian", "q_mexican", "q_meyer"))),
+    # The q smoothers' two widths, fixed (default, today's kernels) or q-paired; out of the
+    # key at their defaults, so every recipe keyed before them keeps its key.
+    *q_widths.width_knobs(("q_gaussian", "q_mexican", "q_meyer"), beta_wavelets=_BETA_SMOOTHERS,
+                          keyed_at_default=False),
 )
 
 
 def smoother_params(params: dict) -> dict | None:
     """The backend's ``smoother_params`` for the chosen θ: ``{"alpha": α}`` for the fractional
-    B-spline, ``{"q": q}`` for the q-Gaussian, ``None`` for the Gaussian pair."""
-    knob = _SMOOTHER_KNOBS.get(params.get("wavelet", "mexican"))
+    B-spline, ``{"q": q}`` for the q smoothers, ``None`` for the Gaussian pair. A q width other
+    than today's rides beside q: ``"beta"`` (the resolved β, when not ½) for the q-Gaussian and
+    the q-Mexican hat, ``"pairing": "q-paired"`` for the q-Meyer taper (not at q = 1, where its
+    band peak already sits there). Paired at q = 1 is fixed ½: the same dict, the same key."""
+    wavelet = params.get("wavelet", "mexican")
+    knob = _SMOOTHER_KNOBS.get(wavelet)
     if knob is None:
         return None
     name, key = knob
     default = next(p.default for p in SMOOTHER_PARAMS if p.name == name)
-    return {key: float(params.get(name, default))}
+    out = {key: float(params.get(name, default))}
+    if wavelet in _BETA_SMOOTHERS:
+        resolved = dict(params, q_tsallis=out["q"])
+        q_widths.q_width_check(resolved, _BETA_SMOOTHERS)
+        beta = q_widths.q_width(resolved, _BETA_SMOOTHERS)
+        if beta != 0.5:
+            out["beta"] = beta
+    elif wavelet == "q_meyer" and params.get("q_pairing") == "q-paired" and out["q"] != 1.0:
+        out["pairing"] = "q-paired"
+    return out
+
+
+def eta_warning(params: dict) -> "str | None":
+    """The ``a_min`` knob's under-sampling warning: the finest scale's η (the analysing wavelet's
+    energy beyond Nyquist, :mod:`dynamix.core.undersampling`) against the configured level, or None
+    while the grid resolves that scale."""
+    from dynamix.core import undersampling
+    from dynamix.core.scale_units import lambda_peak_px
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    finest = compute_scales2d(1, 1, a_min=float(params.get("a_min", 1.0)))[0]
+    wavelet = params.get("wavelet", "mexican")
+    try:
+        sp = smoother_params(params)
+        eta = undersampling.eta(wavelet, sp, finest)
+    except ValueError:                           # a q the smoother refuses: the run says so
+        return None
+    level = undersampling.eta_warn()
+    if not eta > level:
+        return None
+    lam = lambda_peak_px(finest, wavelet, 1, sp)
+    return (f"The finest scale's wavelet has η = {eta:.1e} of its energy beyond Nyquist "
+            f"(λ* {lam:.1f} px): the grid does not resolve this scale, and its moduli carry the "
+            f"pixel lattice (warning level {level:.0e}).")
+
+
+def cut_whole(res: dict, params: dict, shape) -> dict:
+    """``edge = "cut"`` on a whole raster: each scale's maxima inside its cone of influence (the
+    measured reach, ``dynamix.core.edges.cut_borders``) dropped, the chains trimmed there (spec
+    14's ``coi_trim``, or ``coi_drop`` when that is the border policy) and the partition functions
+    rebuilt from them; ``_edge`` records the borders."""
+    from dynamix.core import edges
+    from dynamix.core.chaining import border_trimmed
+    from dynamix.core.wtmm_backend import get_backend
+    from dynamix.roi.halo import halo_plan
+
+    scales = np.asarray(res["scales"])
+    resolved = res["params"]
+    pad = int(resolved.get("pad", 0))
+    run_grid = max(int(shape[0]), int(shape[1])) + 2 * pad
+    plan = halo_plan(scales, params.get("wavelet", "mexican"), smoother_params(params),
+                     float(params.get("edge_eps", 1e-3)), None, run_grid=run_grid)
+    scope = params.get("cut_scope", "largest")
+    borders = edges.cut_borders(plan, scope)
+    policy = "coi_drop" if params.get("border_policy") == "coi_drop" else "coi_trim"
+
+    out = dict(res)
+    out["chains"] = border_trimmed(res["chains"], shape, policy, 0.0,
+                                   int(resolved["min_chain_len"]),
+                                   reach_at=edges.chain_reach(scales, borders))
+    out["extrema"] = edges.drop_in_cone(res["extrema"], borders, (0, 0), shape)
+    out["hd_std"], out["hd_cmax"] = get_backend("python").partition2d(
+        out["chains"], scales, q_list=resolved["q_list"], min_chain_len=resolved["min_chain_len"])
+    out["_edge"] = {
+        "device": "wtmm2d", "mode": "cut", "cut_scope": scope, "run_grid": run_grid,
+        "eps": float(params.get("edge_eps", 1e-3)),
+        "parent_shape": [int(shape[0]), int(shape[1])], "budget_px": None,
+        "scales": [{"a": float(sh.a), "margin": None, "whole": True, "radius": sh.reach.radius,
+                    "measured": sh.reach.measured, "ratio": sh.reach.ratio,
+                    "grids": list(sh.reach.grids), "ratio_run": sh.reach.ratio_run,
+                    "converged": sh.reach.converged,
+                    "real_px": {s: 0 for s in "NSEW"}, "synthetic_px": {s: pad for s in "NSEW"},
+                    "border": int(b)} for sh, b in zip(plan, borders)]}
+    return out
+
+
+def width_reading(params: dict) -> str:
+    """The two lines beside the ``q width`` knob: the β the q smoother runs with and what the
+    width holds -- fixed keeps β, so q moves the width with the shape; q-paired keeps the escort
+    variance (the band peak for the q-Meyer taper), so q moves the shape alone. Empty, not None,
+    while no q smoother is chosen, so the label exists and can light up later."""
+    wavelet = params.get("wavelet", "mexican")
+    paired = params.get("q_pairing", "fixed") == "q-paired"
+    if wavelet == "q_meyer":
+        return "band peak held" if paired else "q moves λ*"
+    if wavelet not in _BETA_SMOOTHERS:
+        return ""
+    beta = smoother_params(params).get("beta", 0.5)
+    return f"β {beta:.3g}\n{'escort variance held' if paired else 'q moves width too'}"
 
 
 #: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
@@ -82,6 +182,21 @@ CHAINING_OPTION_PARAMS = (
     Param("coi_k", ParamKind.FLOAT, default=2.0, min=0.1, max=10.0, soft_min=1.0, soft_max=4.0,
           label="COI k", level="advanced", keyed_at_default=False,
           active_when=("border_policy", ("coi_trim", "coi_drop"))),
+)
+
+#: Spec 22's edge knobs, shared by wtmm2d and wtmm2d_roi, out of the key at their defaults: what fills
+#: a scale's reach where real data runs out (``dynamix.core.edges``), whose cone of influence a cut
+#: uses, and the mass fraction the reach leaves outside (``dynamix.core.reach``).
+EDGE_PARAMS = (
+    Param("edge", ParamKind.CHOICE, default="reflect",
+          choices=("reflect", "cut", "gaussian_taper", "daf_periodic"),
+          choice_labels=("reflect", "cut at COI", "Gaussian taper", "DAF periodic"), label="Edge",
+          keyed_at_default=False),
+    Param("cut_scope", ParamKind.CHOICE, default="largest", choices=("largest", "per_scale"),
+          choice_labels=("largest scale's COI", "each scale's COI"), label="Cut scope",
+          keyed_at_default=False, active_when=("edge", ("cut",))),
+    Param("edge_eps", ParamKind.FLOAT, default=1e-3, min=1e-6, max=0.1, soft_min=1e-4,
+          soft_max=1e-2, label="Edge ε", level="advanced", keyed_at_default=False),
 )
 
 BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
@@ -134,14 +249,14 @@ class WTMM2D:
     #: ``chains2d`` has no separate cache seam from the CWT/extrema stages the way a Filter would).
     #: ``workflow_zone.DeviceBox`` renders one labeled column-group per entry, in THIS param order
     #: -- not ``params`` tuple order -- so the pairing below (wavelet+a_min, alpha+q_tsallis (one
-    #: shown at a time), n_oct+n_voice, smooth alone; min_chain_len+thresh, dist2_max+box_ratio,
-    #: similitude alone) is a deliberate two-per-column layout, not an accident of dict
-    #: iteration. ``similitude`` joins CHAINING: it is the third linking kwarg in the exact same
+    #: shown at a time), q_pairing+q_beta, n_oct+n_voice, smooth alone; min_chain_len+thresh,
+    #: dist2_max+box_ratio, similitude alone) is a deliberate two-per-column layout, not an
+    #: accident of dict iteration. ``similitude`` joins CHAINING: it is the third linking kwarg in the exact same
     #: ``chains2d`` call as ``box_ratio``/``dist2_max`` (dynamix/core/wtmm_backend.py), so a
     #: group named CHAINING that omitted it was incomplete, not merely conservative.
     param_groups = {
-        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth", "dither",
-                "fracint_alpha", "interpolate", "detector"),
+        "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "q_pairing", "q_beta", "n_oct",
+                "n_voice", "smooth", "dither", "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
     }
@@ -209,6 +324,7 @@ class WTMM2D:
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
         *CHAINING_OPTION_PARAMS,
+        *EDGE_PARAMS,
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -245,9 +361,7 @@ class WTMM2D:
             if lsb:
                 field = dataclasses.replace(field, values=_dithered(field.values, lsb),
                                             name=f"{field.name}+dither")
-        res = run_wtmm2d(
-            field,
-            {
+        backend_params = {
                 "n_oct": params["n_oct"],
                 "n_voice": params["n_voice"],
                 "a_min": params["a_min"],
@@ -265,13 +379,29 @@ class WTMM2D:
                 "band_per": params["band_per"],
                 "chainer": params["chainer"],
                 **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
-            },
-            progress=progress,
-            cancel=cancel,
-        )
+        }
+        res, fell_back = None, None
+        if params.get("edge", "reflect") in ("gaussian_taper", "daf_periodic"):
+            # An edge mode that changes the data runs scale by scale over the whole raster as
+            # its own ROI (dynamix.roi.halo); where it does not fit, the backend's run stands.
+            from dynamix.roi.halo import run_whole_through_core
+
+            res, fell_back = run_whole_through_core(
+                field.values, dict(backend_params, **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                progress=progress)
+        if res is None:
+            res = run_wtmm2d(field, backend_params, progress=progress, cancel=cancel)
         # Carry the field's own axes through so filters and views can convert pixels to physical
         # units without reaching back to the source.
         res = dict(res)
+        if fell_back and "_edge" not in res:
+            from dynamix.roi.halo import whole_fallback_stamp
+
+            res["_edge"] = whole_fallback_stamp(
+                dict(backend_params, **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                tuple(field.values.shape)[:2], fell_back)
+        if params.get("edge", "reflect") == "cut":
+            res = cut_whole(res, params, tuple(field.values.shape)[:2])
         res["_frame"] = getattr(field, "frame", None)
         res["_shape"] = tuple(field.values.shape)
         # H-line ordering, paid HERE on the worker: run on the MAIN thread, the _order_lines
@@ -288,7 +418,29 @@ class WTMM2D:
         # Reuses the runs stamped just above; still worker-side.
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
+        warning = eta_warning(params)
+        if warning:
+            res["_warnings"] = [warning]
         return res
+
+    def knob_warnings(self, field, params: dict) -> dict:
+        """The knobs whose value the grid cannot carry honestly, for the strip's ⚠: ``a_min`` by
+        :func:`eta_warning`, ``edge`` where the Gaussian taper would not fit this field."""
+        params = params or {}
+        out = {}
+        warning = eta_warning(params)
+        if warning:
+            out["a_min"] = warning
+        values = getattr(field, "values", None)
+        if params.get("edge") in ("gaussian_taper", "daf_periodic") and values is not None:
+            from dynamix.roi.halo import edge_fallback
+
+            v = np.asarray(values)
+            reason = edge_fallback(v, v.shape[:2], params, smoother_params(params),
+                                   run_grid=max(v.shape[:2]) + 64)
+            if reason:
+                out["edge"] = reason
+        return out
 
     def view(self, result: dict, params: dict) -> dict:
         """``show`` picks a per-scale output, which the window computes and caches under its
@@ -320,8 +472,18 @@ class WTMM2D:
         idx = int(np.clip(0 if level is None else int(level), 0, n - 1))
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 0.0)
-        one = run_wtmm2d_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
-                                            smoother_params=smoother_params(params)), idx)
+        one = None
+        if params.get("edge", "reflect") in ("gaussian_taper", "daf_periodic"):
+            # the window the analysis transformed (tapered, or extended by the DAF)
+            from dynamix.roi.halo import run_whole_level
+
+            one = run_whole_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
+                                               smoother_params=smoother_params(params),
+                                               **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                                  idx)
+        if one is None:
+            one = run_wtmm2d_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
+                                                smoother_params=smoother_params(params)), idx)
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 1.0)
         raster = one["mod"] if name == "modulus" else one["arg"]
@@ -333,14 +495,24 @@ class WTMM2D:
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
                  "similitude", "band_per", "chainer")
 
-    def roi_margin(self, params: dict) -> int:
-        """The coarsest scale's halo (``halo_margin``, the measured 2.5 x normalized scale) --
-        every finer scale's halo is a centred sub-rect of it."""
+    def _halo_plan(self, params: dict, parent_shape=None) -> list:
         from dynamix.core.wtmm_backend import compute_scales2d
-        from dynamix.roi.halo import halo_margin
+        from dynamix.roi.halo import halo_plan
 
-        return halo_margin(max(compute_scales2d(params["n_oct"], params["n_voice"],
-                                                params["a_min"])))
+        scales = compute_scales2d(params["n_oct"], params["n_voice"], params["a_min"])
+        return halo_plan(scales, params["wavelet"], smoother_params(params),
+                         float(params.get("edge_eps", 1e-3)), parent_shape)
+
+    def roi_margin(self, params: dict) -> int:
+        """The widest halo of :func:`~dynamix.roi.halo.halo_plan` with the parent unknown (the
+        2.5 x normalized scale budget, widened to each scale's measured reach) -- every scale's
+        halo is a centred sub-rect of it."""
+        return max(sh.margin for sh in self._halo_plan(params))
+
+    def roi_whole_parent(self, params: dict) -> bool:
+        """Whether some scale's reach does not converge, so that scale reads the whole parent
+        when the runner can hold it."""
+        return any(not sh.reach.converged for sh in self._halo_plan(params))
 
     def compute_roi(self, window_field, core, params: dict, *, info=None,
                     progress=None) -> dict:
@@ -361,13 +533,23 @@ class WTMM2D:
             lsb = measure_lsb(values)
             if lsb:
                 values = _dithered(values, lsb)
+        prov = getattr(window_field, "provenance", None) or {}
+        full = prov.get("full_dims")
+        win = prov.get("window")
+        origin = (None if win is None else
+                  (int(win["row_off"]) + int(r0), int(win["col_off"]) + int(core[1])))
         res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
                                        dict({k: params[k] for k in self._ROI_KEYS},
-                                            smoother_params=smoother_params(params)),
-                                       progress=progress)
+                                            smoother_params=smoother_params(params),
+                                            **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                                       progress=progress, parent_shape=full,
+                                       roi_origin=origin)
         res = dict(res)
         res["_frame"] = getattr(window_field, "frame", None)
         attach_chain_product(res)
+        warning = eta_warning(params)
+        if warning:
+            res["_warnings"] = list(res.get("_warnings", [])) + [warning]
         return res
 
     def preview(self, field, params: dict) -> dict:
@@ -403,6 +585,8 @@ class WTMM2D:
         annotation mechanism."""
         if name == "similitude":
             return chaining_reading(value, params or {})
+        if name == "q_pairing":
+            return width_reading(params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px

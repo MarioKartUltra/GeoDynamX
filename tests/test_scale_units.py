@@ -190,7 +190,7 @@ def test_registry_smoothers_have_sections_names_and_lambda_through_scale_units()
     assert lambda_peak_px(s, "frac_bspline", 1, params={"alpha": 3.0}) == pytest.approx(lam_g, rel=0.05)
     assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 1.5}) > 1.2 * lam_g
     assert lambda_peak_px(s, "q_gaussian", 1, params={"q": 0.5}) < 0.85 * lam_g
-    assert analyzing_names("q_gaussian", {"q": 1.0}) == ("q-Gaussian q = 1", "∂θ_q")
+    assert analyzing_names("q_gaussian", {"q": 1.0}) == ("q-Gaussian q = 1, β 0.5", "∂θ_q")
     assert analyzing_names("frac_bspline", {"alpha": 3.0})[1] == "∂θ_α"
     assert analyzing_names("q_mexican", {"q": 1.0})[1] == "q-g3"
     assert lambda_peak_px(s, "q_mexican", 1, params={"q": 1.0}) == pytest.approx(

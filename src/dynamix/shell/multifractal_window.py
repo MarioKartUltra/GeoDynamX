@@ -584,6 +584,17 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(current().ink_muted,
                                                          style=QtCore.Qt.DotLine))
         self._cq_plot.addItem(self._cq_ln_curve)
+        # The q of the D(h) tangent, picked by dragging this line on c(q) (snapped to the fitted
+        # q grid); until it is moved it sits at the automatic convexity-loss q_c.
+        self._tangent_q: "float | None" = None
+        self._placing_pick = False
+        self._q_pick_line = pg.InfiniteLine(
+            pos=0.0, angle=90, movable=True, pen=pg.mkPen(Q_WARM, width=1.5),
+            hoverPen=pg.mkPen(Q_WARM, width=3), label="tangent q",
+            labelOpts={"position": 0.9, "color": Q_WARM})
+        self._q_pick_line.sigPositionChanged.connect(self._on_q_pick_moved)
+        self._q_pick_line.sigPositionChangeFinished.connect(self._on_q_pick_finished)
+        self._cq_plot.addItem(self._q_pick_line)
         self._dh_legend_entries += [(self._cq_curve, lambda: "c(q) fit"),
                                     (self._cq_cum_curve, lambda: "cumulant expansion"),
                                     (self._cq_ln_curve, lambda: "log-normal c₂q²")]
@@ -1228,7 +1239,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         fit = self._fit
         if fit is None:
             return
-        got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+        got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"],
+                                               q_pick=self._tangent_q)
+        if self._tangent_q is None:                 # the line rests on the automatic q_c
+            q = np.asarray(fit["q_list"], dtype=np.float64)
+            self._place_q_pick(got["q_c"] if got is not None else float(np.nanmin(q)))
         for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
             item.setVisible(got is not None)
         if got is None:
@@ -1237,8 +1252,31 @@ class MultifractalWindow(QtWidgets.QDialog):
         x = np.linspace(0.0, h_end, 2)
         self._tangent_line.setData(x, got["intercept"] + got["q_c"] * x)
         self._tangent_marker.setData([0.0], [got["intercept"]])
-        self._tangent_label.setText(f"{got['intercept']:.3f} at h = 0 · tangent at q_c = {got['q_c']:g}")
+        where = (f"q = {got['q_c']:g} (picked)" if got["picked"] else f"q_c = {got['q_c']:g}")
+        self._tangent_label.setText(f"{got['intercept']:.3f} at h = 0 · tangent at {where}")
         self._tangent_label.setPos(0.0, got["intercept"])
+
+    def _place_q_pick(self, q: float) -> None:
+        self._placing_pick = True
+        try:
+            self._q_pick_line.setValue(float(q))
+        finally:
+            self._placing_pick = False
+
+    def _on_q_pick_moved(self) -> None:
+        """A drag of the c(q) line: the tangent follows the fitted q nearest to it."""
+        if self._placing_pick or self._fit is None:
+            return
+        q = np.asarray(self._fit["q_list"], dtype=np.float64)
+        if not np.isfinite(q).any():
+            return
+        self._tangent_q = float(q[np.nanargmin(np.abs(q - self._q_pick_line.value()))])
+        self._update_phase_tangent()
+
+    def _on_q_pick_finished(self) -> None:
+        """The drag ends on the picked q itself (the fitted grid)."""
+        if self._tangent_q is not None:
+            self._place_q_pick(self._tangent_q)
 
     # -- gestures ---------------------------------------------------------------------------
     def _on_region_changed(self) -> None:

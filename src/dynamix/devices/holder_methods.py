@@ -46,6 +46,7 @@ from dynamix.devices.holder_map import MOMENT_SOURCE, field_values_2d, projectio
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.device import Output, keyed_params
 from dynamix.devices.precision import PRECISION_PARAM
+from dynamix.devices import q_widths
 from dynamix.model.param import Param, ParamKind
 
 
@@ -105,28 +106,21 @@ def method_arrays(vals, method: str, params: dict, progress=None, extras=None):
     return h_map, r2_map, scales
 
 
+#: Each route's q-family kernel, the one wavelet its width knobs apply to.
+_Q_FAMILY = {"measure": "q_gaussian", "multiaffine": "q_mexican"}
+
+
 def q_width(method: str, params: dict) -> "float | None":
     """The width beta the q-family kernel runs with (None for every other kernel): the knob's
-    value when fixed, ``microcanonical.paired_q_beta(q)`` when q-paired."""
-    q_family = {"measure": "q_gaussian", "multiaffine": "q_mexican"}[method]
-    if params.get("wavelet") != q_family:
-        return None
-    if params.get("q_pairing", "fixed") == "q-paired":
-        from dynamix.core.microcanonical import paired_q_beta
-
-        return paired_q_beta(float(params["q_tsallis"]))
-    return float(params.get("q_beta", 0.5))
+    value when fixed, ``microcanonical.paired_q_beta(q)`` when q-paired
+    (``devices.q_widths.q_width``)."""
+    return q_widths.q_width(params, (_Q_FAMILY[method],))
 
 
 def q_width_check(method: str, params: dict) -> None:
     """A q-paired width needs q < 2 (the 2-D escort variance it holds at one is infinite from
     q = 2); the q-Mexican hat's own knob already stops at 1.95."""
-    q_family = {"measure": "q_gaussian", "multiaffine": "q_mexican"}[method]
-    if (params.get("wavelet") == q_family and params.get("q_pairing") == "q-paired"
-            and float(params.get("q_tsallis", 1.5)) >= 2.0):
-        raise ValueError(f"a q-paired width needs q < 2 (got q = {params['q_tsallis']}): the "
-                         "escort variance it holds at one is infinite from q = 2 -- use a fixed "
-                         "width there")
+    q_widths.q_width_check(params, (_Q_FAMILY[method],))
 
 
 #: The multiaffine route's resolution floor (Turiel 2008, figure 2 and section 4.2.1): a
@@ -193,24 +187,47 @@ def lobe_floor(method: str, params: dict) -> "float | None":
 
 
 def scale_warning(method: str, value, params: "dict | None") -> "str | None":
-    """The r1 knob's live line: a warning below :func:`lobe_floor`, empty above it or where no
-    floor applies -- empty, not None, so the label exists and can light up when a sibling knob
-    (the kernel, q, the width) moves the floor."""
+    """r1's warning below :func:`lobe_floor` (Turiel 2008's resolution rule), empty above it or
+    where no floor applies."""
     floor = lobe_floor(method, params or {})
     if floor is None:
         return ""
     if float(value) < floor * (1.0 - 1e-9):
-        return (f"⚠ below {floor:.2f} px a lobe of this wavelet is narrower than "
-                f"{_LOBE_PX:g} px")
+        return (f"below {floor:.2f} px a lobe of this wavelet is narrower than {_LOBE_PX:g} px "
+                "(Turiel 2008, fig. 2: about 2 samples between zero crossings)")
     return ""
 
 
-def knob_warning(method: str, name: str, value, params: "dict | None") -> "str | None":
-    """The holder tools' ``derived_reading``: r1's resolution floor (:func:`scale_warning`),
-    q's clean range (:func:`q_warning`)."""
+def knob_warnings(method: str, params: dict) -> dict:
+    """The holder tools' warnings for the strip's ⚠, from Turiel's own sampling conditions: r1's
+    resolution floor (:func:`scale_warning`) and q's clean range (:func:`q_warning`)."""
+    found = {"r_min": scale_warning(method, params.get("r_min", 1.0), params),
+             "q_tsallis": q_warning(method, "q_tsallis", params.get("q_tsallis", 1.5), params)}
+    return {name: text for name, text in found.items() if text}
+
+
+def eta_reading(method: str, params: dict) -> str:
+    """r1's reading on a kernel built in Fourier space: the finest kernel's energy beyond Nyquist
+    (:func:`dynamix.core.undersampling.turiel_eta`), a labelled diagnostic that never raises the
+    ⚠. Empty for the real-space build, so the label exists and can fill when the build flips."""
+    if params.get("construction", "real") != "fourier":
+        return ""
+    from dynamix.core.undersampling import turiel_eta
+
+    eta = turiel_eta("measure" if method == "measure" else "marr", params.get("wavelet"),
+                     float(params.get("r_min", 1.0)), beta=float(params.get("beta", 1.0)),
+                     q_tsallis=float(params.get("q_tsallis", 1.5)),
+                     frac_n=float(params.get("frac_n", 2.0)), q_beta=q_width(method, params))
+    return "" if eta is None else f"η = {eta:.1e} beyond Nyquist (Fourier build)"
+
+
+def knob_reading(method: str, name: str, value, params: "dict | None") -> "str | None":
+    """The holder tools' ``derived_reading``: r1's η line on the Fourier build
+    (:func:`eta_reading`); None for every other knob (their warnings ride the ⚠,
+    :func:`knob_warnings`)."""
     if name == "r_min":
-        return scale_warning(method, value, params)
-    return q_warning(method, name, value, params)
+        return eta_reading(method, {**(params or {}), "r_min": value})
+    return None
 
 
 def construction_check(method: str, params: dict) -> None:
@@ -328,30 +345,24 @@ def _width_knobs(q_wavelet: str) -> tuple:
     hat) or Q-PAIRED, ``beta(q) = 1/(2(2 - q))``: the escort (q-)variance held at one per
     component, the 2-D form of the paper's ``1/(3 - q)``, which also pins the q-Mexican hat's
     zero crossing at r for every q (its classic calibration). Both agree at q = 1. Greyed out
-    unless the tool's q-kernel is chosen; the value knob also while paired."""
-    return (
-        Param("q_pairing", ParamKind.CHOICE, default="fixed", choices=("fixed", "q-paired"),
-              label="q width", active_when=("wavelet", (q_wavelet,))),
-        Param("q_beta", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1,
-              soft_max=2.0, units="", label="q β",
-              active_when=(("wavelet", (q_wavelet,)), ("q_pairing", ("fixed",)))),
-    )
+    unless the tool's q-kernel is chosen; the value knob also while paired
+    (``devices.q_widths.width_knobs``)."""
+    return q_widths.width_knobs((q_wavelet,))
 
 
 def q_warning(method: str, name: str, value, params: "dict | None") -> "str | None":
-    """The q knob's live line (the ``derived_reading`` hook): empty while q is inside the chosen
-    kernel's clean range -- empty, not None, so the label exists and can light up later -- and a
-    warning where the kernel stops being well-behaved: the measure route's q-Gaussian at q >= 2
-    (no finite 2-D mass, so the result depends on the field size -- the Lorentzian beta <= 1
-    case), the multiaffine route's q_mexican below 0 (unbounded at its cutoff, still
-    integrable). ``None`` for every other knob."""
+    """The q knob's warning for the strip's ⚠ (:func:`knob_warnings`): empty while q is inside the
+    chosen kernel's clean range, and a warning where the kernel stops being well-behaved: the
+    measure route's q-Gaussian at q >= 2 (no finite 2-D mass, so the result depends on the field
+    size -- the Lorentzian beta <= 1 case), the multiaffine route's q_mexican below 0 (unbounded at
+    its cutoff, still integrable). ``None`` for every other knob."""
     if name != "q_tsallis":
         return None
     wavelet = (params or {}).get("wavelet")
     if method == "measure" and wavelet == "q_gaussian" and float(value) >= 2.0:
-        return "⚠ q ≥ 2: no finite 2-D mass — result depends on field size"
+        return "q ≥ 2: no finite 2-D mass — result depends on field size"
     if method == "multiaffine" and wavelet == "q_mexican" and float(value) < 0.0:
-        return "⚠ q < 0: unbounded at its cutoff (still integrable)"
+        return "q < 0: unbounded at its cutoff (still integrable)"
     return ""
 
 
@@ -502,7 +513,10 @@ class HolderMeasure:
         return result
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        return knob_warning("measure", name, value, params)
+        return knob_reading("measure", name, value, params)
+
+    def knob_warnings(self, field, params: dict) -> dict:
+        return knob_warnings("measure", params or {})
 
     def roi_margin(self, params: dict) -> int:
         """The largest kernel's measured 2-D reach
@@ -572,7 +586,10 @@ class HolderMultiaffine:
         return result
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        return knob_warning("multiaffine", name, value, params)
+        return knob_reading("multiaffine", name, value, params)
+
+    def knob_warnings(self, field, params: dict) -> dict:
+        return knob_warnings("multiaffine", params or {})
 
     def roi_margin(self, params: dict) -> int:
         """The largest kernel's measured 2-D reach

@@ -36,7 +36,7 @@ import or validate is a greyed browser row with its error; discovery runs once p
 | `OutputProducer` | `outputs` |
 | `SelectionAware` | `selection_aware` |
 | `SelfReporting` | `reading`, `data_hints` |
-| `StripExtras` | `derived_reading`, `param_groups`, `check` |
+| `StripExtras` | `derived_reading`, `param_groups`, `check`, `knob_warnings` |
 
 ## Contracts
 

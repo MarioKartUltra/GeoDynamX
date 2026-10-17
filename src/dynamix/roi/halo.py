@@ -58,8 +58,13 @@ from ``1.0*a`` to ``6.28*a``, it occurs at ANY margin in that range -- so the bi
 margin size is the accuracy cliff above, not a clean cliff at which knife-edges also vanish. See
 ``tests/test_roi_halo.py``'s ``MAX_NMS_TIES_PER_SCALE`` for the tolerance this earns the oracle.
 
-``a_min < 1`` is refused outright (see :func:`run_wtmm2d_roi`): below it the kernel is so
-under-sampled that no affordable margin is honest.
+The reach widens the halo. :func:`halo_plan` measures each scale's reach
+(:mod:`dynamix.core.reach`, the |ψ| mass radius to ``edge_eps``, converged when two grids agree) and
+takes ``max(m(a), ceil(reach))``, so the 2.5 a budget stays a floor and a heavy-tailed smoother (the
+q-Gaussian, the q-Meyer taper) gets the room its kernel needs. Where a scale's reach does not
+converge (the sampled kernel rings at Nyquist and its mass radius grows with the grid) no finite halo
+is honest: that scale reads the whole parent when the parent fits :data:`WHOLE_PARENT_MAX_PIXELS`,
+and otherwise keeps m(a) and the run carries :func:`honest_halo_warning` in ``_warnings``.
 
 Boundaries
 ----------
@@ -82,13 +87,17 @@ functions that need them.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
 
-__all__ = ["MARGIN_PER_SCALE", "SIGMA_PER_A_MIN", "SIGMA_PER_SCALE", "halo_margin",
-           "read_halo_window", "run_wtmm2d_roi", "run_wtmm2d_roi_level",
-           "run_wtmm2d_roi_on_window", "sigma_px_amin", "sigma_px_scale"]
+__all__ = ["MARGIN_PER_SCALE", "SIGMA_PER_A_MIN", "SIGMA_PER_SCALE", "ScaleHalo",
+           "WHOLE_PARENT_MAX_PIXELS", "halo_margin", "halo_plan", "honest_halo_warning",
+           "edge_fallback", "read_halo_window", "run_whole_level", "run_whole_through_core",
+           "run_wtmm2d_roi",
+           "run_wtmm2d_roi_level", "run_wtmm2d_roi_on_window", "sigma_px_amin", "sigma_px_scale",
+           "taper_fallback"]
 
 #: Pixels of real-space Gaussian sigma per unit of the ``a_min`` MULTIPLIER. The one home of this
 #: number: the device readings and ``dynamix.shell.units`` import it from here.
@@ -106,8 +115,187 @@ MARGIN_PER_SCALE = 2.5
 #: drag gesture will produce slivers by accident.
 MIN_ROI_SIDE = 8
 
-#: ``a_min`` below this makes the sampled kernel non-local (see the module docstring).
+#: ``a_min`` below this makes the Mexican hat's sampled kernel non-local. The halo itself follows
+#: each smoother's measured reach (:func:`halo_plan`); the knob's floor and readings quote this.
 MIN_A_MIN = 1.0
+
+#: A scale whose reach does not converge reads the whole parent up to this many pixels (the budget
+#: ``shell.opening.open_field`` holds whole); a larger parent keeps the halo and the warning.
+WHOLE_PARENT_MAX_PIXELS = 64_000_000
+
+#: The edge parameters the devices carry; split off before the backend's typo guard.
+_EDGE_KEYS = ("edge", "cut_scope", "edge_eps")
+
+
+@dataclasses.dataclass(frozen=True)
+class ScaleHalo:
+    """One scale's halo: ``margin`` px of parent around the ROI, or the ``whole`` parent. ``a`` is
+    the scale array's own element (a numpy float64): the transform builds its filter from it, and
+    a Python float takes another arithmetic path there."""
+
+    a: float
+    margin: int
+    whole: bool
+    reach: object                                # dynamix.core.reach.Reach
+
+
+def roi_run_grid(h: int, w: int, scales, pad: "int | None" = None) -> int:
+    """The run's FFT grid for an ROI of ``h`` × ``w`` px: its longer side, the coarsest scale's
+    2.5 a halo on each side and the transform's pad (the backend's default when None)."""
+    if pad is None:
+        from dynamix.core.wtmm_backend import _WTMM2D_PARAM_DEFAULTS
+
+        pad = _WTMM2D_PARAM_DEFAULTS["pad"]
+    return int(max(int(h), int(w)) + 2 * halo_margin(max(scales)) + 2 * int(pad))
+
+
+def halo_plan(scales, wavelet: str, smoother_params, eps: float, parent_shape, *,
+              until_converged: bool = False, run_grid: "int | None" = None) -> list:
+    """Per scale (finest first): the halo the reach asks for, never narrower than
+    :func:`halo_margin`; the whole parent where the reach does not converge and ``parent_shape``
+    (``(H, W)``, None when unknown) fits :data:`WHOLE_PARENT_MAX_PIXELS`. ``until_converged`` stops
+    after the first scale whose reach converges (the finer scales are the ones that do not).
+    ``run_grid`` (:func:`roi_run_grid`, or a whole raster's) adds the check on the run's own grid,
+    from the finest scale up to the first that holds there (the coarser ones hold too).
+    A smoother that refuses its parameters raises its own ``ValueError`` here."""
+    from dynamix.core.reach import reach
+    from dynamix.core.smoothers import smoother
+
+    smoother(wavelet, smoother_params)
+
+    fits = (parent_shape is not None
+            and int(parent_shape[0]) * int(parent_shape[1]) <= WHOLE_PARENT_MAX_PIXELS)
+    out = []
+    for a in scales:
+        r = reach(wavelet, smoother_params, float(a), eps, run_grid=run_grid)
+        if r.converged and r.ratio_run is not None:
+            run_grid = None                     # held at the run's grid: so do the coarser scales
+        m = halo_margin(a)
+        if r.converged:
+            out.append(ScaleHalo(a, max(m, int(math.ceil(r.radius))), False, r))
+            if until_converged:
+                break
+        else:
+            out.append(ScaleHalo(a, m, fits, r))
+    return out
+
+
+def honest_halo_warning(plan) -> "str | None":
+    """The warning a run carries where a scale's reach does not converge and the parent was too
+    large (or unknown) to read whole, or None."""
+    bad = [sh for sh in plan if not sh.reach.converged and not sh.whole]
+    if not bad:
+        return None
+    r = bad[0].reach
+    span = f"{bad[0].a:.2f} px" if len(bad) == 1 else f"{bad[0].a:.2f}–{bad[-1].a:.2f} px"
+    measured = ("" if r.measured is None else
+                f" (its |ψ| mass radius is {r.measured:.0f} px on a {r.grids[1]} grid, "
+                f"{r.ratio:.2f}× the {r.grids[0]} grid's)")
+    return (f"{len(bad)} scale(s) at {span}: the wavelet's reach does not converge{measured}, so "
+            "no halo makes this ROI match a whole-raster run there, and the parent is too large "
+            "to read whole. Analyse the whole raster for a reference.")
+
+
+def _run_warnings(plan, roi_margins, mode: str) -> list:
+    """A run's edge warnings: the honest-halo limit, then the reflection at the raster's edges."""
+    from dynamix.core.edges import corner_warning
+
+    rows = [(m["a"], m["synthetic_px"]) for m in roi_margins if not m["whole"]]
+    return [w for w in (honest_halo_warning(plan), corner_warning(rows, mode)) if w]
+
+
+def _taper_fill(roi_values, parent_shape, plan):
+    """``(fill, extras)`` for ``edge = "gaussian_taper"``: the taper (``{"mu", "w_t"}``, the ROI's
+    mean and the band width) or None where it would not fit, and what the record says of it (the
+    width, the field's dominant wavelength, the fallback's reason)."""
+    from dynamix.core.edges import dominant_wavelength, taper_check
+
+    v = np.asarray(roi_values, dtype=np.float64)
+    finite = np.isfinite(v)
+    mu = float(v[finite].mean()) if finite.any() else 0.0
+    top = plan[-1].reach
+    dominant = dominant_wavelength(v)
+    w_t, reason = taper_check(parent_shape, dominant, top.radius if top.converged else top.measured)
+    extras = {"requested": "gaussian_taper", "taper_px": w_t, "dominant_px": dominant}
+    if reason:
+        extras["fallback"] = reason
+        return None, extras
+    return {"kind": "taper", "mu": mu, "w_t": w_t}, extras
+
+
+#: Longest side of the central crop the DAF's self-tuning reads (the band limit of a larger field
+#: is the same, and the edge knob's warning reads the same crop before the run).
+_DAF_TUNING_SIDE = 1024
+
+
+def _daf_fill(roi_values):
+    """``(fill, extras)`` for ``edge = "daf_periodic"``: the self-tuned extension
+    (``dynamix.core.daf.self_tune`` on the ROI's or the raster's values, nodata at their mean, a
+    central crop of at most 1024 px) or None where it falls back, and its settings for the record."""
+    from dynamix.core import daf
+
+    v = np.asarray(roi_values, dtype=np.float64)
+    finite = np.isfinite(v)
+    v = np.where(finite, v, v[finite].mean() if finite.any() else 0.0)
+    r0 = max(0, (v.shape[0] - _DAF_TUNING_SIDE) // 2)
+    c0 = max(0, (v.shape[1] - _DAF_TUNING_SIDE) // 2)
+    t = daf.self_tune(v[r0:r0 + _DAF_TUNING_SIDE, c0:c0 + _DAF_TUNING_SIDE])
+    extras = {"requested": "daf_periodic", "f_b": t.f_b, "gap": t.gap, "M": t.M,
+              "sigma": t.sigma, "lam": t.lam, "ppw": t.ppw if math.isfinite(t.ppw) else None}
+    if t.fallback:
+        extras["fallback"] = t.fallback
+        return None, extras
+    return {"kind": "daf", "tuned": t}, extras
+
+
+def _edge_fill(mode: str, roi_values, parent_shape, plan):
+    """``(fill, mode, extras)``: the fill an edge mode asks of the windows, the mode the run
+    takes (reflect where the asked one falls back) and what the record says of it."""
+    if mode == "gaussian_taper":
+        fill, extras = _taper_fill(roi_values, parent_shape, plan)
+    elif mode == "daf_periodic":
+        fill, extras = _daf_fill(roi_values)
+    else:
+        return None, mode, {}
+    return fill, (mode if fill is not None else "reflect"), extras
+
+
+def _cut_of(plan, params: dict, offset, parent_shape, fill=None) -> "dict | None":
+    """The core's ``cut``: each scale's border under ``edge = "cut"``, the taper band under the
+    Gaussian taper; else None."""
+    if fill is not None and fill["kind"] == "taper":
+        borders, scope = [int(math.ceil(fill["w_t"]))] * len(plan), None
+    elif params.get("edge", "reflect") == "cut":
+        from dynamix.core.edges import cut_borders
+
+        scope = params.get("cut_scope", "largest")
+        borders = cut_borders(plan, scope)
+    else:
+        return None
+    return {"borders": borders, "scope": scope,
+            "offset": tuple(int(v) for v in offset),
+            "parent_shape": tuple(int(v) for v in parent_shape[:2])}
+
+
+def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float, mode: str,
+                cut=None, run_grid=None) -> dict:
+    """The ``_edge`` record of a run: the halo each scale used, its reach and where the
+    halo's pixels came from, per side; under a cut, each scale's border."""
+    stamp = {"device": device, "mode": mode, "eps": float(eps),
+             "run_grid": None if run_grid is None else int(run_grid),
+            "parent_shape": None if parent_shape is None else [int(v) for v in parent_shape[:2]],
+            "budget_px": WHOLE_PARENT_MAX_PIXELS,
+            "scales": [{"a": float(sh.a), "margin": sh.margin, "whole": sh.whole,
+                        "radius": sh.reach.radius, "measured": sh.reach.measured,
+                        "ratio": sh.reach.ratio, "grids": list(sh.reach.grids),
+                        "ratio_run": sh.reach.ratio_run, "converged": sh.reach.converged,
+                        "real_px": dict(m["real_px"]), "synthetic_px": dict(m["synthetic_px"])}
+                       for sh, m in zip(plan, roi_margins)]}
+    if cut is not None:
+        stamp["cut_scope"] = cut.get("scope")
+        for row, b in zip(stamp["scales"], cut["borders"]):
+            row["border"] = int(b)
+    return stamp
 
 #: Reported edge names, in this order.
 _EDGES = ("N", "S", "E", "W")
@@ -169,8 +357,11 @@ def _reflect_pad(arr: np.ndarray, top: int, bottom: int, left: int, right: int) 
     return out
 
 
-def _read_halo(source, parent_rect, roi, margin, nodata):
-    """``roi + margin``, clamped to ``parent_rect``, nodata zero-filled, deficit reflect-padded.
+def _read_halo(source, parent_rect, roi, margin, nodata, whole=False, fill=None):
+    """``roi + margin``, clamped to ``parent_rect``, nodata zero-filled, deficit reflect-padded;
+    with ``whole``, the parent rect itself and nothing padded. ``fill`` (the Gaussian taper's
+    ``{"mu", "w_t"}``) rolls the parent's data off near its edges and puts its mean beyond them
+    (``dynamix.core.edges.tapered``) in place of the reflection.
 
     ``parent_rect`` is ``(row_off, col_off, height, width)`` of the sub-rect of ``source`` that
     counts as "the parent": the whole file for ``boundary="auto"``, the ROI itself for
@@ -178,8 +369,11 @@ def _read_halo(source, parent_rect, roi, margin, nodata):
     """
     pr0, pc0, ph, pw = (int(v) for v in parent_rect)
     r0, c0, h, w = (int(v) for v in roi)
-    want_r0, want_c0 = r0 - margin, c0 - margin
-    win_h, win_w = h + 2 * margin, w + 2 * margin
+    if whole:
+        want_r0, want_c0, win_h, win_w = pr0, pc0, ph, pw
+    else:
+        want_r0, want_c0 = r0 - margin, c0 - margin
+        win_h, win_w = h + 2 * margin, w + 2 * margin
 
     read_r0, read_c0 = max(pr0, want_r0), max(pc0, want_c0)
     read_r1 = min(pr0 + ph, want_r0 + win_h)
@@ -210,16 +404,43 @@ def _read_halo(source, parent_rect, roi, margin, nodata):
     if n_missing:
         values = np.where(missing, 0.0, values)           # zero-fill BEFORE the padding reflects it
 
-    window = _reflect_pad(values, top, bottom, left, right)
-    missing = _reflect_pad(missing.astype(np.uint8), top, bottom, left, right).astype(bool)
+    oy, ox = r0 - want_r0, c0 - want_c0
+    sides = {"real_px": {"N": oy - top, "S": win_h - oy - h - bottom, "E": win_w - ox - w - right,
+                         "W": ox - left},
+             "synthetic_px": {"N": top, "S": bottom, "E": right, "W": left}}
+    pad = None
+    if fill is not None and fill["kind"] == "daf" and (whole or top or bottom or left or right):
+        # The real block made periodic by the DAF, transformed without padding (the ROI keeps its
+        # place in the block; the filled gap follows the block's S and E sides).
+        from dynamix.core.daf import extend_2d
+
+        window = extend_2d(values, fill["tuned"])
+        grow = ((0, window.shape[0] - values.shape[0]), (0, window.shape[1] - values.shape[1]))
+        real_px = np.pad(~missing, grow)
+        missing = np.pad(missing, grow)
+        oy, ox, pad = r0 - read_r0, c0 - read_c0, 0
+    else:
+        window = _reflect_pad(values, top, bottom, left, right)
+        missing = _reflect_pad(missing.astype(np.uint8), top, bottom, left, right).astype(bool)
+        rows, cols = want_r0 - pr0 + np.arange(win_h), want_c0 - pc0 + np.arange(win_w)
+        real_px = (((rows >= 0) & (rows < ph))[:, None] & ((cols >= 0) & (cols < pw))[None, :]
+                   & ~missing)
+        if fill is not None and fill["kind"] == "taper":
+            from dynamix.core.edges import taper_band, tapered
+
+            window = tapered(window, rows, cols, (ph, pw), fill["mu"], fill["w_t"])
+            real_px &= ~taper_band(rows, cols, (ph, pw), fill["w_t"])
     # Zero-filled cells are fabricated too -- they are not "real data" for the honesty reading.
     real = (read_r1 - read_r0) * (read_c1 - read_c0) - n_missing
     reflected = {"N": top > 0, "S": bottom > 0, "W": left > 0, "E": right > 0}
     info = {
-        "real_frac": real / float(win_h * win_w),
+        "real_frac": real / float(window.size),
         "reflected_edges": tuple(e for e in _EDGES if reflected[e]),
-        "offset_in_window": (margin, margin),
+        "offset_in_window": (oy, ox),
         "missing": missing,                               # extra: the ROI's mask comes from here
+        "pad": pad,
+        "real": real_px,                    # the pixels whose modulus max sets the threshold
+        **sides,
     }
     return window, info
 
@@ -254,19 +475,20 @@ def read_halo_window(source, full_dims, roi, margin, *, nodata=None):
                       nodata)
 
 
-def _crop_to_roi(extrema: dict, offset: int, h: int, w: int) -> dict:
-    """Keep the extrema inside the ROI sub-rect; shift their positions onto the ROI grid.
+def _crop_to_roi(extrema: dict, oy: int, ox: int, h: int, w: int) -> dict:
+    """Keep the extrema inside the ROI sub-rect at row ``oy``, column ``ox`` of the window; shift
+    their positions onto the ROI grid.
 
     The subpixel channels (``x_sub``/``y_sub``, present when the ``interpolate`` knob is on)
     shift by the same offset -- membership is decided by the INTEGER support, so the float
     position of a kept point may legitimately sit up to half a pixel outside the ROI edge."""
     x, y = extrema["x"], extrema["y"]
-    keep = (x >= offset) & (x < offset + w) & (y >= offset) & (y < offset + h)
-    out = {"x": x[keep] - offset, "y": y[keep] - offset, "mod": extrema["mod"][keep],
+    keep = (x >= ox) & (x < ox + w) & (y >= oy) & (y < oy + h)
+    out = {"x": x[keep] - ox, "y": y[keep] - oy, "mod": extrema["mod"][keep],
            "arg": extrema["arg"][keep], "line_id": extrema["line_id"][keep]}
     if "x_sub" in extrema:
-        out["x_sub"] = extrema["x_sub"][keep] - offset
-        out["y_sub"] = extrema["y_sub"][keep] - offset
+        out["x_sub"] = extrema["x_sub"][keep] - ox
+        out["y_sub"] = extrema["y_sub"][keep] - oy
     return out
 
 
@@ -289,8 +511,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     roi : (row_off, col_off, height, width)
         Both sides must be at least :data:`MIN_ROI_SIDE` px.
     params : dict
-        The WTMM2D param contract, resolved by the backend's own typo guard. ``a_min`` must be at
-        least :data:`MIN_A_MIN`.
+        The WTMM2D param contract, resolved by the backend's own typo guard, plus the edge keys
+        (``edge_eps``, the reach's mass fraction). Where a scale's reach does not converge and the
+        parent is too large to read whole, the run carries :func:`honest_halo_warning`.
     boundary : {"auto", "reflective"}
         ``"auto"`` takes real parent data wherever the halo has it; ``"reflective"`` reads only
         the ROI and reflects it, ignoring the parent entirely.
@@ -307,7 +530,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         ``hd_cmax``, ``npz_path``, ``params``, ``cache_hits``) plus ``_shape`` (the ROI's
         ``(h, w)``), ``_roi`` (source/roi/boundary), ``_roi_margins`` (per scale: ``a``,
         ``margin``, ``real_frac``, ``reflected_edges``), ``_missing_mask`` (bool, ROI-shaped) and
-        ``_coi_radii`` (per-scale halo widths, for the canvas's contamination outlines).
+        ``_coi_radii`` (per-scale halo widths, for the canvas's contamination outlines) and
+        ``_edge`` (per scale: the halo, whether the whole parent was read, the reach and its
+        grids and ratio, the real and synthetic px per side).
     """
     from dynamix.core.wtmm_backend import _resolve_wtmm2d_params, compute_scales2d
 
@@ -327,30 +552,36 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
             "exceed the raster's own dimensions -- unchecked, this reaches rasterio's own window "
             "read once the clamped region goes empty and dies on its internal message instead.")
 
-    resolved = _resolve_wtmm2d_params(params)
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     if resolved["mode"] != "scalar":
         raise ValueError(
             f"run_wtmm2d_roi: mode={resolved['mode']!r} is not supported; the ROI halo path is "
             "scalar-only (the tensor pipeline is monolithic and has no per-scale seam)")
-    if resolved["a_min"] < MIN_A_MIN:
-        raise ValueError(
-            f"run_wtmm2d_roi: a_min={resolved['a_min']} is below {MIN_A_MIN}. The sampled wavelet "
-            "at that scale is close to all-pass at Nyquist, so its influence reaches hundreds of "
-            "pixels (measured: 368 px to the 1e-3 level at a_min=0.25) and no affordable halo "
-            "makes the ROI's answer match a whole-raster one. Analyse the full raster instead.")
 
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     # "reflective" IS "auto" against a parent that stops at the ROI's own edges.
     parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
                    else (r0, c0, h, w))
+    run_grid = roi_run_grid(h, w, scales, resolved["pad"])
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
+                     parent_rect[2:], run_grid=run_grid)
+    mode, fill, extras = params.get("edge", "reflect"), None, {}
+    if mode in ("gaussian_taper", "daf_periodic"):
+        block, info0 = _read_halo(source, parent_rect, (r0, c0, h, w), 0, nodata)
+        fill, mode, extras = _edge_fill(mode, np.where(info0["missing"], np.nan, block),
+                                        parent_rect[2:], plan)
 
-    def _window_for(margin):
-        return _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata)
+    def _window_for(sh):
+        return _read_halo(source, parent_rect, (r0, c0, h, w), sh.margin, nodata, whole=sh.whole,
+                          fill=fill)
 
+    cut = _cut_of(plan, params, (r0 - parent_rect[0], c0 - parent_rect[1]), parent_rect[2:],
+                  fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, scales, progress)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
 
-    return {
+    out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
         "params": resolved, "cache_hits": set(),
@@ -359,7 +590,13 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
+        "_edge": {**_edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode, cut,
+                                run_grid), **extras},
     }
+    warnings = _run_warnings(plan, roi_margins, mode)
+    if warnings:
+        out["_warnings"] = warnings
+    return out
 
 
 def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
@@ -378,7 +615,8 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
     if boundary not in _BOUNDARIES:
         raise ValueError(f"unknown boundary {boundary!r}; expected one of {list(_BOUNDARIES)}")
     r0, c0, h, w = (int(v) for v in roi)
-    resolved = _resolve_wtmm2d_params(params)
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     level = int(level)
     if not 0 <= level < len(scales):
@@ -386,26 +624,66 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
     a = scales[level]
     parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
                    else (r0, c0, h, w))
-    margin = halo_margin(a)
-    window, _info = _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata)
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
+                     parent_rect[2:], run_grid=roi_run_grid(h, w, scales, resolved["pad"]))
+    sh = plan[level]
+    margin = sh.margin
+    fill = None
+    if params.get("edge") in ("gaussian_taper", "daf_periodic"):
+        block, info0 = _read_halo(source, parent_rect, (r0, c0, h, w), 0, nodata)
+        fill = _edge_fill(params["edge"], np.where(info0["missing"], np.nan, block),
+                          parent_rect[2:], plan)[0]
+    window, info = _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata,
+                              whole=sh.whole, fill=fill)
+    oy, ox = info["offset_in_window"]
     follow = resolved["detector"] == "follow"
+    pad = resolved["pad"] if info.get("pad") is None else info["pad"]
     cwt = get_backend("python").cwt2d(window, [a], wavelet=resolved["wavelet"],
-                                      pad=resolved["pad"], derivs="all" if follow else "first",
+                                      pad=pad, derivs="all" if follow else "first",
                                       smoother_params=resolved["smoother_params"])
     cwt = _apply_fracint2d({"mod": cwt["mod"], "arg": cwt["arg"]}, [a],
                            resolved["fracint_alpha"])
-    crop = (slice(margin, margin + h), slice(margin, margin + w))
+    crop = (slice(oy, oy + h), slice(ox, ox + w))
     return {"mod": cwt["mod"][0][crop], "arg": cwt["arg"][0][crop], "scale": float(a),
             "margin": margin}
 
 
-def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
+def _real_thresh(mod, info: dict, thresh: float, radius: int) -> float:
+    """``thresh`` as the fraction of ``mod``'s max that puts the floor at ``thresh`` times the max
+    over the moduli real data alone determine: the window's real pixels (``info["real"]``) farther
+    than ``radius`` (the scale's halo) from any padded, filled, tapered or missing pixel and from the
+    window's edge. The detectors keep ``mod >= f * mod.max()``; a padded value reaches the moduli
+    within the kernel's reach of it, so the real pixels next to the padding are left out too."""
+    real = info.get("real")
+    if not thresh or real is None:
+        return thresh
+    from scipy.ndimage import distance_transform_edt
+
+    m = np.asarray(mod)
+    top = float(m.max()) if m.size else 0.0
+    if not top > 0.0:
+        return thresh
+    depth = distance_transform_edt(np.pad(np.asarray(real, dtype=bool), 1))[1:-1, 1:-1]
+    sel = m[depth > radius]
+    if not sel.size:
+        sel = m[np.asarray(real, dtype=bool)]
+    if not sel.size:
+        return thresh
+    return float(thresh) * float(sel.max()) / top
+
+
+def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
     """The per-scale halo loop shared by :func:`run_wtmm2d_roi` (halos read off the FILE) and
-    :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale,
-    ``window_for(margin) -> (window, info)`` supplies ROI + that scale's halo (zero-filled
-    nodata, reflect-padded deficit) with ``info`` = ``real_frac`` / ``reflected_edges`` /
-    ``missing``; the CWT + extrema run on it, the extrema are cropped to the ROI, and only
-    THEN are they chained and partitioned -- chaining happens inside the ROI.
+    :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale of
+    ``plan`` (:func:`halo_plan`), ``window_for(scale_halo) -> (window, info)`` supplies ROI + that
+    scale's halo, or the whole parent (zero-filled nodata, reflect-padded deficit) with ``info`` =
+    ``real_frac`` / ``reflected_edges`` / ``missing`` / ``offset_in_window`` (the ROI's row and
+    column in the window) / ``real_px`` / ``synthetic_px``; the CWT + extrema run on it, the
+    extrema are cropped to the ROI, and only THEN are they chained and partitioned -- chaining
+    happens inside the ROI. ``cut`` (``edge = "cut"``: ``borders`` per scale, the ROI's
+    ``offset`` in the parent, the ``parent_shape``) trims the chains at each scale's cone of
+    influence (spec 14's ``coi_trim``, or ``coi_drop`` when that is the border policy) and drops
+    the maxima inside it, before the partition functions are built.
 
     Extracted verbatim from :func:`run_wtmm2d_roi` so both
     entries run one implementation; ``tests/test_roi_halo.py`` is the file path's oracle,
@@ -414,18 +692,23 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
 
     backend = get_backend("python")
 
-    n_scales = len(scales)
+    scales = np.asarray([sh.a for sh in plan])
+    n_scales = len(plan)
     extrema, roi_margins, coi_radii = [], [], []
     missing_mask = None
-    for i, a in enumerate(scales):
+    for i, sh in enumerate(plan):
+        a = sh.a
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 0.0)
-        margin = halo_margin(a)
-        window, info = window_for(margin)
+        margin = sh.margin
+        depth = max(margin, halo_margin(a))             # where padding no longer reaches a modulus
+        window, info = window_for(sh)
+        oy, ox = info["offset_in_window"]
         if missing_mask is None:
-            missing_mask = info["missing"][margin:margin + h, margin:margin + w].copy()
+            missing_mask = info["missing"][oy:oy + h, ox:ox + w].copy()
         follow = resolved["detector"] == "follow"
-        cwt = backend.cwt2d(window, [a], wavelet=resolved["wavelet"], pad=resolved["pad"],
+        pad = resolved["pad"] if info.get("pad") is None else info["pad"]
+        cwt = backend.cwt2d(window, [a], wavelet=resolved["wavelet"], pad=pad,
                             derivs="all" if follow else "first",
                             smoother_params=resolved["smoother_params"])
         if follow:
@@ -447,20 +730,23 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
             from dynamix.core.xsmurf_follow import follow_extrema_scale_exact
             scale_extrema = follow_extrema_scale_exact(
                 cwt["mod"][0], cwt["arg"][0], kapa, kapap,
-                thresh=resolved["thresh"])
+                thresh=_real_thresh(cwt["mod"][0], info, resolved["thresh"], depth))
             scale_extrema.pop("_xs_runs", None)
             scale_extrema.pop("_xs_closed", None)
         else:
-            scale_extrema = backend.extrema2d(cwt, [a], thresh=resolved["thresh"],
+            scale_extrema = backend.extrema2d(cwt, [a],
+                                              thresh=_real_thresh(cwt["mod"][0], info,
+                                                                  resolved["thresh"], depth),
                                               field=window)[0]
             if resolved["interpolate"]:
                 # Same refinement as the full run's extrema stage, on the window's own lifted
                 # mod raster BEFORE the crop (the parabola's probes need the halo pixels).
                 from dynamix.core.subpixel import refine_extrema_stack
                 scale_extrema = refine_extrema_stack([scale_extrema], cwt["mod"])[0]
-        extrema.append(_crop_to_roi(scale_extrema, margin, h, w))
+        extrema.append(_crop_to_roi(scale_extrema, oy, ox, h, w))
         roi_margins.append({"a": float(a), "margin": margin, "real_frac": info["real_frac"],
-                            "reflected_edges": info["reflected_edges"]})
+                            "reflected_edges": info["reflected_edges"], "whole": sh.whole,
+                            "real_px": info["real_px"], "synthetic_px": info["synthetic_px"]})
         coi_radii.append(margin)
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 1.0)
@@ -468,6 +754,16 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
     from dynamix.core.chaining import link
 
     chains = link(extrema, scales, resolved, backend)
+    if cut is not None:
+        from dynamix.core.chaining import border_trimmed
+        from dynamix.core.edges import chain_reach, drop_in_cone
+
+        policy = "coi_drop" if resolved.get("border_policy") == "coi_drop" else "coi_trim"
+        chains = border_trimmed(chains, cut["parent_shape"], policy, 0.0,
+                                int(resolved["min_chain_len"]),
+                                reach_at=chain_reach(scales, cut["borders"]),
+                                offset=cut["offset"])
+        extrema = drop_in_cone(extrema, cut["borders"], cut["offset"], cut["parent_shape"])
     hd_std, hd_cmax = backend.partition2d(chains, scales, q_list=resolved["q_list"],
                                           min_chain_len=resolved["min_chain_len"])
 
@@ -475,7 +771,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
 
 
 def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, params: dict,
-                             *, progress=None) -> dict:
+                             *, progress=None, parent_shape=None, roi_origin=None) -> dict:
     """:func:`run_wtmm2d_roi` over an IN-MEMORY processing window.
 
     ``window_values`` is ROI + ``offset`` px on every side, already read by
@@ -484,47 +780,119 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
     halo is the centred sub-rect ``[offset - m, offset + h + m)`` -- bit-identical to what
     ``_read_halo`` reads off the file (the union-window claim ``test_roi_halo`` proves) -- with
     NaN zero-filled BEFORE the transform (this device's convention, reported in
-    ``_missing_mask``/``real_frac``, never interpolated). ``offset`` must cover the coarsest
-    scale's halo. Returns the same keys as :func:`run_wtmm2d_roi` (``_roi`` without a source:
-    the caller stamps the region)."""
+    ``_missing_mask``/``real_frac``, never interpolated). ``offset`` must cover the widest halo
+    that is not the whole parent. A scale that reads the whole parent slices the real rect of the
+    window, allowed only when that rect is the whole dataset, ``parent_shape`` ``(H, W)`` (the
+    runner reads it whole when a step asks and the budget allows). roi_origin is the ROI's
+    (row, col) in that dataset, for a cut at its edges (the window's real rect stands in
+    without it). Returns the same keys as
+    :func:`run_wtmm2d_roi` (``_roi`` without a source: the caller stamps the region)."""
     from dynamix.core.wtmm_backend import _resolve_wtmm2d_params, compute_scales2d
 
     if h < MIN_ROI_SIDE or w < MIN_ROI_SIDE:
         raise ValueError(
             f"wtmm2d on an ROI: the ROI is {h}x{w} px; both sides must be at least "
             f"{MIN_ROI_SIDE} px (a sliver carries no multi-scale structure).")
-    resolved = _resolve_wtmm2d_params(params)
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     if resolved["mode"] != "scalar":
         raise ValueError(
             f"wtmm2d on an ROI: mode={resolved['mode']!r} is not supported; the per-scale halo "
             "path is scalar-only (the tensor pipeline has no per-scale seam)")
-    if resolved["a_min"] < MIN_A_MIN:
-        raise ValueError(
-            f"wtmm2d on an ROI: a_min={resolved['a_min']} is below {MIN_A_MIN} -- the sampled "
-            "wavelet is close to all-pass at Nyquist and no affordable halo is honest. Raise "
-            "a_min or analyse the whole raster.")
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
-    need = halo_margin(max(scales))
-    if int(offset) < need:
-        raise ValueError(f"window margin {offset} px < the coarsest scale's halo {need} px")
     values = np.asarray(window_values, dtype=np.float64)
     real = np.asarray(real, dtype=bool)
     o = int(offset)
+    rows, cols = np.flatnonzero(real.any(axis=1)), np.flatnonzero(real.any(axis=0))
+    pr0, pr1, pc0, pc1 = int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1
+    whole_ok = (parent_shape is not None
+                and (pr1 - pr0, pc1 - pc0) == (int(parent_shape[0]), int(parent_shape[1])))
+    run_grid = roi_run_grid(h, w, scales, resolved["pad"])
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
+                     parent_shape if whole_ok else None, run_grid=run_grid)
+    if roi_origin is not None and parent_shape is not None:
+        origin, pshape = tuple(roi_origin), tuple(parent_shape)
+    else:
+        origin, pshape = (o - pr0, o - pc0), (pr1 - pr0, pc1 - pc0)
+    mode, fill, extras = params.get("edge", "reflect"), None, {}
+    if mode in ("gaussian_taper", "daf_periodic"):
+        fill, mode, extras = _edge_fill(mode, values[o:o + h, o:o + w], pshape, plan)
+    need = max([sh.margin for sh in plan if not sh.whole], default=0)
+    if o < need:
+        raise ValueError(f"window margin {offset} px < the widest halo {need} px")
 
-    def _window_for(margin):
-        sl = (slice(o - margin, o + h + margin), slice(o - margin, o + w + margin))
+    def _filled(win, y0, x0):
+        """The window under the taper, ``y0``/``x0`` its first row and column in the window."""
+        if fill is None or fill["kind"] != "taper":
+            return win
+        from dynamix.core.edges import tapered
+
+        rows = origin[0] + y0 - o + np.arange(win.shape[0])
+        cols = origin[1] + x0 - o + np.arange(win.shape[1])
+        return tapered(win, rows, cols, pshape, fill["mu"], fill["w_t"])
+
+    def _band_out(real_px, y0, x0):
+        """``real_px`` without the taper's band, ``y0``/``x0`` the block's first row and column in
+        the window."""
+        if fill is None or fill["kind"] != "taper":
+            return real_px
+        from dynamix.core.edges import taper_band
+
+        rows = origin[0] + y0 - o + np.arange(real_px.shape[0])
+        cols = origin[1] + x0 - o + np.arange(real_px.shape[1])
+        return real_px & ~taper_band(rows, cols, pshape, fill["w_t"])
+
+    def _window_base(sh):
+        if sh.whole:
+            sub = values[pr0:pr1, pc0:pc1]
+            missing = ~np.isfinite(sub)
+            win = _filled(np.where(missing, 0.0, sub) if missing.any() else sub.copy(), pr0, pc0)
+            oy, ox = o - pr0, o - pc0
+            return win, {"real_frac": float((~missing).mean()), "reflected_edges": (),
+                         "missing": missing, "offset_in_window": (oy, ox),
+                         "real": _band_out(~missing, pr0, pc0),
+                         "real_px": {"N": oy, "S": pr1 - pr0 - oy - h, "E": pc1 - pc0 - ox - w,
+                                     "W": ox},
+                         "synthetic_px": {"N": 0, "S": 0, "E": 0, "W": 0}}
+        m = sh.margin
+        sl = (slice(o - m, o + h + m), slice(o - m, o + w + m))
         sub, rsub = values[sl], real[sl]
         missing = ~np.isfinite(sub)
-        win = np.where(missing, 0.0, sub) if missing.any() else sub.copy()
+        win = _filled(np.where(missing, 0.0, sub) if missing.any() else sub.copy(), o - m, o - m)
         edges = {"N": not rsub[0].any(), "S": not rsub[-1].any(),
                  "W": not rsub[:, 0].any(), "E": not rsub[:, -1].any()}
+        r_any, c_any = rsub.any(axis=1), rsub.any(axis=0)
+        synth = {"N": int(np.argmax(r_any)), "S": int(np.argmax(r_any[::-1])),
+                 "W": int(np.argmax(c_any)), "E": int(np.argmax(c_any[::-1]))}
         return win, {"real_frac": float((rsub & ~missing).mean()),
                      "reflected_edges": tuple(e for e in _EDGES if edges[e]),
-                     "missing": missing}
+                     "missing": missing, "offset_in_window": (m, m),
+                     "real": _band_out(rsub & ~missing, o - m, o - m),
+                     "real_px": {k: m - v for k, v in synth.items()}, "synthetic_px": synth}
 
+    def _window_for(sh):
+        win, info = _window_base(sh)
+        synth = info["synthetic_px"]
+        if fill is None or fill["kind"] != "daf" or not (sh.whole or any(synth.values())):
+            return win, info
+        # The real block of the window made periodic by the DAF and transformed without padding,
+        # as the file path does it.
+        from dynamix.core.daf import extend_2d
+
+        rr0, rr1 = synth["N"], win.shape[0] - synth["S"]
+        cc0, cc1 = synth["W"], win.shape[1] - synth["E"]
+        ext = extend_2d(win[rr0:rr1, cc0:cc1], fill["tuned"])
+        grow = ((0, ext.shape[0] - (rr1 - rr0)), (0, ext.shape[1] - (cc1 - cc0)))
+        missing = np.pad(info["missing"][rr0:rr1, cc0:cc1], grow)
+        real_px = np.pad(info["real"][rr0:rr1, cc0:cc1], grow)
+        oy, ox = info["offset_in_window"]
+        return ext, dict(info, missing=missing, real=real_px, offset_in_window=(oy - rr0, ox - cc0),
+                         pad=0)
+
+    cut = _cut_of(plan, params, origin, pshape, fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, scales, progress)
-    return {
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
+    out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
         "params": resolved, "cache_hits": set(),
@@ -533,4 +901,153 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
+        "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode, cut,
+                                run_grid), **extras},
     }
+    warnings = _run_warnings(plan, roi_margins, mode)
+    if warnings:
+        out["_warnings"] = warnings
+    return out
+
+
+def _whole_plan(resolved: dict, eps: float, shape) -> list:
+    """Every scale reading the whole raster of ``shape``, with its reach checked on the run's grid
+    too (for the record and the borders); a smoother that refuses its parameters raises its own
+    ``ValueError`` (``halo_plan``)."""
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps, None,
+                     run_grid=_whole_run_grid(resolved, shape))
+    return [ScaleHalo(sh.a, 0, True, sh.reach) for sh in plan]
+
+
+def _whole_run_grid(resolved: dict, shape) -> int:
+    """A whole raster's FFT grid: its longer side and the transform's pad."""
+    return int(max(int(shape[0]), int(shape[1])) + 2 * int(resolved["pad"]))
+
+
+def run_whole_through_core(values, params: dict, *, progress=None):
+    """``wtmm2d`` over a whole raster under an edge mode that changes its data or its boundary
+    (the Gaussian taper, the DAF periodic extension): the raster is its own ROI, every scale reads
+    it whole, the mode fills it, and the maxima on the raster outside any band the mode made are
+    chained and partitioned. Returns ``(result, extras)``, ``result`` None where the mode falls
+    back to the backend's own run (``extras`` then says why)."""
+    from dynamix.core.wtmm_backend import _resolve_wtmm2d_params
+
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
+    if resolved["mode"] != "scalar":
+        raise ValueError(f"wtmm2d: edge = {params.get('edge')!r} runs scale by scale and is "
+                         "scalar-only (the tensor pipeline has no per-scale seam)")
+    v = np.asarray(values, dtype=np.float64)
+    H, W = v.shape[:2]
+    plan = _whole_plan(resolved, eps, (H, W))
+    window, info, fill, mode, extras = _whole_window(v, params.get("edge"), plan)
+    if fill is None:
+        return None, extras
+    cut = _cut_of(plan, params, (0, 0), (H, W), fill)
+    (extrema, chains, hd_std, hd_cmax, roi_margins, _missing,
+     _radii) = _wtmm2d_roi_core(lambda _sh: (window, info), H, W, resolved, plan, progress, cut)
+    return {"chains": chains, "extrema": extrema, "scales": np.asarray([sh.a for sh in plan]),
+            "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None, "params": resolved,
+            "cache_hits": set(),
+            "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, (H, W), eps, mode, cut,
+                                    _whole_run_grid(resolved, (H, W))), **extras}}, extras
+
+
+def _whole_window(v, mode: str, plan):
+    """``(window, info, fill, mode, extras)``: the whole raster ``v`` under ``mode`` (tapered,
+    or extended periodically by the DAF and transformed without padding); ``fill`` None where the
+    mode falls back."""
+    H, W = v.shape[:2]
+    missing = ~np.isfinite(v)
+    fill, mode, extras = _edge_fill(mode, np.where(missing, np.nan, v), (H, W), plan)
+    if fill is None:
+        return None, None, None, mode, extras
+    v0 = np.where(missing, 0.0, v)
+    info = {"real_frac": float((~missing).mean()), "reflected_edges": (), "missing": missing,
+            "offset_in_window": (0, 0), "real_px": {s: 0 for s in _EDGES},
+            "synthetic_px": {s: 0 for s in _EDGES}, "pad": None, "real": ~missing}
+    if fill["kind"] == "taper":
+        from dynamix.core.edges import taper_band, tapered
+
+        window = tapered(v0, np.arange(H), np.arange(W), (H, W), fill["mu"], fill["w_t"])
+        info["real"] = ~missing & ~taper_band(np.arange(H), np.arange(W), (H, W), fill["w_t"])
+    else:
+        from dynamix.core.daf import extend_2d
+
+        window = extend_2d(v0, fill["tuned"])
+        grow = ((0, window.shape[0] - H), (0, window.shape[1] - W))
+        info.update(missing=np.pad(missing, grow), real=np.pad(~missing, grow), pad=0)
+    return window, info, fill, mode, extras
+
+
+def run_whole_level(values, params: dict, level: int) -> "dict | None":
+    """One scale's modulus and argument of :func:`run_whole_through_core`'s run, on the window it
+    transformed; None where the edge mode falls back (the backend's own level then stands)."""
+    from dynamix.core.wtmm_backend import _apply_fracint2d, _resolve_wtmm2d_params, get_backend
+
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
+    v = np.asarray(values, dtype=np.float64)
+    plan = _whole_plan(resolved, eps, v.shape[:2])
+    window, info, fill, _mode, _extras = _whole_window(v, params.get("edge"), plan)
+    if fill is None:
+        return None
+    a = plan[int(level)].a
+    follow = resolved["detector"] == "follow"
+    pad = resolved["pad"] if info["pad"] is None else info["pad"]
+    cwt = get_backend("python").cwt2d(window, [a], wavelet=resolved["wavelet"], pad=pad,
+                                      derivs="all" if follow else "first",
+                                      smoother_params=resolved["smoother_params"])
+    cwt = _apply_fracint2d({"mod": cwt["mod"], "arg": cwt["arg"]}, [a], resolved["fracint_alpha"])
+    H, W = v.shape[:2]
+    return {"mod": cwt["mod"][0][:H, :W], "arg": cwt["arg"][0][:H, :W], "scale": float(a)}
+
+
+def edge_fallback(values, parent_shape, params: dict, smoother_params,
+                  run_grid: "int | None" = None) -> "str | None":
+    """Before a run: why the taper or the DAF extension would fall back to reflection on
+    ``values`` (the ROI's or the raster's), or None; ``run_grid`` the run's FFT grid."""
+    mode = params.get("edge")
+    if mode == "gaussian_taper":
+        return taper_fallback(values, parent_shape, params, smoother_params, run_grid)
+    if mode == "daf_periodic":
+        return _daf_fill(values)[1].get("fallback")
+    return None
+
+
+def whole_fallback_stamp(params: dict, shape, extras: dict) -> dict:
+    """The ``_edge`` of a whole-raster run whose edge mode fell back to the backend's run."""
+    from dynamix.core.wtmm_backend import _resolve_wtmm2d_params
+
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
+    plan = _whole_plan(resolved, eps, shape)
+    return {"device": "wtmm2d", "mode": "reflect", "eps": eps,
+            "run_grid": _whole_run_grid(resolved, shape),
+            "parent_shape": [int(shape[0]), int(shape[1])], "budget_px": None,
+            "scales": [{"a": float(sh.a), "radius": sh.reach.radius,
+                        "measured": sh.reach.measured, "ratio": sh.reach.ratio,
+                        "grids": list(sh.reach.grids), "ratio_run": sh.reach.ratio_run,
+                        "converged": sh.reach.converged} for sh in plan], **extras}
+
+
+def taper_fallback(values, parent_shape, params: dict, smoother_params,
+                   run_grid: "int | None" = None) -> "str | None":
+    """Before a run: why the Gaussian taper would fall back to reflection on ``values`` (the ROI's
+    or the raster's) in a parent of ``parent_shape``, or None; ``smoother_params`` as the device
+    resolves them."""
+    from dynamix.core.edges import dominant_wavelength, taper_check
+    from dynamix.core.reach import reach
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    top = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
+                           float(params.get("a_min", 1.0)))[-1]
+    r = reach(params.get("wavelet", "mexican"), smoother_params, float(top),
+              float(params.get("edge_eps", 1e-3)), run_grid=run_grid)
+    if r.measured is None:
+        return None
+    return taper_check(parent_shape, dominant_wavelength(values),
+                       r.radius if r.converged else r.measured)[1]

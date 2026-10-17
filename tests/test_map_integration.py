@@ -131,6 +131,7 @@ def test_a_picked_chain_highlights_on_the_map(geo_window, qtbot):
     child = _roi_child(win, qtbot, "wtmm2d")
     win._set_center_view("map")
     assert win._active_result.get("chains")
+    win.right_panel.trails_check.setChecked(True)                  # Show V-chains
     win._group_palette.add_pick((child.layer_id, 0), shift=False)   # the Raster tab's pick
     assert win.map_view._vectors[f"chn:{child.layer_id}"][2].isVisible()
 
@@ -184,6 +185,7 @@ def test_stack_flags_for_the_3d_entries(geo_window, qtbot):
     win = geo_window
     child = _roi_child(win, qtbot, "wtmm2d")
     stack = win.project.layer_stack
+    win.right_panel.trails_check.setChecked(True)                  # Show V-chains
     stack.node(f"ext:{child.layer_id}").visible = False
     flags = win._stack_entry_flags(child)
     assert flags["show_extrema"] is False and flags["show_chains"] is True
@@ -742,3 +744,37 @@ def test_the_fitter_gathers_the_other_layers_landed_methods_as_sources(geo_windo
     win._on_spectrum_button_clicked()
     names = [a.text() for a in win._multifractal_window.show_menu.actions()]
     assert names[0].startswith("canonical") and names[1].startswith("moments")
+
+
+def test_show_v_chains_and_the_layers_v_chains_row_are_one_switch(geo_window, qtbot):
+    win = geo_window
+    child = _roi_child(win, qtbot, "wtmm2d")
+    win._set_center_view("map")
+    stack, rid = win.project.layer_stack, f"chn:{child.layer_id}"
+    assert win._row_label(rid).endswith(" · V-chains")
+    assert win._row_label(f"ext:{child.layer_id}").endswith(" · H-chains")
+    drawn = lambda: rid in win.map_view._vectors and win.map_view._vectors[rid][0].isVisible()
+    assert not stack.node(rid).visible and not win.right_panel.trails_check.isChecked()
+    assert not drawn()                                       # off by default, on both views
+    win.right_panel.trails_check.setChecked(True)            # the checkbox moves the row
+    assert stack.node(rid).visible and drawn() and win.canvas.vtrail_item.isVisible()
+    stack.node(rid).visible = False                          # the row's eye moves the checkbox
+    win.layers_panel.stackChanged.emit()
+    assert win.layer.tags["ui.show_trails"] == "False"
+    assert not win.right_panel.trails_check.isChecked() and not win.canvas.vtrail_item.isVisible()
+    assert not drawn()
+
+
+def test_r_frames_the_view_in_front(geo_window, qtbot):
+    from PySide6 import QtCore
+
+    win = geo_window
+    action = win.commands["view.zoom_to_dataset"]
+    assert "R" in [s.toString() for s in action.shortcuts()] and action.text() == "Zoom to Layer"
+    win._set_center_view("map")
+    rect = win.map_view.item_rect(f"src:{win.layer.source_id}")
+    win.map_view.view.setRange(QtCore.QRectF(rect.center().x(), rect.center().y(), 1.0, 1.0),
+                               padding=0)                    # far inside the raster
+    action.trigger()
+    (x0, x1), (y0, y1) = win.map_view.view.viewRange()
+    assert x0 <= rect.left() and x1 >= rect.right() and y0 <= rect.top() and y1 >= rect.bottom()

@@ -259,20 +259,26 @@ def chainer(name: str) -> Chainer:
         raise KeyError(f"no chainer named {name!r}; known: {sorted(CHAINERS)}") from None
 
 
-def border_trimmed(chains: list, shape, policy: str, coi_k: float, min_len: int) -> list:
+def border_trimmed(chains: list, shape, policy: str, coi_k: float, min_len: int, *,
+                   reach_at=None, offset=(0, 0)) -> list:
     """The chains under a border policy: ``"coi_trim"`` cuts a chain at the first scale where it
     comes within ``coi_k`` scales (the normalized scale, in pixels) of the image edge, and drops it
     when fewer than ``min_len`` scales remain; ``"coi_drop"`` drops any chain that enters that
-    zone; ``"none"`` keeps them all (xsmurf)."""
+    zone; ``"none"`` keeps them all (xsmurf). ``reach_at`` maps a chain's ``log2_scales`` to the
+    zone's width in place of ``coi_k`` scales (spec 22's measured reach); ``offset`` places the
+    chains' grid at ``(row, col)`` of the image ``shape`` (an ROI inside its parent)."""
     if policy == "none" or shape is None:
         return chains
     if policy not in BORDER_POLICIES:
         raise ValueError(f"border_policy {policy!r}; known: {BORDER_POLICIES}")
     ny, nx = int(shape[0]), int(shape[1])
+    oy, ox = (float(v) for v in offset)
     out = []
     for c in chains:
-        x, y = np.asarray(c["x"], dtype=np.float64), np.asarray(c["y"], dtype=np.float64)
-        reach = coi_k * 2.0 ** np.asarray(c["log2_scales"], dtype=np.float64)
+        x = np.asarray(c["x"], dtype=np.float64) + ox
+        y = np.asarray(c["y"], dtype=np.float64) + oy
+        log2_scales = np.asarray(c["log2_scales"], dtype=np.float64)
+        reach = coi_k * 2.0 ** log2_scales if reach_at is None else reach_at(log2_scales)
         inside = np.minimum.reduce([x, y, nx - 1 - x, ny - 1 - y]) >= reach
         if inside.all():
             out.append(c)

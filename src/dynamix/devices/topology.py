@@ -62,7 +62,7 @@ class MinVChains:
     name = "min_vchains"
     capabilities = frozenset()
     chain_consumer = True
-    label = "Min V-chains per H-line"
+    label = "Min V-chains per H-chain"
     families = ("Selection: V-chains",)
     consumes = ((TOPOLOGY,),)
     produces = ()

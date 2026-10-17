@@ -222,7 +222,7 @@ class HLineLength:
     name = "hline_length"
     capabilities = frozenset({"SelectionAware", "SelfReporting"})
     chain_consumer = True
-    label = "H-line length"
+    label = "H-chain length"
     families = ("Selection: extrema",)
     consumes = ((EXTREMA,),)
     produces = ()
@@ -274,9 +274,9 @@ class HLineLength:
         chain product's static ``h_len`` column."""
         prod = result.get("chain_product")
         if prod is None or not len(prod.get("h_len", ())):
-            return "no H-lines — run the transform"
+            return "no H-chains — run the transform"
         h_len = np.asarray(prod["h_len"])
-        return f"{h_len.size} H-lines · points ∈ [{int(h_len.min())}, {int(h_len.max())}]"
+        return f"{h_len.size} H-chains · points ∈ [{int(h_len.min())}, {int(h_len.max())}]"
 
     def data_hints(self, result: dict, params: dict) -> dict:
         """Auto-range ``min_len``'s slider to the observed H-line point counts (snap to the
@@ -378,7 +378,7 @@ class HLineModulus:
     name = "hline_modulus"
     capabilities = frozenset({"SelectionAware", "SelfReporting"})
     chain_consumer = True
-    label = "H-line modulus"
+    label = "H-chain modulus"
     families = ("Selection: extrema",)
     produces = ()
 
@@ -460,9 +460,9 @@ class HLineModulus:
         prod = result.get("chain_product")
         col = prod.get("h_mod_sup") if prod is not None else None
         if col is None or not len(col):
-            return "no H-lines — run the transform"
+            return "no H-chains — run the transform"
         col = np.asarray(col, float)
-        return f"{col.size} H-lines · sup|W| ∈ [{float(col.min()):.2f}, {float(col.max()):.2f}]"
+        return f"{col.size} H-chains · sup|W| ∈ [{float(col.min()):.2f}, {float(col.max()):.2f}]"
 
 
 class HLineHolder:
@@ -478,7 +478,7 @@ class HLineHolder:
     name = "hline_holder"
     capabilities = frozenset()
     chain_consumer = True
-    label = "H-line Hölder"
+    label = "H-chain Hölder"
     families = ("Selection: extrema",)
     consumes = ((EXTREMA, ALPHA),)
     produces = ()

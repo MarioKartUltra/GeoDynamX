@@ -300,3 +300,21 @@ class Toggle(QtWidgets.QPushButton):
 def make_control(spec: ControlSpec, value) -> QtWidgets.QWidget:
     return {"drag_value": DragValue, "cycle": CycleButton, "toggle": Toggle,
             "label": LabelReading, "text_edit": TextEdit}[spec.widget](spec, value)
+
+
+def make_warning_icon() -> QtWidgets.QLabel:
+    """The ⚠ beside a knob's name: the platform's warning icon at 16 px, hidden until the device's
+    ``knob_warnings`` names the knob (:func:`set_knob_warning`)."""
+    label = QtWidgets.QLabel()
+    icon = label.style().standardIcon(QtWidgets.QStyle.StandardPixmap.SP_MessageBoxWarning)
+    label.setPixmap(icon.pixmap(16, 16))
+    label.setFixedSize(16, 16)
+    label.setVisible(False)
+    return label
+
+
+def set_knob_warning(label: QtWidgets.QLabel, message: "str | None") -> None:
+    """Show the ⚠ with ``message`` as its tooltip (and accessible description), or hide it."""
+    label.setToolTip(message or "")
+    label.setAccessibleDescription(message or "")
+    label.setVisible(bool(message))
