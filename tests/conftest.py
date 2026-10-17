@@ -234,7 +234,9 @@ def pytest_unconfigure(config):
 def _collect_on_the_main_thread():
     """In a session that loaded Qt, no collection starts during a test, where a compute worker could
     trip one and free a Qt object off its thread (dynamix.shell.gc_guard does the same for the
-    app); each test's garbage is collected after it, on the main thread."""
+    app); after each test the main thread collects the young generation, and an older one when the
+    collector's own threshold says so. A full collection after every test slowed the gates by
+    half."""
     if "PySide6" not in sys.modules:
         yield
         return
@@ -245,6 +247,8 @@ def _collect_on_the_main_thread():
     try:
         yield
     finally:
-        gc.collect()
+        _c0, c1, c2 = gc.get_count()
+        _t0, t1, t2 = gc.get_threshold()
+        gc.collect(2 if c2 > t2 else 1 if c1 > t1 else 0)
         if was:
             gc.enable()
