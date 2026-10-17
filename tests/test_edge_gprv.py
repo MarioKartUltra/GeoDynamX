@@ -148,7 +148,7 @@ def test_a_daf_record_names_its_tuning_or_its_fallback(clean_registry, tmp_path)
     assert "points per wavelength" in edge["fallback"] and edge["f_b"] > 0 and edge["M"] == 12
 
 
-# ------------------------------------- the threshold reads real pixels only (the author, 2026-10-16)
+# ------------------------------------- the threshold reads real pixels only
 
 @pytest.mark.parametrize("edge", ["cut", "daf_periodic", "gaussian_taper"])
 def test_a_padded_spike_does_not_move_the_threshold(tmp_path, monkeypatch, edge):

@@ -45,7 +45,7 @@ def test_a_small_parent_is_read_whole_where_the_reach_does_not_converge():
 
 @pytest.mark.parametrize("a_min", [0.25, 0.5])
 def test_whole_parent_roi_moduli_equal_the_whole_raster_moduli(tmp_path, a_min):
-    """Spec 22 test 2 as the author ruled it: a parent small enough to read whole."""
+    """Spec 22 test 2: a parent small enough to read whole matches the whole-raster moduli."""
     from dynamix.core.wtmm_levels import run_wtmm2d_level
 
     parent = _synthetic_parent(192, seed=3)

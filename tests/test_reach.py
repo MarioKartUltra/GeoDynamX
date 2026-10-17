@@ -80,7 +80,7 @@ def test_a_repeated_question_hits_the_cache():
     assert R.measured_radius.cache_info().hits >= before + 2
 
 
-# ------------------------------- the check at the run's own grid (the author, 2026-10-16 night)
+# ------------------------------- the check at the run's own grid
 
 def test_a_run_grid_beyond_2048_adds_a_third_grid():
     """The Mexican hat at a_min 1.0 converges on 1024/2048 (8.0/9.2) and not at 4096 (21)."""
