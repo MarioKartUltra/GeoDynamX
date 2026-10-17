@@ -294,23 +294,24 @@ def test_wtmm2d_device_passes_the_knob_through():
     assert "chain_product" in res
 
 
-def test_default_engine_setting_forces_the_numpy_path(monkeypatch):
+def test_default_engine_setting_forces_the_fftw_path(monkeypatch):
     """The app-wide master engine (set_default_engine) is honored by cwt2d when no per-call
-    _engine is passed -- forcing 'numpy' must produce bit-identical output to an explicit
-    _engine='numpy' call, and 'auto'/None must restore the auto-detect."""
+    _engine is passed -- forcing 'fftw' must produce bit-identical output to an explicit
+    _engine='fftw' call, and 'auto'/None must restore the auto-detect."""
     from dynamix.core import wtmm_backend as wb
 
     field = _small_field(24).values
     scales = [2.0, 4.0]
     backend = wb.get_backend("python")
     try:
-        wb.set_default_engine("numpy")
+        wb.set_default_engine("fftw")
         via_default = backend.cwt2d(field, scales)
-        explicit = backend.cwt2d(field, scales, _engine="numpy")
+        explicit = backend.cwt2d(field, scales, _engine="fftw")
         np.testing.assert_array_equal(via_default["mod"], explicit["mod"])
         np.testing.assert_array_equal(via_default["arg"], explicit["arg"])
-        with pytest.raises(ValueError):
-            wb.set_default_engine("cuda")
+        for gone in ("cuda", "numpy"):
+            with pytest.raises(ValueError):
+                wb.set_default_engine(gone)
     finally:
         wb.set_default_engine("auto")
     assert wb.get_default_engine() is None

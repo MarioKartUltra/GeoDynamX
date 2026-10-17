@@ -30,7 +30,7 @@ def _window(qtbot):
 def test_startup_configures_the_fft_policy_from_settings(qtbot, registered_builtins,
                                                          tmp_path, monkeypatch):
     path = tmp_path / "s.json"
-    path.write_text(json.dumps({"compute_engine": "fftw", "compute_precision": 64}))
+    path.write_text(json.dumps({"compute_engine": "fftw", "compute_precision": 64}), encoding="utf-8")
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(path))
     _window(qtbot)
     be = fft_policy.active()

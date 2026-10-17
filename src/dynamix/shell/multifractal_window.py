@@ -58,7 +58,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import spectra
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current
 
 __all__ = ["MultifractalWindow"]
 
@@ -68,9 +68,11 @@ __all__ = ["MultifractalWindow"]
 Q_COLD = (80, 130, 235)
 Q_WARM = (235, 95, 60)
 
-#: The two partition-table conventions, in combo order. sup (``hd_cmax``, the running-supremum /
-#: chainmax textbook WTMM convention) is the default; no-sup (``hd_std``) is the raw ``|T(a)|``.
-TABLE_CHOICES = ("sup (cmax)", "no-sup (std)")
+#: The two partition-table conventions, in combo order. no-sup (``hd_std``, each line's modulus at
+#: the current scale, xsmurf's own default) is the default; sup (``hd_cmax``, the running supremum
+#: over finer scales along the chain) is the option -- it flattens any part of the spectrum with
+#: h < 0 toward 0, so it is wrong where negative exponents are expected.
+TABLE_CHOICES = ("no-sup (std)", "sup (cmax)")
 
 
 class WheelAxisViewBox(pg.ViewBox):
@@ -86,7 +88,7 @@ class WheelAxisViewBox(pg.ViewBox):
 _SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (2, 0)}
 POWER_MEAN_LABEL = "(log₂Z − log₂N_a)/q"
 #: One hue per secondary source (another method's tables beside the primary's).
-_SOURCE_HUES = ("#f2a93b", "#4cc9f0", "#f15bb5", "#9ef01a", "#ff6b6b", "#b388ff")
+_SOURCE_HUES = ((242, 169, 59), (76, 201, 240), (241, 91, 181), (158, 240, 26), (255, 107, 107), (179, 136, 255))
 
 
 def _q_color(i: int, n: int) -> tuple:
@@ -206,6 +208,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._family_lines_by_table: dict[str, list] = {k: [] for k, _ in FAMILY_TABLES}
         self._fit_lines: dict | None = None
         self._region_syncing = False
+        self._cum_syncing = False
 
         self._build_ui(eta_seed, forward_note)
         self._rebuild_family()
@@ -311,6 +314,24 @@ class MultifractalWindow(QtWidgets.QDialog):
         self.cumulant_check = QtWidgets.QCheckBox("cumulant spectrum")
         self.cumulant_check.toggled.connect(lambda _c: self._update_cumulant_overlay())
         controls.addWidget(self.cumulant_check)
+        # The cumulants' own scale range: a second window on the log2 a panels, in the
+        # cumulant curve's colour; off, they read the fit window.
+        self.cumulant_range_check = QtWidgets.QCheckBox("cumulant range")
+        self.cumulant_range_check.setEnabled(
+            (self._extrema_mods is not None and self._scales_px is not None)
+            or self._current_hd().get("lnT_moments") is not None)
+        self.cumulant_range_check.toggled.connect(self._on_cumulant_range_toggled)
+        # Nonconcave spectra (core/nonconcave.py), off by default: the kink check on tau(q) and
+        # the Gaussian ensemble's D(h) points from the maxima moduli.
+        self.kink_check = QtWidgets.QCheckBox("kinks")
+        self.kink_check.toggled.connect(lambda _c: self._update_kinks())
+        self.gaussian_check = QtWidgets.QCheckBox("Gaussian γ")
+        self.gaussian_check.setEnabled(self._extrema_mods is not None and self._scales_px is not None)
+        self.gaussian_check.toggled.connect(lambda _c: self._update_gaussian())
+        self._kink_label = QtWidgets.QLabel("")
+        self._kink_label.setStyleSheet(f"color: {current().ink_muted};")
+        self._kink_lines: list = []
+        self._kink_bands: list = []
 
         # The rack's filters narrowed the chains: the tables are over the survivors; this
         # switch shows the whole transform's instead.
@@ -355,14 +376,14 @@ class MultifractalWindow(QtWidgets.QDialog):
 
         #: The two-segment fit's live numbers -- slope_L / slope_R / ds + the scan's best q*.
         self._pt_label = QtWidgets.QLabel("")
-        self._pt_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._pt_label.setStyleSheet(f"color: {current().ink_muted};")
         #: The cascade's cumulants c₁..c₄ under the fit window (the c(q) panel's readout).
         self._cq_label = QtWidgets.QLabel("")
-        self._cq_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._cq_label.setStyleSheet(f"color: {current().ink_muted};")
         #: What the forward transform actually multiplied in -- display only, derived by the
         #: caller (see the module docstring's eta/frame section). Muted: context, not a control.
         self._forward_label = QtWidgets.QLabel(forward_note)
-        self._forward_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._forward_label.setStyleSheet(f"color: {current().ink_muted};")
         # The readouts' texts change with every fit; on their own line, wrapping, with an
         # ignored width policy, they can never raise the window's minimum width.
         readouts = QtWidgets.QHBoxLayout()
@@ -370,11 +391,19 @@ class MultifractalWindow(QtWidgets.QDialog):
             label.setWordWrap(True)
             label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
                                 QtWidgets.QSizePolicy.Policy.Preferred)
+            if label is self._cq_label:
+                readouts.addWidget(self.cumulant_range_check)      # beside what it refits
             readouts.addWidget(label, 1)
+        self._kink_label.setWordWrap(True)
+        self._kink_label.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored,
+                                       QtWidgets.QSizePolicy.Policy.Preferred)
+        readouts.addWidget(self.kink_check)
+        readouts.addWidget(self.gaussian_check)
+        readouts.addWidget(self._kink_label, 1)
         layout.addLayout(readouts)
 
         self._glw = pg.GraphicsLayoutWidget()
-        self._glw.setBackground(RESTRAINED_DARK.ground)
+        self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
         #: The fit window in log₂ a and, through ``physical_of_log2a``, in physical length.
         self.range_label = QtWidgets.QLabel("")
@@ -384,12 +413,15 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Row 0: the THREE partition-function families (Z, H, D vs log2 a -- the books' top
         # row), each carrying a mirrored copy of the fit window so click-and-drag works on any
         # panel, exactly like the workbook's click-to-bracket on any of its three panels.
-        band = pg.mkColor(RESTRAINED_DARK.amber)
+        band = pg.mkColor(current().amber)
         band.setAlpha(36)
         log2_s = np.asarray(self._current_hd()["log2_scales"], dtype=np.float64)
         span = (float(log2_s.min()), float(log2_s.max()))
         self._family_plots: dict[str, pg.PlotItem] = {}
         self._regions: list[pg.LinearRegionItem] = []
+        self._cum_regions: list[pg.LinearRegionItem] = []
+        warm = pg.mkColor(*Q_WARM)
+        warm.setAlpha(28)
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
             plot = self._glw.addPlot(row=0, col=2 * col, colspan=2, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", "log₂ a")
@@ -399,22 +431,29 @@ class MultifractalWindow(QtWidgets.QDialog):
                 plot.showAxis("top")
             region = pg.LinearRegionItem(values=span, orientation="vertical",
                                          brush=pg.mkBrush(band),
-                                         pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                         pen=pg.mkPen(current().amber))
             region.setBounds(span)
             region.sigRegionChanged.connect(self._on_region_changed)
             plot.addItem(region)
+            cum = pg.LinearRegionItem(values=span, orientation="vertical", brush=pg.mkBrush(warm),
+                                      pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine))
+            cum.setBounds(span)
+            cum.setVisible(False)
+            cum.sigRegionChanged.connect(self._on_cumulant_region_changed)
+            plot.addItem(cum)
+            self._cum_regions.append(cum)
             self._family_plots[key] = plot
             self._regions.append(region)
         # The tau panel/region remain the canonical names the public API and older callers use.
         self._partition_plot = self._family_plots["tau_qa"]
         self._region = self._regions[0]
         # A focus mode's focus on each family panel, and the field extent L ruled.
-        dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        dash = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
         self._focus_markers: dict[str, pg.ScatterPlotItem] = {}
         self._L_lines: dict[str, pg.InfiniteLine] = {}
         for key, plot in self._family_plots.items():
             marker = pg.ScatterPlotItem(symbol="o", size=11,
-                                        pen=pg.mkPen(RESTRAINED_DARK.amber, width=1.5),
+                                        pen=pg.mkPen(current().amber, width=1.5),
                                         brush=pg.mkBrush(None))
             marker.setVisible(False)
             plot.addItem(marker)
@@ -425,8 +464,8 @@ class MultifractalWindow(QtWidgets.QDialog):
             plot.addItem(line)
             self._L_lines[key] = line
 
-        ink = pg.mkPen(RESTRAINED_DARK.ink, width=1.4)
-        muted = pg.mkPen(RESTRAINED_DARK.ink_muted)
+        ink = pg.mkPen(current().ink, width=1.4)
+        muted = pg.mkPen(current().ink_muted)
         self._spectrum_plots = {}
         self._spectrum_curves = {}
         self._spectrum_errbars = {}
@@ -442,7 +481,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             plot.addItem(errbar)
             self._spectrum_errbars[name] = errbar
             curve = pg.PlotDataItem(pen=ink, connect="finite", symbol="o", symbolSize=4,
-                                    symbolPen=None, symbolBrush=RESTRAINED_DARK.ink)
+                                    symbolPen=None, symbolBrush=current().ink)
             plot.addItem(curve)
             self._spectrum_curves[name] = curve
         # h is read as a plain decimal: pyqtgraph's automatic SI prefix would otherwise label
@@ -454,44 +493,44 @@ class MultifractalWindow(QtWidgets.QDialog):
         # negative-branch convexity-loss abscissa q_c with slope q_c, drawn from the y axis past
         # the point, the intercept marked and read (spectra.phase_transition_tangent). An
         # indicator, never an automatic truncation.
-        muted_dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        muted_dash = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
         self._tangent_line = pg.PlotDataItem(pen=muted_dash, connect="finite")
         self._tangent_marker = pg.ScatterPlotItem(size=7, pen=None,
-                                                  brush=RESTRAINED_DARK.ink_muted)
-        self._tangent_label = pg.TextItem(anchor=(0, 1), color=RESTRAINED_DARK.ink_muted)
+                                                  brush=current().ink_muted)
+        self._tangent_label = pg.TextItem(anchor=(0, 1), color=current().ink_muted)
         for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
             item.setVisible(False)
             self._spectrum_plots["D"].addItem(item)
 
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
-        muted_dash = pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine)
+        muted_dash = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
         self._pt_plot = pg.PlotItem(viewBox=WheelAxisViewBox())
         self._pt_plot.setLabel("bottom", "ln q  (positive branch)")
         self._pt_plot.setLabel("left", "τ(q)")
         self._pt_points = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5,
                                           symbolPen=None,
-                                          symbolBrush=RESTRAINED_DARK.ink)
+                                          symbolBrush=current().ink)
         self._pt_plot.addItem(self._pt_points)
         self._pt_fit_left = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.6))
         self._pt_fit_right = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6))
         self._pt_plot.addItem(self._pt_fit_left)
         self._pt_plot.addItem(self._pt_fit_right)
         self._pt_qstar_line = pg.InfiniteLine(angle=90, movable=False,
-                                              pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                              pen=pg.mkPen(current().amber))
         self._pt_plot.addItem(self._pt_qstar_line)
 
         self._pt_scan_plot = pg.PlotItem(viewBox=WheelAxisViewBox())
         self._pt_scan_plot.setLabel("bottom", "q*")
         self._pt_scan_plot.setLabel("left", "weighted R²")
-        self._pt_scan_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink),
+        self._pt_scan_curve = pg.PlotDataItem(pen=pg.mkPen(current().ink),
                                               connect="finite")
         self._pt_scan_plot.addItem(self._pt_scan_curve)
         self._pt_best_line = pg.InfiniteLine(angle=90, movable=False, pen=muted_dash,
                                              label="best", labelOpts={"position": 0.9})
         self._pt_scan_plot.addItem(self._pt_best_line)
         self._pt_scan_qstar_line = pg.InfiniteLine(angle=90, movable=False,
-                                                   pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                                   pen=pg.mkPen(current().amber))
         self._pt_scan_plot.addItem(self._pt_scan_qstar_line)
 
         # An h-map result's histogram construction (eq. 21, the eq. 39 bars) beside the points,
@@ -512,7 +551,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._dh_box_curve = pg.PlotDataItem(pen=None, symbol="s", symbolSize=4, symbolPen=None,
                                              symbolBrush=Q_WARM)
         d_plot.addItem(self._dh_box_curve)
-        amber_dash = pg.mkPen(RESTRAINED_DARK.amber, width=1.4, style=QtCore.Qt.DashLine)
+        amber_dash = pg.mkPen(current().amber, width=1.4, style=QtCore.Qt.DashLine)
         self._cum_curves = {name: pg.PlotDataItem(pen=amber_dash, connect="finite")
                             for name in ("tau", "D", "h")}
         for name, curve in self._cum_curves.items():
@@ -538,11 +577,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²:
         # three entries of the legend row under D(h), beside the spectra it shares that row with.
         self._cq_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5, symbolPen=None,
-                                         symbolBrush=RESTRAINED_DARK.ink)
+                                         symbolBrush=current().ink)
         self._cq_plot.addItem(self._cq_curve)
         self._cq_cum_curve = pg.PlotDataItem(pen=pg.mkPen(Q_WARM, width=1.6))
         self._cq_plot.addItem(self._cq_cum_curve)
-        self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink_muted,
+        self._cq_ln_curve = pg.PlotDataItem(pen=pg.mkPen(current().ink_muted,
                                                          style=QtCore.Qt.DotLine))
         self._cq_plot.addItem(self._cq_ln_curve)
         self._dh_legend_entries += [(self._cq_curve, lambda: "c(q) fit"),
@@ -709,7 +748,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             sample.setMinimumSize(20, 20)
             sample.setMaximumSize(20, 20)
             label = pg.LabelItem(self._short_name(name), size="9pt",
-                                 color=RESTRAINED_DARK.ink_muted, justify="left")
+                                 color=current().ink_muted, justify="left")
             label.setToolTip(str(name))
             row.addItem(sample, line, 2 * col)
             row.addItem(label, line, 2 * col + 1)
@@ -980,6 +1019,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._refit_sources()
         self._update_dh_hist()
         self._update_cumulant_overlay()
+        self._update_kinks()
+        self._update_gaussian()
         self._sync_dh_legend()
         self.scaleWindowChanged.emit(float(lo), float(hi))
 
@@ -1072,7 +1113,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         heat = spectra.specific_heat(q, fit["tau"])
         self._cq_curve.setData(q[mask], heat[mask])
         hd = self._current_hd()
-        lo, hi = self._region.getRegion()
+        own = self.cumulant_range_check.isChecked()
+        lo, hi = (self._cum_regions[0] if own else self._region).getRegion()
         if self._extrema_mods is not None and self._scales_px is not None:
             c = spectra.cascade_cumulants(self._extrema_mods, self._scales_px, float(lo), float(hi))
         elif hd.get("lnT_moments") is not None:
@@ -1088,7 +1130,97 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._cq_ln_curve.setData(grid, c["c2"] * grid ** 2)
         self._cq_label.setText(
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
-            f"  ·  R²min={c['r2']:.2f}")
+            f"  ·  R²min={c['r2']:.2f}"
+            + (f"  ·  log₂ a {lo:.2f}–{hi:.2f}" if own else ""))
+
+    def _update_kinks(self) -> None:
+        """The kink check (spec 15): a dashed line at each q* on tau(q) and the h interval the
+        Legendre spectrum bridges there shaded on D(h); cleared when off or when tau is smooth."""
+        from dynamix.core.nonconcave import kink_flags
+
+        for item in self._kink_lines:
+            self._spectrum_plots["tau"].removeItem(item)
+        for item in self._kink_bands:
+            self._spectrum_plots["D"].removeItem(item)
+        self._kink_lines, self._kink_bands = [], []
+        fit = self._fit
+        if not self.kink_check.isChecked() or fit is None:
+            self._kink_label.setText("")
+            return
+        flags = kink_flags(fit["q_list"], fit["tau"])
+        warm = pg.mkColor(*Q_WARM)
+        band_brush = pg.mkColor(*Q_WARM)
+        band_brush.setAlpha(40)
+        for k in flags:
+            line = pg.InfiniteLine(pos=k["q"], angle=90,
+                                   pen=pg.mkPen(warm, style=QtCore.Qt.DashLine))
+            self._spectrum_plots["tau"].addItem(line)
+            band = pg.LinearRegionItem(values=(k["h_lo"], k["h_hi"]), orientation="vertical",
+                                       brush=pg.mkBrush(band_brush), pen=pg.mkPen(warm),
+                                       movable=False)
+            self._spectrum_plots["D"].addItem(band)
+            self._kink_lines.append(line)
+            self._kink_bands.append(band)
+        self._kink_label.setText(
+            "  ·  ".join(f"kink at q* = {k['q']:.2f}: h jumps {k['h_lo']:.2f} → {k['h_hi']:.2f}"
+                         for k in flags) or "no kink")
+
+    def _update_gaussian(self) -> None:
+        """The Gaussian ensemble's D(h) points (spec 15) over the fit window, from the maxima
+        moduli, with the integral scale L the field's extent (else four times the largest
+        scale); the q grid widens with gamma so the saddles reach inside a dip."""
+        if not hasattr(self, "_gaussian_points"):
+            self._gaussian_points = pg.ScatterPlotItem(size=4, pen=None,
+                                                       brush=pg.mkBrush(*Q_WARM, 160))
+            self._spectrum_plots["D"].addItem(self._gaussian_points)
+        on = (self.gaussian_check.isChecked() and self._fit is not None
+              and self._extrema_mods is not None and self._scales_px is not None)
+        self._gaussian_points.setVisible(on)
+        if not on:
+            return
+        from dynamix.core.nonconcave import gaussian_ensemble
+
+        lo, hi = self._region.getRegion()
+        gammas = np.array([0.5, 1.0, 2.0, 4.0, 8.0])
+        q = np.asarray(self._fit["q_list"], dtype=np.float64)
+        grid = np.linspace(q.min() - 2.0 * gammas.max(), q.max() + 2.0 * gammas.max(), 81)
+        length = 2.0 ** self._log2_L if self._log2_L is not None else None
+        g = gaussian_ensemble(self._extrema_mods, self._scales_px, grid, gammas, float(lo),
+                              float(hi), length_px=length)
+        keep = np.isfinite(g["h"]) & np.isfinite(g["D"]) & (g["D"] >= 0.0)     # a dimension
+        self._gaussian_points.setData(g["h"][keep], g["D"][keep])
+
+    def _on_cumulant_range_toggled(self, on: bool) -> None:
+        """Show the cumulants' own window (starting on the fit window) or hide it, then refit
+        the cumulants."""
+        if on:
+            self._cum_syncing = True
+            try:
+                for region in self._cum_regions:
+                    region.setRegion(self._region.getRegion())
+            finally:
+                self._cum_syncing = False
+        for region in self._cum_regions:
+            region.setVisible(bool(on))
+        self._update_specific_heat()
+        self._update_cumulant_overlay()
+
+    def _on_cumulant_region_changed(self) -> None:
+        """A drag of the cumulants' window on any panel mirrors onto the other two, then the
+        cumulants refit; the spectrum fit stays."""
+        if self._cum_syncing:
+            return
+        sender = self.sender()
+        lo, hi = (sender if sender in self._cum_regions else self._cum_regions[0]).getRegion()
+        self._cum_syncing = True
+        try:
+            for region in self._cum_regions:
+                if region is not sender:
+                    region.setRegion((lo, hi))
+        finally:
+            self._cum_syncing = False
+        self._update_specific_heat()
+        self._update_cumulant_overlay()
 
     def _update_phase_tangent(self) -> None:
         """The D(h) tangent at the phase transition, from the y axis to a quarter past the

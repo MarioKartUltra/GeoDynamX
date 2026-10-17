@@ -318,7 +318,7 @@ def test_the_shown_level_persists_through_save_and_open(qtbot, stub_devices, tmp
     from dynamix.shell.main_window import MainWindow
 
     written = _saved_project(qtbot, tmp_path, "level", level=2)
-    assert json.loads(written.read_text())["layers"][0]["tags"]["ui.scale_idx"] == "2"
+    assert json.loads(written.read_text(encoding="utf-8"))["layers"][0]["tags"]["ui.scale_idx"] == "2"
 
     win = MainWindow(steps=STUB_CHAIN)
     qtbot.addWidget(win)
@@ -335,12 +335,12 @@ def test_an_old_project_with_scale_select_opens_at_its_scale_and_shows_the_step_
     from dynamix.shell.main_window import MainWindow
 
     written = _saved_project(qtbot, tmp_path, "old")
-    payload = json.loads(written.read_text())
+    payload = json.loads(written.read_text(encoding="utf-8"))
     (saved,) = payload["layers"]
     saved["tags"].pop("ui.scale_idx", None)              # written before the Transport owned it
     (step,) = [s for s in saved["chain"]["steps"] if s["device"] == "scale_select"]
     step["params"]["scale_idx"] = 2
-    written.write_text(json.dumps(payload))
+    written.write_text(json.dumps(payload), encoding="utf-8")
 
     idle = MainWindow(steps=STUB_CHAIN)
     qtbot.addWidget(idle)
@@ -432,7 +432,7 @@ def test_a_pending_layers_scale_select_strip_shows_inactive(qtbot, loaded):
 def test_the_browser_greys_scale_while_the_layer_has_a_shown_level(qtbot, loaded):
     from dynamix.model.contracts import SCALE_BY_TRANSPORT
     from dynamix.model.device import get_device
-    from dynamix.model.families import display_name
+    from dynamix.model.families import display_name, tooltip_of
 
     row = loaded.browser._rows["scale_select"][0]
     assert loaded.layer.tags["ui.scale_idx"] == "0"           # the landing wrote the level
@@ -440,4 +440,4 @@ def test_the_browser_greys_scale_while_the_layer_has_a_shown_level(qtbot, loaded
     assert row.foreground(0).color() == loaded.browser._muted.color()
     del loaded.layer.tags["ui.scale_idx"]                     # no shown level
     loaded._sync_browser_states()
-    assert row.toolTip(0) == display_name(get_device("scale_select"))
+    assert row.toolTip(0) == tooltip_of(get_device("scale_select"))

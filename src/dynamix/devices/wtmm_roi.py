@@ -24,8 +24,11 @@ keeps its wider floor (0.25) because the whole-raster path has no halo to contam
 from __future__ import annotations
 
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
-from dynamix.model.device import Output
-from dynamix.devices.wtmm import SMOOTHER_PARAMS, smoother_params
+from dynamix.model.origin import XSMURF_DERIVED
+from dynamix.model.device import Output, keyed_params
+from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTHER_PARAMS,
+                                  chaining_reading, smoother_params)
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 from dynamix.roi.halo import MIN_A_MIN, MIN_ROI_SIDE
 
@@ -41,7 +44,10 @@ class WTMM2DROI:
     """
 
     name = "wtmm2d_roi"
+    capabilities = frozenset({"OutputProducer", "SourceReader", "StripExtras", "Viewable"})
+    chain_producer = True
     label = "WTMM 2D, ROI"
+    origin = XSMURF_DERIVED
     families = ("Edge detection", "Regularity")
     #: It reads band 1 of its source file, whatever field it is handed, so it runs on a
     #: dataset row's band stack as well as on a single-band field.
@@ -58,7 +64,8 @@ class WTMM2DROI:
     param_groups = {
         "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth",
                 "fracint_alpha", "interpolate", "detector"),
-        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude"),
+        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
+                     "band_per"),
     }
     params = (
         # The first four mirror wtmm2d's declarations exactly (dynamix/devices/wtmm.py) -- same
@@ -77,8 +84,8 @@ class WTMM2DROI:
         *SMOOTHER_PARAMS,
         # Mirrors wtmm2d's declaration: the ROI path APPLIES the lift (``run_wtmm2d_roi`` reads
         # ``resolved["fracint_alpha"]``), so the knob must be declared and carried here, or a
-        # parent tuned off the default silently loses it on every ROI child.
-        Param("fracint_alpha", ParamKind.FLOAT, default=1.0, min=-6.0, max=6.0,
+        # parent tuned off the default silently loses it on every ROI child. Default 0, as wtmm2d.
+        Param("fracint_alpha", ParamKind.FLOAT, default=0.0, min=-6.0, max=6.0,
               soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
         # Mirrors wtmm2d's subpixel/parity knob -- an ROI child must run the same
         # refinement its parent ran, or the two are different analyses (the shared-params law).
@@ -100,6 +107,12 @@ class WTMM2DROI:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        BAND_PER_PARAM,
+        # The cross-scale chainer, as on wtmm2d (not keyed at its default).
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
+              label="Chainer", keyed_at_default=False),
+        *CHAINING_OPTION_PARAMS,
         # The ROI + boundary knobs. min for roi_h/roi_w mirrors MIN_ROI_SIDE, the same floor
         # run_wtmm2d_roi enforces -- a sliver carries no multi-scale structure to measure.
         Param("roi_row", ParamKind.INT, default=0, min=0, max=1_000_000, label="ROI row"),
@@ -113,6 +126,7 @@ class WTMM2DROI:
         # Mirrors wtmm2d's Show: the raster drawn in place of the field. View-only.
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "modulus", "argument"), label="Show", view=True),
+        PRECISION_PARAM,
     )
 
     #: wtmm2d's per-scale output rows, on the ROI's own grid.
@@ -162,6 +176,9 @@ class WTMM2DROI:
             "dist2_max": params["dist2_max"],
             "box_ratio": params["box_ratio"],
             "similitude": params["similitude"],
+            "band_per": params["band_per"],
+            "chainer": params["chainer"],
+            **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
                              boundary=params["boundary"], progress=progress)
@@ -227,7 +244,7 @@ class WTMM2DROI:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """The sigma line beside the ``aₘᵢₙ`` knob, now with the analyzing wavelet's bandpass
@@ -235,11 +252,13 @@ class WTMM2DROI:
         see that docstring for the sigma/lambda reasoning) rather than imported -- it is a dozen
         lines with no shared state to drift out of sync, and importing a method off a sibling
         device for its side-effect-free body would be a stranger dependency than repeating it."""
+        if name == "similitude":
+            return chaining_reading(value, params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px
         from dynamix.core.wtmm_backend import compute_scales2d
-        from dynamix.shell.units import px_to_metres
+        from dynamix.core.units import px_to_metres
 
         finest = compute_scales2d(1, 1, a_min=float(value))[0]
         sigma = sigma_px(finest)

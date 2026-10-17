@@ -12,4 +12,8 @@ Source: ~/projects/Creep/wavelet at commit d73ba61 (2026-09-22). Copies are VERB
 - ``wtmm_ebsd/__init__.py`` imports only the modules copied here;
 - ``wtmm_ebsd/cwt2d.py`` guards its top-level ``import mlx.core`` (Windows has no mlx; the app
   then runs the transform on FFTW3 through dynamix.core.fft_policy).
+
+Trimmed (spec 09, 2026-10-15) to the modules the app loads; ``tests/test_vendored.py`` pins the
+survivors and ``tests/test_vendor_goldens.py`` pins what they compute. The whole copy is at the
+tag ``vendored-snapshot-2026-10``.
 """

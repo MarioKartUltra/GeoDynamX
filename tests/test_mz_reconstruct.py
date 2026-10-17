@@ -12,6 +12,9 @@ import pytest
 
 from dynamix.core import mz_edges as mz, mzlib
 
+#: Float64 identities and reconstruction gates: FFTW3 at 64-bit.
+pytestmark = pytest.mark.usefixtures("double_fft")
+
 DEM = pathlib.Path(__file__).resolve().parents[1] / "docs" / "demo" / "dem_crop.npz"
 
 
@@ -87,13 +90,15 @@ def test_every_mode_matches_pocs2d_on_the_spline(mode, field):
 
 def test_separable_rebuilds_its_operators_per_iteration_above_the_budget(monkeypatch):
     """Above the memory budget the P_Gamma operators are rebuilt every iteration instead of
-    cached: the same arithmetic, so the same image and residual trajectory."""
+    cached: the same arithmetic, so the same image and residual trajectory. Bit for bit on Apple's
+    BLAS; on x86 the matrix products round by memory layout, so the two differ in the last bits
+    (2.2e-15 on a ubuntu runner) and are compared to a few ulps."""
     v = _synthetic(); b = mz.analyze(v, 4)
     cached, dc = mz.reconstruct(v, b, n_iter=5)
     monkeypatch.setattr(mz, "_PGAMMA_BUDGET", 0)
     rebuilt, dr = mz.reconstruct(v, b, n_iter=5)
-    np.testing.assert_array_equal(rebuilt, cached)
-    assert dr["resid"] == dc["resid"]
+    np.testing.assert_allclose(rebuilt, cached, rtol=1e-12, atol=1e-14)
+    np.testing.assert_allclose(dr["resid"], dc["resid"], rtol=1e-12)
 
 
 @pytest.mark.parametrize("field", FIELDS)

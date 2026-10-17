@@ -54,7 +54,7 @@ import functools
 import numpy as np
 
 # Every FFT TRANSFORM goes through the app-wide engine policy (mlx or FFTW3 at the
-# configured 32/64-bit precision, never numpy's FFT by default).
+# configured 32/64-bit precision).
 from dynamix.core.fft_policy import active as _fft  # noqa: E402
 
 __all__ = [

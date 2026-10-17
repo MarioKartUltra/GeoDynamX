@@ -50,12 +50,18 @@ mac = ["mlx>=0.20"]
 # ceiling when a release restores the wheel.
 io = ["rasterio>=1.4,<1.5.2", "Pillow>=10"]
 
+# The .gprv provenance records written beside every export (dynamix.engine.gprv_export): the gprv
+# library of GeoDynamX-Provenance, pure Python, pinned to its release tag.
+provenance = ["gprv @ git+https://github.com/MarioKartUltra/GeoDynamX-Provenance@v0.2.0"]
+
 # HDF4 (ASTER-class HDF-EOS2) via pyhdf, lazily imported by core/ingest and roi/picture.
-# <0.11.7: that release's macOS wheels are tagged macosx_26_0, so on older macOS pip skips
-# them and falls back to the sdist, which compiles libhdf4 at install time. 0.11.6 ships
-# macosx_14_0 arm64 + win_amd64 wheels (a macOS wheel tag is a MINIMUM, so it installs on
-# every newer macOS too). Raise the ceiling when a release restores lower tags.
-hdf4 = ["pyhdf>=0.11.6,<0.11.7"]
+# <0.11.7 off Windows: that release's macOS wheels are tagged macosx_26_0 and its Linux wheels
+# manylinux_2_28, so older systems skip them and fall back to the sdist, which compiles libhdf4 at
+# install time; 0.11.6 ships macosx_14_0 arm64 and manylinux2014 wheels (a wheel tag is a MINIMUM,
+# so they install on every newer system too). >=0.11.7 on Windows: 0.11.6's win_amd64 wheel ships
+# _hdfext without the HDF4, jpeg, zlib and xdr DLLs it links ("DLL load failed"); 0.11.7 bundles
+# them in pyhdf.libs/. Raise the ceiling when a release restores lower tags.
+hdf4 = ["pyhdf>=0.11.6,<0.11.7; sys_platform != 'win32'", "pyhdf>=0.11.7; sys_platform == 'win32'"]
 
 # The arrangement (session/arrangement Tab-flip) view: a VTK surface via pyvista/pyvistaqt.
 # Lazily imported behind dynamix.shell.arrangement.view._import_pyvista -- absent, the Tab flip
@@ -70,7 +76,7 @@ gui = ["PySide6>=6.5", "pyqtgraph>=0.13", "matplotlib>=3.8"]
 
 # pytest-qt for the shell test suite; ipython for `python -m dynamix.devloop --ipython`
 # (%gui qt + %autoreload 2, guarded — devloop.py prints a clear message and exits if it's absent).
-dev = ["pytest>=8", "pytest-qt", "ipython"]
+dev = ["pytest>=8", "pytest-qt", "ipython", "import-linter>=2.0", "jsonschema>=4", "ruff>=0.6"]
 
 # No [cuda] extra: CUDA is deferred, and declaring one that installs nothing would be a lie in the
 # packaging metadata.
@@ -81,7 +87,9 @@ catalog = ["pyyaml>=6.0"]
 # GeoDynamix_Beta: everything the app needs, in one extra -- `pip install -e ".[app]"`.
 app = ["numba>=0.60", "scipy>=1.11", "PyWavelets>=1.8", "rasterio>=1.4,<1.5.2", "Pillow>=10", "PySide6>=6.5",
        "pyqtgraph>=0.13", "matplotlib>=3.8", "pyvista>=0.44", "pyvistaqt>=0.11",
-       "pyhdf>=0.11.6,<0.11.7"]   # same pin as the hdf4 extra, for the same reason
+       "pyhdf>=0.11.6,<0.11.7; sys_platform != 'win32'",   # the hdf4 extra's pins, for its reasons
+       "pyhdf>=0.11.7; sys_platform == 'win32'",
+       "gprv @ git+https://github.com/MarioKartUltra/GeoDynamX-Provenance@v0.2.0"]
 
 # The vendored `wtmm` package's own optional features (its NN and dataset helpers), lazily
 # imported and never used by the app -- declared honestly, installed only on request.
@@ -93,5 +101,90 @@ package-dir = { "" = "src" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+dynamix = ["shell/themes/*.json", "shell/themes/assets/*/*.svg"]
+
+[tool.ruff]
+# Spec 10: 88 columns, black-compatible; the verbatim copies and the vendored packages are never formatted
+# or checked, since their own tests pin their bytes. Findings are reported, never build-failing.
+line-length = 88
+exclude = ["src/dynamix/_vendor", "src/dynamix/core/selection.py", "src/dynamix/core/partition.py",
+           "src/dynamix/core/modality.py", "src/dynamix/core/fftbackend.py", "src/dynamix/core/mzlib.py"]
+
+[tool.ruff.lint]
+# E, F, I: errors, pyflakes, import order; D: docstrings, NumPy style; ANN: type hints on public
+# functions (private helpers and *args/**kwargs left alone); BLE001: blind except Exception.
+select = ["E", "F", "I", "D", "ANN", "BLE001"]
+ignore = ["ANN202", "ANN204", "ANN401", "D1", "D203", "D213", "D401", "D413", "E501"]
+per-file-ignores = { "tests/*" = ["D", "ANN"], "docs/*" = ["D", "ANN"] }
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "pyvista: builds a pyvista scene; pyvista's teardown segfaults offscreen on some machines, so these run only in the allowed-to-fail CI job",
+]
+
+# The layering gate (`lint-imports`, run by CI): the layer order the code has, no Qt below the shell,
+# no geopandas/shapely outside a GeoPackage export module, the vendored packages reached only from core.
+# Every ignore is a lazy import kept on purpose, with its reason.
+[tool.importlinter]
+root_package = "dynamix"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Layers: shell over devices over engine over geo, roi, model, topology, core"
+type = "layers"
+layers = [
+    "dynamix.shell",
+    "dynamix.devices",
+    "dynamix.engine",
+    "dynamix.geo",
+    "dynamix.roi",
+    "dynamix.model",
+    "dynamix.topology",
+    "dynamix.core",
+]
+ignore_imports = [
+    # engine resolves one filter by name; the registry lookup belongs one layer up (a later spec)
+    "dynamix.engine.resolve -> dynamix.devices.filters",
+    # core.bus reads pictures and HDF4 through roi helpers; moving them into core is a later spec
+    "dynamix.core.bus -> dynamix.roi.picture",
+    "dynamix.core.bus -> dynamix.roi.runner",
+    # the device registry lookup belongs one layer up (a later spec)
+    "dynamix.core.wavelet_profiles -> dynamix.model.device",
+    # inpainting asks geo whether a field is georeferenced; a core-level predicate is a later spec
+    "dynamix.core.inpaint.grid -> dynamix.geo.mapping",
+]
+
+[[tool.importlinter.contracts]]
+name = "No Qt, pyvista or pyqtgraph below the shell"
+type = "forbidden"
+source_modules = [
+    "dynamix.core", "dynamix.devices", "dynamix.engine", "dynamix.model", "dynamix.roi", "dynamix.geo",
+    "dynamix.topology",
+]
+forbidden_modules = ["PySide6", "pyvista", "pyvistaqt", "pyqtgraph"]
+
+[[tool.importlinter.contracts]]
+name = "geopandas and shapely only in a GeoPackage export module"
+type = "forbidden"
+source_modules = ["dynamix"]
+forbidden_modules = ["geopandas", "shapely"]
+
+[[tool.importlinter.contracts]]
+name = "The vendored packages are imported only by core, lazily"
+type = "forbidden"
+source_modules = [
+    "dynamix.shell", "dynamix.devices", "dynamix.engine", "dynamix.model", "dynamix.roi", "dynamix.geo",
+    "dynamix.topology",
+]
+forbidden_modules = ["dynamix._vendor"]
+# direct imports only: every layer reaches the vendored code through core's lazy imports, by design
+allow_indirect_imports = true
+ignore_imports = [
+    # the chain-filter devices call the vendored OLS Holder and length filters directly (spec 09 ports them)
+    "dynamix.devices.chain_filters -> dynamix._vendor.wtmm_ebsd.chain_filters",
+]

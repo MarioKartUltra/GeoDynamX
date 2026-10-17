@@ -10,7 +10,9 @@ from __future__ import annotations
 import numpy as np
 
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
-from dynamix.model.device import Output
+from dynamix.model.device import Output, keyed_params
+from dynamix.model.origin import XSMURF_DERIVED
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
 #: The params a per-scale output reads: the scale grid, the wavelet, the lift and the detector
@@ -55,6 +57,56 @@ def smoother_params(params: dict) -> dict | None:
     return {key: float(params.get(name, default))}
 
 
+#: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
+#: Spec 14's chaining options (``dynamix.core.chaining.OPTION_DEFAULTS``), off by default
+#: (xsmurf's behaviour), in the inspector's advanced section, out of the key at their defaults.
+CHAINING_OPTION_PARAMS = (
+    Param("angle_test", ParamKind.BOOL, default=False, label="Angle test", level="advanced",
+          keyed_at_default=False),
+    Param("angle_threshold", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0, soft_min=0.5,
+          soft_max=0.95, label="Angle similarity", level="advanced", keyed_at_default=False,
+          active_when=("angle_test", (True,))),
+    Param("radius_rule", ParamKind.CHOICE, default="xsmurf",
+          choices=("xsmurf", "scale_proportional"), choice_labels=("xsmurf box", "∝ scale"),
+          label="Search radius", level="advanced", keyed_at_default=False),
+    Param("radius_c", ParamKind.FLOAT, default=1.0, min=0.01, max=100.0, soft_min=0.5,
+          soft_max=4.0, label="Radius c", level="advanced", keyed_at_default=False,
+          active_when=("radius_rule", ("scale_proportional",))),
+    Param("tie_break", ParamKind.CHOICE, default="distance", choices=("distance", "modulus"),
+          choice_labels=("closer wins (xsmurf)", "modulus closer"), label="Tie-break",
+          level="advanced", keyed_at_default=False),
+    Param("border_policy", ParamKind.CHOICE, default="none",
+          choices=("none", "coi_trim", "coi_drop"),
+          choice_labels=("none (xsmurf)", "trim at COI", "drop at COI"), label="Border",
+          level="advanced", keyed_at_default=False),
+    Param("coi_k", ParamKind.FLOAT, default=2.0, min=0.1, max=10.0, soft_min=1.0, soft_max=4.0,
+          label="COI k", level="advanced", keyed_at_default=False,
+          active_when=("border_policy", ("coi_trim", "coi_drop"))),
+)
+
+BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
+                       choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
+
+
+def chaining_reading(similitude: float, params: dict) -> str:
+    """The two lines beside the similitude knob: the largest Hölder exponent a chain can carry
+    through the band at these voices, η and band mode (``chainable_h`` gives the lower limit
+    too), and the largest h the analyzing wavelet resolves, h < n_ψ (its vanishing moments; the
+    smoother knob names ψ). Two different limits: a chain may carry an h the wavelet cannot
+    measure. Short enough for the strip's fixed column."""
+    from dynamix.core.smoothers import smoother
+    from dynamix.core.wtmm_backend import chainable_h
+
+    wavelet = params.get("wavelet", "mexican")
+    sm = smoother(wavelet, smoother_params(params))
+    resolves = f"ψ resolves h<{sm.vanishing_moments}"
+    span = chainable_h(float(similitude), int(params.get("n_voice", 4)),
+                       float(params.get("fracint_alpha", 0.0)), params.get("band_per", "voice"))
+    if span is None:
+        return f"every h chains\n{resolves}"
+    return f"chains h<{span[1]:.2f}\n{resolves}"
+
+
 class WTMM2D:
     """Wavelet Transform Modulus Maxima over a 2-D field.
 
@@ -64,7 +116,11 @@ class WTMM2D:
     """
 
     name = "wtmm2d"
+    capabilities = frozenset({"Cancellable", "OutputProducer", "Previewable", "RegionAware", "StripExtras", "Viewable"})
+    role = "primary"
+    chain_producer = True
     label = "WTMM 2D"
+    origin = XSMURF_DERIVED
     families = ("Edge detection", "Regularity")
     consumes = ((FIELD,),)
     produces = (EXTREMA, VCHAINS)
@@ -86,7 +142,8 @@ class WTMM2D:
     param_groups = {
         "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "n_oct", "n_voice", "smooth", "dither",
                 "fracint_alpha", "interpolate", "detector"),
-        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude"),
+        "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
+                     "band_per"),
     }
     params = (
         Param("n_oct", ParamKind.INT, default=3, min=1, max=12, label="Octaves"),
@@ -102,10 +159,11 @@ class WTMM2D:
         Param("dither", ParamKind.BOOL, default=False, label="Dither (±½ LSB)"),
         # Pseudo-fractional integration order η (Wendt 2009; available
         # on the scalar path too, not only tensor) -- the per-scale a**η modulus lift applied
-        # right after the cached cwt stage (``wtmm_backend._apply_fracint2d``). Default 1.0 is
-        # the reference EBSD pipeline's own; 0 turns the lift off entirely. The spectrum window
-        # seeds its η shift-back from this value, so what is lifted forward is undone at the fit.
-        Param("fracint_alpha", ParamKind.FLOAT, default=1.0, min=-6.0, max=6.0,
+        # right after the cached cwt stage (``wtmm_backend._apply_fracint2d``). Default 0: no
+        # lift, so a chain's slope is its Hölder exponent; 1.0 is the reference EBSD pipeline's
+        # value. The spectrum window seeds its η shift-back from this value, so what is lifted
+        # forward is undone at the fit; the chain-Hölder filter reads the lifted slope (h + η).
+        Param("fracint_alpha", ParamKind.FLOAT, default=0.0, min=-6.0, max=6.0,
               soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
         # Parabolic refinement of each NMS maximum along its gradient direction, for xsmurf
         # parity (dynamix.core.subpixel) -- the refined MODULUS replaces mod (the xsmurf
@@ -143,11 +201,20 @@ class WTMM2D:
               soft_min=0.5, soft_max=2.0, units="", label="Box ratio"),
         Param("similitude", ParamKind.FLOAT, default=0.8, min=0.0, max=1.0,
               soft_min=0.5, soft_max=0.95, units="", label="Similitude"),
+        BAND_PER_PARAM,
+        # The cross-scale chainer (dynamix.core.chaining): the benchmark, xsmurf's vchain port,
+        # by default; not keyed at that default, so every recipe keyed before the knob existed
+        # keeps its key.
+        Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
+              label="Chainer", keyed_at_default=False),
+        *CHAINING_OPTION_PARAMS,
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
         Param("show", ParamKind.CHOICE, default="edges",
               choices=("edges", "modulus", "argument"), label="Show", view=True),
+        PRECISION_PARAM,
     )
 
     #: The layer panel's output rows, a radio over ``show``, off by default: the lifted
@@ -195,6 +262,9 @@ class WTMM2D:
                 "fracint_alpha": params["fracint_alpha"],
                 "interpolate": params["interpolate"],
                 "detector": params["detector"],
+                "band_per": params["band_per"],
+                "chainer": params["chainer"],
+                **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
             },
             progress=progress,
             cancel=cancel,
@@ -261,7 +331,7 @@ class WTMM2D:
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
-                 "similitude")
+                 "similitude", "band_per", "chainer")
 
     def roi_margin(self, params: dict) -> int:
         """The coarsest scale's halo (``halo_margin``, the measured 2.5 x normalized scale) --
@@ -321,7 +391,7 @@ class WTMM2D:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """The sigma line beside the ``aₘᵢₙ`` knob, now with the analyzing wavelet's bandpass
@@ -331,11 +401,13 @@ class WTMM2D:
         backwards (see ``scale_units``' docstring). ``None`` for every other param: a derived
         reading explains a knob whose face value is not itself physical, not a general per-param
         annotation mechanism."""
+        if name == "similitude":
+            return chaining_reading(value, params or {})
         if name != "a_min":
             return None
         from dynamix.core.scale_units import lambda_peak_px, sigma_px
         from dynamix.core.wtmm_backend import compute_scales2d
-        from dynamix.shell.units import px_to_metres
+        from dynamix.core.units import px_to_metres
 
         finest = compute_scales2d(1, 1, a_min=float(value))[0]
         sigma = sigma_px(finest)

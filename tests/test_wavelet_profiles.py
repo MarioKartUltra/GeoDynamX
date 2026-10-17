@@ -126,6 +126,10 @@ def test_cdf_profiles_are_the_ricker_or_the_gaussian_derivative_at_sigma():
     mz = wp.cdf_profile("mz", 4.0)
     assert mz.lambda_px == pytest.approx(2 * np.pi * 4.0, rel=1e-3)
     assert np.allclose(mz.psi, -mz.psi[::-1], atol=1e-9)
+    # The kernels are the linear evolution's equivalent kernels at small θ, in the cross-diffusion
+    # papers' terms: v the edge detector, u the filtered image.
+    assert "equivalent kernel" in marr.family and "v" in marr.family and "small θ" in marr.family
+    assert "equivalent kernel" in mz.family and "u" in mz.family
 
 
 def test_dwt_bank_levels_scale_by_two_and_level_one_is_off_ladder():
@@ -326,7 +330,7 @@ def test_a_plane_wave_peaks_where_the_registry_lambda_reads_its_wavelength(name,
     wave = np.cos(2 * np.pi * x / L) + 0.05 * np.cos(2 * np.pi * y / 61.0)
     scales = compute_scales2d(4, 8)
     out = PythonWTMMBackend().cwt2d(wave, scales, wavelet=name, smoother_params=params,
-                                    _engine="numpy")
+                                    _engine="fftw")
     strengths = out["mod"].reshape(len(scales), -1).mean(axis=1)
     a = float(scales[int(np.argmax(strengths))])
     assert lambda_peak_px(a, name, 1, params=params) == pytest.approx(L, rel=2 ** (1 / 8) - 1 + 0.05)

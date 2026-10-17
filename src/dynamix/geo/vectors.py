@@ -147,14 +147,14 @@ def read_shapefile(path) -> VectorLayer:
     cpg = path.with_suffix(".cpg")
     if not cpg.is_file():
         cpg = path.with_suffix(".CPG")
-    encoding = cpg.read_text(errors="replace").strip() if cpg.is_file() else "latin-1"
+    encoding = cpg.read_text(errors="replace", encoding="utf-8").strip() if cpg.is_file() else "latin-1"
     try:
         "x".encode(encoding)
     except LookupError:
         encoding = "latin-1"
     names, rows = _read_dbf(path.with_suffix(".dbf"), encoding)
     prj = path.with_suffix(".prj")
-    crs = prj.read_text(errors="replace").strip() if prj.is_file() else ""
+    crs = prj.read_text(errors="replace", encoding="utf-8").strip() if prj.is_file() else ""
     features = [Feature(parts=g, attrs=(rows[i] if i < len(rows) else {}))
                 for i, g in enumerate(geoms) if g]
     return VectorLayer(name=path.stem, kind=kind, crs=crs, features=features,

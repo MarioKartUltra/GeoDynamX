@@ -98,7 +98,7 @@ def test_param_order_choices_and_view_only_knobs(builtins):
                                             "clip", "run_mode", "iterations", "tolerance",
                                             "coarse", "mode", "recon_levels", "per_level",
                                             "near_radius", "alpha_check", "alpha_tol",
-                                            "alpha_fallback", "show"]
+                                            "alpha_fallback", "show", "precision"]
     assert by["show"].choices == ("edges", "coarse", "thumbnail", "recon", "recon_edges_only",
                                   "residual", "modulus", "argument")
     assert by["show"].default == "edges"

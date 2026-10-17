@@ -28,6 +28,8 @@ from dynamix.shell.arrangement.scene import Scene
 from tests.test_arrangement_scene import _geo_field, _make_chain, _make_extrema0, _plotter, _result
 from tests.test_geo_mapping import _BOEM_LIKE_WKT, _NORTH_FT, _PX_FT, _WEST_FT
 
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
+
 # --------------------------------------------------------------------------------- Scene.set_mask
 
 

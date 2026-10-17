@@ -75,8 +75,8 @@ def test_a_cdf_layer_gets_a_collapsed_outputs_group_and_a_bare_dataset_none(win,
     group = item.child(0)
     assert group is panel._output_groups[child.layer_id]
     assert group.text(0) == "Outputs" and not group.isExpanded()
-    assert _row_names(panel, child.layer_id) == ["edges", "filtered", "edge channel",
-                                                 "Re at σ", "Im at σ"]
+    assert _row_names(panel, child.layer_id) == ["edges", "u (filtered)", "v (edge detector)",
+                                                 "u at σ", "v at σ"]
     for i in range(group.childCount()):
         assert group.child(i).data(0, _LAYER_ID_ROLE) is None     # never a layer row
     assert group.data(0, _LAYER_ID_ROLE) is None
@@ -333,8 +333,8 @@ def test_the_outputs_group_follows_chain_edits(win, qtbot):
     desc[0]["bypassed"] = False
     win._on_chain_edited(desc)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
-    assert _row_names(panel, lid) == ["edges", "filtered", "edge channel", "Re at σ",
-                                      "Im at σ"]
+    assert _row_names(panel, lid) == ["edges", "u (filtered)", "v (edge detector)", "u at σ",
+                                      "v at σ"]
     assert not _hidden(panel, lid, "filtered")                   # rebuilt from the chain
 
 
@@ -354,9 +354,9 @@ def test_the_devices_declare_their_outputs():
 
     cdf = declared_outputs(CDFEdges())
     assert [(o.name, o.kind, o.lazy, o.label) for o in cdf] == [
-        ("edges", "vector", False, "edges"), ("filtered", "raster", False, "filtered"),
-        ("edge_channel", "raster", False, "edge channel"),
-        ("re_scale", "raster", True, "Re at σ"), ("im_scale", "raster", True, "Im at σ"),
+        ("edges", "vector", False, "edges"), ("filtered", "raster", False, "u (filtered)"),
+        ("edge_channel", "raster", False, "v (edge detector)"),
+        ("re_scale", "raster", True, "u at σ"), ("im_scale", "raster", True, "v at σ"),
         ("snapshots", "raster", True, "snapshots")]
     pm = declared_outputs(PMEdges())
     assert [(o.name, o.kind, o.lazy) for o in pm] == [

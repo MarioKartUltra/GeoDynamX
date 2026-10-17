@@ -48,7 +48,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import chain_groups, spectra
 from dynamix.shell.multifractal_window import Q_COLD, Q_WARM, TABLE_CHOICES
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current
 
 __all__ = ["SpectrumWindow"]
 
@@ -272,7 +272,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             w.setEnabled(has_hd)
 
         self._forward_label = QtWidgets.QLabel(forward_note)
-        self._forward_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._forward_label.setStyleSheet(f"color: {current().ink_muted};")
         controls.addStretch(1)
         controls.addWidget(self._forward_label)
         layout.addLayout(controls)
@@ -324,7 +324,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             self.select_views_check.setChecked(True)
             group.addWidget(self.select_views_check)
             self._gcount_label = QtWidgets.QLabel("")
-            self._gcount_label.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+            self._gcount_label.setStyleSheet(f"color: {current().ink_muted};")
             group.addWidget(self._gcount_label)
             group.addStretch(1)
             layout.addLayout(group)
@@ -338,24 +338,24 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._group_controls = [self._gscale_spin]
 
         self._glw = pg.GraphicsLayoutWidget()
-        self._glw.setBackground(RESTRAINED_DARK.ground)
+        self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
         self._plot = self._glw.addPlot()
         self._plot.setLabel("bottom", "h")
         self._plot.setLabel("left", "D(h)")
         self._legend = self._plot.addLegend(offset=(10, 10))
 
-        muted = pg.mkPen(RESTRAINED_DARK.ink_muted)
+        muted = pg.mkPen(current().ink_muted)
         self._d_line = pg.InfiniteLine(
             angle=0, pos=2.0, movable=False,
-            pen=pg.mkPen(RESTRAINED_DARK.ink_muted, style=QtCore.Qt.DashLine))
+            pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine))
         self._plot.addItem(self._d_line)
         self._canon_err = pg.ErrorBarItem(pen=muted, beam=0.01)
         self._plot.addItem(self._canon_err)
         # Items carry no name of their own: the legend lists what is drawn (_sync_legend).
         self._canon_curve = pg.PlotDataItem(
             pen=None, symbol="o", symbolSize=6, symbolPen=None,
-            symbolBrush=RESTRAINED_DARK.ink)
+            symbolBrush=current().ink)
         self._plot.addItem(self._canon_curve)
         self._hull_curve = pg.PlotDataItem(
             pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine, width=1.6), connect="finite")
@@ -368,7 +368,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._plot.addItem(self._hist_curve)
         self._scale_curves: list = []
         self._gh_curve = pg.PlotDataItem(pen=None, symbol="d", symbolSize=5, symbolPen=None,
-                                         symbolBrush=RESTRAINED_DARK.amber)
+                                         symbolBrush=current().amber)
         self._plot.addItem(self._gh_curve)
         self._box_err = pg.ErrorBarItem(pen=pg.mkPen(Q_WARM), beam=0.0)
         self._plot.addItem(self._box_err)
@@ -388,7 +388,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             (self._dom_curve, lambda: "dominant chains"),
             (self._non_curve, lambda: "non-dominant chains")]
         self._update_hist_items()
-        self._peak_text = pg.TextItem(color=RESTRAINED_DARK.ink, anchor=(0.5, 1.2))
+        self._peak_text = pg.TextItem(color=current().ink, anchor=(0.5, 1.2))
         self._plot.addItem(self._peak_text)
 
         from dynamix.shell.window_fit import fit_to_screen, remember_geometry
@@ -587,7 +587,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         hd = self._current_hd()
         q_list = np.asarray(hd["q_list"], dtype=np.float64)
         lo, hi = float(self._lo_spin.value()), float(self._hi_spin.value())
-        sup = self._table_combo.currentText() == TABLE_CHOICES[0]
+        sup = self._table_combo.currentText() == "sup (cmax)"
         for curve, mask in ((self._dom_curve, dom), (self._non_curve, ~dom)):
             if not mask.any():
                 curve.setData([], [])

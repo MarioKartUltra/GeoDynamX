@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+import os
+import sys
+
 import numpy as np
 import pytest
 
@@ -64,6 +67,31 @@ def stub_filter():
     return StubFilter()
 
 
+def make_field(values=None, shape=(64, 56)):
+    """A pixel-framed RasterField: ``values`` or a fixed-seed random walk of ``shape``."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    if values is None:
+        values = np.random.default_rng(0).standard_normal(shape).cumsum(0).cumsum(1)
+    return RasterField(name="f", values=values, frame=LocalFrame(units="px"),
+                       x_axis=np.arange(float(values.shape[1])),
+                       y_axis=np.arange(float(values.shape[0])))
+
+
+def make_layer(*steps, window=None):
+    """A layer whose chain is ``steps`` (``(device id, params)`` pairs), materialized; ``window``
+    is an ROI window tag."""
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    chain = Chain(tuple(DeviceRef(n, dict(p)) for n, p in steps)).materialized()
+    layer = Layer(layer_id=1, name="L", source_id="s", chain=chain)
+    if window is not None:
+        layer.tags["roi.window"] = window
+    return layer
+
+
 @pytest.fixture(autouse=True)
 def _registry_leak_guard():
     """Detect tests that leave DEVICES dirty without requesting clean_registry."""
@@ -81,14 +109,22 @@ def _registry_leak_guard():
 
 @pytest.fixture
 def clean_registry():
-    """Empty device registry, restored afterwards. Registration is global state."""
+    """Empty device registry, restored afterwards. Registration is global state, and so are the
+    plugin origins and the once-per-process discovery memo beside it."""
+    from dynamix.model import plugins
     from dynamix.model.device import DEVICES
 
-    saved = dict(DEVICES)
+    saved, origins, found = dict(DEVICES), dict(plugins.ORIGINS), dict(plugins._DISCOVERED)
     DEVICES.clear()
+    plugins.ORIGINS.clear()
+    plugins._DISCOVERED.clear()
     yield DEVICES
     DEVICES.clear()
     DEVICES.update(saved)
+    plugins.ORIGINS.clear()
+    plugins.ORIGINS.update(origins)
+    plugins._DISCOVERED.clear()
+    plugins._DISCOVERED.update(found)
 
 
 @pytest.fixture(autouse=True)
@@ -114,10 +150,120 @@ def _dynamix_settings_isolated(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fft_policy_reset():
-    """The FFT engine policy is process-global (fft_policy.configure also re-points mzlib's
-    FFT); a MainWindow applies Settings at startup -- put the unconfigured default back after
-    every test so no test leaks an engine/precision into the next."""
+    """The FFT engine policy is process-global (mzlib's FFT follows it); a MainWindow applies
+    Settings at startup -- put the unconfigured default back after every test so no test
+    leaks an engine/precision into the next."""
     yield
     from dynamix.core import fft_policy
 
     fft_policy.reset()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _warm_numba_kernels():
+    """Compile the M–Z (LastWave) numba kernels once, on the main thread, before the first test.
+
+    They compile lazily on first use (``cache=True``). A Qt test whose worker thread was the first
+    to reach them sat inside numba's compiler while the main thread polled the event loop, and the
+    offscreen gate stalled there; one headless resolve of the recon preview here puts the compile
+    ahead of every test, and the session pays it once instead of inside a worker.
+    """
+    import numpy as np
+
+    from dynamix.core import fft_policy
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve, resolve_output
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.device import DEVICES
+    from dynamix.model.layer import Layer
+
+    saved = dict(DEVICES)
+    DEVICES.clear()
+    try:
+        register_builtin_devices()
+        values = np.random.default_rng(0).standard_normal((64, 56)).cumsum(0).cumsum(1)
+        field = RasterField(name="warm", values=values, frame=LocalFrame(units="px"),
+                            x_axis=np.arange(float(values.shape[1])),
+                            y_axis=np.arange(float(values.shape[0])))
+        chain = Chain((DeviceRef("mz_edges", {"n_levels": 3, "iterations": 2,
+                                               "run_mode": "fixed"}),)).materialized()
+        layer = Layer(layer_id=1, name="warm", source_id="warm", chain=chain)
+        cache = Cache()
+        resolve(layer, field, cache)
+        resolve_output(layer, field, cache, "recon_preview")
+    finally:
+        DEVICES.clear()
+        DEVICES.update(saved)
+        fft_policy.reset()
+
+
+@pytest.fixture
+def double_fft():
+    """FFTW3 at 64-bit for a test that asserts float64 identities (round trips, exact
+    reconstruction): the unconfigured policy runs at 32-bit, as the app does by default."""
+    from dynamix.core import fft_policy
+
+    fft_policy.configure("fftw", 64)
+    yield
+
+
+# --------------------------------------------------------------------- leaving a Qt or VTK session
+
+def pytest_runtest_logreport(report):
+    """On CI, a failure's traceback is printed when it happens: a native crash later in the run
+    ends the process before pytest's summary, and with it every traceback the summary would hold."""
+    if report.failed and os.environ.get("CI"):
+        sys.stderr.write(f"\n--- {report.nodeid} ({report.when}) failed ---\n{report.longreprtext}\n")
+        sys.stderr.flush()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    session.config._session_exitstatus = int(exitstatus)
+
+
+@pytest.hookimpl(wrapper=True, tryfirst=True)
+def pytest_unconfigure(config):
+    """Once pytest is done, a session that loaded Qt or VTK leaves with pytest's own status rather
+    than through the interpreter's teardown: Qt and VTK objects still alive there are destroyed out
+    of order ("pure virtual method called", an abort after every test had passed on ubuntu)."""
+    result = yield
+    status = getattr(config, "_session_exitstatus", None)
+    if status is not None and ({"PySide6", "vtkmodules"} & set(sys.modules)):
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(status)
+    return result
+
+
+@pytest.fixture(autouse=True)
+def _collect_on_the_main_thread():
+    """In a session that loaded Qt, no collection starts during a test, where a compute worker could
+    trip one and free a Qt object off its thread (dynamix.shell.gc_guard does the same for the
+    app). Once a Qt application exists, each test's garbage is collected whole at its own end, on
+    the main thread: a generational collection left some of a test's Qt and VTK objects to a later
+    test's teardown, and freeing them there aborted on ubuntu. Without an application (a headless
+    session that only imported Qt) the collector's own thresholds decide, since a full collection
+    after every headless test slowed that gate by half."""
+    if "PySide6" not in sys.modules:
+        yield
+        return
+    import gc
+
+    was = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        from PySide6 import QtCore
+
+        if QtCore.QCoreApplication.instance() is not None:
+            gc.collect()
+        else:
+            _c0, c1, c2 = gc.get_count()
+            _t0, t1, t2 = gc.get_threshold()
+            gc.collect(2 if c2 > t2 else 1 if c1 > t1 else 0)
+        if was:
+            gc.enable()

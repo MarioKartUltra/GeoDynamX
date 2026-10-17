@@ -89,3 +89,102 @@ def test_row_toggles_read_black_at_rest_and_white_when_set():
     assert f"background: {t.toggle_set};" in checked.group(1)
     assert f"color: {t.toggle_rest};" in checked.group(1)
     assert (t.toggle_rest, t.toggle_set) == ("#000000", "#ffffff")
+
+
+# --------------------------------------------------------------------------- theme as data
+
+
+def _written(tmp_path, **changes):
+    import dataclasses
+    import json
+
+    d = dataclasses.asdict(RESTRAINED_DARK)
+    for k, v in changes.items():
+        if v is None:
+            d.pop(k)
+        else:
+            d[k] = v
+    p = tmp_path / "t.json"
+    p.write_text(json.dumps(d), encoding="utf-8")
+    return p
+
+
+def test_restrained_dark_json_is_todays_theme():
+    from dynamix.shell.theme import bundled_themes
+
+    t = Theme.from_json(bundled_themes()["restrained_dark"])
+    assert t == RESTRAINED_DARK
+    assert generate_qss(t) == generate_qss(RESTRAINED_DARK)
+
+
+def test_every_bundled_theme_passes_the_contrast_check():
+    from dynamix.shell.theme import bundled_themes, contrast
+
+    themes = bundled_themes()
+    assert {"restrained_dark", "mid_grey", "light"} <= set(themes)
+    for name, path in themes.items():
+        t = Theme.from_json(path)
+        assert t.name == name
+        assert contrast(t.ink, t.panel) >= 4.5 and contrast(t.ink_muted, t.panel) >= 4.5, name
+
+
+def test_a_missing_role_names_itself(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="ink_muted"):
+        Theme.from_json(_written(tmp_path, ink_muted=None))
+
+
+def test_an_unknown_key_names_itself(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="glow"):
+        Theme.from_json(_written(tmp_path, glow="#000000"))
+
+
+def test_too_little_contrast_is_refused(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="4.5"):
+        Theme.from_json(_written(tmp_path, ink="#777777", panel="#666666"))
+
+
+def test_a_colour_that_is_not_rrggbb_names_its_role(tmp_path):
+    import pytest
+
+    with pytest.raises(ValueError, match="ink"):
+        Theme.from_json(_written(tmp_path, ink="e6e6e6"))
+
+
+def test_the_canvas_chrome_roles_ship_in_every_theme():
+    import re
+
+    from dynamix.shell.theme import bundled_themes
+
+    for name, path in bundled_themes().items():
+        t = Theme.from_json(path)
+        for role in ("roi", "lasso", "scale_bar", "surround"):
+            assert re.fullmatch(r"#[0-9a-f]{6}", getattr(t, role)), (name, role)
+    assert RESTRAINED_DARK.roi == RESTRAINED_DARK.amber      # orange stays the default
+    assert RESTRAINED_DARK.surround == "#000000"            # pyqtgraph's black stays the default
+
+
+def test_the_qss_references_svg_assets_that_exist():
+    import re
+
+    from dynamix.shell.theme import bundled_themes
+
+    for name, path in bundled_themes().items():
+        qss = generate_qss(Theme.from_json(path))
+        urls = re.findall(r'url\("([^"]+)"\)', qss)
+        assert len(urls) >= 3, name                          # the checkbox faces and the combo arrow
+        for url in urls:
+            assert url.endswith(".svg") and f"/assets/{name}/" in url, url
+            assert __import__("pathlib").Path(url).is_file(), url
+
+
+def test_package_data_ships_the_themes():
+    import pathlib
+
+    text = (pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    assert "shell/themes/*.json" in text and "shell/themes/assets/*/*.svg" in text

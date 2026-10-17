@@ -36,7 +36,7 @@ def test_registered_as_a_builtin_transform(clean_registry):
 def test_param_surface():
     params = {p.name: p for p in WaveletSkeleton.params}
     assert list(params) == ["s1", "s2", "t_frac", "edge_frac", "n_stages", "input",
-                            "wavelet", "pair_dom"]
+                            "wavelet", "pair_dom", "precision"]
     assert params["s1"].default == 6.0 and params["s2"].default == 6.0
     assert params["n_stages"].default == 2
     assert params["s1"].units == "px"            # scales-in-pixels law

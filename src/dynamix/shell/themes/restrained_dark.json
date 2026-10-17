@@ -1,0 +1,23 @@
+{
+  "name": "restrained_dark",
+  "ground": "#131313",
+  "zone": "#191919",
+  "panel": "#1d1d1d",
+  "raised": "#272727",
+  "border": "#303030",
+  "ink": "#e6e6e6",
+  "ink_muted": "#a0a0a0",
+  "amber": "#ffa028",
+  "error": "#ff5c5c",
+  "seam": "#ff7043",
+  "selection_accent": "#ffc107",
+  "roi": "#ffa028",
+  "lasso": "#ffc107",
+  "scale_bar": "#e6e6e6",
+  "surround": "#000000",
+  "toggle_rest": "#000000",
+  "toggle_set": "#ffffff",
+  "sans_family": "Helvetica Neue",
+  "mono_family": "Menlo",
+  "base_pt": 11
+}

@@ -76,12 +76,15 @@ def test_an_fbm_reads_the_same_h2_with_every_smoother(wavelet, knob, reference):
     on the same field: the gradient smoothers against the Gaussian's, the q-Mexican hat against
     the Mexican's. The two Gaussian-pair readings themselves differ by 0.4 on this field (the
     analyser's order sets the convention offset), so the band is per family; the measured
-    spreads are 1.19–1.32 for the gradient smoothers and 0.92–1.02 for the Laplacian ones."""
+    spreads are 1.19–1.32 for the gradient smoothers and 0.92–1.02 for the Laplacian ones. All
+    of it was measured at eta = 1, which this test pins: the similitude band keeps a different
+    share of each smoother's chains at each eta, so the per-family tolerance holds where it was
+    measured (with the band off, eta shifts every smoother's h(2) by exactly 1)."""
     from dynamix.core import spectra
 
     dev = WTMM2D()
     field = RasterField._from_bare_array(fbm2d(128, 0.5, seed=3), "fbm", name="fbm")
-    base = dict(defaults_for(dev), n_oct=3, n_voice=4)
+    base = dict(defaults_for(dev), n_oct=3, n_voice=4, fracint_alpha=1.0)
 
     def h2(params):
         hd = dev.compute(field, params)["hd_std"]

@@ -168,6 +168,7 @@ def test_scale_select_filter_composes(mz_result):
 # --------------------------------------------------------------------------------- arrangement Scene
 
 
+@pytest.mark.pyvista
 def test_arrangement_scene_accepts_empty_chains(mz_result, tmp_path):
     """The design's sketch entry (`{"layer_id": "L1", "result": ..., "visible": True}`)
     does not match `Scene.set_layers`'s real contract: `tests/test_arrangement_scene.py`'s own

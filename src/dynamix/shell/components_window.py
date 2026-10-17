@@ -26,7 +26,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.devices.decompose import format_group, parse_group
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current
 
 __all__ = ["ComponentsWindow", "thumbnail"]
 
@@ -100,7 +100,7 @@ class ComponentsWindow(QtWidgets.QDialog):
 
         self._hint = QtWidgets.QLabel()
         self._hint.setWordWrap(True)
-        self._hint.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._hint.setStyleSheet(f"color: {current().ink_muted};")
         layout.addWidget(self._hint)
 
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
@@ -115,7 +115,7 @@ class ComponentsWindow(QtWidgets.QDialog):
         split.addWidget(self._list)
 
         self._glw = pg.GraphicsLayoutWidget()
-        self._glw.setBackground(RESTRAINED_DARK.ground)
+        self._glw.setBackground(current().ground)
         self._wplot = self._glw.addPlot(row=0, col=0)
         self._wplot.setTitle("w-correlation")
         self._wplot.invertY(True)
@@ -125,15 +125,15 @@ class ComponentsWindow(QtWidgets.QDialog):
         self._wimage.setLookupTable(np.repeat(np.arange(256, dtype=np.uint8)[:, None], 3, 1))
         self._wplot.addItem(self._wimage)
         self._wmarks = pg.ScatterPlotItem(pxMode=False, symbol="s", size=1.0, brush=None,
-                                          pen=pg.mkPen(RESTRAINED_DARK.amber, width=1.5))
+                                          pen=pg.mkPen(current().amber, width=1.5))
         self._wplot.addItem(self._wmarks)
         self._wreading = QtWidgets.QLabel(" ")
-        self._wreading.setStyleSheet(f"color: {RESTRAINED_DARK.ink_muted};")
+        self._wreading.setStyleSheet(f"color: {current().ink_muted};")
         self._glw.scene().sigMouseMoved.connect(self._on_mouse_moved)
         self._splot = self._glw.addPlot(row=1, col=0)
         self._splot.setLogMode(y=True)
         self._splot.setLabel("bottom", "component")
-        self._scurve = pg.PlotDataItem(pen=pg.mkPen(RESTRAINED_DARK.ink_muted), symbol="o",
+        self._scurve = pg.PlotDataItem(pen=pg.mkPen(current().ink_muted), symbol="o",
                                        symbolSize=7)
         self._splot.addItem(self._scurve)
         right = QtWidgets.QWidget()
@@ -234,8 +234,8 @@ class ComponentsWindow(QtWidgets.QDialog):
             text = self.group_text()
             name = f"all {self._n}" if text == "all" else f"[{text}]"
             self._group_label.setText(f"Group: {name} · {pct:.1f}%")
-        amber = QtGui.QColor(RESTRAINED_DARK.amber)
-        muted = QtGui.QColor(RESTRAINED_DARK.ink_muted)
+        amber = QtGui.QColor(current().amber)
+        muted = QtGui.QColor(current().ink_muted)
         picked = set(idx)
         self._scurve.setData(self._sx, self._sy, symbolBrush=[
             pg.mkBrush(amber if k in picked else muted) for k in range(self._n)])

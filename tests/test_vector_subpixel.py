@@ -13,6 +13,8 @@ from dynamix.model.layer import Layer  # noqa: E402
 from dynamix.shell.arrangement.scene import Scene, _subpixel_of  # noqa: E402
 from tests.test_arrangement_scene import _frame_field, _hline_result, _plotter  # noqa: E402
 
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
+
 
 def test_subpixel_of_falls_back_to_the_pixel_and_is_none_without_refinement():
     layer = {"x": np.array([3, 4]), "y": np.array([2, 2]),

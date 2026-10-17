@@ -9,7 +9,7 @@ separate from whether the WTMM backend is fast today. The stub's result is shape
 WTMM stack -- ``scales`` / ``extrema`` / ``_shape`` -- so the REAL filters and the REAL canvas
 run over it; only the expensive transform is stood in for. ``test_real_wtmm_end_to_end`` then
 runs the actual chain, unguarded, exactly as ``tests/test_real_devices.py`` does: the WTMM
-backend under ``dynamix/core`` is a self-contained copy with a numpy fallback, so it needs no
+backend under ``dynamix/core`` is a self-contained copy on the FFT policy's engine, so it needs no
 optional package (``wtmm_ebsd`` is only needed by the chain-FILTER devices, which this chain
 does not use).
 """
@@ -59,11 +59,21 @@ class _StubStack:
     name = "stub_stack"
     params = (Param("n_scales", ParamKind.INT, default=3, min=1, max=8, label="Scales"),)
 
+    #: (event, seconds, thread name) per compute, so a compute that never ends says whether the
+    #: worker reached the device at all.
+    calls: list = []
+
     def compute(self, field, params, *, progress=None):
+        import time
+
+        now, who = round(time.perf_counter(), 3), threading.current_thread().name
+        _StubStack.calls.append(("enter", now, who))
         if progress:
             progress("stub", 0.0)
             progress("stub", 1.0)
-        return _stub_stack(field, int(params["n_scales"]))
+        out = _stub_stack(field, int(params["n_scales"]))
+        _StubStack.calls.append(("leave", round(time.perf_counter(), 3), who))
+        return out
 
     def cache_key(self, source_id, params):
         from dynamix.engine.cache import cache_key
@@ -141,12 +151,75 @@ def stub_devices(clean_registry):
     return clean_registry
 
 
+#: Worker threads of windows whose compute never ended, kept to the end of the session: a QThread
+#: destroyed while it runs aborts the process, and with it the rest of the gate.
+_WEDGED: list = []
+
+
+def _wait_out_the_compute(qtbot, win):
+    """A compute still running when the stub registry goes lands as an error against it, so it is
+    waited out. One that never ends fails the test with every thread's stack, and its thread is
+    kept alive."""
+    import faulthandler
+    import tempfile
+    import time
+
+    try:
+        qtbot.waitUntil(lambda: win._thread is None, timeout=30000)
+    except Exception:
+        thread = win._thread
+        _WEDGED.append((thread, win._worker))
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as f:
+            faulthandler.dump_traceback(f, all_threads=True)
+            f.seek(0)
+            stacks = f.read()
+        raise AssertionError(
+            f"the window's compute never ended: worker {type(win._worker).__name__}, thread "
+            f"running {thread.isRunning()} finished {thread.isFinished()}, dispatched "
+            f"{win._dispatched}, now {round(time.perf_counter(), 3)}, the stub's last computes "
+            f"{_StubStack.calls[-6:]}, the window's computes "
+            f"{len(getattr(win, '_compute_log', []))}: {getattr(win, '_compute_log', [])[-10:]}; "
+            f"every thread:\n{stacks}") from None
+
+
+def _log_computes(win) -> None:
+    """The window's dispatches and landings, in ``win._compute_log``: each dispatch with its layer
+    and whether that layer's result was already cached, each teardown of a worker thread. Both
+    methods are called directly, never through a signal, so the wrapper cannot change the thread
+    they run on."""
+    import time
+
+    win._compute_log = []
+    start_for, teardown = win._start_worker_for, win._teardown_thread
+
+    def logged_start_for(layer, *args, **kwargs):
+        key = win._arr_tail_key(layer)
+        win._compute_log.append(("dispatch", layer.layer_id, key in win.cache if key else None,
+                                 round(time.perf_counter(), 3)))
+        return start_for(layer, *args, **kwargs)
+
+    def logged_teardown():
+        win._compute_log.append(("teardown", win._thread is not None, round(time.perf_counter(), 3)))
+        return teardown()
+
+    win._start_worker_for, win._teardown_thread = logged_start_for, logged_teardown
+
+
+def _closed_after_its_compute(qtbot, win):
+    """Register ``win`` with qtbot so its compute is waited out BEFORE qtbot closes it: pytest-qt
+    closes and deletes registered widgets ahead of every fixture's own teardown, and a window
+    deleted mid-compute never receives its worker's landing (on a slow runner the landing comes
+    after the close). The stub registry is still in place then."""
+    qtbot.addWidget(win, before_close_func=lambda w: _wait_out_the_compute(qtbot, w))
+
+
 @pytest.fixture
 def window(qtbot, stub_devices):
     from dynamix.shell.main_window import MainWindow
 
     win = MainWindow(steps=STUB_CHAIN)
-    qtbot.addWidget(win)
+    _closed_after_its_compute(qtbot, win)
+    _log_computes(win)
     return win
 
 
@@ -786,13 +859,13 @@ def test_removing_the_sole_layer_mid_compute_lands_without_a_crash(qtbot, stub_d
 
 
 def test_space_toggles_the_transport(qtbot, loaded):
-    shortcuts = [s for s in loaded.findChildren(QtGui.QShortcut)
-                 if s.key() == QtGui.QKeySequence(QtCore.Qt.Key_Space)]
-    assert len(shortcuts) == 1
-    assert shortcuts[0].context() == QtCore.Qt.WindowShortcut
-    shortcuts[0].activated.emit()
+    """Space is the one command transport.play, bound once with window context."""
+    action = loaded.commands["transport.play"]
+    assert [s.toString() for s in action.shortcuts()] == ["Space"]
+    assert action.shortcutContext() == QtCore.Qt.WindowShortcut
+    action.trigger()
     assert loaded.transport.clock.playing is True
-    shortcuts[0].activated.emit()
+    action.trigger()
     assert loaded.transport.clock.playing is False
 
 
@@ -859,7 +932,7 @@ def test_no_lambda_is_connected_to_a_worker_signal():
     """worker.py's documented trap: a lambda has no thread affinity, so Qt runs it ON THE WORKER
     THREAD, where touching a widget is a crash waiting to happen. Every worker signal must be
     connected to a bound method."""
-    src = Path("src/dynamix/shell/main_window.py").read_text()
+    src = Path("src/dynamix/shell/main_window.py").read_text(encoding="utf-8")
     for signal in ("progress", "finished", "error"):
         hits = re.findall(rf"\.{signal}\.connect\(([^)]*)\)", src)
         assert hits, f"nothing connects the worker's {signal} signal"
@@ -876,10 +949,11 @@ def test_render_flag_without_a_path_is_a_usage_error(capsys):
     assert "usage:" in capsys.readouterr().err
 
 
-def test_shell_has_no_dock_widgets():
-    """DESIGN.md: fixed zones. No docks. Ever."""
-    for path in Path("src/dynamix/shell").glob("*.py"):
-        assert "QDockWidget" not in path.read_text(), path
+def test_dock_widgets_are_built_only_by_the_docks_module():
+    """PRODUCT.md principle 4 as rewritten: a small fixed set of docks, built in one place."""
+    for path in Path("src/dynamix/shell").rglob("*.py"):
+        if path.name != "docks.py":
+            assert "QDockWidget(" not in path.read_text(encoding="utf-8"), path
 
 
 # --------------------------------------------------------------------------- the real thing
@@ -1005,7 +1079,8 @@ def chains_window(qtbot, stub_chain_devices):
     from dynamix.shell.main_window import MainWindow
 
     win = MainWindow(steps=STUB_CHAIN_WITH_CHAINS)
-    qtbot.addWidget(win)
+    _closed_after_its_compute(qtbot, win)
+    _log_computes(win)
     return win
 
 
@@ -1424,7 +1499,7 @@ def _load_point_catalogue(window, tmp_path):
     from dynamix.shell.point_import import load_points
 
     path = tmp_path / "quakes.csv"
-    path.write_text(_POINT_CSV)
+    path.write_text(_POINT_CSV, encoding="utf-8")
     load_points(window, str(path))
     return window.layer.source_id
 
@@ -2069,3 +2144,102 @@ def test_roi_create_scales_a_decimated_overview_to_native_pixels(qtbot, loaded):
     step = next(ref for ref in captured["chain"].steps if ref.device == "wtmm2d_roi")
     assert step.params["roi_row"] == 48 and step.params["roi_col"] == 80
     assert step.params["roi_h"] == 128 and step.params["roi_w"] == 160
+
+
+# --------------------------------------------------------------------------- Settings ▸ Theme
+
+
+def _theme_menu(win):
+    from PySide6 import QtWidgets
+
+    settings = next(m for m in win.menuBar().findChildren(QtWidgets.QMenu) if m.title() == "Settings")
+    return next(a.menu() for a in settings.actions() if a.menu() is not None and a.menu().title() == "Theme")
+
+
+def _user_theme(tmp_path, monkeypatch, name="my", **changes):
+    import dataclasses
+    import json
+
+    from dynamix.shell import settings as settings_mod
+    from dynamix.shell.theme import RESTRAINED_DARK
+
+    folder = tmp_path / "themes"
+    folder.mkdir(exist_ok=True)
+    data = dict(dataclasses.asdict(RESTRAINED_DARK), name=name, **changes)
+    (folder / f"{name}.json").write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(settings_mod, "themes_dir", lambda: folder)
+    return folder / f"{name}.json"
+
+
+def test_the_theme_submenu_lists_bundled_and_user_themes_and_applies_a_pick(qtbot, stub_devices, tmp_path, monkeypatch):
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.settings import load_settings
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current
+
+    _user_theme(tmp_path, monkeypatch)
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    menu = _theme_menu(win)
+    menu.aboutToShow.emit()
+    entries = {a.text(): a for a in menu.actions() if not a.isSeparator()}
+    assert {"restrained_dark", "mid_grey", "light", "my"} <= set(entries)
+    assert entries["restrained_dark"].isChecked()
+    try:
+        entries["light"].trigger()
+        assert current().name == "light" and load_settings().theme == "light"
+        assert entries["light"].isChecked() and not entries["restrained_dark"].isChecked()
+        assert win.canvas.roi_band_item.opts["pen"].color().name() == current().roi   # retinted live
+        assert win.canvas.backgroundBrush().color().name() == current().surround
+    finally:
+        from PySide6 import QtWidgets
+
+        apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
+
+
+def test_the_theme_named_in_settings_is_watched_from_launch(qtbot, stub_devices, tmp_path, monkeypatch):
+    import json
+
+    from PySide6 import QtWidgets
+
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.settings import update_settings
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current
+
+    path = _user_theme(tmp_path, monkeypatch)
+    update_settings(theme="my")
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    try:
+        assert str(path) in win._theme_watcher.files()
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["panel"] = "#222233"
+        with qtbot.waitSignal(win.themeReloaded, timeout=5000):
+            path.write_text(json.dumps(data), encoding="utf-8")
+        assert current().panel == "#222233"
+    finally:
+        apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
+
+
+def test_an_edited_theme_file_reloads_live(qtbot, stub_devices, tmp_path, monkeypatch):
+    import json
+
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.theme import RESTRAINED_DARK, apply_theme, current
+
+    path = _user_theme(tmp_path, monkeypatch)
+    win = MainWindow(steps=STUB_CHAIN)
+    qtbot.addWidget(win)
+    menu = _theme_menu(win)
+    menu.aboutToShow.emit()
+    try:
+        next(a for a in menu.actions() if a.text() == "my").trigger()
+        assert current().name == "my"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["panel"] = "#222233"
+        with qtbot.waitSignal(win.themeReloaded, timeout=5000):
+            path.write_text(json.dumps(data), encoding="utf-8")
+        assert current().panel == "#222233"
+    finally:
+        from PySide6 import QtWidgets
+
+        apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)

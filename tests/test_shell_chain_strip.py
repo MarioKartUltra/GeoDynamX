@@ -102,3 +102,20 @@ def test_paramchanged_reemit_closes_the_dragvalue_confirm_loop(qtbot, registered
 
     control.valueChanged.emit(4)
     assert control.text() == "4"          # updated ONLY because the strip called set_value(4)
+
+
+def test_the_precision_knob_reads_the_engine_note(qtbot, registered_builtins):
+    """64-bit on mlx runs on FFTW3: the line under the knob says so, and empties again at 32."""
+    pytest.importorskip("mlx.core")
+    from dynamix.core import fft_policy
+    from dynamix.shell.chain_strip import DeviceStrip
+
+    fft_policy.configure("mlx", 32)
+    dev = get_device("holder_map")
+    s = DeviceStrip(0, dev, {p.name: p.default for p in dev.params})
+    qtbot.addWidget(s)
+    assert s._derived_labels["precision"].text() == ""
+    s.controls["precision"].valueChanged.emit("f64")
+    assert s._derived_labels["precision"].text() == fft_policy.MLX_NO_DOUBLE
+    s.controls["precision"].valueChanged.emit("f32")
+    assert s._derived_labels["precision"].text() == ""

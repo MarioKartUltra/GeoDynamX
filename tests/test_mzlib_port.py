@@ -22,6 +22,10 @@ _REPO = pathlib.Path(__file__).resolve().parent.parent
 _RESEARCH = _REPO / "research" / "reconstruction"
 
 
+#: The research gates are float64 identities, and mzlib's FFT follows the policy.
+pytestmark = pytest.mark.usefixtures("double_fft")
+
+
 # ---------------------------------------------------------------- drift guard
 
 #: The ONE recorded edit: the public copy states the backend-agreement rule without citing the
@@ -35,8 +39,8 @@ _FFTBACKEND_EDIT = (
 
 @pytest.mark.skipif(not _RESEARCH.is_dir(), reason="research/reconstruction scripts not present")
 def test_fftbackend_differs_from_research_only_by_the_recorded_edit():
-    core = (_REPO / "src/dynamix/core/fftbackend.py").read_text().splitlines(keepends=True)
-    research = (_RESEARCH / "fftbackend.py").read_text().splitlines(keepends=True)
+    core = (_REPO / "src/dynamix/core/fftbackend.py").read_text(encoding="utf-8").splitlines(keepends=True)
+    research = (_RESEARCH / "fftbackend.py").read_text(encoding="utf-8").splitlines(keepends=True)
     hunks = [op for op in difflib.SequenceMatcher(None, research, core, autojunk=False).get_opcodes()
              if op[0] != "equal"]
     assert len(hunks) == 1 and hunks[0][0] == "replace", hunks
@@ -48,8 +52,8 @@ def test_fftbackend_differs_from_research_only_by_the_recorded_edit():
 
 @pytest.mark.skipif(not _RESEARCH.is_dir(), reason="research/reconstruction scripts not present")
 def test_mzlib_differs_from_research_only_in_the_import_line():
-    core = (_REPO / "src/dynamix/core/mzlib.py").read_text().splitlines()
-    research = (_RESEARCH / "mzlib.py").read_text().splitlines()
+    core = (_REPO / "src/dynamix/core/mzlib.py").read_text(encoding="utf-8").splitlines()
+    research = (_RESEARCH / "mzlib.py").read_text(encoding="utf-8").splitlines()
     assert len(core) == len(research)
     diffs = [
         (c, r) for c, r in zip(core, research) if c != r

@@ -193,7 +193,7 @@ def test_follow_engine_parity_mlx_vs_numpy():
     field = _small_field(32)
     params = dict(_SMALL, n_oct=1, detector="follow")
     try:
-        wb.set_default_engine("numpy")
+        wb.set_default_engine("fftw")
         via_np = wb.run_wtmm2d(field, dict(params), out_dir=None)
         wb.set_default_engine("mlx")
         via_mlx = wb.run_wtmm2d(field, dict(params), out_dir=None)

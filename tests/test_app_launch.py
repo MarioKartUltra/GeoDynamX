@@ -61,3 +61,16 @@ def test_the_map_view_can_be_the_first_view_before_any_landing(qtbot, clean_regi
     window._ensure_map_view()
     window._set_center_view("map")
     assert window.map_view is not None
+
+
+def test_an_unknown_theme_name_falls_back_to_restrained_dark(capsys):
+    import pytest
+
+    from dynamix.shell.app import _theme_for
+    from dynamix.shell.theme import RESTRAINED_DARK, load_theme
+
+    with pytest.raises(KeyError):
+        load_theme("nope")
+    assert _theme_for("nope") == RESTRAINED_DARK
+    assert "nope" in capsys.readouterr().err
+    assert _theme_for("light").name == "light"

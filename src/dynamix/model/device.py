@@ -147,8 +147,11 @@ def keyed_params(device: Device, params: dict) -> dict[str, Any]:
     """``params`` without the device's view-only params (``Param.view``) -- what a cache key and
     a transform signature are built from. A display selector must never be keyed: switching
     which computed output is shown would otherwise recompute the whole tool."""
-    view = {p.name for p in getattr(device, "params", ()) if p.view}
-    return {k: v for k, v in params.items() if k not in view}
+    declared = {p.name: p for p in getattr(device, "params", ())}
+    view = {n for n, p in declared.items() if p.view}
+    return {k: v for k, v in params.items()
+            if k not in view
+            and not (k in declared and not declared[k].keyed_at_default and v == declared[k].default)}
 
 
 def apply_view(device: Device, result, params: dict):

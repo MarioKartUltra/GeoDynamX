@@ -9,10 +9,18 @@ other shell module (tests/test_shell_boundaries.py enforces this).
 from __future__ import annotations
 
 import dataclasses
+import json
+import re
+from pathlib import Path
+
+#: The bundled theme files (``<name>.json``) and their SVG assets (``assets/<name>/``).
+THEMES_DIR = Path(__file__).resolve().parent / "themes"
 
 
 @dataclasses.dataclass(frozen=True)
 class Theme:
+    #: The theme's name: its file stem under ``themes/`` and its assets folder.
+    name: str = "restrained_dark"
     # tonal ramp, dark -> light (The Instrument Rack: ground -> zone -> panel -> raised)
     ground: str = "#131313"     # canvas surround
     zone: str = "#191919"       # chain-strip zone (its own neutral, per DESIGN.md)
@@ -36,6 +44,14 @@ class Theme:
     # orange `amber` (hex ffa028): close enough to read as the same "selection" family, distinct
     # enough that the two roles can diverge later without a hidden coupling.
     selection_accent: str = "#ffc107"
+    # Canvas chrome (``Canvas.apply_theme_roles``): the ROI band, the saved and active ROIs and
+    # the mask share ``roi`` (amber by default); the lasso and the box share ``lasso``; the scale
+    # bar's default colour is ``scale_bar`` (the bar's own menu overrides it); ``surround`` is the
+    # canvas background outside the raster (pyqtgraph's black by default).
+    roi: str = "#ffa028"
+    lasso: str = "#ffc107"
+    scale_bar: str = "#e6e6e6"
+    surround: str = "#000000"
     # The layer list's H/L/F/I toggles: black with white text at rest, inverted when set
     # (hidden / locked / frozen / inspector open), so the state reads at a glance.
     toggle_rest: str = "#000000"
@@ -44,8 +60,84 @@ class Theme:
     mono_family: str = "Menlo"
     base_pt: int = 11
 
+    @classmethod
+    def from_json(cls, path) -> "Theme":
+        """A theme from its JSON file: exactly the keys of this dataclass (a missing or an unknown
+        key is an error naming it), and the ink must read on the panel at 4.5:1 or better."""
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        fields = {f.name for f in dataclasses.fields(cls)}
+        missing, unknown = sorted(fields - set(data)), sorted(set(data) - fields)
+        if missing or unknown:
+            raise ValueError(f"{Path(path).name}: missing {missing}, unknown {unknown}")
+        bad = sorted(k for k in COLOUR_ROLES if not (isinstance(data[k], str) and _HEX.match(data[k])))
+        if bad:
+            raise ValueError(f"{Path(path).name}: not #rrggbb: {bad}")
+        theme = cls(**data)
+        ratio = contrast(theme.ink, theme.panel)
+        if ratio < 4.5:
+            raise ValueError(f"{Path(path).name}: ink on panel reads at {ratio:.2f}:1, below 4.5:1")
+        return theme
+
+
+def _luminance(hex_color: str) -> float:
+    """WCAG relative luminance of ``#rrggbb``."""
+    digits = hex_color.lstrip("#")
+    channels = [int(digits[i:i + 2], 16) / 255.0 for i in (0, 2, 4)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def contrast(hex_a: str, hex_b: str) -> float:
+    """WCAG contrast ratio between two ``#rrggbb`` colours (1 to 21)."""
+    la, lb = _luminance(hex_a), _luminance(hex_b)
+    light, dark = max(la, lb), min(la, lb)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def bundled_themes() -> dict[str, Path]:
+    """Theme name -> its JSON file under ``themes/``."""
+    return {p.stem: p for p in sorted(THEMES_DIR.glob("*.json"))}
+
+
+def load_theme(name: str, user_dir=None) -> "Theme":
+    """The bundled or user theme called ``name`` (a user file wins); KeyError when no file has it."""
+    files = dict(bundled_themes())
+    if user_dir is not None and Path(user_dir).is_dir():
+        files.update({p.stem: p for p in sorted(Path(user_dir).glob("*.json"))})
+    if name not in files:
+        raise KeyError(f"no theme named {name!r}; known: {sorted(files)}")
+    return Theme.from_json(files[name])
+
 
 RESTRAINED_DARK = Theme()
+
+#: The roles that are colours: every string field but the name and the two font families.
+COLOUR_ROLES = frozenset(f.name for f in dataclasses.fields(Theme) if f.type == "str") - {
+    "name", "sans_family", "mono_family"}
+_HEX = re.compile(r"#[0-9a-fA-F]{6}\Z")
+
+#: The theme last applied (``apply_theme``); Restrained Dark until one is.
+_CURRENT: list[Theme] = [RESTRAINED_DARK]
+
+
+def current() -> Theme:
+    """The theme the application wears now: what a Theme-Rule carve-out reads its role from."""
+    return _CURRENT[0]
+
+
+def rgb(hex_color: str) -> tuple[int, int, int]:
+    """``#rrggbb`` as the RGB tuple pyqtgraph pens take."""
+    digits = hex_color.lstrip("#")
+    return tuple(int(digits[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def assets_dir(theme: Theme) -> Path:
+    """The theme's SVG assets (``themes/assets/<name>/``), as the generated QSS references them."""
+    return THEMES_DIR / "assets" / theme.name
+
+
+def _url(theme: Theme, asset: str) -> str:
+    return f'url("{(assets_dir(theme) / asset).as_posix()}")'
 
 
 def generate_qss(theme: Theme) -> str:
@@ -90,11 +182,18 @@ QLineEdit:focus {{ border: 1px solid {t.amber}; }}
 QSlider::groove:horizontal {{ background: {t.raised}; height: 3px; }}
 QSlider::handle:horizontal {{ background: {t.ink}; width: 8px; margin: -5px 0; }}
 QSlider::handle:horizontal:focus {{ background: {t.amber}; }}
+QCheckBox::indicator {{ width: 12px; height: 12px; image: {_url(t, "check_off.svg")}; }}
+QCheckBox::indicator:checked {{ image: {_url(t, "check_on.svg")}; }}
+QComboBox::down-arrow {{ image: {_url(t, "arrow_down.svg")}; width: 10px; height: 10px; }}
 """
 
 
 def apply_theme(app, theme: Theme) -> None:
+    """Dress the application in ``theme``: the generated stylesheet, the base font, and
+    :func:`current` for the carve-outs. Called at launch (``app.main``), on a Settings ▸ Theme
+    pick and when a watched theme file changes (the window, which then re-tints its canvas)."""
     from PySide6 import QtGui
 
+    _CURRENT[0] = theme
     app.setStyleSheet(generate_qss(theme))
     app.setFont(QtGui.QFont(theme.sans_family, theme.base_pt))

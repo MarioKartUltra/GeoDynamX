@@ -174,3 +174,21 @@ def test_cancel_aborts_the_evolution():
     assert CDFEdges.wants_cancel is True
     with pytest.raises(ComputeCancelled):
         CDFEdges().compute(_step_field(), defaults_for(CDFEdges()), cancel=lambda: True)
+
+
+def test_the_knobs_speak_the_cross_diffusion_papers_terms():
+    """Araújo, Barbeiro, Cuesta & Durán: the image is a pair (u, v), v the edge detector."""
+    by = {p.name: p for p in CDFEdges.params}
+    assert by["edge_mode"].choices == ("mz", "marr")              # stored values unchanged
+    assert by["edge_mode"].choice_labels == ("u gradient maxima (app)",
+                                             "v zero crossings (edge detector)")
+    assert by["show"].choice_labels == ("edges", "u (filtered)", "v (edge detector)",
+                                        "u at σ", "v at σ")
+
+
+def test_the_scale_bar_shows_the_equivalent_kernel_only_for_the_linear_evolution():
+    dev = CDFEdges()
+    params = defaults_for(dev)
+    linear = dev.wavelet_profile(dict(params, variant="linear"), 4.0, 2)
+    assert linear is not None and "equivalent kernel" in linear.family
+    assert dev.wavelet_profile(dict(params, variant="nonlinear"), 4.0, 2) is None

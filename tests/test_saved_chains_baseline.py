@@ -95,7 +95,7 @@ def builtins(clean_registry):
 
 
 def test_every_saved_chain_loads_and_keeps_its_results(builtins):
-    golden = json.loads(GOLDEN.read_text())
+    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     if golden["machine"] != _machine():
         pytest.skip(f"recorded on {golden['machine']}")
     now = _run(builtins)
@@ -117,5 +117,5 @@ if __name__ == "__main__" and "--record" in sys.argv:
     register_builtin_devices()
     GOLDEN.parent.mkdir(parents=True, exist_ok=True)
     GOLDEN.write_text(json.dumps({"machine": _machine(), "chains": _run(DEVICES)}, indent=1,
-                                 sort_keys=True) + "\n")
+                                 sort_keys=True) + "\n", encoding="utf-8")
     print(f"recorded {GOLDEN}")

@@ -58,12 +58,12 @@ def test_resolve_openable_zip_with_one_tif_builds_the_gdal_url(tmp_path):
 
     url = resolve_openable(str(zpath))
 
-    assert url == f"zip://{zpath.resolve()}!field.tif"
+    assert url == f"/vsizip/{zpath.resolve().as_posix()}/field.tif"
 
 
 def test_resolve_openable_zip_with_no_tif_raises_naming_contents(tmp_path):
     other = tmp_path / "readme.txt"
-    other.write_text("hi")
+    other.write_text("hi", encoding="utf-8")
     zpath = tmp_path / "empty.zip"
     _write_zip(zpath, [other])
 
@@ -90,15 +90,15 @@ def test_resolve_openable_ignores_sidecars(tmp_path):
     ovr = tmp_path / "field.tif.ovr"
     ovr.write_bytes(b"not a tif")
     tfw = tmp_path / "field.tfw"
-    tfw.write_text("not a tif either")
+    tfw.write_text("not a tif either", encoding="utf-8")
     aux = tmp_path / "field.tif.aux.xml"
-    aux.write_text("<PAMDataset/>")
+    aux.write_text("<PAMDataset/>", encoding="utf-8")
     zpath = tmp_path / "sidecars.zip"
     _write_zip(zpath, [tif, ovr, tfw, aux])
 
     url = resolve_openable(str(zpath))
 
-    assert url == f"zip://{zpath.resolve()}!field.tif"
+    assert url == f"/vsizip/{zpath.resolve().as_posix()}/field.tif"
 
 
 # --------------------------------------------------------------------------- open_field
@@ -131,7 +131,26 @@ def test_open_field_whole_zip_route_has_a_clean_name(tmp_path):
     rf = open_field(str(zpath))
 
     assert rf.name == "field"
-    assert "!" not in rf.name and "zip:" not in rf.name
+    assert "!" not in rf.name and "zip" not in rf.name and "/" not in rf.name
+
+
+def test_from_file_hands_rasterio_the_path_as_given(monkeypatch):
+    """A GDAL virtual path reaches rasterio as the string it was given: rebuilt with Path() on
+    Windows, /vsizip/C:/... becomes \\vsizip\\C:\\..., which GDAL cannot open (the windows CI
+    run failed every zip test on the older zip:// form the same way, as zip:\\C:\\...)."""
+    from dynamix.core.rasterfield import RasterField
+
+    seen = []
+
+    def capture(cls, path, *, name=None):
+        seen.append(path)
+        raise ValueError("captured")
+
+    monkeypatch.setattr(RasterField, "_from_geotiff", classmethod(capture))
+    url = "/vsizip/C:/data/field.zip/field.tif"
+    with pytest.raises(ValueError):
+        RasterField.from_file(url)
+    assert seen == [url] and isinstance(seen[0], str)
 
 
 def test_open_field_window_guard_clamps_an_oversized_window_to_the_full_raster(tmp_path):

@@ -223,7 +223,7 @@ def test_the_browser_offers_stack_tools_on_a_stack_and_single_band_tools_on_its_
     switch to a band row by itself."""
     from dynamix.model.contracts import STACK, next_step_state
     from dynamix.model.device import get_device
-    from dynamix.model.families import display_name
+    from dynamix.model.families import display_name, tooltip_of
 
     win = window
     win._start_worker = lambda: None
@@ -235,7 +235,7 @@ def test_the_browser_offers_stack_tools_on_a_stack_and_single_band_tools_on_its_
     rows = win.browser._rows
 
     def offered(name):
-        return rows[name][0].toolTip(0) == display_name(get_device(name))
+        return rows[name][0].toolTip(0) == tooltip_of(get_device(name))
 
     assert offered("pca") and offered("tucker_HOOI_HOSVD") and offered("noise")
     assert rows["wtmm2d"][0].toolTip(0) == next_step_state((), STACK, "wtmm2d").reason
@@ -252,7 +252,7 @@ def test_the_browser_judges_a_second_analyzer_on_an_analysed_band_row_after_its_
     """A sibling forked from a band row starts with the row's band_select, so a second
     single-band analyzer is offered there and pca is not."""
     from dynamix.model.device import defaults_for, get_device
-    from dynamix.model.families import display_name
+    from dynamix.model.families import display_name, tooltip_of
 
     win = window
     win._start_worker = lambda: None
@@ -271,7 +271,7 @@ def test_the_browser_judges_a_second_analyzer_on_an_analysed_band_row_after_its_
     rows = win.browser._rows
 
     def offered(name):
-        return rows[name][0].toolTip(0) == display_name(get_device(name))
+        return rows[name][0].toolTip(0) == tooltip_of(get_device(name))
 
     assert offered("mz_edges") and offered("ssa2d") and offered("holder_measure")
     assert not offered("pca")
@@ -281,7 +281,7 @@ def test_the_browser_follows_a_committed_edit_before_any_landing(window, qtbot):
     """With auto-run on, a drop starts a worker that lands later: the browser re-greys as the
     edit commits."""
     from dynamix.model.device import defaults_for, get_device
-    from dynamix.model.families import display_name
+    from dynamix.model.families import display_name, tooltip_of
 
     win = window
     win._start_worker = lambda: None                  # nothing lands
@@ -295,7 +295,7 @@ def test_the_browser_follows_a_committed_edit_before_any_landing(window, qtbot):
     rows = win.browser._rows
 
     def offered(name):
-        return rows[name][0].toolTip(0) == display_name(get_device(name))
+        return rows[name][0].toolTip(0) == tooltip_of(get_device(name))
 
     assert not offered("chain_holder")
     desc = [{"device": "band_select", "params": dict(band.chain.steps[0].params)},

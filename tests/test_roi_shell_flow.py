@@ -1038,7 +1038,7 @@ def test_saving_a_project_leaves_temporary_derivatives_out_until_saved_as(
     child = _whole_field_child(win, qtbot, "cdf_edges")
     source = _fork(win, monkeypatch, child.layer_id, name="scratch look")
     written = win._save_project_to(tmp_path / "p.dynamix")
-    saved = json.loads(written.read_text()) if written.suffix != ".zip" else None
+    saved = json.loads(written.read_text(encoding="utf-8")) if written.suffix != ".zip" else None
     if saved is not None:
         assert source.source_id not in {s["source_id"] for s in saved["sources"]}
     assert any("scratch look" in m and "temporary" in m for m in notes)

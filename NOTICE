@@ -42,8 +42,10 @@ LICENSE and this notice (GPL-2.0-or-later).
 
 The author's own packages, included here by their author:
   EQSelect -- the analysis core in src/dynamix/core started as a copy of it.
-  wtmm, wtmm_ebsd -- vendored under src/dynamix/_vendor (the EBSD modules of wtmm_ebsd are not
-  included in this release).
+  wtmm, wtmm_ebsd -- vendored at src/dynamix/_vendor/wtmm and src/dynamix/_vendor/wtmm_ebsd (the
+  EBSD modules of wtmm_ebsd are not included in this release; both packages are trimmed to the
+  modules this program loads, and the whole copy as taken from the author's repository is at the
+  tag vendored-snapshot-2026-10).
 
 
 Principal methods (scientific references)

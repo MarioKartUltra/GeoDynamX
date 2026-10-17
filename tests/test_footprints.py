@@ -8,6 +8,8 @@ the footprint's corners are carried in WGS84 lon/lat so any display mode can pla
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -32,8 +34,8 @@ def folder(tmp_path):
     _tile(d / "ASTGTMV003_S22E119_dem.tif", 119.0, -21.0, 0.1, 10)          # covers 119..120 E, -22..-21
     _tile(d / "ASTGTMV003_S22E119_num.tif", 119.0, -21.0, 0.1, 10, dtype="uint8")
     _tile(d / "ASTGTMV003_S22E120_dem.tif", 120.0, -21.0, 0.1, 10)          # the eastern neighbour
-    (d / "ASTGTMV003_S22E119_dem.tif.aux.xml").write_text("<x/>")
-    (d / "README.txt").write_text("not a raster")
+    (d / "ASTGTMV003_S22E119_dem.tif.aux.xml").write_text("<x/>", encoding="utf-8")
+    (d / "README.txt").write_text("not a raster", encoding="utf-8")
     # a projected tile: UTM 50S, 10 km square starting at (500000, 7600000)
     _tile(tmp_path / "utm_tile.tif", 500000.0, 7600000.0, 1000.0, 10, crs="EPSG:32750", dtype="float32")
     return tmp_path
@@ -47,7 +49,7 @@ def test_scan_finds_every_raster_recursively_and_ignores_sidecars(folder):
     f = fps[0]
     assert (f.width, f.height, f.count, f.dtype) == (10, 10, 1, "int16")
     assert f.crs == "EPSG:4326"
-    assert f.path.endswith("Aster_DEM/batch1/ASTGTMV003_S22E119_dem.tif")
+    assert Path(f.path).as_posix().endswith("Aster_DEM/batch1/ASTGTMV003_S22E119_dem.tif")
 
 
 def test_corners_are_wgs84_lon_lat_counter_clockwise_from_south_west(folder):

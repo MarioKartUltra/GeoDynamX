@@ -143,10 +143,10 @@ def test_load_tolerates_missing_tags_key(tmp_path):
     m.add_set(h_chains=[0, 1], name="s0")
     m.save(tmp_path)
     p = Path(tmp_path) / "extrema_sets.json"
-    payload = json.loads(p.read_text())
+    payload = json.loads(p.read_text(encoding="utf-8"))
     for rec in payload["sets"]:
         rec.pop("tags", None)
-    p.write_text(json.dumps(payload))
+    p.write_text(json.dumps(payload), encoding="utf-8")
     r = ExtremaSetManager.load(tmp_path)                     # must not KeyError
     assert r.sets[0].tags == {}
 
@@ -160,11 +160,11 @@ def test_load_migrates_legacy_slab_group_keys(tmp_path):
     m.add_set(h_chains=[0, 1], name="s0")
     m.save(tmp_path)
     p = Path(tmp_path) / "extrema_sets.json"
-    payload = json.loads(p.read_text())
+    payload = json.loads(p.read_text(encoding="utf-8"))
     for rec in payload["sets"]:
         rec.pop("tags", None)
         rec["slab"] = "Kermadec"
         rec["group"] = "13a"                                 # simulate an EQSelect artifact
-    p.write_text(json.dumps(payload))
+    p.write_text(json.dumps(payload), encoding="utf-8")
     r = ExtremaSetManager.load(tmp_path)
     assert r.sets[0].tags == {"slab": "Kermadec", "group": "13a"}

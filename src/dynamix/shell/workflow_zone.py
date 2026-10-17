@@ -223,6 +223,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.chain import Chain, DeviceRef
+from dynamix.devices.precision import placement_params
 from dynamix.model.device import Device, defaults_for, get_device, is_transform
 from dynamix.model.families import label_of
 from dynamix.model.param import Param
@@ -346,7 +347,9 @@ def _grouped_params(device: Device) -> list[tuple[str, tuple[Param, ...]]]:
     (:meth:`DeviceBox._on_control_changed`).
     """
     def _on_strip(p: Param) -> bool:
-        return not p.name.startswith("_") and not getattr(p, "section", "")
+        # An "advanced" knob lives in the inspector's collapsed section, never on the strip.
+        return (not p.name.startswith("_") and not getattr(p, "section", "")
+                and getattr(p, "level", "basic") != "advanced")
 
     visible = tuple(p for p in device.params if _on_strip(p))
     groups_spec = getattr(device, "param_groups", None)
@@ -903,6 +906,8 @@ class WorkflowZone(QtWidgets.QFrame):
 
     paramChanged = QtCore.Signal(int, str, object)
     chainEdited = QtCore.Signal(object)
+    #: A box was clicked: its step index, for the inspector; -1 when a rebuild dropped the selection.
+    stepSelected = QtCore.Signal(int)
     #: The chip-hover feedback: relayed straight from ``self.source_box.chipHovered``, so
     #: ``main_window`` has one signal to connect to ``LayerPanel.flash_row`` per zone rebuild,
     #: rather than reaching past this zone into its ``source_box`` child.
@@ -989,7 +994,11 @@ class WorkflowZone(QtWidgets.QFrame):
         ``DeviceBox`` for a ``rack=None`` entry, or one ``RackBox`` per contiguous run of entries
         sharing the same non-``None`` rack name. The descriptor list's OWN order already is the
         flattened chain order (module docstring), so grouping consecutive rack membership is all
-        this has to do."""
+        this has to do. The selected step stays selected when it survives the rebuild (the same
+        device at the same index, else the first box of that device), so the inspector's Device
+        section stays open on it; ``stepSelected`` then carries its index, or -1."""
+        kept = next(((box.step_index, box.device.name) for box in self._boxes
+                     if box.property("selected") == "true"), None)
         self._field = field
         self._clear_boxes()
         self._descriptors = [dict(d) for d in descriptors]
@@ -1011,6 +1020,19 @@ class WorkflowZone(QtWidgets.QFrame):
                 self._row.addWidget(rack_box)
                 i = j
         self._row.addStretch(1)
+        i = self._surviving(kept)
+        if i is not None:
+            self.select(i)
+        self.stepSelected.emit(-1 if i is None else i)
+
+    def _surviving(self, kept) -> int | None:
+        """The rebuilt index of the step selected before a rebuild (``(index, device id)``), or
+        None when no box holds that device any more."""
+        if kept is None:
+            return None
+        index, name = kept
+        same = [box.step_index for box in self._boxes if box.device.name == name]
+        return index if index in same else (same[0] if same else None)
 
     def _make_box(self, i: int) -> DeviceBox:
         d = self._descriptors[i]
@@ -1061,6 +1083,7 @@ class WorkflowZone(QtWidgets.QFrame):
     def _on_box_selected(self) -> None:
         box: DeviceBox = self.sender()
         self.select(box.step_index)
+        self.stepSelected.emit(box.step_index)
 
     def _on_box_bypass_toggled(self, checked: bool) -> None:
         # Routed through the same gate every other mutation is:
@@ -1272,8 +1295,15 @@ class WorkflowZone(QtWidgets.QFrame):
             self._pending_placement = (name, self._placement_message(name))
         index = clamped
         self._pending_scroll_to = index
-        self._descriptors.insert(index, {"device": name, "params": defaults_for(device),
+        self._descriptors.insert(index, {"device": name, "params": placement_params(device),
                                          "bypassed": False, "rack": rack})
+
+    def add_device(self, name: str) -> None:
+        """Place ``name`` as a drop at the end would: the same clamp and the same refusal gate
+        (the command palette and the Analysis menu)."""
+        snapshot = [dict(d) for d in self._descriptors]
+        self._handle_device_drop(name, None, None)
+        self._commit_or_revert(snapshot)
 
     def _handle_preset_drop(self, name: str) -> None:
         """A preset drop creates its OWN named rack from the preset's steps (design: "Racks" is a

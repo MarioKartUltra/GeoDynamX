@@ -12,7 +12,7 @@ from __future__ import annotations
 
 FAMILY_ORDER = ("Data preparation", "Edge detection", "Regularity", "Skeletons", "Decomposition",
                 "Reconstruction", "Topology", "Selection: extrema", "Selection: V-chains",
-                "Points", "Other")
+                "Points", "Microstructure", "Labs", "Other")
 
 
 def label_of(device) -> str:
@@ -30,3 +30,11 @@ def display_name(device) -> str:
     """``"<label>  (<id>)"`` when the label differs from the id, else the id."""
     label = label_of(device)
     return label if label == device.name else f"{label}  ({device.name})"
+
+
+def tooltip_of(device) -> str:
+    """The browser's tooltip: the display name, then the device's origin (authors, licence,
+    citation, URL; ``dynamix.model.origin``), one per line."""
+    from dynamix.model.origin import origin_of_device
+
+    return "\n".join([display_name(device), *origin_of_device(device).lines()])

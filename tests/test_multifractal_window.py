@@ -52,8 +52,9 @@ def test_window_builds_headless_and_is_a_nonmodal_canonical_window(qtbot):
     qtbot.addWidget(window)
     assert window.windowTitle() == "Multifractal spectrum — canonical (Arneodo WTMM)"
     assert window.isModal() is False
-    # sup (cmax) is the default table -- the textbook WTMM convention.
-    assert window._table_combo.currentText() == TABLE_CHOICES[0] == "sup (cmax)"
+    # no-sup (std) is the default table: each line's modulus at the current scale, xsmurf's own
+    # default, which keeps negative exponents (the sup flattens them toward 0).
+    assert window._table_combo.currentText() == TABLE_CHOICES[0] == "no-sup (std)"
 
 
 def test_region_defaults_to_the_full_scale_range(qtbot):
@@ -71,8 +72,9 @@ def test_current_fit_is_exactly_the_core_fitter_on_the_selected_table(qtbot):
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     lo, hi = window._region.getRegion()
-    expect = spectra.fit_spectra(hd_cmax, lo, hi)      # default table is cmax
+    expect = spectra.fit_spectra(hd_cmax, lo, hi)      # the sup table, picked above
     got = window.current_fit()
     for key in ("tau", "h", "D", "tau_err", "h_err", "D_err"):
         np.testing.assert_allclose(got[key], expect[key], rtol=1e-12, err_msg=key)
@@ -97,9 +99,9 @@ def test_table_toggle_switches_between_cmax_and_std(qtbot):
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
-    np.testing.assert_allclose(window.current_fit()["tau"], [1.5, 2.5, 3.5], rtol=1e-12)
-    window._table_combo.setCurrentText("no-sup (std)")
     np.testing.assert_allclose(window.current_fit()["tau"], [1.0, 2.0, 3.0], rtol=1e-12)
+    window._table_combo.setCurrentText("sup (cmax)")
+    np.testing.assert_allclose(window.current_fit()["tau"], [1.5, 2.5, 3.5], rtol=1e-12)
 
 
 # ------------------------------------------------------------------------------- eta / frame
@@ -111,6 +113,7 @@ def test_eta_seed_flows_into_the_control_and_the_fit(qtbot):
     note = "forward lift: a^1 on WT derivs (tensor)"
     window = MultifractalWindow(hd_std, hd_cmax, eta_seed=1.0, forward_note=note)
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     assert window._eta_spin.value() == 1.0
     assert window._forward_label.text() == note
     fit = window.current_fit()
@@ -157,6 +160,7 @@ def test_all_three_partition_families_are_drawn_with_mirrored_regions(qtbot):
 
     window = MultifractalWindow(*_pair())
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     assert [k for k, _ in FAMILY_TABLES] == ["tau_qa", "h_qa", "D_qa"]
     for key, _ in FAMILY_TABLES:
         assert len(window._family_items_by_table[key]) == 3      # one item per q
@@ -205,7 +209,8 @@ def _broken_pair():
 def test_the_phase_transition_tangent_on_D_h_tracks_the_negative_branch(qtbot):
     window = MultifractalWindow(*_broken_pair())
     qtbot.addWidget(window)
-    fit = window.current_fit()                                      # cmax (default) is broken
+    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
+    fit = window.current_fit()                                      # cmax is broken
     expect = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
     assert expect is not None
     line = window._tangent_line
@@ -594,6 +599,19 @@ def test_the_cumulant_spectrum_overlay_follows_the_fitted_cumulants(qtbot):
 
 # ------------------------------------------------------------------ the window never fights the screen
 
+def _width_report(window):
+    """The style, the font and the widest controls beside a width assertion: a control's
+    minimum width is what a row adds up."""
+    from PySide6 import QtWidgets
+
+    from tests.test_shell_docks import _font_report
+
+    widest = sorted(((w.minimumSizeHint().width(), type(w).__name__, w.objectName())
+                     for w in window.findChildren(QtWidgets.QWidget) if w.isVisibleTo(window)),
+                    reverse=True)[:8]
+    return f"{_font_report()}, widest {widest}"
+
+
 def test_the_control_strip_never_sets_the_window_width(qtbot):
     """The strip's labels change text with every fit (the focus readout, the two-segment
     readout); a one-row strip let them raise the window's minimum width past the screen and
@@ -605,7 +623,7 @@ def test_the_control_strip_never_sets_the_window_width(qtbot):
     window.show()
     # The bound is a small laptop's usable width, not a pixel count: the strip's widgets grow
     # with the app theme's font (874 px with it, 760 without), and the one-row strip was 1361.
-    assert window.minimumSizeHint().width() < 1000
+    assert window.minimumSizeHint().width() < 1000, _width_report(window)
     window.resize(1000, 700)
     qtbot.wait(10)
     assert window.size().width() == 1000
@@ -630,4 +648,77 @@ def test_the_fitter_opens_inside_its_screen(qtbot):
     window.show()
     qtbot.wait(10)
     avail = (window.screen() or QtGui.QGuiApplication.primaryScreen()).availableGeometry()
-    assert window.size().width() <= avail.width() and window.size().height() <= avail.height()
+    assert window.size().width() <= avail.width() and window.size().height() <= avail.height(), \
+        _width_report(window)
+
+
+def test_the_cumulants_can_take_their_own_scale_range(qtbot):
+    """"cumulant range" shows a second window on the three log₂ a panels; dragging it on
+    any panel moves it on all three and refits the cumulants only, the spectrum fit stays; off,
+    the cumulants follow the fit window again."""
+    q = np.linspace(-3.0, 3.0, 25)
+    hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
+    rng = np.random.default_rng(3)
+    scales = hd["scales"]
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 20000))
+            for a in scales]
+    window = MultifractalWindow(hd, hd, extrema_mods=mods, scales=scales)
+    qtbot.addWidget(window)
+    fit_before = np.asarray(window._cq_curve.getData()[1]).copy()
+    assert len(window._cum_regions) == 3 and not any(r.isVisible() for r in window._cum_regions)
+    window.cumulant_range_check.setChecked(True)
+    assert all(r.isVisible() for r in window._cum_regions)
+    assert window._cum_regions[0].getRegion() == pytest.approx(window._region.getRegion())
+    window._cum_regions[1].setRegion((0.0, 0.5))                # one scale inside: no fit
+    assert window._cum_regions[0].getRegion() == pytest.approx((0.0, 0.5))
+    assert np.isnan(window.current_cumulants()["c2"])
+    np.testing.assert_allclose(window._cq_curve.getData()[1], fit_before)
+    assert "log₂ a" in window._cq_label.text()
+    window.cumulant_range_check.setChecked(False)
+    assert not any(r.isVisible() for r in window._cum_regions)
+    np.testing.assert_allclose(window.current_cumulants()["c2"], 0.3, atol=0.03)
+
+
+def test_the_kink_check_marks_q_star_and_the_bridged_h_interval(qtbot):
+    """Spec 15, off by default: a τ(q) with a first-order transition gets a line at q* on τ(q)
+    and the h interval the Legendre spectrum bridges shaded on D(h); a smooth τ gets neither."""
+    q = np.linspace(-3.0, 3.0, 61)
+    window = MultifractalWindow(*(lambda hd: (hd, hd))(_hd_q(q, np.minimum(0.3 * q, 0.7 * q))))
+    qtbot.addWidget(window)
+    assert not window.kink_check.isChecked() and not window._kink_lines
+    window.kink_check.setChecked(True)
+    (line,), (band,) = window._kink_lines, window._kink_bands
+    assert line.value() == pytest.approx(0.0, abs=0.1)
+    assert band.getRegion() == pytest.approx((0.3, 0.7), abs=1e-6)
+    assert "q*" in window._kink_label.text()
+    window.kink_check.setChecked(False)
+    assert not window._kink_lines and window._kink_label.text() == ""
+    smooth = MultifractalWindow(*(lambda hd: (hd, hd))(_hd_q(q, 0.5 * q - 0.05 * q ** 2)))
+    qtbot.addWidget(smooth)
+    smooth.kink_check.setChecked(True)
+    assert not smooth._kink_lines
+
+
+def test_the_gaussian_ensemble_overlays_d_h_points_from_the_maxima_moduli(qtbot):
+    q = np.linspace(-3.0, 3.0, 25)
+    hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
+    rng = np.random.default_rng(3)
+    scales = hd["scales"]
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 4000))
+            for a in scales]
+    window = MultifractalWindow(hd, hd, extrema_mods=mods, scales=scales, log2_L=12.0)
+    qtbot.addWidget(window)
+    assert window.gaussian_check.isEnabled() and not window.gaussian_check.isChecked()
+    window.gaussian_check.setChecked(True)
+    x, y = window._gaussian_points.getData()
+    assert x is not None and len(x) > 10 and np.all(np.isfinite(x)) and np.all(np.isfinite(y))
+    window.gaussian_check.setChecked(False)
+    assert not window._gaussian_points.isVisible()
+    bare = MultifractalWindow(hd, hd)
+    qtbot.addWidget(bare)
+    assert not bare.gaussian_check.isEnabled()
+
+def test_the_cumulant_range_is_disabled_without_moduli_or_moments(qtbot):
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    assert not window.cumulant_range_check.isEnabled()

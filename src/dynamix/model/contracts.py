@@ -28,6 +28,7 @@ from dynamix.model.device import DEVICES, defaults_for, get_device, is_transform
 FIELD, STACK, POINTS = "Field", "Stack", "Points"
 EXTREMA, ALPHA, VCHAINS, TOPOLOGY, HMAP, COMPONENTS = (
     "ExtremaStack", "PointAlpha", "VChains", "Topology", "HMap", "Components")
+CURVE = "Curve"
 #: In a ``produces`` declaration: every contract the step received passes through.
 RECEIVED = "<received>"
 
@@ -42,6 +43,7 @@ CONTRACTS: dict[str, str] = {
     TOPOLOGY: "the H/V topology",
     HMAP: "an h-map",
     COMPONENTS: "decomposition components",
+    CURVE: "a curve (r, L(r))",
 }
 
 #: Every contract: what a Transform that declares no ``produces`` counts as producing.
@@ -63,6 +65,7 @@ CONTRACT_KEYS: dict[str, tuple[str, ...]] = {
     TOPOLOGY: ("topology", "_topology_vids"),
     HMAP: ("h_map", "r2_map"),
     COMPONENTS: ("raster_out",),
+    CURVE: ("r", "L"),
 }
 
 

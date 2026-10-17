@@ -33,6 +33,7 @@ class Noise:
     """Add (or subtract) seeded noise to the field before the analysing transform."""
 
     name = "noise"
+    capabilities = frozenset({"FieldStage", "RegionAware"})
     label = "Noise / dither"
     families = ("Data preparation",)
     consumes = ((FIELD,), (STACK,))

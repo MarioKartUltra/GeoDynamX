@@ -365,6 +365,12 @@ Stack from several.
 \input{tables/contracts}
 \input{tables/declarations}
 
+Every tool carries its origin: who wrote its code, under which licence, and the paper behind the
+method. A tool marked derived runs code ported from another program, named in \texttt{NOTICE};
+the browser shows the same lines in the tool's tooltip.
+
+\input{tables/origins}
+
 \textbf{The rule.} Before the first step the layer's input is available: a Field for a
 single-band raster, a Stack for an $(n_y,n_x,n_c)$ raster with $n_c>1$, Points for a point
 set. A band row's \dev{band\_select} turns its dataset's Stack into a Field. Then, step by
@@ -564,7 +570,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the fractional B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
 \texttt{q\_tsallis} ($q$) & 1.5 & $(0,2)$ & Tsallis $q$ of the three q smoothers (shown with them); $q\to1$ is the Gaussian, the Mexican hat, the Meyer; the q-Mexican hat needs $q>2/3$ \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither for quantized rasters \\
-\texttt{fracint\_alpha} ($\eta$) & 1.0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$) \\
+\texttt{fracint\_alpha} ($\eta$) & 0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$; 0 leaves a chain's slope equal to its $h$) \\
 \texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
 \texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient (\texttt{follow} always refines) \\
 \texttt{min\_chain\_len} & 2 & $[1,1024]$ & discard maxima lines spanning fewer scales \\
@@ -573,9 +579,26 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{dist2\_max} & 50 & $[0,10^6]$ px$^2$ & max squared jump when chaining maxima across scales \\
 \texttt{box\_ratio} & 1.0 & $[0.001,64]$ & chaining search-box anisotropy \\
 \texttt{similitude} & 0.8 & $[0,1]$ & cross-scale similarity acceptance for chaining \\
+\texttt{band\_per} & voice & voice, octave & where the similitude band applies: per voice, between neighbouring scales (xsmurf's vchain), or over a whole octave with each step taking its share, so the voices no longer change which $h$ can chain; the reading beside the similitude knob gives the chainable range of $h$ and the largest $h$ the analyzing wavelet resolves, $h < n_\psi$ \\
+\texttt{chainer} & xsmurf\_bench & the chainers & which cross-scale chainer links the maxima (\texttt{dynamix.core.chaining}); the default is the benchmark, the xsmurf \texttt{vchain} port, and a recipe at that default keeps the key it had \\
+\texttt{angle\_test} & off & on, off & spec 14, advanced: a candidate also needs $1 - |\Delta\arg|/\pi$ above the angle similarity (a gradient flipped by $\pi$ accepted); off is xsmurf, whose \texttt{vchain} has the test commented out \\
+\texttt{angle\_threshold} & 0.8 & 0--1 & the angle similarity the angle test asks for \\
+\texttt{radius\_rule} & xsmurf & xsmurf, scale\_proportional & the search radius: xsmurf's box and squared-distance cap, or $r = c\, a_{s+1} (a_{s+1}/a_s - 1)$ as both \\
+\texttt{radius\_c} & 1 & 0.01--100 & the constant $c$ of the scale-proportional radius \\
+\texttt{tie\_break} & distance & distance, modulus & which claimant a coarser maximum keeps: the closest (xsmurf) or the one whose modulus is closest \\
+\texttt{border\_policy} & none & none, coi\_trim, coi\_drop & chains near the image edge: kept (xsmurf), cut at the first scale within $k$ scales of the edge, or dropped; whole-field runs only \\
+\texttt{coi\_k} & 2 & 0.1--10 & the border zone in scales, $k\,a$ pixels from the edge \\
 \texttt{show} (\emph{view}) & edges & 3 outputs & \texttt{edges} (the edge stack), or the \texttt{modulus} or \texttt{argument} at the shown level (the Outputs rows, \S\ref{sec:perscale}) \\
 \bottomrule
 \end{longtable}
+
+\subsection*{Lineal path}\label{sec:lineal}
+\tool{Lineal path}{lineal\_path} (family Microstructure) thresholds the field into two phases
+(\texttt{threshold}: phase 1 lies above it) and computes the lineal-path function $L(r)$, the
+probability that a segment of $r$ pixels dropped along a row or a column lies entirely in phase 1
+(\texttt{direction}: horizontal, vertical or the mean of both), for $r = 0 \ldots$ \texttt{r\_max};
+$L(0)$ is the phase fraction and $L$ never increases. It produces a Curve, the pair $(r, L(r))$,
+counted exactly from the phase-1 run lengths without periodic wrap.
 
 \subsection*{Gradient arrows and anisotropy}\label{sec:arrows}
 The argument $\mathcal{A}=\arg T_\psi$ of each maximum points uphill in the pixel frame:

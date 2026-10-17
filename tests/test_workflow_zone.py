@@ -113,7 +113,9 @@ def test_device_box_exposes_one_control_per_param_including_the_five_new_ones(
     box = DeviceBox(0, dev, defaults_for(dev))
     qtbot.addWidget(box)
 
-    assert set(box.controls) == {p.name for p in dev.params}
+    # every knob but the advanced ones, which live in the inspector's collapsed section
+    assert set(box.controls) == {p.name for p in dev.params if p.level != "advanced"}
+    assert "angle_test" in {p.name for p in dev.params} and "angle_test" not in box.controls
     for new_param in ("smooth", "thresh", "dist2_max", "box_ratio", "similitude"):
         assert new_param in box.controls
 
@@ -1316,8 +1318,10 @@ def test_hints_rebind_soft_bounds_and_snap_the_value_to_the_data_floor(
     result = box.device.apply(kam64_stack, box._params)
     box.sync_from_result(result)
 
-    assert control._spec.lo == pytest.approx(-1.2845051091543018, abs=1e-6)
-    assert control._spec.hi == pytest.approx(0.6942832452452513, abs=1e-6)
+    # Hölder exponents of a float32 WTMM run: the FFT engines agree to float32 tolerance
+    # (FFTW3 on ubuntu put the floor 1.6e-6 away from mlx on this machine).
+    assert control._spec.lo == pytest.approx(-1.2845051091543018, rel=1e-5)
+    assert control._spec.hi == pytest.approx(0.6942832452452513, rel=1e-5)
     assert control._spec.step != original_step          # re-scaled to the real data spread
     assert box._params["cutoff"] == pytest.approx(control._spec.lo)
     assert control._value == pytest.approx(control._spec.lo)     # display followed the snap
@@ -1342,7 +1346,7 @@ def test_rebound_step_reaches_a_real_key_press_on_the_cutoff_control(
     result = box.device.apply(kam64_stack, box._params)
     box.sync_from_result(result)          # rebinds + snaps to the data floor (-1.2845...)
     rebound_step = control._spec.step
-    assert rebound_step == pytest.approx(0.019787883543995532, abs=1e-9)
+    assert rebound_step == pytest.approx(0.019787883543995532, rel=1e-5)   # float32 engines
 
     value_before = control._value
     with qtbot.waitSignal(control.valueChanged) as sig:
@@ -1723,3 +1727,35 @@ def test_an_inactive_box_shows_its_reason_and_keeps_its_params_and_bypass(qtbot,
     box.set_reading("kept 3/4")
     box.set_inactive("")
     assert box.reading_label.text() == "kept 3/4"          # an ordinary reading is kept
+
+
+def test_add_device_takes_the_drop_path_and_its_refusal_gate(qtbot, registered_builtins):
+    """The palette and the Analysis menu place a device as a drop at the end would: the same
+    clamp (a transform never lands after a filter) and the same commit gate."""
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps(_descriptors((("wtmm2d", {}),)))
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.add_device("scale_select")                 # a filter: legal at the end
+    assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "scale_select"]
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.add_device("wtmm2d")                       # a transform: clamped before the filters
+    assert [d["device"] for d in sig.args[0]] == ["wtmm2d", "wtmm2d", "scale_select"]
+    assert zone.strip(2).device.name == "scale_select"
+
+
+def test_a_dropped_fft_tool_starts_at_the_settings_precision(qtbot, registered_builtins):
+    from dynamix.core import fft_policy
+    from dynamix.shell.browser import DEVICE_MIME
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    fft_policy.configure("fftw", 64)
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps([])
+    event = _StubDropEvent(QtCore.QPoint(10, 10), _mime(DEVICE_MIME, "holder_map"))
+    with qtbot.waitSignal(zone.chainEdited) as sig:
+        zone.dropEvent(event)
+    assert sig.args[0][0]["params"]["precision"] == "f64"

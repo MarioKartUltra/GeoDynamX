@@ -17,6 +17,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, POINTS, STACK, step_states
+from dynamix.devices.precision import placement_params
 from dynamix.model.device import defaults_for, get_device, validate_params
 from dynamix.model.families import display_name, label_of
 from dynamix.model.racks import Rack, RackStep, delete_rack, load_racks, save_rack
@@ -222,7 +223,7 @@ class RackEditor(QtWidgets.QDialog):
         if self._read_only:
             return
         device = get_device(device_name)
-        at = self._append({"device": device_name, "params": defaults_for(device),
+        at = self._append({"device": device_name, "params": placement_params(device),
                            "bypassed": False}, row)
         self.steps_list.setCurrentRow(at)
         self._revalidate()

@@ -6,10 +6,10 @@
     python -m dynamix.shell.app field.npz            # any raster RasterField can read
     python -m dynamix.shell.app field.npz --render out.png   # headless frame, for verification
 
-This is the ONLY place :func:`~dynamix.shell.theme.apply_theme` is called. A theme is an
-application-wide stylesheet plus a default font; applying it anywhere else means two callers can
-disagree about what the app looks like, and a widget-level stylesheet is exactly the literal-color
-escape hatch the Theme Rule exists to close.
+:func:`~dynamix.shell.theme.apply_theme` is called here at launch, with the theme the settings name,
+from the window's Settings ▸ Theme pick and from its file watcher when the picked file changes (the same function, the same app-wide stylesheet). A
+widget-level stylesheet anywhere else is exactly the literal-color escape hatch the Theme Rule exists
+to close.
 
 ``--render`` mirrors demo.py's headless verification mode, with one addition it needs and demo.py
 did not: the first resolve runs on the WORKER thread, so the render path pumps the event loop until
@@ -27,7 +27,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.shell.main_window import MainWindow
 from dynamix.shell.settings import load_settings
-from dynamix.shell.theme import RESTRAINED_DARK, apply_theme
+from dynamix.shell.theme import RESTRAINED_DARK, Theme, apply_theme, load_theme
 
 #: How long ``--render`` waits for the first transform before grabbing anyway. Generous: this is a
 #: WTMM run over whatever raster the caller passed, not a UI animation.
@@ -45,6 +45,18 @@ def _default_raster() -> str:
     root = Path(__file__).resolve().parents[3]
     demo = root / "docs" / "demo" / "dem_crop.npz"
     return str(demo if demo.exists() else root / "tests" / "fixtures" / "kam_64.npz")
+
+
+def _theme_for(name: str) -> Theme:
+    """The theme the settings name, or Restrained Dark with a line on stderr when no file has it
+    or the file does not validate: a bad theme must never keep the app from starting."""
+    from dynamix.shell.settings import themes_dir
+
+    try:
+        return load_theme(name, themes_dir())
+    except (KeyError, ValueError, OSError) as exc:
+        print(f"theme {name!r}: {exc}; using Restrained Dark", file=sys.stderr)
+        return RESTRAINED_DARK
 
 
 def main(argv=None) -> int:
@@ -67,11 +79,15 @@ def main(argv=None) -> int:
     raster = argv[0] if argv else _default_raster()
 
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    apply_theme(app, RESTRAINED_DARK)
+    from dynamix.shell import gc_guard
+
+    gc_guard.install(app)                     # collections on the GUI thread only (gc_guard)
+    apply_theme(app, _theme_for(load_settings().theme))
     win = MainWindow()
     from dynamix.shell.window_fit import fit_to_screen
 
-    fit_to_screen(win, 1400, 860)
+    if not getattr(win, "_geometry_restored", False):      # a stored arrangement sized it already
+        fit_to_screen(win, 1400, 860)
     win.show()
     win.open_path(raster)
 

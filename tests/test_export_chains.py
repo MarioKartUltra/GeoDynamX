@@ -60,3 +60,56 @@ def test_export_refuses_without_a_product_and_for_roi_results(qtbot, clean_regis
     win._active_result = roi
     win.field = object()
     assert "ROI results" in win._chain_export_blocker()
+
+
+def test_an_export_writes_its_record_beside_it_and_the_command_writes_it_again(
+        qtbot, clean_registry, tmp_path):
+    """The chain export writes ``<file>.gprv`` from the active layer; File > Write Provenance
+    Record writes it again (the earlier record moves aside); without a layer the export still
+    lands and says why it has no record."""
+    pytest.importorskip("gprv")
+    import json
+
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices import register_builtin_devices
+    from dynamix.shell.main_window import MainWindow
+
+    register_builtin_devices()
+    win = MainWindow()
+    qtbot.addWidget(win)
+    path = tmp_path / "chains.npz"
+    win.field = RasterField(name="f", values=np.zeros((8, 64)), frame=LocalFrame(units="px"),
+                            x_axis=np.arange(64.0), y_axis=np.arange(8.0))
+    win._active_result = _prod_result()
+    assert "no provenance record (no active layer)" in win._export_chain_product(str(path))
+
+    values = np.random.default_rng(0).standard_normal((48, 48)).cumsum(0).cumsum(1)
+    win.load_field(RasterField(name="f", values=values, frame=LocalFrame(units="px"),
+                               x_axis=np.arange(48.0), y_axis=np.arange(48.0)),
+                   str(tmp_path / "field.npz"), inert=True)
+    win._active_result = _prod_result()
+    msg = win._export_chain_product(str(path))
+    assert "provenance chains.npz.gprv" in msg
+    record = json.loads((tmp_path / "chains.npz.gprv").read_text(encoding="utf-8"))
+    assert record["processStep"][-1]["processingInformation"]["identifier"]["code"] == \
+        "export/chains_npz"
+    win._on_write_provenance()
+    assert "provenance chains.npz.gprv" in win._status_message
+    assert len(list(tmp_path.glob("chains.npz.*.gprv"))) == 1
+
+
+def test_a_preview_is_not_exported_and_gets_no_record(qtbot, clean_registry, tmp_path):
+    """While only the finest-scale preview is on show, the export waits for the full stack: a
+    record of the full recipe beside preview chains would describe what was not written."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.shell.main_window import MainWindow
+
+    win = MainWindow()
+    qtbot.addWidget(win)
+    win.field = RasterField(name="f", values=np.zeros((8, 64)), frame=LocalFrame(units="px"),
+                            x_axis=np.arange(64.0), y_axis=np.arange(8.0))
+    win._active_result = {**_prod_result(), "_preview": True}
+    assert "still computing" in win._chain_export_blocker()
+    assert "preview" in win._write_provenance(tmp_path / "x.npz", "chains_npz")

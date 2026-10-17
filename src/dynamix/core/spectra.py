@@ -590,6 +590,11 @@ def cascade_cumulants(mods_per_scale, scales_px, log2_a_min: float, log2_a_max: 
     ln a), c₂ = -s₂ (the variance grows towards SMALL scales), c₃ = +s₃, c₄ = -s₄. Returns
     ``{"c1".."c4", "r2"}`` (the worst per-order R²); NaN when fewer than two scales fall inside
     the window."""
+    from dynamix.core import wtmm_backend
+
+    if not wtmm_backend.USE_VENDORED:
+        return cumulants_from_moments(ln_moments(mods_per_scale), scales_px, log2_a_min,
+                                      log2_a_max, max_order=max_order)
     from dynamix._vendor.wtmm.dupont_venugopal import fit_venugopal_cumulants
 
     ln_a = np.log(np.asarray(scales_px, dtype=np.float64))

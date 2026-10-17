@@ -132,7 +132,7 @@ def save_project(project: Project, path) -> Path:
     payload = project.to_payload()
     for entry in payload["sources"]:
         entry["path"] = _store_path(entry["path"], project_dir)
-    path.write_text(json.dumps(payload, indent=2))
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
 
 
@@ -145,7 +145,7 @@ def open_project(path) -> Project:
     """
     path = Path(path)
     try:
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ProjectFormatError(
             f"{path.name} is not a DynamiX project (not valid JSON: {exc})"

@@ -29,7 +29,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core.stretch import parse_class_colors, parse_levels, resolve_breaks
-from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.theme import current
 
 __all__ = ["LevelsDialog", "BandDialog"]
 
@@ -66,7 +66,7 @@ class _HistogramDialog(QtWidgets.QDialog):
         controls.addWidget(self._bin_spin)
 
         self._plot = pg.PlotWidget()
-        self._plot.setBackground(RESTRAINED_DARK.ground)
+        self._plot.setBackground(current().ground)
         self._plot.setLabel("bottom", "value")
         self._plot.setLabel("left", "count")
         # Horizontal-only zoom: wheel/drag zoom moves x only; the count
@@ -76,8 +76,8 @@ class _HistogramDialog(QtWidgets.QDialog):
         vb.enableAutoRange(axis=pg.ViewBox.YAxis, enable=True)
         vb.setAutoVisible(y=True)
         self._hist_item = pg.PlotDataItem(stepMode="center", fillLevel=0,
-                                          pen=pg.mkPen(RESTRAINED_DARK.ink_muted),
-                                          brush=pg.mkBrush(RESTRAINED_DARK.raised))
+                                          pen=pg.mkPen(current().ink_muted),
+                                          brush=pg.mkBrush(current().raised))
         self._plot.addItem(self._hist_item)
         layout.addWidget(self._plot, 1)
 
@@ -198,8 +198,8 @@ class LevelsDialog(_HistogramDialog):
 
     def _add_line(self, x: float):
         line = pg.InfiniteLine(pos=x, angle=90, movable=True,
-                               pen=pg.mkPen(RESTRAINED_DARK.ink, width=2.0),
-                               hoverPen=pg.mkPen(RESTRAINED_DARK.amber, width=2.5))
+                               pen=pg.mkPen(current().ink, width=2.0),
+                               hoverPen=pg.mkPen(current().amber, width=2.5))
         line.sigPositionChanged.connect(lambda _l: (self._update_regions(),
                                                      self._queue_live()))
         self._plot.addItem(line)
@@ -426,11 +426,11 @@ class BandDialog(_HistogramDialog):
 
         lo = float(h_lo) if h_lo is not None else float(np.percentile(self._finite, 5))
         hi = float(h_hi) if h_hi is not None else float(np.percentile(self._finite, 25))
-        band = pg.mkColor(RESTRAINED_DARK.amber)
+        band = pg.mkColor(current().amber)
         band.setAlpha(70)
         self._band_region = pg.LinearRegionItem(values=(lo, hi), orientation="vertical",
                                                 brush=pg.mkBrush(band),
-                                                pen=pg.mkPen(RESTRAINED_DARK.amber))
+                                                pen=pg.mkPen(current().amber))
         self._band_region.sigRegionChanged.connect(lambda _r: self._queue_preview())
         self._plot.addItem(self._band_region)
         self._redraw_histogram()

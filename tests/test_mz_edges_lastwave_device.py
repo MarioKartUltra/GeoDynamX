@@ -28,7 +28,7 @@ _NAMES = ["n_levels", "algorithm", "wavelet", "alpha", "border", "colocate_l1", 
           "interpolate",
           "recon_live", "kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode",
           "recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
-          "alpha_fallback", "show"]
+          "alpha_fallback", "show", "precision"]
 _SELECT_KNOBS = ("recon_levels", "per_level", "near_radius", "alpha_check", "alpha_tol",
                  "alpha_fallback")
 _RECON_KNOBS = ("kappa", "clip", "run_mode", "iterations", "tolerance", "coarse", "mode")
@@ -95,7 +95,8 @@ def test_param_names_order_defaults_and_sections(builtins):
         "dither": False, "interpolate": False, "recon_live": False, "kappa": 1.0, "clip": False,
         "run_mode": "converge", "iterations": 20, "tolerance": 1e-3, "coarse": "full",
         "mode": "separable", "recon_levels": "", "per_level": False, "near_radius": 1,
-        "alpha_check": False, "alpha_tol": 0.5, "alpha_fallback": 0.0, "show": "edges"}
+        "alpha_check": False, "alpha_tol": 0.5, "alpha_fallback": 0.0, "show": "edges",
+        "precision": "f32"}
     assert by["algorithm"].choices == ("lastwave", "printed")
     assert by["border"].choices == ("mirror", "periodic")
     assert by["colocate_l1"].label == "Co-locate level 1"

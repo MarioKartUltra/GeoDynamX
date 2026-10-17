@@ -23,6 +23,7 @@ import pytest
 pv = pytest.importorskip("pyvista", reason="pyvista not installed")
 pytest.importorskip("rasterio", reason="rasterio not installed (needed by the geo fixture)")
 pv.OFF_SCREEN = True
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
 
 from dynamix.core.frames import LocalFrame
 from dynamix.core.pointset import PointSet

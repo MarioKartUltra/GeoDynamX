@@ -88,6 +88,9 @@ class Transport(QtWidgets.QFrame):
 
         self.play_button = QtWidgets.QPushButton(PLAY_GLYPH)
         self.play_button.setCheckable(True)
+        # Space is the window's one play command; a focused button would answer it too and
+        # toggle twice, so the button never takes keyboard focus.
+        self.play_button.setFocusPolicy(QtCore.Qt.NoFocus)
         self.play_button.toggled.connect(self._on_play_toggled)
 
         self.slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)

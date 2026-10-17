@@ -179,7 +179,7 @@ def _utm_tif(path, ny=300, nx=400, px=12.192, x0=400000.0, y0=3100000.0):
     from rasterio.transform import from_origin
     vals = (np.arange(ny * nx, dtype=np.float32).reshape(ny, nx) % 1000) - 3000.0
     with rio.open(path, "w", driver="GTiff", height=ny, width=nx, count=1, dtype="float32",
-                  crs="EPSG:32615", transform=from_origin(x0, y0, px, px)) as dst:
+                  crs="EPSG:32615", transform=from_origin(x0, y0, px, px), encoding="utf-8") as dst:
         dst.write(vals, 1)
     return vals
 
@@ -253,7 +253,7 @@ def test_full_geographic_geotiff_still_gets_a_geographic_frame(tmp_path):
     p = tmp_path / "geo.tif"
     vals = np.arange(20 * 30, dtype=np.float32).reshape(20, 30)
     with rio.open(p, "w", driver="GTiff", height=20, width=30, count=1, dtype="float32",
-                  crs="EPSG:4326", transform=from_origin(-91.0, 28.0, 0.01, 0.01)) as dst:
+                  crs="EPSG:4326", transform=from_origin(-91.0, 28.0, 0.01, 0.01), encoding="utf-8") as dst:
         dst.write(vals, 1)
     rf = RasterField.from_file(p)
     assert isinstance(rf.frame, GeographicFrame)
@@ -323,7 +323,7 @@ def test_geographic_geotiff_still_yields_a_geographic_frame(tmp_path):
     from rasterio.transform import from_origin
     p = tmp_path / "geo.tif"
     with rio.open(p, "w", driver="GTiff", height=20, width=30, count=1, dtype="float32",
-                  crs="EPSG:4326", transform=from_origin(-95.0, 28.0, 0.01, 0.01)) as dst:
+                  crs="EPSG:4326", transform=from_origin(-95.0, 28.0, 0.01, 0.01), encoding="utf-8") as dst:
         dst.write(np.zeros((20, 30), np.float32), 1)
     rf = RasterField.from_geotiff_window(p, row_off=0, col_off=0, height=10, width=10)
     assert isinstance(rf.frame, GeographicFrame)

@@ -22,14 +22,23 @@ after another Transform is refused with the shared pointed message.
 """
 from __future__ import annotations
 
+import dataclasses
+
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.model.contracts import EXTREMA, FIELD
+from dynamix.model.origin import FIRST_PARTY
+from dynamix.devices.precision import PRECISION_PARAM
+from dynamix.model.device import keyed_params
 from dynamix.model.param import Param, ParamKind
 
 
 class WaveletSkeleton:
     name = "wavelet_skeleton"
+    capabilities = frozenset({"RegionAware"})
+    role = "primary"
+    chain_producer = True
     label = "Wavelet skeleton"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Mallat & Hwang (1992), IEEE Trans. Inf. Theory 38(2), 617")
     families = ("Skeletons",)
     consumes = ((FIELD,),)
     produces = (EXTREMA,)
@@ -70,6 +79,7 @@ class WaveletSkeleton:
         # else's slope. 0 disables the gate.
         Param("pair_dom", ParamKind.FLOAT, default=0.5, min=0.0, max=0.9,
               soft_min=0.3, soft_max=0.7, units="", label="Pair dom."),
+        PRECISION_PARAM,
     )
 
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
@@ -147,4 +157,4 @@ class WaveletSkeleton:
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
-        return _k(self.name, source_id, params)
+        return _k(self.name, source_id, keyed_params(self, params))

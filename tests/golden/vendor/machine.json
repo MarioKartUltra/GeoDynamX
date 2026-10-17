@@ -1,0 +1,1 @@
+{"machine": "darwin-arm64", "snapshot": "vendored-snapshot-2026-10", "environment": {"machine": "darwin-arm64", "chip": "Apple M2 Max", "numpy": "2.5.3", "mlx": "0.32.2", "PyWavelets": "1.10.0"}}

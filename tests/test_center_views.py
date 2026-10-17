@@ -583,7 +583,7 @@ def test_garbled_center_view_falls_back_to_raster(tmp_path, monkeypatch):
     from dynamix.shell.settings import settings_path
 
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "garbled.json"))
-    settings_path().write_text(json.dumps({"center_view": "not-a-real-view"}))
+    settings_path().write_text(json.dumps({"center_view": "not-a-real-view"}), encoding="utf-8")
 
     assert load_settings().center_view == "raster"
 
@@ -685,11 +685,11 @@ def test_shift_cmd_z_shortcut_routes_to_whichever_strips_is_currently_live(loade
     SEPARATE chord from the plain ⌘Z (no collision), dispatched through a wrapper that
     re-reads ``self.strips`` at activation time so it survives a rebuild."""
     window = loaded
-    assert window._key_undo_rack.key() != window._key_undo_transect.key()
+    assert window.commands["edit.undo_rack_drop"].shortcut() != window.commands["edit.undo_transect"].shortcut()
 
     calls = []
     window.strips.undo_removal = lambda: calls.append(window.strips)
-    window._key_undo_rack.activated.emit()
+    window.commands["edit.undo_rack_drop"].trigger()
     assert calls == [window.strips]
 
     # After a rebuild, the SAME shortcut must reach the NEW zone, not the torn-down one.
@@ -698,7 +698,7 @@ def test_shift_cmd_z_shortcut_routes_to_whichever_strips_is_currently_live(loade
     assert window.strips is not old_strips
     calls.clear()
     window.strips.undo_removal = lambda: calls.append(window.strips)
-    window._key_undo_rack.activated.emit()
+    window.commands["edit.undo_rack_drop"].trigger()
     assert calls == [window.strips]
 
 

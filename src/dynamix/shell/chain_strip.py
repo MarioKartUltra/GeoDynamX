@@ -115,7 +115,15 @@ class DeviceStrip(QtWidgets.QFrame):
         """``device.derived_reading(name, value, field, params)`` if the device declares the
         optional method, else ``None`` -- a device with no such method (most of them) gets no
         label, at no cost beyond one ``getattr``. ``params`` is this strip's own dict, so a device
-        can read e.g. its wavelet choice into the reading (``WTMM2D.derived_reading``)."""
+        can read e.g. its wavelet choice into the reading (``WTMM2D.derived_reading``).
+
+        Every FFT tool's ``precision`` knob reads the same way (``devices/precision.py``): the
+        engine's note when the precision cannot run as asked, else an empty line, so the label
+        exists for the note to appear in."""
+        if name == "precision":
+            from dynamix.devices.precision import precision_reading
+
+            return precision_reading({**self._params, name: value}) or ""
         derived_reading = getattr(self.device, "derived_reading", None)
         if derived_reading is None:
             return None

@@ -92,6 +92,6 @@ def test_settings_carry_the_output_budget_two_gigabytes_by_default(tmp_path, mon
     update_settings(output_cache_bytes=123_456)
     assert load_settings().output_cache_bytes == 123_456
     path = tmp_path / "bad.json"
-    path.write_text(json.dumps({"output_cache_bytes": -5}))
+    path.write_text(json.dumps({"output_cache_bytes": -5}), encoding="utf-8")
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(path))
     assert load_settings().output_cache_bytes == 2_000_000_000

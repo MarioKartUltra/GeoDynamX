@@ -30,6 +30,7 @@ from __future__ import annotations
 import math
 
 from dynamix.model.contracts import COMPONENTS, FIELD
+from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
 
 #: Window entries (L_r * L_c) above which the dense lag-covariance route gets slow (~4 s at
@@ -54,6 +55,7 @@ class SSA2D:
 
     wants_cancel = True                  # the stop button reaches the eigensolver
     name = "ssa2d"
+    capabilities = frozenset({"Cancellable", "RegionAware", "StripExtras", "Viewable"})
     label = "2-D SSA"
     families = ("Decomposition", "Reconstruction")
     consumes = ((FIELD,),)
@@ -97,6 +99,7 @@ class SSA2D:
         Param("cluster_distance", ParamKind.FLOAT, default=0.5, min=0.05, max=0.95,
               soft_min=0.1, soft_max=0.9, label="Cluster distance", view=True,
               active_when=("show", ("cluster",))),
+        PRECISION_PARAM,
     )
 
     def check(self, params: dict) -> None:

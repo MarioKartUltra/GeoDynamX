@@ -12,7 +12,7 @@ FORBIDDEN = {"PySide6", "pyvista", "pyqtgraph", "shapely", "geopandas", "wtmm", 
 
 def _imports(path):
     out = set()
-    for node in ast.walk(ast.parse(path.read_text())):
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
         if isinstance(node, ast.Import):
             out |= {a.name.split(".")[0] for a in node.names}
             # GeoDynamix_Beta: the vendored wtmm/wtmm_ebsd live under dynamix._vendor

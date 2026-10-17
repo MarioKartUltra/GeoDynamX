@@ -294,7 +294,7 @@ def test_two_layers_over_the_same_csv_with_different_mappings_dont_collide(
     lon1, lat1 = _valid_lonlat(target_field, col=5, row=5)
     lon2, lat2 = _valid_lonlat(target_field, col=20, row=20)
     csv_path = tmp_path / "quakes.csv"
-    csv_path.write_text(f"lonA,latA,lonB,latB\n{lon1[0]},{lat1[0]},{lon2[0]},{lat2[0]}\n")
+    csv_path.write_text(f"lonA,latA,lonB,latB\n{lon1[0]},{lat1[0]},{lon2[0]},{lat2[0]}\n", encoding="utf-8")
     mapping1 = {"lon": "lonA", "lat": "latA"}
     mapping2 = {"lon": "lonB", "lat": "latB"}
 

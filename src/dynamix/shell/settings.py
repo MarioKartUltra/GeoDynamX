@@ -26,6 +26,9 @@ class Settings:
     #: earlier than that). Round-tripped by :func:`update_settings` exactly like every other
     #: field here.
     center_view: str = "raster"
+    #: The theme applied at launch: a bundled name (``restrained_dark``, ``mid_grey``, ``light``) or a
+    #: file stem under the user's themes folder (``dynamix.shell.theme.load_theme``).
+    theme: str = "restrained_dark"
     #: A raster to open at launch when none is given on the command line (handy for testing). ``None`` or a path that no longer exists
     #: falls back to :func:`dynamix.shell.app._default_raster`'s demo/fixture choice. Set it by
     #: hand in settings.json or via ``update_settings(open_on_launch=...)``.
@@ -38,14 +41,14 @@ class Settings:
     #: Folders the footprint browser re-scans at every window open: raster headers
     #: only, milliseconds per folder. A folder that no longer exists is skipped, never an error.
     footprint_folders: list[str] = dataclasses.field(default_factory=list)
-    #: The master compute-engine choice: "auto" = mlx when importable, else
-    #: the numpy/FFT fallback (the auto-detect ``cwt2d`` always had); "mlx" / "numpy" force one
-    #: engine app-wide. Applied at startup (and on menu toggle) via
+    #: The master compute-engine choice: "auto" = mlx on Apple Silicon, else FFTW3; "mlx" /
+    #: "fftw" force one engine app-wide. Applied at startup (and on menu toggle) via
     #: ``dynamix.core.wtmm_backend.set_default_engine`` -- NEVER part of a cache key or recipe:
     #: the backends-agree-to-float32 law makes engine choice infrastructure, not physics.
     compute_engine: str = "auto"
-    #: FFT precision for EVERY FFT in the app, 32 (the default,
-    #: xsmurf's own single precision) or 64 (runs on FFTW3 -- mlx is single precision only).
+    #: The startup FFT precision, 32 (the default, xsmurf's own single precision) or 64 (runs on
+    #: FFTW3 -- mlx is single precision only): a newly placed tool's "FFT precision" knob starts
+    #: at it, and the FFTs outside a tool's compute run at it. A placed tool runs at its own knob.
     #: Engine choices are "auto" (mlx on Apple Silicon, else FFTW3), "mlx", "fftw"; a file
     #: saved with a "numpy" choice loads as the CPU engine, "fftw". Applied at STARTUP
     #: through dynamix.core.fft_policy.configure (restart to apply).
@@ -76,14 +79,28 @@ def settings_path() -> Path:
         base = Path.home() / "Library" / "Application Support"
     return base / "GeoDynamix" / "settings.json"
 
+
+def themes_dir() -> Path:
+    """The user's theme files (``dynamix.shell.theme.load_theme``): a ``themes`` folder beside the
+    settings file."""
+    return settings_path().parent / "themes"
+
+
 def racks_dir() -> Path:
     """The user's rack files (``dynamix.model.racks``): a ``racks`` folder beside the settings
     file, so ``DYNAMIX_SETTINGS_PATH`` moves both."""
     return settings_path().parent / "racks"
 
+
+def devices_dir() -> Path:
+    """The user's device files (``dynamix.model.plugins.discover``): a ``devices`` folder beside
+    the settings file, so ``DYNAMIX_SETTINGS_PATH`` moves it too."""
+    return settings_path().parent / "devices"
+
+
 def load_settings() -> Settings:
     try:
-        d = json.loads(settings_path().read_text())
+        d = json.loads(settings_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return Settings()
     def _dict_of_int_lists(v):
@@ -119,6 +136,7 @@ def load_settings() -> Settings:
         compute_precision=compute_precision,
         output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
+        theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
 
 def _positive_int(value, default: int) -> int:
@@ -130,7 +148,7 @@ def _positive_int(value, default: int) -> int:
 def save_settings(s: Settings) -> None:
     p = settings_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(dataclasses.asdict(s), indent=2))
+    p.write_text(json.dumps(dataclasses.asdict(s), indent=2), encoding="utf-8")
 
 def update_settings(**changes) -> Settings:
     """Read-modify-write: the only sanctioned single-field write. A bare

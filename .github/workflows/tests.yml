@@ -1,7 +1,8 @@
 # The two test gates on the three targets: the mlx engine on Apple Silicon (macos-14 runners are
 # arm64), FFTW3 on Windows and on Linux. The gates are the ones docs describe for a developer's
-# machine: the headless set (no Qt, no pyvista) and the Qt-only set under the offscreen platform;
-# full pytest is left out because pyvista's teardown segfaults.
+# machine: the headless set (no Qt) and the Qt-only set under the offscreen platform, both without the
+# scene tests (the `pyvista` marker), which run in their own job allowed to fail because pyvista's
+# teardown segfaults on some machines.
 name: tests
 
 on:
@@ -9,6 +10,9 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   gates:
@@ -31,6 +35,102 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - name: Software OpenGL for VTK on Windows (Mesa3D)
+        # GitHub's Windows runners have no GPU driver: a VTK render window crashed with an access
+        # violation. The action installs Mesa's off-screen renderer and points VTK at it.
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@v5
+      - name: Linux libraries Qt and VTK load even offscreen
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libegl1 libgl1 libopengl0 libxkbcommon0 libxkbcommon-x11-0 \
+            libdbus-1-3 libfontconfig1 libglib2.0-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-shape0 libxcb-xkb1 libxcb-render-util0 libxcb-image0
+      - name: Fonts for the offscreen platform on Windows
+        # Offscreen on Windows reads its fonts from a directory, and the PySide6 wheel ships none:
+        # no font was found (QFontInfo gave '' at -1 px) and text measured in missing-glyph boxes,
+        # about twice its width.
+        if: runner.os == 'Windows'
+        run: echo 'QT_QPA_FONTDIR=C:\Windows\Fonts' >> "$GITHUB_ENV"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[fast,io,app,dev]"
+      - name: Engine in use
+        run: python -c "from dynamix.core import fft_policy as p; print(p.resolve())"
+      # A file is Qt when it mentions QtWidgets or qtbot. The pyvista scene tests are excluded by their
+      # marker, never by a text match: a test that only mentions pyvista belongs in a required gate.
+      - name: Select the gates' files (each list must be non-empty)
+        run: |
+          grep -L "QtWidgets\|qtbot" tests/test_*.py > headless.txt || true
+          grep -l "QtWidgets\|qtbot" tests/test_*.py > qtonly.txt || true
+          echo "headless files: $(wc -l < headless.txt)   qt-only files: $(wc -l < qtonly.txt)"
+          test -s headless.txt && test -s qtonly.txt
+      - name: Style report (spec 10; findings for review, never failing)
+        if: runner.os == 'Linux'
+        run: |
+          python tools/lint_markers.py --all
+          python -m pip install -q "ruff>=0.6"
+          echo "## ruff" >> "$GITHUB_STEP_SUMMARY"
+          ruff check --exit-zero --output-format concise src tools | tee -a "$GITHUB_STEP_SUMMARY" | tail -3
+          ruff format --check src tools >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+      # Each gate reports whatever the other did, within its own time limit, so the job's limit never
+      # swallows a log; a test that hangs past faulthandler_timeout prints its stack, naming it.
+      - name: Headless gate
+        timeout-minutes: 20
+        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat headless.txt)
+      - name: Qt-only gate (offscreen)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 25
+        # verbose on Windows, where a native crash ended the gate with no traceback: the last name printed is it
+        run: python -m pytest ${{ runner.os == 'Windows' && '-v' || '-q' }} -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
+
+  lint-imports:
+    name: layering gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[fast,io,dev]"
+      - name: Import contracts
+        run: lint-imports
+
+  pyvista:
+    # The scene tests: pyvista's teardown segfaults on some machines, so this job may fail without
+    # failing the run; it exists so those tests run somewhere and their result is visible.
+    name: pyvista scene tests (allowed to fail)
+    runs-on: ${{ matrix.os }}
+    continue-on-error: true
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest, ubuntu-latest]
+    defaults:
+      run:
+        shell: bash
+    env:
+      PYTHONNOUSERSITE: "1"
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Software OpenGL for VTK on Windows (Mesa3D)
+        # GitHub's Windows runners have no GPU driver: a VTK render window crashed with an access
+        # violation. The action installs Mesa's off-screen renderer and points VTK at it.
+        if: runner.os == 'Windows'
+        uses: pyvista/setup-headless-display-action@v5
       - name: Linux libraries Qt and VTK load even offscreen
         if: runner.os == 'Linux'
         run: |
@@ -41,10 +141,6 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[app,dev]"
-      - name: Engine in use
-        run: python -c "from dynamix.core import fft_policy as p; print(p.resolve())"
-      - name: Headless gate
-        run: python -m pytest -q -p no:cacheprovider $(grep -L "pyvista\|QtWidgets\|qtbot" tests/test_*.py)
-      - name: Qt-only gate (offscreen)
-        run: python -m pytest -q -p no:cacheprovider $(grep -l "QtWidgets\|qtbot" tests/test_*.py | xargs grep -L "pyvista")
+          python -m pip install -e ".[fast,io,app,dev]"
+      - name: Scene tests (the pyvista marker)
+        run: python -m pytest -q -p no:cacheprovider -m pyvista tests

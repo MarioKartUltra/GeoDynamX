@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""Garbage collection on the GUI thread only: Python's cyclic collector runs in whichever thread
+trips its threshold, a compute worker included, and a Qt object it frees there is destroyed off the
+thread that owns it (CI crashed 'Garbage-collecting' inside a worker's scipy import)."""
+from __future__ import annotations
+
+import gc
+import threading
+
+import pytest
+
+pytest.importorskip("PySide6")
+from PySide6 import QtWidgets  # noqa: E402
+
+
+class _Cycle:
+    def __init__(self):
+        self.me = self
+
+
+def test_the_collector_turns_automatic_collection_off_and_collects_on_its_timer(qtbot):
+    from dynamix.shell import gc_guard
+
+    app = QtWidgets.QApplication.instance()
+    was = gc.isenabled()
+    collector = gc_guard.install(app, interval_ms=10)
+    try:
+        assert gc.isenabled() is False
+        assert gc_guard.install(app) is collector                  # once per application
+        seen = []
+        gc.callbacks.append(lambda phase, info: seen.append(threading.current_thread()))
+        for _ in range(3 * gc.get_threshold()[0]):
+            _Cycle()
+        qtbot.waitUntil(lambda: bool(seen), timeout=2000)
+        assert all(t is threading.main_thread() for t in seen)
+    finally:
+        gc.callbacks.pop()
+        gc_guard.uninstall(app)
+    assert gc.isenabled() is was
+
+
+def test_a_worker_thread_never_collects_while_the_collector_runs(qtbot):
+    from dynamix.shell import gc_guard
+
+    app = QtWidgets.QApplication.instance()
+    gc_guard.install(app, interval_ms=1000)
+    try:
+        seen = []
+        gc.callbacks.append(lambda phase, info: seen.append(threading.current_thread()))
+        t = threading.Thread(target=lambda: [_Cycle() for _ in range(5 * gc.get_threshold()[0])])
+        t.start()
+        t.join()
+        assert not [x for x in seen if x is not threading.main_thread()]
+    finally:
+        gc.callbacks.pop()
+        gc_guard.uninstall(app)

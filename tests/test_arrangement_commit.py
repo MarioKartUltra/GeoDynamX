@@ -47,6 +47,8 @@ from dynamix.shell.canvas import Canvas
 from tests.test_arrangement_resolve import _geo_field
 from tests.test_shell_window import _FIELD, _stub_stack
 
+pytestmark = pytest.mark.pyvista      # a pyvista scene: the allowed-to-fail CI job only
+
 
 def _chains(n=3):
     all_chains = [

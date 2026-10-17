@@ -22,6 +22,7 @@ from dynamix.model.device import (apply_view, declared_outputs, get_device, keye
                                   register_device, validate_params)
 from dynamix.model.families import label_of
 from dynamix.model.layer import Layer
+from tests.conftest import make_field, make_layer
 
 NY, NX = 64, 56
 WTMM = {"n_oct": 2, "n_voice": 2}
@@ -37,11 +38,7 @@ def builtins(clean_registry):
 
 
 def _field(values=None) -> RasterField:
-    if values is None:
-        values = np.random.default_rng(0).standard_normal((NY, NX)).cumsum(0).cumsum(1)
-    return RasterField(name="f", values=values, frame=LocalFrame(units="px"),
-                       x_axis=np.arange(float(values.shape[1])),
-                       y_axis=np.arange(float(values.shape[0])))
+    return make_field(values, shape=(NY, NX))
 
 
 def _stack() -> RasterField:
@@ -50,11 +47,7 @@ def _stack() -> RasterField:
 
 
 def _layer(*steps, window: str | None = None) -> Layer:
-    chain = Chain(tuple(DeviceRef(n, dict(p)) for n, p in steps)).materialized()
-    layer = Layer(layer_id=1, name="L", source_id="s", chain=chain)
-    if window is not None:
-        layer.tags["roi.window"] = window
-    return layer
+    return make_layer(*steps, window=window)
 
 
 def _counts(result) -> list:

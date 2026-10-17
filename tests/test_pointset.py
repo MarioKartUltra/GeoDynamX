@@ -23,7 +23,7 @@ _CSV_WITH_JUNK = (
 
 def _write(tmp_path, text: str, name: str = "points.csv"):
     p = tmp_path / name
-    p.write_text(text)
+    p.write_text(text, encoding="utf-8")
     return p
 
 

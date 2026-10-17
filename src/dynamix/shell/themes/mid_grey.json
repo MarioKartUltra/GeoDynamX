@@ -1,0 +1,23 @@
+{
+  "name": "mid_grey",
+  "ground": "#3a3a3a",
+  "zone": "#404040",
+  "panel": "#474747",
+  "raised": "#555555",
+  "border": "#5e5e5e",
+  "ink": "#f2f2f2",
+  "ink_muted": "#c9c9c9",
+  "amber": "#ffb04a",
+  "error": "#ff7070",
+  "seam": "#ff8a5c",
+  "selection_accent": "#ffd04a",
+  "roi": "#ffb04a",
+  "lasso": "#ffd04a",
+  "scale_bar": "#f2f2f2",
+  "surround": "#262626",
+  "toggle_rest": "#1e1e1e",
+  "toggle_set": "#f5f5f5",
+  "sans_family": "Helvetica Neue",
+  "mono_family": "Menlo",
+  "base_pt": 11
+}

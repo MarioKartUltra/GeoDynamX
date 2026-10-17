@@ -120,6 +120,11 @@ class _WheelRedirect(QtCore.QObject):
 
     def eventFilter(self, obj, event) -> bool:
         if event.type() == QtCore.QEvent.Wheel:
+            # A popup (an open combo's list) scrolls itself: the filter reaches it because it is
+            # a descendant of a protected control, never because the panel should move.
+            window = obj.window() if isinstance(obj, QtWidgets.QWidget) else None
+            if window is not None and (window.windowFlags() & QtCore.Qt.WindowType_Mask) == QtCore.Qt.Popup:
+                return False
             bar = self._scroll.verticalScrollBar()
             bar.setValue(bar.value() - event.angleDelta().y())
             return True                              # consumed: never reaches the control
@@ -169,6 +174,7 @@ class RightPanel(QtWidgets.QScrollArea):
         #: What the window may show or hide by relevance: section frames by TITLE, Display
         #: rows by key -- see :meth:`apply_relevance`.
         self._sections: dict = {}
+        self._headings: dict[str, QtWidgets.QLabel] = {}     # retitled by set_section_title
         self._relevant_items: dict = {}
         self._build_display_section(display_params)
 
@@ -199,11 +205,17 @@ class RightPanel(QtWidgets.QScrollArea):
         heading.setFont(font)
         layout.addWidget(heading)
         layout.addWidget(widget)
-        self._protect_from_wheel(frame)
+        self._headings[title] = heading                 # retitled by set_section_title
+        self.protect_from_wheel(frame)
         index = 0 if first else self._column.count() - 1     # top, or before the trailing stretch
         self._column.insertWidget(index, frame)
         self._sections[title] = frame
         return frame
+
+    def set_section_title(self, key: str, text: str) -> None:
+        """Retitle the section added under ``key`` (the Device section names the step it shows);
+        an unknown key raises KeyError."""
+        self._headings[key].setText(text)
 
     def apply_relevance(self, relevance: dict) -> None:
         """Show only what applies: ``relevance`` maps a section TITLE or a Display-row key
@@ -215,7 +227,7 @@ class RightPanel(QtWidgets.QScrollArea):
             if widget is not None:
                 widget.setVisible(bool(visible))
 
-    def _protect_from_wheel(self, widget: QtWidgets.QWidget) -> None:
+    def protect_from_wheel(self, widget: QtWidgets.QWidget) -> None:
         """Install the wheel filter on ``widget`` and every current descendant -- a section built
         elsewhere (``main_window.py``, a future task's own module) hands in a widget this panel
         has never seen before, so the filter cannot rely on having been installed at construction
@@ -225,6 +237,7 @@ class RightPanel(QtWidgets.QScrollArea):
             child.installEventFilter(self._wheel_filter)
 
     # -- Display section (relocated from the left panel, plumbing unchanged) ---------
+
     def _build_display_section(self, display_params) -> None:
         """The Display knobs, built exactly as they were in the left panel's old
         ``display_row`` -- same ``make_control(control_spec(p), p.default)`` call, same
@@ -674,6 +687,86 @@ class ReconstructionPanel(QtWidgets.QWidget):
 
     def set_reading(self, text: str) -> None:
         self.readout.setText(text)
+
+
+class DevicePanel(QtWidgets.QWidget):
+    """The inspector's Device section: the selected chain step's knobs, basic ones open, advanced
+    ones under a collapsed toggle. Built the way ReconstructionPanel builds knobs; an edit leaves
+    as ``paramChanged`` and the window writes it through the step's own path, so this widget holds
+    no param state of its own."""
+    paramChanged = QtCore.Signal(str, object)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self._basic = QtWidgets.QGridLayout()
+        self._basic.setContentsMargins(0, 0, 0, 0)
+        self._basic.setHorizontalSpacing(10)
+        outer.addLayout(self._basic)
+        self.advanced_button = QtWidgets.QToolButton()
+        self.advanced_button.setText("Advanced")
+        self.advanced_button.setCheckable(True)
+        self.advanced_button.setArrowType(QtCore.Qt.RightArrow)
+        self.advanced_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.advanced_button.toggled.connect(self._toggle_advanced)
+        outer.addWidget(self.advanced_button)
+        self._advanced_host = QtWidgets.QWidget()
+        self._advanced = QtWidgets.QGridLayout(self._advanced_host)
+        self._advanced.setContentsMargins(0, 0, 0, 0)
+        self._advanced.setHorizontalSpacing(10)
+        self._advanced_host.setVisible(False)
+        outer.addWidget(self._advanced_host)
+        self.controls: dict[str, QtWidgets.QWidget] = {}
+        self._cells: dict[str, QtWidgets.QWidget] = {}
+        self._names: tuple = ()
+
+    def _toggle_advanced(self, checked: bool) -> None:
+        self._advanced_host.setVisible(checked)
+        self.advanced_button.setArrowType(QtCore.Qt.DownArrow if checked else QtCore.Qt.RightArrow)
+
+    def set_device(self, params, values: dict) -> bool:
+        """Show ``params`` at ``values``, non-emitting. Returns True when the knobs were rebuilt
+        (a new set of params), so the caller can protect the new widgets from the wheel."""
+        names = tuple(p.name for p in params)
+        rebuilt = names != self._names
+        if rebuilt:
+            self._build(params, values)
+        self.set_values(values)
+        return rebuilt
+
+    def set_values(self, values: dict) -> None:
+        for name, control in self.controls.items():
+            if name in values:
+                control.set_value(values[name])
+
+    def _build(self, params, values: dict) -> None:
+        for cell in self._cells.values():
+            cell.setParent(None)
+            cell.deleteLater()
+        self.controls, self._cells = {}, {}
+        counts = {"basic": 0, "advanced": 0}
+        for p in params:
+            cell = QtWidgets.QWidget(self)
+            column = QtWidgets.QVBoxLayout(cell)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(0)
+            mini = QtWidgets.QLabel(p.label or p.name)
+            mini.setProperty("muted", "true")
+            column.addWidget(mini)
+            control = make_control(control_spec(p), values[p.name])
+            control.valueChanged.connect(
+                lambda value, name=p.name: self.paramChanged.emit(name, value))
+            column.addWidget(control)
+            level = "advanced" if getattr(p, "level", "basic") == "advanced" else "basic"
+            grid = self._advanced if level == "advanced" else self._basic
+            i = counts[level]
+            grid.addWidget(cell, i // 2, i % 2)
+            cell.show()                      # a cell added to a shown panel appears at once
+            counts[level] += 1
+            self.controls[p.name], self._cells[p.name] = control, cell
+        self.advanced_button.setVisible(counts["advanced"] > 0)
+        self._names = tuple(p.name for p in params)
 
 
 class CompositePanel(QtWidgets.QWidget):

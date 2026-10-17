@@ -327,7 +327,7 @@ def test_geo_package_has_no_qt_import():
     geo_dir = pathlib.Path(__file__).resolve().parents[1] / "src" / "dynamix" / "geo"
     for path in sorted(geo_dir.rglob("*.py")):
         imported = set()
-        for node in ast.walk(ast.parse(path.read_text())):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Import):
                 imported |= {a.name.split(".")[0] for a in node.names}
             elif isinstance(node, ast.ImportFrom) and node.level == 0:

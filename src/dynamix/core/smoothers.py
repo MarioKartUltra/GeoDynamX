@@ -55,13 +55,14 @@ _ORDERS = {"dx": (1, 0), "dy": (0, 1), "dxx": (2, 0), "dxy": (1, 1), "dyy": (0, 
            "dxxx": (3, 0), "dxxy": (2, 1), "dxyy": (1, 2), "dyyy": (0, 3)}
 
 
-def derivative_filters(sx, sy, theta_hat, names) -> dict:
-    """``{name: complex64}`` -- the filters ``(i s_x)^p (i s_y)^q θ̂`` for the derivative names,
+def derivative_filters(sx, sy, theta_hat, names, dtype=np.float32) -> dict:
+    """``{name: complex}`` -- the filters ``(i s_x)^p (i s_y)^q θ̂`` for the derivative names,
     written as explicit real and imaginary parts order by order, the backend's structure:
-    first order imaginary +, second real −, third imaginary −."""
-    sx = np.asarray(sx, dtype=np.float32)
-    sy = np.asarray(sy, dtype=np.float32)
-    th = np.asarray(theta_hat, dtype=np.float32)
+    first order imaginary +, second real −, third imaginary −. ``dtype`` is the real precision
+    (float32, complex64 filters, the transform's default; float64 at 64-bit FFTs)."""
+    sx = np.asarray(sx, dtype=dtype)
+    sy = np.asarray(sy, dtype=dtype)
+    th = np.asarray(theta_hat, dtype=dtype)
     zero = np.zeros_like(th)
     out = {}
     for name in names:
@@ -78,7 +79,7 @@ def derivative_filters(sx, sy, theta_hat, names) -> dict:
             real, imag = -mag, zero
         else:
             real, imag = zero, -mag
-        out[name] = (real + 1j * imag).astype(np.complex64)
+        out[name] = (real + 1j * imag).astype(np.result_type(dtype, np.complex64))
     return out
 
 
@@ -96,6 +97,15 @@ class Smoother:
         """θ̂ at ``s = k·a`` (cycles), 1 at the origin."""
         return np.asarray(self._theta_hat(np.asarray(sx, dtype=np.float64),
                                           np.asarray(sy, dtype=np.float64)), dtype=np.float64)
+
+    @property
+    def vanishing_moments(self) -> int:
+        """n_ψ, the vanishing moments of ψ = ∇θ: one more than the order of θ̂'s zero at the
+        origin (1 for a smoothing θ, θ̂(0) = 1; 3 for the Mexican pairs, θ̂ ~ |s|²). The WTMM
+        resolves singularities of Hölder exponent h < n_ψ (Arneodo, Decoster & Roux 2000)."""
+        s = np.array([1e-3, 2e-3])
+        v = np.abs(self.theta_hat(s, np.zeros_like(s)))
+        return 1 + int(round(float(np.log2(v[1] / v[0]))))
 
     def section(self, scale: float, deriv_order: int = 1, n_points: int = 256):
         """``(x_px, y)`` of θ (order 0) or of the x-analyser ψ_x = ∂_x θ (order 1) along the x
@@ -166,7 +176,9 @@ def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 1
     kx, ky = np.meshgrid(kappa, kappa)
     sx, sy = np.pi * np.sqrt(2.0) * kx, np.pi * np.sqrt(2.0) * ky   # s = k a = κ (a/σ)
     filt = theta_hat(sx, sy) * (1j * sx) ** int(deriv_order)
-    row = np.fft.ifft2(filt)[0]
+    from dynamix.core.fft_policy import double
+
+    row = double().ifft2(filt)[0]
     y = np.real(np.fft.fftshift(row))[1:]                    # drop −n/2: a grid symmetric about 0
     u = (np.arange(1, n) - n // 2) * du
     keep = np.abs(u) <= float(span)

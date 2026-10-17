@@ -71,7 +71,9 @@ def battle_lemarie_filters(order: int = 3, tol: float = 1e-8, n: int = 4096,
 
     H = np.sqrt(2.0) * np.cos(omega / 2.0) ** m * np.sqrt(spectrum_sum(omega)
                                                            / spectrum_sum(2.0 * omega))
-    h = np.roll(np.fft.ifft(H).real, n // 2)
+    from dynamix.core.fft_policy import double
+
+    h = np.roll(double().ifft(H).real, n // 2)
     keep = np.nonzero(np.abs(h) > tol)[0]
     h = h[keep[0]:keep[-1] + 1]
     if len(h) % 2:

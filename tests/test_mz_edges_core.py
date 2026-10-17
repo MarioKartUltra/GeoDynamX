@@ -8,6 +8,9 @@ import pytest
 
 from dynamix.core import mz_edges, mzlib
 
+#: Float64 identities and the POCS divergence flag: FFTW3 at 64-bit.
+pytestmark = pytest.mark.usefixtures("double_fft")
+
 
 def _composite64():
     """Deterministic single sharp plateau + shallow ramp, 64x64 — the near-complete regime.
@@ -58,12 +61,15 @@ def test_line_ids_are_wrap_merged_components():
     extremum (controller ruling, mz-edges-port review: canvas.py/filters.py both
     special-case -1 as "not a line"). A component with 16+ members is never a singleton, so
     the edge chain's own ids must stay >= 0."""
-    img = np.zeros((32, 32))
-    img[:, 16:] = 1.0
+    # A sub-pixel smooth edge, off the half-pixel: an exact step makes equal moduli along and
+    # across it, whose ties the FFT's last bits break differently on x86 and on Apple arm64
+    # (a ubuntu/windows CI run split the edge into a component and a singleton).
+    x = np.arange(32.0)[None, :].repeat(32, axis=0)
+    img = 0.5 * (1.0 + np.tanh((x - 16.3) / 0.8))
     img[3, 3] += 0.5  # isolated bump, far from the edge -- guarantees a singleton component
     b = mz_edges.analyze(img, 2)
     ext = b["extrema"][0]
-    edge = np.abs(ext["x"] - 16) <= 2
+    edge = (ext["x"] == 15) | (ext["x"] == 16)
     assert edge.sum() >= 16
     edge_ids = np.unique(ext["line_id"][edge])
     assert edge_ids.size <= 3  # the edge is one (rarely fragmented into 2-3) component, not 16
@@ -120,11 +126,13 @@ def test_diverging_flag_is_reachable():
     unreachable in this test file. A genuine field/field (SV-C) mismatch -- maxima extracted
     from one field, coarse pinned to a DIFFERENT field via preview()'s "full" recompute --
     must set it at a large enough n_iter (mirrors tests/test_mzlib_2d.py's own S=0 divergence
-    guard, same doctrine-12 mechanism, different inconsistency). Measured: resid ratio 1.99 at n_iter=150 (not yet flagged), 114.77 at n_iter=250
-    (comfortably past the 5x threshold -- not a hair-trigger pin)."""
+    guard, same doctrine-12 mechanism, different inconsistency). The onset is seeded by FFT
+    round-off, so it moves with the FFT library. Measured resid ratio on FFTW3 64-bit: 1.16 at
+    n_iter=250, 15.9 at 450, 231 at 600; mlx 32-bit: 74 at 600 (comfortably past the 5x
+    threshold -- not a hair-trigger pin)."""
     img = _composite64()
     b = mz_edges.analyze(img, 4)
-    _, diag = mz_edges.preview(-img, b, n_iter=250)
+    _, diag = mz_edges.preview(-img, b, n_iter=600)
     assert diag["diverging"] is True
     assert diag["resid"][-1] / min(diag["resid"]) >= 5.0
 
@@ -250,3 +258,17 @@ def test_interpolate_adds_float_channels_and_keeps_pocs_support_integer():
         assert np.all(e_on["mod"] >= e_off["mod"] - 1e-9)
         assert rows.dtype.kind in "iu" and cols.dtype.kind in "iu"
     np.testing.assert_array_equal(on["mz_maxima"][0][2], off["mz_maxima"][0][2])
+
+
+def test_the_diverging_flag_reads_the_residual_trajectory(monkeypatch):
+    """The flag's rule on synthetic residual trajectories, whatever any platform's round-off
+    makes of a real one: diverging once the last residual passes 5x the smallest."""
+    img = _composite64()
+    b = mz_edges.analyze(img, 2)
+    for resid, want in (([3.0, 1.0, 1.2, 4.9], False), ([3.0, 1.0, 2.0, 5.1], True),
+                        ([2.0, 1.5, 1.0, 1.0], False)):
+        monkeypatch.setattr(mz_edges.mzlib, "pocs2d",
+                            lambda *a, _r=resid, **k: (np.zeros_like(img), np.asarray(_r), None))
+        _, diag = mz_edges.preview(img, b, n_iter=len(resid))
+        assert diag["diverging"] is want, resid
+        assert (mz_edges._recon_status(np.asarray(resid)) == "diverging") is want
