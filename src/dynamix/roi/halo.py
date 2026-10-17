@@ -144,8 +144,12 @@ def halo_plan(scales, wavelet: str, smoother_params, eps: float, parent_shape, *
     """Per scale (finest first): the halo the reach asks for, never narrower than
     :func:`halo_margin`; the whole parent where the reach does not converge and ``parent_shape``
     (``(H, W)``, None when unknown) fits :data:`WHOLE_PARENT_MAX_PIXELS`. ``until_converged`` stops
-    after the first scale whose reach converges (the finer scales are the ones that do not)."""
+    after the first scale whose reach converges (the finer scales are the ones that do not).
+    A smoother that refuses its parameters raises its own ``ValueError`` here."""
     from dynamix.core.reach import reach
+    from dynamix.core.smoothers import smoother
+
+    smoother(wavelet, smoother_params)
 
     fits = (parent_shape is not None
             and int(parent_shape[0]) * int(parent_shape[1]) <= WHOLE_PARENT_MAX_PIXELS)
@@ -843,9 +847,13 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
 
 
 def _whole_plan(resolved: dict, eps: float) -> list:
-    """Every scale reading the whole raster, with its reach (for the record and the borders)."""
+    """Every scale reading the whole raster, with its reach (for the record and the borders); a
+    smoother that refuses its parameters raises its own ``ValueError``."""
     from dynamix.core.reach import reach
+    from dynamix.core.smoothers import smoother
     from dynamix.core.wtmm_backend import compute_scales2d
+
+    smoother(resolved["wavelet"], resolved["smoother_params"])
 
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     return [ScaleHalo(a, 0, True, reach(resolved["wavelet"], resolved["smoother_params"],

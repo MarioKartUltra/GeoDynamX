@@ -192,3 +192,21 @@ def test_roi_cut_in_the_region_runner_matches_the_file_path(tmp_path):
     for g, w in zip(got["extrema"], want["extrema"]):
         assert _points(g).keys() == _points(w).keys()
     _check_outside(got, (96, 96))
+
+
+def test_a_refused_smoother_reports_its_own_message_under_cut(tmp_path):
+    """A q the smoother refuses must surface the smoother's message, not a failure in the cut's
+    border arithmetic (the reach of a refused smoother is not measured)."""
+    from dynamix.roi.halo import run_wtmm2d_roi
+
+    tif = _write_tif(tmp_path / "p.tif", _synthetic_parent(128, seed=7))
+    with pytest.raises(ValueError, match="q_mexican needs"):
+        run_wtmm2d_roi(tif, (128, 128), (0, 0, 32, 32),
+                       {"n_oct": 1, "n_voice": 2, "wavelet": "q_mexican",
+                        "smoother_params": {"q": 0.5}, "edge": "cut"})
+
+
+def test_a_refused_smoother_reports_its_own_message_under_the_whole_raster_taper():
+    p = _wtmm_params(wavelet="q_mexican", q_tsallis=0.5, edge="gaussian_taper")
+    with pytest.raises(ValueError, match="q_mexican needs"):
+        WTMM2D().compute(_field(), p)
