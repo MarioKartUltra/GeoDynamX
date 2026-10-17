@@ -230,7 +230,7 @@ def read_halo_window(source, full_dims, roi, margin, *, nodata=None):
     Parameters
     ----------
     source : str
-        Anything rasterio opens, including a ``zip:/abs/path.zip!member.tif`` URL.
+        Anything rasterio opens, including a ``/vsizip/abs/path.zip/member.tif`` path.
     full_dims : (height, width)
         The parent raster's full grid.
     roi : (row_off, col_off, height, width)

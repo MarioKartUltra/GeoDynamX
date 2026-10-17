@@ -41,7 +41,8 @@ INTENTIONALLY_DIVERGED = {
                    "from_geotiff_window also NaNs |v| >= 3e38 undeclared fill "
                    "(the BOEM headers declare nodata=0 while empty areas hold f32-lowest); "
                    "a GeoTIFF with no CRS reads in pixels (pixel_frame: its ground scale is "
-                   "unknown)",
+                   "unknown); from_file hands a GeoTIFF's path to rasterio as given, so a "
+                   "GDAL virtual path (/vsizip/C:/...) keeps its forward slashes on Windows",
     "wtmm_backend": "cleanup 3/3 — the reflayers import follows load_topo_extrema to extrema_io; "
                     "unknown-wavelet fall-through now raises ValueError; "
                     "progressive compute — ComputeCancelled + a cancel= stage-boundary "

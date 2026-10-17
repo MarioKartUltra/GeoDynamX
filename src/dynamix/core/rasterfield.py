@@ -269,6 +269,7 @@ class RasterField:
         Raises ``ValueError`` (naming the path and reason) for an unreadable file or an unknown
         suffix -- callers explicitly picked this file, so a silent ``None`` would be unhelpful.
         """
+        given = path                       # a GDAL virtual path reaches rasterio as given
         path = Path(path)
         suffix = path.suffix.lower()
         stem_name = name or path.stem
@@ -300,7 +301,9 @@ class RasterField:
 
         if suffix in (".tif", ".tiff"):
             try:
-                return cls._from_geotiff(path, name=stem_name)
+                # As given, not as Path(): on Windows Path rewrites /vsizip/C:/x.zip/a.tif with
+                # backslashes, which GDAL cannot open.
+                return cls._from_geotiff(given if isinstance(given, str) else path, name=stem_name)
             except ValueError:
                 # No rasterio (or no georeferencing): a TIFF is still a perfectly good plain
                 # raster. Fall back to Pillow rather than dead-ending -- the frame becomes
@@ -387,9 +390,12 @@ class RasterField:
             from rasterio.windows import Window
         except ImportError as exc:
             raise ValueError(f"{path}: windowed GeoTIFF reads need rasterio ({exc})") from exc
+        # rasterio and the provenance get the path as given: Path() would collapse the // of a
+        # /vsizip//abs/x.zip/a.tif and rewrite its slashes on Windows, which GDAL cannot open.
+        given = path if isinstance(path, str) else str(path)
         path = Path(path)
         try:
-            with rasterio.open(path) as src:
+            with rasterio.open(given) as src:
                 win = Window(int(col_off), int(row_off), int(width), int(height))
                 band = np.asarray(src.read(1, window=win), dtype=np.float64)
                 transform = src.window_transform(win)
@@ -423,7 +429,7 @@ class RasterField:
             name=name or f"{path.stem}_r{int(row_off)}c{int(col_off)}",
             values=band, frame=frame, x_axis=x_axis, y_axis=y_axis,
             units=(crs.linear_units if (crs is not None and crs.is_projected) else ""),
-            provenance={"source": str(path), "window": {"row_off": int(row_off),
+            provenance={"source": given, "window": {"row_off": int(row_off),
                                                         "col_off": int(col_off),
                                                         "height": int(ny), "width": int(nx)},
                         "crs": str(crs) if crs is not None else None},

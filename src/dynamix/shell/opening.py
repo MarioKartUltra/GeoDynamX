@@ -4,7 +4,7 @@
 
 BOEM's Gulf bathymetry ships as GeoTIFFs zipped to roughly 15% of their uncompressed size (10.6 GB
 combined for the two Gulf halves) plus ``.ovr``/``.tfw``/``.aux.xml`` sidecars. Extracting either
-zip before opening it would put that 10.6 GB on disk for no reason: GDAL's ``zip://`` virtual
+zip before opening it would put that 10.6 GB on disk for no reason: GDAL's ``/vsizip/`` virtual
 filesystem (which ``rasterio.open`` understands directly) reads windows straight out of the
 archive. This module never extracts anything -- the only thing it does with :mod:`zipfile` is list
 an archive's member names.
@@ -16,7 +16,8 @@ Two entry points:
   :func:`~dynamix.core.rasterfield.geotiff_info`) can open directly: ``.npz``/``.tif``/``.tiff``
   (and anything else ``RasterField.from_file`` already handles) pass through unchanged; ``.zip``
   is inspected -- never extracted -- for its lone ``.tif``/``.tiff`` member and turned into a
-  ``zip://{abspath}!{member}`` GDAL virtual path.
+  ``/vsizip/{abspath}/{member}`` GDAL virtual path, the absolute path written with ``/`` on every
+  OS (``zip://C:\\...!member`` reaches GDAL as ``/vsizip/\\C:\\...``, which it cannot open).
 - :func:`open_field` resolves, then sizes the result with
   :func:`~dynamix.core.rasterfield.geotiff_info` (no pixels touched) and either loads the whole
   grid (small enough) or reads one centered, native-resolution window (too big) -- never
@@ -46,7 +47,7 @@ def resolve_openable(path: str) -> str:
     ``zipfile`` -- listing the archive's members, never extracting one -- for names ending
     ``.tif``/``.tiff``. Sidecars (``foo.tif.ovr``, ``foo.tfw``, ``foo.tif.aux.xml``) never match
     that suffix test, so they are never candidates. Exactly one match returns the GDAL virtual
-    path ``zip://{abspath}!{member}``; zero or multiple matches raise ``ValueError`` naming what
+    path ``/vsizip/{abspath}/{member}``; zero or multiple matches raise ``ValueError`` naming what
     was found -- choosing among several members is a follow-up, not a silent pick.
     """
     p = Path(path)
@@ -62,8 +63,7 @@ def resolve_openable(path: str) -> str:
             f"{path}: multiple .tif/.tiff members in zip, choose one explicitly "
             f"(not yet supported): {members}"
         )
-    abspath = str(p.resolve())
-    return f"zip://{abspath}!{members[0]}"
+    return f"/vsizip/{p.resolve().as_posix()}/{members[0]}"
 
 
 def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 4096,
@@ -73,7 +73,7 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
 
     ``.npz`` and any small-enough GeoTIFF load whole through
     :meth:`~dynamix.core.rasterfield.RasterField.from_file` -- verified to work identically on a
-    ``zip://...`` URL and on a bare path; GDAL's virtual filesystem doesn't care which it is
+    ``/vsizip/...`` path and on a bare path; GDAL's virtual filesystem doesn't care which it is
     given. A GeoTIFF whose ``width * height`` exceeds ``max_pixels`` (BOEM's two Gulf halves are
     ~8e8 / ~1.8e9 cells; even float32 that is gigabytes, and ``RasterField`` always coerces to
     float64) is never loaded whole: :func:`~dynamix.core.rasterfield.geotiff_info` sizes it
@@ -209,8 +209,8 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
             )
             return _stamp_source(field, resolved, height, width)
         # Whole-file route: without an explicit name, RasterField.from_file derives it from
-        # `resolved`'s OWN stem -- for a zip:// URL that is the mangled `field.zip!field`, which
-        # wtmm_backend then uses verbatim as a cache directory / output filename. Name it from the
+        # `resolved`'s OWN stem -- for a zipped GeoTIFF that is the member's, not the file the user
+        # chose, and wtmm_backend uses it verbatim as a cache directory / output filename. Name it from the
         # ORIGINAL user path instead, exactly as the windowed branch above already does.
         return _stamp_source(RasterField.from_file(resolved, name=Path(path).stem),
                              resolved, height, width)
