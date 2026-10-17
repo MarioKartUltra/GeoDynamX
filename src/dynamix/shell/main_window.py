@@ -721,9 +721,9 @@ def roi_chain(parent_chain: Chain, roi_params: dict) -> Chain:
     rides along untouched -- that is the whole point of an ROI layer: the same recipe, over a
     window, so the two layers are comparable rather than merely adjacent.
 
-    ``a_min`` is carried as the parent has it. Below :data:`~dynamix.roi.halo.MIN_A_MIN` the ROI
-    run carries the honest-halo warning (``halo.honest_halo_warning``, shown on the ``a_min`` knob)
-    instead of being refused.
+    ``a_min`` is carried as the parent has it. Where a scale's reach does not converge the ROI run
+    reads the whole parent when it fits the budget, and otherwise carries the honest-halo warning
+    (``halo.honest_halo_warning``, shown on the ``a_min`` knob) instead of being refused.
 
     A parent with no ``wtmm2d`` step at all gets ``wtmm2d_roi`` PREPENDED at the device's own
     defaults. Prepended, not appended: the engine rejects an interleaved chain, so a transform

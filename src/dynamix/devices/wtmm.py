@@ -402,14 +402,24 @@ class WTMM2D:
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
                  "similitude", "band_per", "chainer")
 
-    def roi_margin(self, params: dict) -> int:
-        """The coarsest scale's halo (``halo_margin``, the measured 2.5 x normalized scale) --
-        every finer scale's halo is a centred sub-rect of it."""
+    def _halo_plan(self, params: dict, parent_shape=None) -> list:
         from dynamix.core.wtmm_backend import compute_scales2d
-        from dynamix.roi.halo import halo_margin
+        from dynamix.roi.halo import halo_plan
 
-        return halo_margin(max(compute_scales2d(params["n_oct"], params["n_voice"],
-                                                params["a_min"])))
+        scales = compute_scales2d(params["n_oct"], params["n_voice"], params["a_min"])
+        return halo_plan(scales, params["wavelet"], smoother_params(params),
+                         float(params.get("edge_eps", 1e-3)), parent_shape)
+
+    def roi_margin(self, params: dict) -> int:
+        """The widest halo of :func:`~dynamix.roi.halo.halo_plan` with the parent unknown (the
+        2.5 x normalized scale budget, widened to each scale's measured reach) -- every scale's
+        halo is a centred sub-rect of it."""
+        return max(sh.margin for sh in self._halo_plan(params))
+
+    def roi_whole_parent(self, params: dict) -> bool:
+        """Whether some scale's reach does not converge, so that scale reads the whole parent
+        when the runner can hold it."""
+        return any(not sh.reach.converged for sh in self._halo_plan(params))
 
     def compute_roi(self, window_field, core, params: dict, *, info=None,
                     progress=None) -> dict:
@@ -430,10 +440,12 @@ class WTMM2D:
             lsb = measure_lsb(values)
             if lsb:
                 values = _dithered(values, lsb)
+        full = (getattr(window_field, "provenance", None) or {}).get("full_dims")
         res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
                                        dict({k: params[k] for k in self._ROI_KEYS},
-                                            smoother_params=smoother_params(params)),
-                                       progress=progress)
+                                            smoother_params=smoother_params(params),
+                                            edge_eps=float(params.get("edge_eps", 1e-3))),
+                                       progress=progress, parent_shape=full)
         res = dict(res)
         res["_frame"] = getattr(window_field, "frame", None)
         attach_chain_product(res)

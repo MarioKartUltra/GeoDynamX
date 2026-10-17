@@ -15,11 +15,12 @@ to the parent's global maximum: the same field can report differently "loud" ext
 where the box is drawn. This is inherent to relative thresholding over a windowed read, not a bug
 to fix here.
 
-**Below ``a_min`` 1.0** the sampled kernel is close to all-pass at Nyquist, so no affordable halo margin
-is honest (``dynamix.roi.halo``'s module docstring). The run goes ahead and carries
-``halo.honest_halo_warning`` in ``_warnings``; the strip shows it on the ``a_min`` knob before the run
-(:meth:`WTMM2DROI.knob_warnings`), with the under-sampling warning ``wtmm2d`` raises. The knob reaches
-the whole-raster floor.
+**Where a scale's reach does not converge** (the sampled kernel rings at Nyquist; for the Mexican hat
+below about ``a_min`` 1.0, for heavier-tailed smoothers higher), no finite halo is honest
+(``dynamix.roi.halo``'s module docstring): the scale reads the whole parent when it fits the budget,
+and otherwise the run carries ``halo.honest_halo_warning`` in ``_warnings``; the strip shows it on the
+``a_min`` knob before the run (:meth:`WTMM2DROI.knob_warnings`), with the under-sampling warning
+``wtmm2d`` raises. The knob reaches the whole-raster floor.
 """
 from __future__ import annotations
 
@@ -31,7 +32,25 @@ from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, SMOOTH
                                   width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
-from dynamix.roi.halo import MIN_ROI_SIDE, honest_halo_warning
+from dynamix.roi.halo import MIN_ROI_SIDE, halo_plan, honest_halo_warning
+
+
+def _halo_warning(field, params: dict) -> "str | None":
+    """The honest-halo warning for these params before the run: the finest scales up to the first
+    whose reach converges (the coarser ones converge too), against the parent the run would read."""
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    a_min = float(params.get("a_min", 1.0))
+    scales = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)), a_min)
+    full = (getattr(field, "provenance", None) or {}).get("full_dims")
+    if params.get("boundary") == "reflective":
+        full = (params.get("roi_h", 512), params.get("roi_w", 512))
+    try:
+        plan = halo_plan(scales, params.get("wavelet", "mexican"), smoother_params(params),
+                         float(params.get("edge_eps", 1e-3)), full, until_converged=True)
+    except ValueError:                           # a q the smoother refuses: the run says so
+        return None
+    return honest_halo_warning(plan)
 
 
 class WTMM2DROI:
@@ -198,11 +217,12 @@ class WTMM2DROI:
         return res
 
     def knob_warnings(self, field, params: dict) -> dict:
-        """The ``a_min`` knob's warnings, for the strip's ⚠: the honest-halo limit below 1.0 and
-        the under-sampling of the finest scale (``wtmm.eta_warning``)."""
+        """The ``a_min`` knob's warnings, for the strip's ⚠: the honest-halo limit where the
+        finest scales' reach does not converge and the parent (``field.provenance["full_dims"]``,
+        unknown without a field) is too large to read whole, and the under-sampling of the finest
+        scale (``wtmm.eta_warning``)."""
         params = params or {}
-        found = [w for w in (honest_halo_warning(float(params.get("a_min", 1.0))),
-                             eta_warning(params)) if w]
+        found = [w for w in (_halo_warning(field, params), eta_warning(params)) if w]
         return {"a_min": "\n\n".join(found)} if found else {}
 
     def view(self, result: dict, params: dict) -> dict:

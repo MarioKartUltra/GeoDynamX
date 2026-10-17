@@ -58,8 +58,13 @@ from ``1.0*a`` to ``6.28*a``, it occurs at ANY margin in that range -- so the bi
 margin size is the accuracy cliff above, not a clean cliff at which knife-edges also vanish. See
 ``tests/test_roi_halo.py``'s ``MAX_NMS_TIES_PER_SCALE`` for the tolerance this earns the oracle.
 
-``a_min < 1`` runs, and its result carries :func:`honest_halo_warning` in ``_warnings``: below it the
-kernel is so under-sampled that no affordable margin is honest.
+The reach widens the halo. :func:`halo_plan` measures each scale's reach
+(:mod:`dynamix.core.reach`, the |ψ| mass radius to ``edge_eps``, converged when two grids agree) and
+takes ``max(m(a), ceil(reach))``, so the 2.5 a budget stays a floor and a heavy-tailed smoother (the
+q-Gaussian, the q-Meyer taper) gets the room its kernel needs. Where a scale's reach does not
+converge (the sampled kernel rings at Nyquist and its mass radius grows with the grid) no finite halo
+is honest: that scale reads the whole parent when the parent fits :data:`WHOLE_PARENT_MAX_PIXELS`,
+and otherwise keeps m(a) and the run carries :func:`honest_halo_warning` in ``_warnings``.
 
 Boundaries
 ----------
@@ -82,11 +87,13 @@ functions that need them.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
 
-__all__ = ["MARGIN_PER_SCALE", "SIGMA_PER_A_MIN", "SIGMA_PER_SCALE", "halo_margin",
+__all__ = ["MARGIN_PER_SCALE", "SIGMA_PER_A_MIN", "SIGMA_PER_SCALE", "ScaleHalo",
+           "WHOLE_PARENT_MAX_PIXELS", "halo_margin", "halo_plan", "honest_halo_warning",
            "read_halo_window", "run_wtmm2d_roi", "run_wtmm2d_roi_level",
            "run_wtmm2d_roi_on_window", "sigma_px_amin", "sigma_px_scale"]
 
@@ -106,19 +113,81 @@ MARGIN_PER_SCALE = 2.5
 #: drag gesture will produce slivers by accident.
 MIN_ROI_SIDE = 8
 
-#: ``a_min`` below this makes the sampled kernel non-local (see the module docstring).
+#: ``a_min`` below this makes the Mexican hat's sampled kernel non-local. The halo itself follows
+#: each smoother's measured reach (:func:`halo_plan`); the knob's floor and readings quote this.
 MIN_A_MIN = 1.0
 
+#: A scale whose reach does not converge reads the whole parent up to this many pixels (the budget
+#: ``shell.opening.open_field`` holds whole); a larger parent keeps the halo and the warning.
+WHOLE_PARENT_MAX_PIXELS = 64_000_000
 
-def honest_halo_warning(a_min: float) -> "str | None":
-    """The warning an ROI run carries below :data:`MIN_A_MIN`, where no affordable halo makes the
-    ROI match a whole-raster run (the module docstring), or None at and above it."""
-    if float(a_min) >= MIN_A_MIN:
+#: The edge parameters the devices carry; split off before the backend's typo guard.
+_EDGE_KEYS = ("edge", "cut_scope", "edge_eps")
+
+
+@dataclasses.dataclass(frozen=True)
+class ScaleHalo:
+    """One scale's halo: ``margin`` px of parent around the ROI, or the ``whole`` parent. ``a`` is
+    the scale array's own element (a numpy float64): the transform builds its filter from it, and
+    a Python float takes another arithmetic path there."""
+
+    a: float
+    margin: int
+    whole: bool
+    reach: object                                # dynamix.core.reach.Reach
+
+
+def halo_plan(scales, wavelet: str, smoother_params, eps: float, parent_shape, *,
+              until_converged: bool = False) -> list:
+    """Per scale (finest first): the halo the reach asks for, never narrower than
+    :func:`halo_margin`; the whole parent where the reach does not converge and ``parent_shape``
+    (``(H, W)``, None when unknown) fits :data:`WHOLE_PARENT_MAX_PIXELS`. ``until_converged`` stops
+    after the first scale whose reach converges (the finer scales are the ones that do not)."""
+    from dynamix.core.reach import reach
+
+    fits = (parent_shape is not None
+            and int(parent_shape[0]) * int(parent_shape[1]) <= WHOLE_PARENT_MAX_PIXELS)
+    out = []
+    for a in scales:
+        r = reach(wavelet, smoother_params, float(a), eps)
+        m = halo_margin(a)
+        if r.converged:
+            out.append(ScaleHalo(a, max(m, int(math.ceil(r.radius))), False, r))
+            if until_converged:
+                break
+        else:
+            out.append(ScaleHalo(a, m, fits, r))
+    return out
+
+
+def honest_halo_warning(plan) -> "str | None":
+    """The warning a run carries where a scale's reach does not converge and the parent was too
+    large (or unknown) to read whole, or None."""
+    bad = [sh for sh in plan if not sh.reach.converged and not sh.whole]
+    if not bad:
         return None
-    return ("Below a_min 1 the sampled wavelet is close to all-pass at Nyquist; its reach is hundreds "
-            "of pixels (368 px to 1e-3 at a_min 0.25), so the halo cannot make this ROI match a "
-            "whole-raster run, anywhere in the box at the finest scales. Analyse the whole raster "
-            "for a reference.")
+    r = bad[0].reach
+    span = f"{bad[0].a:.2f} px" if len(bad) == 1 else f"{bad[0].a:.2f}–{bad[-1].a:.2f} px"
+    measured = ("" if r.measured is None else
+                f" (its |ψ| mass radius is {r.measured:.0f} px on a {r.grids[1]} grid, "
+                f"{r.ratio:.2f}× the {r.grids[0]} grid's)")
+    return (f"{len(bad)} scale(s) at {span}: the wavelet's reach does not converge{measured}, so "
+            "no halo makes this ROI match a whole-raster run there, and the parent is too large "
+            "to read whole. Analyse the whole raster for a reference.")
+
+
+def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float) -> dict:
+    """The ``_edge`` record of a run: the halo each scale used, its reach and where the
+    halo's pixels came from, per side."""
+    return {"device": device, "mode": "reflect", "eps": float(eps),
+            "parent_shape": None if parent_shape is None else [int(v) for v in parent_shape[:2]],
+            "budget_px": WHOLE_PARENT_MAX_PIXELS,
+            "scales": [{"a": float(sh.a), "margin": sh.margin, "whole": sh.whole,
+                        "radius": sh.reach.radius, "measured": sh.reach.measured,
+                        "ratio": sh.reach.ratio, "grids": list(sh.reach.grids),
+                        "converged": sh.reach.converged,
+                        "real_px": dict(m["real_px"]), "synthetic_px": dict(m["synthetic_px"])}
+                       for sh, m in zip(plan, roi_margins)]}
 
 #: Reported edge names, in this order.
 _EDGES = ("N", "S", "E", "W")
@@ -180,8 +249,9 @@ def _reflect_pad(arr: np.ndarray, top: int, bottom: int, left: int, right: int) 
     return out
 
 
-def _read_halo(source, parent_rect, roi, margin, nodata):
-    """``roi + margin``, clamped to ``parent_rect``, nodata zero-filled, deficit reflect-padded.
+def _read_halo(source, parent_rect, roi, margin, nodata, whole=False):
+    """``roi + margin``, clamped to ``parent_rect``, nodata zero-filled, deficit reflect-padded;
+    with ``whole``, the parent rect itself and nothing padded.
 
     ``parent_rect`` is ``(row_off, col_off, height, width)`` of the sub-rect of ``source`` that
     counts as "the parent": the whole file for ``boundary="auto"``, the ROI itself for
@@ -189,8 +259,11 @@ def _read_halo(source, parent_rect, roi, margin, nodata):
     """
     pr0, pc0, ph, pw = (int(v) for v in parent_rect)
     r0, c0, h, w = (int(v) for v in roi)
-    want_r0, want_c0 = r0 - margin, c0 - margin
-    win_h, win_w = h + 2 * margin, w + 2 * margin
+    if whole:
+        want_r0, want_c0, win_h, win_w = pr0, pc0, ph, pw
+    else:
+        want_r0, want_c0 = r0 - margin, c0 - margin
+        win_h, win_w = h + 2 * margin, w + 2 * margin
 
     read_r0, read_c0 = max(pr0, want_r0), max(pc0, want_c0)
     read_r1 = min(pr0 + ph, want_r0 + win_h)
@@ -226,11 +299,15 @@ def _read_halo(source, parent_rect, roi, margin, nodata):
     # Zero-filled cells are fabricated too -- they are not "real data" for the honesty reading.
     real = (read_r1 - read_r0) * (read_c1 - read_c0) - n_missing
     reflected = {"N": top > 0, "S": bottom > 0, "W": left > 0, "E": right > 0}
+    oy, ox = r0 - want_r0, c0 - want_c0
     info = {
         "real_frac": real / float(win_h * win_w),
         "reflected_edges": tuple(e for e in _EDGES if reflected[e]),
-        "offset_in_window": (margin, margin),
+        "offset_in_window": (oy, ox),
         "missing": missing,                               # extra: the ROI's mask comes from here
+        "real_px": {"N": oy - top, "S": win_h - oy - h - bottom, "E": win_w - ox - w - right,
+                    "W": ox - left},
+        "synthetic_px": {"N": top, "S": bottom, "E": right, "W": left},
     }
     return window, info
 
@@ -265,19 +342,20 @@ def read_halo_window(source, full_dims, roi, margin, *, nodata=None):
                       nodata)
 
 
-def _crop_to_roi(extrema: dict, offset: int, h: int, w: int) -> dict:
-    """Keep the extrema inside the ROI sub-rect; shift their positions onto the ROI grid.
+def _crop_to_roi(extrema: dict, oy: int, ox: int, h: int, w: int) -> dict:
+    """Keep the extrema inside the ROI sub-rect at row ``oy``, column ``ox`` of the window; shift
+    their positions onto the ROI grid.
 
     The subpixel channels (``x_sub``/``y_sub``, present when the ``interpolate`` knob is on)
     shift by the same offset -- membership is decided by the INTEGER support, so the float
     position of a kept point may legitimately sit up to half a pixel outside the ROI edge."""
     x, y = extrema["x"], extrema["y"]
-    keep = (x >= offset) & (x < offset + w) & (y >= offset) & (y < offset + h)
-    out = {"x": x[keep] - offset, "y": y[keep] - offset, "mod": extrema["mod"][keep],
+    keep = (x >= ox) & (x < ox + w) & (y >= oy) & (y < oy + h)
+    out = {"x": x[keep] - ox, "y": y[keep] - oy, "mod": extrema["mod"][keep],
            "arg": extrema["arg"][keep], "line_id": extrema["line_id"][keep]}
     if "x_sub" in extrema:
-        out["x_sub"] = extrema["x_sub"][keep] - offset
-        out["y_sub"] = extrema["y_sub"][keep] - offset
+        out["x_sub"] = extrema["x_sub"][keep] - ox
+        out["y_sub"] = extrema["y_sub"][keep] - oy
     return out
 
 
@@ -300,8 +378,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     roi : (row_off, col_off, height, width)
         Both sides must be at least :data:`MIN_ROI_SIDE` px.
     params : dict
-        The WTMM2D param contract, resolved by the backend's own typo guard. Below
-        :data:`MIN_A_MIN` the run carries :func:`honest_halo_warning` in ``_warnings``.
+        The WTMM2D param contract, resolved by the backend's own typo guard, plus the edge keys
+        (``edge_eps``, the reach's mass fraction). Where a scale's reach does not converge and the
+        parent is too large to read whole, the run carries :func:`honest_halo_warning`.
     boundary : {"auto", "reflective"}
         ``"auto"`` takes real parent data wherever the halo has it; ``"reflective"`` reads only
         the ROI and reflects it, ignoring the parent entirely.
@@ -318,7 +397,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         ``hd_cmax``, ``npz_path``, ``params``, ``cache_hits``) plus ``_shape`` (the ROI's
         ``(h, w)``), ``_roi`` (source/roi/boundary), ``_roi_margins`` (per scale: ``a``,
         ``margin``, ``real_frac``, ``reflected_edges``), ``_missing_mask`` (bool, ROI-shaped) and
-        ``_coi_radii`` (per-scale halo widths, for the canvas's contamination outlines).
+        ``_coi_radii`` (per-scale halo widths, for the canvas's contamination outlines) and
+        ``_edge`` (per scale: the halo, whether the whole parent was read, the reach and its
+        grids and ratio, the real and synthetic px per side).
     """
     from dynamix.core.wtmm_backend import _resolve_wtmm2d_params, compute_scales2d
 
@@ -338,23 +419,26 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
             "exceed the raster's own dimensions -- unchecked, this reaches rasterio's own window "
             "read once the clamped region goes empty and dies on its internal message instead.")
 
-    resolved = _resolve_wtmm2d_params(params)
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     if resolved["mode"] != "scalar":
         raise ValueError(
             f"run_wtmm2d_roi: mode={resolved['mode']!r} is not supported; the ROI halo path is "
             "scalar-only (the tensor pipeline is monolithic and has no per-scale seam)")
-    warning = honest_halo_warning(resolved["a_min"])
 
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     # "reflective" IS "auto" against a parent that stops at the ROI's own edges.
     parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
                    else (r0, c0, h, w))
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
+                     parent_rect[2:])
+    warning = honest_halo_warning(plan)
 
-    def _window_for(margin):
-        return _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata)
+    def _window_for(sh):
+        return _read_halo(source, parent_rect, (r0, c0, h, w), sh.margin, nodata, whole=sh.whole)
 
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, scales, progress)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress)
 
     out = {
         "chains": chains, "extrema": extrema, "scales": scales,
@@ -365,6 +449,7 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
+        "_edge": _edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps),
     }
     if warning:
         out["_warnings"] = [warning]
@@ -387,7 +472,8 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
     if boundary not in _BOUNDARIES:
         raise ValueError(f"unknown boundary {boundary!r}; expected one of {list(_BOUNDARIES)}")
     r0, c0, h, w = (int(v) for v in roi)
-    resolved = _resolve_wtmm2d_params(params)
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
     level = int(level)
     if not 0 <= level < len(scales):
@@ -395,26 +481,32 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
     a = scales[level]
     parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
                    else (r0, c0, h, w))
-    margin = halo_margin(a)
-    window, _info = _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata)
+    sh = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
+                   parent_rect[2:])[level]
+    margin = sh.margin
+    window, info = _read_halo(source, parent_rect, (r0, c0, h, w), margin, nodata,
+                              whole=sh.whole)
+    oy, ox = info["offset_in_window"]
     follow = resolved["detector"] == "follow"
     cwt = get_backend("python").cwt2d(window, [a], wavelet=resolved["wavelet"],
                                       pad=resolved["pad"], derivs="all" if follow else "first",
                                       smoother_params=resolved["smoother_params"])
     cwt = _apply_fracint2d({"mod": cwt["mod"], "arg": cwt["arg"]}, [a],
                            resolved["fracint_alpha"])
-    crop = (slice(margin, margin + h), slice(margin, margin + w))
+    crop = (slice(oy, oy + h), slice(ox, ox + w))
     return {"mod": cwt["mod"][0][crop], "arg": cwt["arg"][0][crop], "scale": float(a),
             "margin": margin}
 
 
-def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
+def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None):
     """The per-scale halo loop shared by :func:`run_wtmm2d_roi` (halos read off the FILE) and
-    :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale,
-    ``window_for(margin) -> (window, info)`` supplies ROI + that scale's halo (zero-filled
-    nodata, reflect-padded deficit) with ``info`` = ``real_frac`` / ``reflected_edges`` /
-    ``missing``; the CWT + extrema run on it, the extrema are cropped to the ROI, and only
-    THEN are they chained and partitioned -- chaining happens inside the ROI.
+    :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale of
+    ``plan`` (:func:`halo_plan`), ``window_for(scale_halo) -> (window, info)`` supplies ROI + that
+    scale's halo, or the whole parent (zero-filled nodata, reflect-padded deficit) with ``info`` =
+    ``real_frac`` / ``reflected_edges`` / ``missing`` / ``offset_in_window`` (the ROI's row and
+    column in the window) / ``real_px`` / ``synthetic_px``; the CWT + extrema run on it, the
+    extrema are cropped to the ROI, and only THEN are they chained and partitioned -- chaining
+    happens inside the ROI.
 
     Extracted verbatim from :func:`run_wtmm2d_roi` so both
     entries run one implementation; ``tests/test_roi_halo.py`` is the file path's oracle,
@@ -423,16 +515,19 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
 
     backend = get_backend("python")
 
-    n_scales = len(scales)
+    scales = np.asarray([sh.a for sh in plan])
+    n_scales = len(plan)
     extrema, roi_margins, coi_radii = [], [], []
     missing_mask = None
-    for i, a in enumerate(scales):
+    for i, sh in enumerate(plan):
+        a = sh.a
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 0.0)
-        margin = halo_margin(a)
-        window, info = window_for(margin)
+        margin = sh.margin
+        window, info = window_for(sh)
+        oy, ox = info["offset_in_window"]
         if missing_mask is None:
-            missing_mask = info["missing"][margin:margin + h, margin:margin + w].copy()
+            missing_mask = info["missing"][oy:oy + h, ox:ox + w].copy()
         follow = resolved["detector"] == "follow"
         cwt = backend.cwt2d(window, [a], wavelet=resolved["wavelet"], pad=resolved["pad"],
                             derivs="all" if follow else "first",
@@ -467,9 +562,10 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
                 # mod raster BEFORE the crop (the parabola's probes need the halo pixels).
                 from dynamix.core.subpixel import refine_extrema_stack
                 scale_extrema = refine_extrema_stack([scale_extrema], cwt["mod"])[0]
-        extrema.append(_crop_to_roi(scale_extrema, margin, h, w))
+        extrema.append(_crop_to_roi(scale_extrema, oy, ox, h, w))
         roi_margins.append({"a": float(a), "margin": margin, "real_frac": info["real_frac"],
-                            "reflected_edges": info["reflected_edges"]})
+                            "reflected_edges": info["reflected_edges"], "whole": sh.whole,
+                            "real_px": info["real_px"], "synthetic_px": info["synthetic_px"]})
         coi_radii.append(margin)
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 1.0)
@@ -484,7 +580,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, scales, progress=None):
 
 
 def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, params: dict,
-                             *, progress=None) -> dict:
+                             *, progress=None, parent_shape=None) -> dict:
     """:func:`run_wtmm2d_roi` over an IN-MEMORY processing window.
 
     ``window_values`` is ROI + ``offset`` px on every side, already read by
@@ -493,42 +589,66 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
     halo is the centred sub-rect ``[offset - m, offset + h + m)`` -- bit-identical to what
     ``_read_halo`` reads off the file (the union-window claim ``test_roi_halo`` proves) -- with
     NaN zero-filled BEFORE the transform (this device's convention, reported in
-    ``_missing_mask``/``real_frac``, never interpolated). ``offset`` must cover the coarsest
-    scale's halo. Returns the same keys as :func:`run_wtmm2d_roi` (``_roi`` without a source:
-    the caller stamps the region)."""
+    ``_missing_mask``/``real_frac``, never interpolated). ``offset`` must cover the widest halo
+    that is not the whole parent. A scale that reads the whole parent slices the real rect of the
+    window, allowed only when that rect is the whole dataset, ``parent_shape`` ``(H, W)`` (the
+    runner reads it whole when a step asks and the budget allows). Returns the same keys as
+    :func:`run_wtmm2d_roi` (``_roi`` without a source: the caller stamps the region)."""
     from dynamix.core.wtmm_backend import _resolve_wtmm2d_params, compute_scales2d
 
     if h < MIN_ROI_SIDE or w < MIN_ROI_SIDE:
         raise ValueError(
             f"wtmm2d on an ROI: the ROI is {h}x{w} px; both sides must be at least "
             f"{MIN_ROI_SIDE} px (a sliver carries no multi-scale structure).")
-    resolved = _resolve_wtmm2d_params(params)
+    eps = float(params.get("edge_eps", 1e-3))
+    resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     if resolved["mode"] != "scalar":
         raise ValueError(
             f"wtmm2d on an ROI: mode={resolved['mode']!r} is not supported; the per-scale halo "
             "path is scalar-only (the tensor pipeline has no per-scale seam)")
-    warning = honest_halo_warning(resolved["a_min"])
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
-    need = halo_margin(max(scales))
-    if int(offset) < need:
-        raise ValueError(f"window margin {offset} px < the coarsest scale's halo {need} px")
     values = np.asarray(window_values, dtype=np.float64)
     real = np.asarray(real, dtype=bool)
     o = int(offset)
+    rows, cols = np.flatnonzero(real.any(axis=1)), np.flatnonzero(real.any(axis=0))
+    pr0, pr1, pc0, pc1 = int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1
+    whole_ok = (parent_shape is not None
+                and (pr1 - pr0, pc1 - pc0) == (int(parent_shape[0]), int(parent_shape[1])))
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
+                     parent_shape if whole_ok else None)
+    warning = honest_halo_warning(plan)
+    need = max([sh.margin for sh in plan if not sh.whole], default=0)
+    if o < need:
+        raise ValueError(f"window margin {offset} px < the widest halo {need} px")
 
-    def _window_for(margin):
-        sl = (slice(o - margin, o + h + margin), slice(o - margin, o + w + margin))
+    def _window_for(sh):
+        if sh.whole:
+            sub = values[pr0:pr1, pc0:pc1]
+            missing = ~np.isfinite(sub)
+            win = np.where(missing, 0.0, sub) if missing.any() else sub.copy()
+            oy, ox = o - pr0, o - pc0
+            return win, {"real_frac": float((~missing).mean()), "reflected_edges": (),
+                         "missing": missing, "offset_in_window": (oy, ox),
+                         "real_px": {"N": oy, "S": pr1 - pr0 - oy - h, "E": pc1 - pc0 - ox - w,
+                                     "W": ox},
+                         "synthetic_px": {"N": 0, "S": 0, "E": 0, "W": 0}}
+        m = sh.margin
+        sl = (slice(o - m, o + h + m), slice(o - m, o + w + m))
         sub, rsub = values[sl], real[sl]
         missing = ~np.isfinite(sub)
         win = np.where(missing, 0.0, sub) if missing.any() else sub.copy()
         edges = {"N": not rsub[0].any(), "S": not rsub[-1].any(),
                  "W": not rsub[:, 0].any(), "E": not rsub[:, -1].any()}
+        r_any, c_any = rsub.any(axis=1), rsub.any(axis=0)
+        synth = {"N": int(np.argmax(r_any)), "S": int(np.argmax(r_any[::-1])),
+                 "W": int(np.argmax(c_any)), "E": int(np.argmax(c_any[::-1]))}
         return win, {"real_frac": float((rsub & ~missing).mean()),
                      "reflected_edges": tuple(e for e in _EDGES if edges[e]),
-                     "missing": missing}
+                     "missing": missing, "offset_in_window": (m, m),
+                     "real_px": {k: m - v for k, v in synth.items()}, "synthetic_px": synth}
 
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, scales, progress)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress)
     out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
@@ -538,6 +658,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
+        "_edge": _edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps),
     }
     if warning:
         out["_warnings"] = [warning]

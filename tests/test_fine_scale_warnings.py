@@ -82,10 +82,12 @@ def test_the_roi_knob_reaches_the_whole_raster_floor():
 
 
 def test_wtmm2d_roi_warns_by_the_honest_halo_and_eta():
+    """Without a field the parent is unknown, so a scale whose reach does not converge warns
+    (spec 22: the warning follows the smoother's reach, not a flat a_min < 1)."""
     dev = WTMM2DROI()
     base = dict(defaults_for(dev), roi_row=0, roi_col=0, roi_h=32, roi_w=32)
     warned = dev.knob_warnings(None, dict(base, a_min=0.5))["a_min"]
-    assert "Below a_min 1" in warned and "368 px" in warned and "η = 7.1e-02" in warned
+    assert "does not converge" in warned and "η = 7.1e-02" in warned
     assert dev.knob_warnings(None, dict(base, a_min=1.0)) == {}
 
 
@@ -99,9 +101,11 @@ def test_wtmm2d_roi_runs_below_a_min_one_and_carries_its_warnings(tmp_path):
     run = lambda a_min: dev.compute(field, validate_params(dev, dict(  # noqa: E731
         _SMALL_WTMM, a_min=a_min, roi_row=16, roi_col=16, roi_h=32, roi_w=32, boundary="auto")))
     fine = run(0.5)
-    assert fine["extrema"] and len(fine["_warnings"]) == 2
-    assert any("Below a_min 1" in w for w in fine["_warnings"])
-    assert any("η = " in w for w in fine["_warnings"])
+    # The 80 px parent fits the budget: the non-converging scales read it whole (spec 22), so
+    # only the lattice warning stays.
+    assert fine["extrema"] and len(fine["_warnings"]) == 1
+    assert "η = " in fine["_warnings"][0]
+    assert fine["_edge"]["scales"][0]["whole"] is True
     assert run(1.0).get("_warnings", []) == []
 
 

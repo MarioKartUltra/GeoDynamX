@@ -105,13 +105,13 @@ def test_params_include_the_roi_six_and_the_wtmm_five():
 
 
 def test_a_min_reaches_below_one_with_a_warning():
-    """Below a_min 1.0 the ROI run is not honest about the halo (the engine's own measurement), so
-    it runs with a warning on the knob rather than a floor."""
+    """Below a_min 1.0 the Mexican hat's reach does not converge, so without a field (the parent
+    unknown) the knob warns that no halo is honest, rather than the knob having a floor."""
     a_min = next(p for p in WTMM2DROI().params if p.name == "a_min")
     assert a_min.min < MIN_A_MIN == 1.0
     assert a_min.validate(0.5) == 0.5
     params = dict(defaults_for(WTMM2DROI()), a_min=0.5)
-    assert "Below a_min 1" in WTMM2DROI().knob_warnings(None, params)["a_min"]
+    assert "does not converge" in WTMM2DROI().knob_warnings(None, params)["a_min"]
 
 
 def test_every_param_declares_a_label():

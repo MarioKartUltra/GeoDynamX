@@ -686,8 +686,8 @@ def test_roi_chain_carries_a_tuned_fracint_alpha(clean_registry):
 
 
 def test_roi_chain_carries_the_parents_a_min_below_the_halo_limit(clean_registry):
-    """Below a_min 1.0 the ROI run carries the honest-halo warning instead of a floor, so the
-    parent's own a_min rides into the ROI chain unchanged."""
+    """Below a_min 1.0 the ROI run reads the whole parent or carries the honest-halo warning
+    instead of a floor, so the parent's own a_min rides into the ROI chain unchanged."""
     from dynamix.shell.main_window import roi_chain
 
     register_builtin_devices()

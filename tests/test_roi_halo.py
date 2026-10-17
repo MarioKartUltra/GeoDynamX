@@ -650,16 +650,24 @@ def test_roi_outside_the_parent_is_refused_at_entry_naming_the_raster_dims(inter
                        dict(PARAMS), boundary="reflective")
 
 
-def test_a_min_below_one_runs_and_says_the_halo_is_not_honest(interior):
-    """Below a_min = 1 the sampled kernel is near all-pass at Nyquist, so its influence reaches
-    hundreds of pixels and no affordable halo makes the ROI honest. The run goes ahead and its
-    result says so, rather than returning contaminated numbers quietly."""
+def test_a_min_below_one_runs_and_says_the_halo_is_not_honest(interior, monkeypatch):
+    """Below a_min = 1 the Mexican hat's sampled kernel rings at Nyquist and its reach does not
+    converge, so no finite halo makes the ROI honest. A parent that fits the budget is read whole
+    at those scales; a larger one runs with the warning, rather than returning contaminated
+    numbers quietly (spec 22)."""
+    from dynamix.roi import halo
+
     assert MIN_A_MIN == 1.0
     for a_min in (0.5, 0.25):
         res = run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT), ROI_INTERIOR,
                              dict(PARAMS, a_min=a_min))
+        assert res["extrema"] and "_warnings" not in res
+    monkeypatch.setattr(halo, "WHOLE_PARENT_MAX_PIXELS", 100)
+    for a_min in (0.5, 0.25):
+        res = run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT), ROI_INTERIOR,
+                             dict(PARAMS, a_min=a_min))
         assert res["extrema"] and len(res["_warnings"]) == 1
-        assert "all-pass at Nyquist" in res["_warnings"][0]
+        assert "does not converge" in res["_warnings"][0]
     assert "_warnings" not in run_wtmm2d_roi(interior["source"], (N_PARENT, N_PARENT),
                                              ROI_INTERIOR, dict(PARAMS))
 
