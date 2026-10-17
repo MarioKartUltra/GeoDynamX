@@ -139,12 +139,24 @@ class ScaleHalo:
     reach: object                                # dynamix.core.reach.Reach
 
 
+def roi_run_grid(h: int, w: int, scales, pad: "int | None" = None) -> int:
+    """The run's FFT grid for an ROI of ``h`` × ``w`` px: its longer side, the coarsest scale's
+    2.5 a halo on each side and the transform's pad (the backend's default when None)."""
+    if pad is None:
+        from dynamix.core.wtmm_backend import _WTMM2D_PARAM_DEFAULTS
+
+        pad = _WTMM2D_PARAM_DEFAULTS["pad"]
+    return int(max(int(h), int(w)) + 2 * halo_margin(max(scales)) + 2 * int(pad))
+
+
 def halo_plan(scales, wavelet: str, smoother_params, eps: float, parent_shape, *,
-              until_converged: bool = False) -> list:
+              until_converged: bool = False, run_grid: "int | None" = None) -> list:
     """Per scale (finest first): the halo the reach asks for, never narrower than
     :func:`halo_margin`; the whole parent where the reach does not converge and ``parent_shape``
     (``(H, W)``, None when unknown) fits :data:`WHOLE_PARENT_MAX_PIXELS`. ``until_converged`` stops
     after the first scale whose reach converges (the finer scales are the ones that do not).
+    ``run_grid`` (:func:`roi_run_grid`, or a whole raster's) adds the check on the run's own grid,
+    from the finest scale up to the first that holds there (the coarser ones hold too).
     A smoother that refuses its parameters raises its own ``ValueError`` here."""
     from dynamix.core.reach import reach
     from dynamix.core.smoothers import smoother
@@ -155,7 +167,9 @@ def halo_plan(scales, wavelet: str, smoother_params, eps: float, parent_shape, *
             and int(parent_shape[0]) * int(parent_shape[1]) <= WHOLE_PARENT_MAX_PIXELS)
     out = []
     for a in scales:
-        r = reach(wavelet, smoother_params, float(a), eps)
+        r = reach(wavelet, smoother_params, float(a), eps, run_grid=run_grid)
+        if r.converged and r.ratio_run is not None:
+            run_grid = None                     # held at the run's grid: so do the coarser scales
         m = halo_margin(a)
         if r.converged:
             out.append(ScaleHalo(a, max(m, int(math.ceil(r.radius))), False, r))
@@ -264,16 +278,17 @@ def _cut_of(plan, params: dict, offset, parent_shape, fill=None) -> "dict | None
 
 
 def _edge_stamp(device: str, plan, roi_margins, parent_shape, eps: float, mode: str,
-                cut=None) -> dict:
+                cut=None, run_grid=None) -> dict:
     """The ``_edge`` record of a run: the halo each scale used, its reach and where the
     halo's pixels came from, per side; under a cut, each scale's border."""
     stamp = {"device": device, "mode": mode, "eps": float(eps),
+             "run_grid": None if run_grid is None else int(run_grid),
             "parent_shape": None if parent_shape is None else [int(v) for v in parent_shape[:2]],
             "budget_px": WHOLE_PARENT_MAX_PIXELS,
             "scales": [{"a": float(sh.a), "margin": sh.margin, "whole": sh.whole,
                         "radius": sh.reach.radius, "measured": sh.reach.measured,
                         "ratio": sh.reach.ratio, "grids": list(sh.reach.grids),
-                        "converged": sh.reach.converged,
+                        "ratio_run": sh.reach.ratio_run, "converged": sh.reach.converged,
                         "real_px": dict(m["real_px"]), "synthetic_px": dict(m["synthetic_px"])}
                        for sh, m in zip(plan, roi_margins)]}
     if cut is not None:
@@ -548,8 +563,9 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     # "reflective" IS "auto" against a parent that stops at the ROI's own edges.
     parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
                    else (r0, c0, h, w))
+    run_grid = roi_run_grid(h, w, scales, resolved["pad"])
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
-                     parent_rect[2:])
+                     parent_rect[2:], run_grid=run_grid)
     mode, fill, extras = params.get("edge", "reflect"), None, {}
     if mode in ("gaussian_taper", "daf_periodic"):
         block, info0 = _read_halo(source, parent_rect, (r0, c0, h, w), 0, nodata)
@@ -574,8 +590,8 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": {**_edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode, cut),
-                  **extras},
+        "_edge": {**_edge_stamp("wtmm2d_roi", plan, roi_margins, parent_rect[2:], eps, mode, cut,
+                                run_grid), **extras},
     }
     warnings = _run_warnings(plan, roi_margins, mode)
     if warnings:
@@ -609,7 +625,7 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
     parent_rect = ((0, 0, int(full_dims[0]), int(full_dims[1])) if boundary == "auto"
                    else (r0, c0, h, w))
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
-                     parent_rect[2:])
+                     parent_rect[2:], run_grid=roi_run_grid(h, w, scales, resolved["pad"]))
     sh = plan[level]
     margin = sh.margin
     fill = None
@@ -791,8 +807,9 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
     pr0, pr1, pc0, pc1 = int(rows[0]), int(rows[-1]) + 1, int(cols[0]), int(cols[-1]) + 1
     whole_ok = (parent_shape is not None
                 and (pr1 - pr0, pc1 - pc0) == (int(parent_shape[0]), int(parent_shape[1])))
+    run_grid = roi_run_grid(h, w, scales, resolved["pad"])
     plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps,
-                     parent_shape if whole_ok else None)
+                     parent_shape if whole_ok else None, run_grid=run_grid)
     if roi_origin is not None and parent_shape is not None:
         origin, pshape = tuple(roi_origin), tuple(parent_shape)
     else:
@@ -884,8 +901,8 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         "_roi_margins": roi_margins,
         "_missing_mask": missing_mask,
         "_coi_radii": coi_radii,
-        "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode, cut),
-                  **extras},
+        "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, parent_shape, eps, mode, cut,
+                                run_grid), **extras},
     }
     warnings = _run_warnings(plan, roi_margins, mode)
     if warnings:
@@ -893,18 +910,21 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
     return out
 
 
-def _whole_plan(resolved: dict, eps: float) -> list:
-    """Every scale reading the whole raster, with its reach (for the record and the borders); a
-    smoother that refuses its parameters raises its own ``ValueError``."""
-    from dynamix.core.reach import reach
-    from dynamix.core.smoothers import smoother
+def _whole_plan(resolved: dict, eps: float, shape) -> list:
+    """Every scale reading the whole raster of ``shape``, with its reach checked on the run's grid
+    too (for the record and the borders); a smoother that refuses its parameters raises its own
+    ``ValueError`` (``halo_plan``)."""
     from dynamix.core.wtmm_backend import compute_scales2d
 
-    smoother(resolved["wavelet"], resolved["smoother_params"])
-
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
-    return [ScaleHalo(a, 0, True, reach(resolved["wavelet"], resolved["smoother_params"],
-                                        float(a), eps)) for a in scales]
+    plan = halo_plan(scales, resolved["wavelet"], resolved["smoother_params"], eps, None,
+                     run_grid=_whole_run_grid(resolved, shape))
+    return [ScaleHalo(sh.a, 0, True, sh.reach) for sh in plan]
+
+
+def _whole_run_grid(resolved: dict, shape) -> int:
+    """A whole raster's FFT grid: its longer side and the transform's pad."""
+    return int(max(int(shape[0]), int(shape[1])) + 2 * int(resolved["pad"]))
 
 
 def run_whole_through_core(values, params: dict, *, progress=None):
@@ -922,7 +942,7 @@ def run_whole_through_core(values, params: dict, *, progress=None):
                          "scalar-only (the tensor pipeline has no per-scale seam)")
     v = np.asarray(values, dtype=np.float64)
     H, W = v.shape[:2]
-    plan = _whole_plan(resolved, eps)
+    plan = _whole_plan(resolved, eps, (H, W))
     window, info, fill, mode, extras = _whole_window(v, params.get("edge"), plan)
     if fill is None:
         return None, extras
@@ -932,8 +952,8 @@ def run_whole_through_core(values, params: dict, *, progress=None):
     return {"chains": chains, "extrema": extrema, "scales": np.asarray([sh.a for sh in plan]),
             "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None, "params": resolved,
             "cache_hits": set(),
-            "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, (H, W), eps, mode, cut),
-                      **extras}}, extras
+            "_edge": {**_edge_stamp("wtmm2d", plan, roi_margins, (H, W), eps, mode, cut,
+                                    _whole_run_grid(resolved, (H, W))), **extras}}, extras
 
 
 def _whole_window(v, mode: str, plan):
@@ -971,7 +991,7 @@ def run_whole_level(values, params: dict, level: int) -> "dict | None":
     eps = float(params.get("edge_eps", 1e-3))
     resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
     v = np.asarray(values, dtype=np.float64)
-    plan = _whole_plan(resolved, eps)
+    plan = _whole_plan(resolved, eps, v.shape[:2])
     window, info, fill, _mode, _extras = _whole_window(v, params.get("edge"), plan)
     if fill is None:
         return None
@@ -986,12 +1006,13 @@ def run_whole_level(values, params: dict, level: int) -> "dict | None":
     return {"mod": cwt["mod"][0][:H, :W], "arg": cwt["arg"][0][:H, :W], "scale": float(a)}
 
 
-def edge_fallback(values, parent_shape, params: dict, smoother_params) -> "str | None":
+def edge_fallback(values, parent_shape, params: dict, smoother_params,
+                  run_grid: "int | None" = None) -> "str | None":
     """Before a run: why the taper or the DAF extension would fall back to reflection on
-    ``values`` (the ROI's or the raster's), or None."""
+    ``values`` (the ROI's or the raster's), or None; ``run_grid`` the run's FFT grid."""
     mode = params.get("edge")
     if mode == "gaussian_taper":
-        return taper_fallback(values, parent_shape, params, smoother_params)
+        return taper_fallback(values, parent_shape, params, smoother_params, run_grid)
     if mode == "daf_periodic":
         return _daf_fill(values)[1].get("fallback")
     return None
@@ -1003,16 +1024,18 @@ def whole_fallback_stamp(params: dict, shape, extras: dict) -> dict:
 
     eps = float(params.get("edge_eps", 1e-3))
     resolved = _resolve_wtmm2d_params({k: v for k, v in params.items() if k not in _EDGE_KEYS})
-    plan = _whole_plan(resolved, eps)
+    plan = _whole_plan(resolved, eps, shape)
     return {"device": "wtmm2d", "mode": "reflect", "eps": eps,
+            "run_grid": _whole_run_grid(resolved, shape),
             "parent_shape": [int(shape[0]), int(shape[1])], "budget_px": None,
             "scales": [{"a": float(sh.a), "radius": sh.reach.radius,
                         "measured": sh.reach.measured, "ratio": sh.reach.ratio,
-                        "grids": list(sh.reach.grids), "converged": sh.reach.converged}
-                       for sh in plan], **extras}
+                        "grids": list(sh.reach.grids), "ratio_run": sh.reach.ratio_run,
+                        "converged": sh.reach.converged} for sh in plan], **extras}
 
 
-def taper_fallback(values, parent_shape, params: dict, smoother_params) -> "str | None":
+def taper_fallback(values, parent_shape, params: dict, smoother_params,
+                   run_grid: "int | None" = None) -> "str | None":
     """Before a run: why the Gaussian taper would fall back to reflection on ``values`` (the ROI's
     or the raster's) in a parent of ``parent_shape``, or None; ``smoother_params`` as the device
     resolves them."""
@@ -1023,7 +1046,7 @@ def taper_fallback(values, parent_shape, params: dict, smoother_params) -> "str 
     top = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
                            float(params.get("a_min", 1.0)))[-1]
     r = reach(params.get("wavelet", "mexican"), smoother_params, float(top),
-              float(params.get("edge_eps", 1e-3)))
+              float(params.get("edge_eps", 1e-3)), run_grid=run_grid)
     if r.measured is None:
         return None
     return taper_check(parent_shape, dominant_wavelength(values),

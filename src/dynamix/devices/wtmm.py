@@ -113,12 +113,15 @@ def cut_whole(res: dict, params: dict, shape) -> dict:
     from dynamix.roi.halo import halo_plan
 
     scales = np.asarray(res["scales"])
+    resolved = res["params"]
+    pad = int(resolved.get("pad", 0))
+    run_grid = max(int(shape[0]), int(shape[1])) + 2 * pad
     plan = halo_plan(scales, params.get("wavelet", "mexican"), smoother_params(params),
-                     float(params.get("edge_eps", 1e-3)), None)
+                     float(params.get("edge_eps", 1e-3)), None, run_grid=run_grid)
     scope = params.get("cut_scope", "largest")
     borders = edges.cut_borders(plan, scope)
     policy = "coi_drop" if params.get("border_policy") == "coi_drop" else "coi_trim"
-    resolved = res["params"]
+
     out = dict(res)
     out["chains"] = border_trimmed(res["chains"], shape, policy, 0.0,
                                    int(resolved["min_chain_len"]),
@@ -126,14 +129,14 @@ def cut_whole(res: dict, params: dict, shape) -> dict:
     out["extrema"] = edges.drop_in_cone(res["extrema"], borders, (0, 0), shape)
     out["hd_std"], out["hd_cmax"] = get_backend("python").partition2d(
         out["chains"], scales, q_list=resolved["q_list"], min_chain_len=resolved["min_chain_len"])
-    pad = int(resolved.get("pad", 0))
     out["_edge"] = {
-        "device": "wtmm2d", "mode": "cut", "cut_scope": scope,
+        "device": "wtmm2d", "mode": "cut", "cut_scope": scope, "run_grid": run_grid,
         "eps": float(params.get("edge_eps", 1e-3)),
         "parent_shape": [int(shape[0]), int(shape[1])], "budget_px": None,
         "scales": [{"a": float(sh.a), "margin": None, "whole": True, "radius": sh.reach.radius,
                     "measured": sh.reach.measured, "ratio": sh.reach.ratio,
-                    "grids": list(sh.reach.grids), "converged": sh.reach.converged,
+                    "grids": list(sh.reach.grids), "ratio_run": sh.reach.ratio_run,
+                    "converged": sh.reach.converged,
                     "real_px": {s: 0 for s in "NSEW"}, "synthetic_px": {s: pad for s in "NSEW"},
                     "border": int(b)} for sh, b in zip(plan, borders)]}
     return out
@@ -433,7 +436,8 @@ class WTMM2D:
             from dynamix.roi.halo import edge_fallback
 
             v = np.asarray(values)
-            reason = edge_fallback(v, v.shape[:2], params, smoother_params(params))
+            reason = edge_fallback(v, v.shape[:2], params, smoother_params(params),
+                                   run_grid=max(v.shape[:2]) + 64)
             if reason:
                 out["edge"] = reason
         return out

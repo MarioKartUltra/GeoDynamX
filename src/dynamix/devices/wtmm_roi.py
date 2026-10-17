@@ -32,7 +32,7 @@ from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_P
                                   smoother_params, width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.param import Param, ParamKind
-from dynamix.roi.halo import MIN_ROI_SIDE, halo_plan, honest_halo_warning
+from dynamix.roi.halo import MIN_ROI_SIDE, halo_plan, honest_halo_warning, roi_run_grid
 
 
 def _halo_warning(field, params: dict) -> "str | None":
@@ -45,9 +45,11 @@ def _halo_warning(field, params: dict) -> "str | None":
     full = (getattr(field, "provenance", None) or {}).get("full_dims")
     if params.get("boundary") == "reflective":
         full = (params.get("roi_h", 512), params.get("roi_w", 512))
+    run_grid = roi_run_grid(params.get("roi_h", 512), params.get("roi_w", 512), scales)
     try:
         plan = halo_plan(scales, params.get("wavelet", "mexican"), smoother_params(params),
-                         float(params.get("edge_eps", 1e-3)), full, until_converged=True)
+                         float(params.get("edge_eps", 1e-3)), full, until_converged=True,
+                         run_grid=run_grid)
     except ValueError:                           # a q the smoother refuses: the run says so
         return None
     return honest_halo_warning(plan)
@@ -79,8 +81,12 @@ def _edge_mode_warning(field, params: dict) -> "str | None":
         block, info = _read_halo(source, parent, roi, 0, None)
     except (OSError, ValueError):
         return None
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    scales = compute_scales2d(int(params.get("n_oct", 3)), int(params.get("n_voice", 4)),
+                              float(params.get("a_min", 1.0)))
     return edge_fallback(np.where(info["missing"], np.nan, block), parent[2:], params,
-                         smoother_params(params))
+                         smoother_params(params), run_grid=roi_run_grid(roi[2], roi[3], scales))
 
 
 def _corner_warning(field, params: dict) -> "str | None":
@@ -100,11 +106,12 @@ def _corner_warning(field, params: dict) -> "str | None":
                               float(params.get("a_min", 1.0)))
     args = (params.get("wavelet", "mexican"), smoother_params(params),
             float(params.get("edge_eps", 1e-3)), full)
+    run_grid = roi_run_grid(roi[2], roi[3], scales)
     try:
         top = halo_plan(scales[-1:], *args)[0]
         if not top.whole and not any(edges.deficits(roi, full, top.margin).values()):
             return None
-        plan = halo_plan(scales, *args)
+        plan = halo_plan(scales, *args, run_grid=run_grid)
     except ValueError:                           # a q the smoother refuses: the run says so
         return None
     return edges.corner_warning([(sh.a, edges.deficits(roi, full, sh.margin))

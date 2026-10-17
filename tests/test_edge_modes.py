@@ -210,3 +210,24 @@ def test_a_refused_smoother_reports_its_own_message_under_the_whole_raster_taper
     p = _wtmm_params(wavelet="q_mexican", q_tsallis=0.5, edge="gaussian_taper")
     with pytest.raises(ValueError, match="q_mexican needs"):
         WTMM2D().compute(_field(), p)
+
+
+def test_a_large_raster_checks_the_reach_at_its_own_grid():
+    """A 2000 px raster runs on a 2064 px grid: the finest scale holds on 1024/2048 and not on
+    4096, so the cut treats it as a scale whose reach does not converge. (cut_whole on a result
+    with no maxima: the borders need no transform.)"""
+    from dynamix.core.wtmm_backend import _resolve_wtmm2d_params, compute_scales2d
+    from dynamix.devices.wtmm import cut_whole
+
+    scales = compute_scales2d(1, 2, 1.0)
+    empty = {"x": np.zeros(0), "y": np.zeros(0), "mod": np.zeros(0), "arg": np.zeros(0),
+             "line_id": np.zeros(0, dtype=int)}
+    res = cut_whole({"scales": scales, "chains": [], "extrema": [dict(empty) for _ in scales],
+                     "params": _resolve_wtmm2d_params({"n_oct": 1, "n_voice": 2})},
+                    _wtmm_params(n_oct=1, n_voice=2, edge="cut", cut_scope="per_scale"),
+                    (2000, 2000))
+    edge = res["_edge"]
+    assert edge["run_grid"] == 2000 + 64
+    first = edge["scales"][0]
+    assert first["grids"] == [1024, 2048, 4096] and first["converged"] is False
+    assert first["ratio_run"] > 1.25 and first["border"] == edge["scales"][-1]["border"]

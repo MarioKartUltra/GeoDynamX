@@ -78,3 +78,35 @@ def test_a_repeated_question_hits_the_cache():
     before = R.measured_radius.cache_info().hits
     R.reach("mexican", None, _finest(1.25))
     assert R.measured_radius.cache_info().hits >= before + 2
+
+
+# ------------------------------- the check at the run's own grid (the author, 2026-10-16 night)
+
+def test_a_run_grid_beyond_2048_adds_a_third_grid():
+    """The Mexican hat at a_min 1.0 converges on 1024/2048 (8.0/9.2) and not at 4096 (21)."""
+    plain = R.reach("mexican", None, _finest(1.0))
+    run = R.reach("mexican", None, _finest(1.0), run_grid=4000)
+    assert plain.converged and plain.grids == (1024, 2048) and plain.ratio_run is None
+    assert run.grids == (1024, 2048, 4096) and run.ratio_run == pytest.approx(2.3, abs=0.2)
+    assert not run.converged and run.radius is None and run.measured > plain.measured
+
+
+def test_a_run_grid_within_2048_adds_nothing():
+    run = R.reach("mexican", None, _finest(1.0), run_grid=1500)
+    assert run.grids == (1024, 2048) and run.ratio_run is None and run.converged
+
+
+def test_a_reach_that_holds_at_the_run_grid_takes_its_radius_there():
+    run = R.reach("mexican", None, _finest(1.5), run_grid=3000)
+    assert run.converged and run.grids[-1] == 4096 and run.ratio_run == pytest.approx(1.0, abs=0.05)
+    assert run.radius == pytest.approx(10.77, abs=0.3)
+
+
+def test_the_run_grid_is_capped(monkeypatch):
+    monkeypatch.setattr(R, "RUN_GRID_CAP", 4096)
+    assert R.reach("mexican", None, _finest(1.5), run_grid=20000).grids[-1] == 4096
+
+
+def test_a_scale_that_failed_on_1024_and_2048_is_not_measured_again():
+    run = R.reach("mexican", None, _finest(0.5), run_grid=4000)
+    assert run.grids == (1024, 2048) and not run.converged

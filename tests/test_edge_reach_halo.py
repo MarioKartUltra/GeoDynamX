@@ -108,3 +108,26 @@ def test_in_memory_region_path_reads_the_whole_parent_too(tmp_path):
         pg, pw = _points(g), _points(w)
         assert pg.keys() == pw.keys()
         assert np.allclose([pg[k] for k in pw], [pw[k] for k in pw], rtol=1e-6, atol=1e-9)
+
+
+def test_the_plan_checks_the_run_grid_until_a_scale_holds_there():
+    """Convergence improves with scale: past the first scale that holds at the run's grid, the
+    coarser ones are not measured there."""
+    scales = compute_scales2d(2, 4, 1.0)
+    plan = halo.halo_plan(scales, "mexican", None, 1e-3, (5000, 5000), run_grid=4000)
+    assert not plan[0].reach.converged and plan[0].reach.grids == (1024, 2048, 4096)
+    first = next(i for i, sh in enumerate(plan) if sh.reach.converged)
+    assert plan[first].reach.grids[-1] == 4096
+    assert all(sh.reach.grids == (1024, 2048) for sh in plan[first + 1:])
+
+
+def test_the_roi_run_grid_is_the_coarsest_window():
+    scales = compute_scales2d(2, 4, 1.0)
+    assert halo.roi_run_grid(64, 48, scales, 32) == 64 + 2 * halo.halo_margin(scales[-1]) + 64
+
+
+def test_the_record_names_the_run_grid(tmp_path):
+    tif = _write_tif(tmp_path / "p.tif", _synthetic_parent(384, seed=7))
+    res = halo.run_wtmm2d_roi(tif, (384, 384), (0, 0, 64, 64), dict(PARAMS))
+    assert res["_edge"]["run_grid"] == halo.roi_run_grid(64, 64, SCALES, 32)
+    assert all(s["ratio_run"] is None for s in res["_edge"]["scales"])
