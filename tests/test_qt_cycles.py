@@ -19,10 +19,13 @@ from dynamix.model.device import defaults_for, get_device
 def _freed_without_the_collector(make) -> bool:
     """Qt deletes the widget, as its owner's ``deleteLater`` does, and the last Python reference
     goes: without a cycle through its wrapper, reference counting frees it there and then. (A
-    lambda connected to a child's signal is held by Qt and goes with the deletion.)"""
+    lambda connected to a child's signal is held by Qt and goes with the deletion.) One is built
+    and deleted first: the first of a kind in a process can import a library whose exceptions,
+    raised and caught during the import, keep the constructor's frame in a cycle of their own."""
     was = gc.isenabled()
     gc.disable()
     try:
+        shiboken6.delete(make())
         obj = make()
         assert isinstance(obj, QtWidgets.QWidget)
         ref = weakref.ref(obj)
@@ -46,3 +49,9 @@ def test_a_rack_box_is_freed_when_dropped(qtbot, clean_registry):
     from dynamix.shell.workflow_zone import RackBox
 
     assert _freed_without_the_collector(lambda: RackBox("rack", []))
+
+
+def test_the_right_panel_is_freed_when_dropped(qtbot, clean_registry):
+    from dynamix.shell.right_panel import RightPanel
+
+    assert _freed_without_the_collector(lambda: RightPanel(()))
