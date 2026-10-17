@@ -743,9 +743,14 @@ class DevicePanel(QtWidgets.QWidget):
         """Show ``params`` at ``values``, non-emitting. Returns True when the knobs were rebuilt
         (a new set of params), so the caller can protect the new widgets from the wheel."""
         names = tuple(p.name for p in params)
-        rebuilt = names != self._names
+        # A superseded (hidden) knob is drawn only while a recipe holds it, so which of them are
+        # drawn is part of what the panel shows.
+        held = tuple(p.name for p in params if getattr(p, "level", "basic") == "hidden"
+                     and values.get(p.name, p.default) != p.default)
+        rebuilt = (names, held) != (self._names, getattr(self, "_held", ()))
         if rebuilt:
             self._build(params, values)
+            self._held = held
         self.set_values(values)
         return rebuilt
 
@@ -761,18 +766,21 @@ class DevicePanel(QtWidgets.QWidget):
         self.controls, self._cells = {}, {}
         counts = {"basic": 0, "advanced": 0}
         for p in params:
+            hidden = getattr(p, "level", "basic") == "hidden"
+            if hidden and values.get(p.name, p.default) == p.default:
+                continue                      # a superseded setting no recipe here holds
             cell = QtWidgets.QWidget(self)
             column = QtWidgets.QVBoxLayout(cell)
             column.setContentsMargins(0, 0, 0, 0)
             column.setSpacing(0)
-            mini = QtWidgets.QLabel(p.label or p.name)
+            mini = QtWidgets.QLabel((p.label or p.name) + (" (superseded)" if hidden else ""))
             mini.setProperty("muted", "true")
             column.addWidget(mini)
             control = make_control(control_spec(p), values[p.name])
             control.valueChanged.connect(
                 lambda value, name=p.name: self.paramChanged.emit(name, value))
             column.addWidget(control)
-            level = "advanced" if getattr(p, "level", "basic") == "advanced" else "basic"
+            level = "basic" if getattr(p, "level", "basic") == "basic" else "advanced"
             grid = self._advanced if level == "advanced" else self._basic
             i = counts[level]
             grid.addWidget(cell, i // 2, i % 2)

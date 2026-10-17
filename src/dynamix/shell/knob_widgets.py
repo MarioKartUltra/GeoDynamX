@@ -252,16 +252,28 @@ class CycleButton(QtWidgets.QPushButton):
         self.setText(self._label(self._value))
 
     def _label(self, value) -> str:
-        """``value``'s display label (the param's ``choice_labels``), else the value itself."""
+        """``value``'s display label (the param's ``choice_labels``), else the value itself; a
+        hidden choice a recipe still holds is marked superseded."""
         param = self._spec.param
+        text = str(value)
         if param.choice_labels and value in param.choices:
-            return param.choice_labels[param.choices.index(value)]
-        return str(value)
+            text = param.choice_labels[param.choices.index(value)]
+        if value in getattr(param, "hidden_choices", ()):
+            text += " (superseded)"
+        return text
+
+    def _offered(self) -> tuple:
+        """The choices the button steps through and lists: every choice but the hidden ones."""
+        hidden = getattr(self._spec.param, "hidden_choices", ())
+        return tuple(c for c in self._spec.param.choices if c not in hidden)
 
     def _advance(self) -> None:
-        choices = self._spec.param.choices
-        idx = choices.index(self._value)
-        self._select(choices[(idx + 1) % len(choices)])
+        offered = self._offered()
+        if self._value not in offered:               # off a superseded value: back to the first
+            self._select(offered[0])
+            return
+        idx = offered.index(self._value)
+        self._select(offered[(idx + 1) % len(offered)])
 
     def _select(self, new_value) -> None:
         self._value = new_value
@@ -270,8 +282,7 @@ class CycleButton(QtWidgets.QPushButton):
 
     def contextMenuEvent(self, event: QtGui.QContextMenuEvent) -> None:
         menu = QtWidgets.QMenu(self)
-        actions = {menu.addAction(self._label(choice)): choice
-                   for choice in self._spec.param.choices}
+        actions = {menu.addAction(self._label(choice)): choice for choice in self._offered()}
         chosen = menu.exec(event.globalPos())
         if chosen in actions:
             self._select(actions[chosen])

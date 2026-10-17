@@ -71,18 +71,28 @@ class Param:
     #: stored value.
     choice_labels: tuple[str, ...] = ()
     #: Where the inspector draws the knob: ``"basic"`` in the open section, ``"advanced"`` in the
-    #: collapsed one. Presentation only: validation, defaults and cache keys never read it.
+    #: collapsed one, ``"hidden"`` nowhere unless a recipe holds a value other than the default
+    #: (a superseded setting, then labelled so). Presentation only: validation, defaults and
+    #: cache keys never read it.
     level: str = "basic"
     #: False: the param leaves the cache key (``dynamix.model.device.keyed_params``) while it holds
     #: its default and enters it once set. For a knob added after recipes were keyed, whose default
     #: is what every existing recipe did (``wtmm2d.chainer``): the old keys stay the old keys.
     keyed_at_default: bool = True
+    #: CHOICE only: stored values still valid (a saved recipe may name them) that the knob no longer
+    #: offers -- a superseded mode. Presentation only: validation accepts them as before.
+    hidden_choices: tuple[str, ...] = ()
 
     def __post_init__(self):
         # A payload or a keyword copy hands a list; a frozen, hashable Param holds a tuple.
         object.__setattr__(self, "choice_labels", tuple(self.choice_labels))
-        if self.level not in ("basic", "advanced"):
-            raise ValueError(f"{self.name}: level must be basic or advanced, got {self.level!r}")
+        object.__setattr__(self, "hidden_choices", tuple(self.hidden_choices))
+        if self.level not in ("basic", "advanced", "hidden"):
+            raise ValueError(f"{self.name}: level must be basic, advanced or hidden, got {self.level!r}")
+        if not set(self.hidden_choices) <= set(self.choices):
+            raise ValueError(f"{self.name}: hidden choices {self.hidden_choices} not all in {self.choices}")
+        if self.default in self.hidden_choices:
+            raise ValueError(f"{self.name}: the default {self.default!r} cannot be a hidden choice")
         if self.choice_labels and len(self.choice_labels) != len(self.choices):
             raise ValueError(f"{self.name}: {len(self.choice_labels)} choice labels for "
                              f"{len(self.choices)} choices {self.choices}")

@@ -348,9 +348,10 @@ def _grouped_params(device: Device) -> list[tuple[str, tuple[Param, ...]]]:
     (:meth:`DeviceBox._on_control_changed`).
     """
     def _on_strip(p: Param) -> bool:
-        # An "advanced" knob lives in the inspector's collapsed section, never on the strip.
+        # An "advanced" knob lives in the inspector's collapsed section, a "hidden" (superseded)
+        # one nowhere unless a recipe holds it: never on the strip.
         return (not p.name.startswith("_") and not getattr(p, "section", "")
-                and getattr(p, "level", "basic") != "advanced")
+                and getattr(p, "level", "basic") == "basic")
 
     visible = tuple(p for p in device.params if _on_strip(p))
     groups_spec = getattr(device, "param_groups", None)
