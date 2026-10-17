@@ -212,6 +212,14 @@ def double_fft():
 
 # --------------------------------------------------------------------- leaving a Qt or VTK session
 
+def pytest_runtest_logreport(report):
+    """On CI, a failure's traceback is printed when it happens: a native crash later in the run
+    ends the process before pytest's summary, and with it every traceback the summary would hold."""
+    if report.failed and os.environ.get("CI"):
+        sys.stderr.write(f"\n--- {report.nodeid} ({report.when}) failed ---\n{report.longreprtext}\n")
+        sys.stderr.flush()
+
+
 def pytest_sessionfinish(session, exitstatus):
     session.config._session_exitstatus = int(exitstatus)
 
