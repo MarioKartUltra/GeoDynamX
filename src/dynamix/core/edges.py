@@ -19,7 +19,8 @@ import math
 import numpy as np
 
 __all__ = ["CUT_SCOPES", "EDGES", "corner_warning", "cut_borders", "deficits",
-           "dominant_wavelength", "drop_in_cone", "taper_check", "taper_profile", "tapered"]
+           "dominant_wavelength", "drop_in_cone", "taper_band", "taper_check", "taper_profile",
+           "tapered"]
 
 #: The edge modes, in the order the knob lists them.
 EDGES = ("reflect", "cut", "gaussian_taper", "daf_periodic")
@@ -124,6 +125,17 @@ def tapered(block, rows, cols, parent_shape, mu: float, w_t: float):
     block = np.asarray(block, dtype=np.float64)
     rolled = mu + (block - mu) * taper_profile(t, w_t)
     return np.where(inside, np.where(t >= w_t, block, rolled), mu)
+
+
+def taper_band(rows, cols, parent_shape, w_t: float):
+    """The pixels of a block (``rows``/``cols`` its parent indices) inside the parent and within
+    ``w_t`` px of its edge: the taper's band, whose values are no longer the data's."""
+    H, W = int(parent_shape[0]), int(parent_shape[1])
+    r = np.asarray(rows)[:, None]
+    c = np.asarray(cols)[None, :]
+    inside = (r >= 0) & (r < H) & (c >= 0) & (c < W)
+    t = np.minimum(np.minimum(r, H - 1 - r), np.minimum(c, W - 1 - c))
+    return inside & (t < w_t)
 
 
 def taper_check(parent_shape, dominant: float, reach_max: float):

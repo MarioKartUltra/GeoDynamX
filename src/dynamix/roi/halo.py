@@ -400,17 +400,21 @@ def _read_halo(source, parent_rect, roi, margin, nodata, whole=False, fill=None)
         from dynamix.core.daf import extend_2d
 
         window = extend_2d(values, fill["tuned"])
-        missing = np.pad(missing, ((0, window.shape[0] - values.shape[0]),
-                                   (0, window.shape[1] - values.shape[1])))
+        grow = ((0, window.shape[0] - values.shape[0]), (0, window.shape[1] - values.shape[1]))
+        real_px = np.pad(~missing, grow)
+        missing = np.pad(missing, grow)
         oy, ox, pad = r0 - read_r0, c0 - read_c0, 0
     else:
         window = _reflect_pad(values, top, bottom, left, right)
         missing = _reflect_pad(missing.astype(np.uint8), top, bottom, left, right).astype(bool)
+        rows, cols = want_r0 - pr0 + np.arange(win_h), want_c0 - pc0 + np.arange(win_w)
+        real_px = (((rows >= 0) & (rows < ph))[:, None] & ((cols >= 0) & (cols < pw))[None, :]
+                   & ~missing)
         if fill is not None and fill["kind"] == "taper":
-            from dynamix.core.edges import tapered
+            from dynamix.core.edges import taper_band, tapered
 
-            window = tapered(window, want_r0 - pr0 + np.arange(win_h),
-                             want_c0 - pc0 + np.arange(win_w), (ph, pw), fill["mu"], fill["w_t"])
+            window = tapered(window, rows, cols, (ph, pw), fill["mu"], fill["w_t"])
+            real_px &= ~taper_band(rows, cols, (ph, pw), fill["w_t"])
     # Zero-filled cells are fabricated too -- they are not "real data" for the honesty reading.
     real = (read_r1 - read_r0) * (read_c1 - read_c0) - n_missing
     reflected = {"N": top > 0, "S": bottom > 0, "W": left > 0, "E": right > 0}
@@ -420,6 +424,7 @@ def _read_halo(source, parent_rect, roi, margin, nodata, whole=False, fill=None)
         "offset_in_window": (oy, ox),
         "missing": missing,                               # extra: the ROI's mask comes from here
         "pad": pad,
+        "real": real_px,                    # the pixels whose modulus max sets the threshold
         **sides,
     }
     return window, info
@@ -627,6 +632,30 @@ def run_wtmm2d_roi_level(source, full_dims, roi, params: dict, level: int, *,
             "margin": margin}
 
 
+def _real_thresh(mod, info: dict, thresh: float, radius: int) -> float:
+    """``thresh`` as the fraction of ``mod``'s max that puts the floor at ``thresh`` times the max
+    over the moduli real data alone determine: the window's real pixels (``info["real"]``) farther
+    than ``radius`` (the scale's halo) from any padded, filled, tapered or missing pixel and from the
+    window's edge. The detectors keep ``mod >= f * mod.max()``; a padded value reaches the moduli
+    within the kernel's reach of it, so the real pixels next to the padding are left out too."""
+    real = info.get("real")
+    if not thresh or real is None:
+        return thresh
+    from scipy.ndimage import distance_transform_edt
+
+    m = np.asarray(mod)
+    top = float(m.max()) if m.size else 0.0
+    if not top > 0.0:
+        return thresh
+    depth = distance_transform_edt(np.pad(np.asarray(real, dtype=bool), 1))[1:-1, 1:-1]
+    sel = m[depth > radius]
+    if not sel.size:
+        sel = m[np.asarray(real, dtype=bool)]
+    if not sel.size:
+        return thresh
+    return float(thresh) * float(sel.max()) / top
+
+
 def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
     """The per-scale halo loop shared by :func:`run_wtmm2d_roi` (halos read off the FILE) and
     :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale of
@@ -656,6 +685,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 0.0)
         margin = sh.margin
+        depth = max(margin, halo_margin(a))             # where padding no longer reaches a modulus
         window, info = window_for(sh)
         oy, ox = info["offset_in_window"]
         if missing_mask is None:
@@ -684,11 +714,13 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
             from dynamix.core.xsmurf_follow import follow_extrema_scale_exact
             scale_extrema = follow_extrema_scale_exact(
                 cwt["mod"][0], cwt["arg"][0], kapa, kapap,
-                thresh=resolved["thresh"])
+                thresh=_real_thresh(cwt["mod"][0], info, resolved["thresh"], depth))
             scale_extrema.pop("_xs_runs", None)
             scale_extrema.pop("_xs_closed", None)
         else:
-            scale_extrema = backend.extrema2d(cwt, [a], thresh=resolved["thresh"],
+            scale_extrema = backend.extrema2d(cwt, [a],
+                                              thresh=_real_thresh(cwt["mod"][0], info,
+                                                                  resolved["thresh"], depth),
                                               field=window)[0]
             if resolved["interpolate"]:
                 # Same refinement as the full run's extrema stage, on the window's own lifted
@@ -782,6 +814,17 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         cols = origin[1] + x0 - o + np.arange(win.shape[1])
         return tapered(win, rows, cols, pshape, fill["mu"], fill["w_t"])
 
+    def _band_out(real_px, y0, x0):
+        """``real_px`` without the taper's band, ``y0``/``x0`` the block's first row and column in
+        the window."""
+        if fill is None or fill["kind"] != "taper":
+            return real_px
+        from dynamix.core.edges import taper_band
+
+        rows = origin[0] + y0 - o + np.arange(real_px.shape[0])
+        cols = origin[1] + x0 - o + np.arange(real_px.shape[1])
+        return real_px & ~taper_band(rows, cols, pshape, fill["w_t"])
+
     def _window_base(sh):
         if sh.whole:
             sub = values[pr0:pr1, pc0:pc1]
@@ -790,6 +833,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
             oy, ox = o - pr0, o - pc0
             return win, {"real_frac": float((~missing).mean()), "reflected_edges": (),
                          "missing": missing, "offset_in_window": (oy, ox),
+                         "real": _band_out(~missing, pr0, pc0),
                          "real_px": {"N": oy, "S": pr1 - pr0 - oy - h, "E": pc1 - pc0 - ox - w,
                                      "W": ox},
                          "synthetic_px": {"N": 0, "S": 0, "E": 0, "W": 0}}
@@ -806,6 +850,7 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         return win, {"real_frac": float((rsub & ~missing).mean()),
                      "reflected_edges": tuple(e for e in _EDGES if edges[e]),
                      "missing": missing, "offset_in_window": (m, m),
+                     "real": _band_out(rsub & ~missing, o - m, o - m),
                      "real_px": {k: m - v for k, v in synth.items()}, "synthetic_px": synth}
 
     def _window_for(sh):
@@ -820,10 +865,12 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
         rr0, rr1 = synth["N"], win.shape[0] - synth["S"]
         cc0, cc1 = synth["W"], win.shape[1] - synth["E"]
         ext = extend_2d(win[rr0:rr1, cc0:cc1], fill["tuned"])
-        missing = np.pad(info["missing"][rr0:rr1, cc0:cc1],
-                         ((0, ext.shape[0] - (rr1 - rr0)), (0, ext.shape[1] - (cc1 - cc0))))
+        grow = ((0, ext.shape[0] - (rr1 - rr0)), (0, ext.shape[1] - (cc1 - cc0)))
+        missing = np.pad(info["missing"][rr0:rr1, cc0:cc1], grow)
+        real_px = np.pad(info["real"][rr0:rr1, cc0:cc1], grow)
         oy, ox = info["offset_in_window"]
-        return ext, dict(info, missing=missing, offset_in_window=(oy - rr0, ox - cc0), pad=0)
+        return ext, dict(info, missing=missing, real=real_px, offset_in_window=(oy - rr0, ox - cc0),
+                         pad=0)
 
     cut = _cut_of(plan, params, origin, pshape, fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
@@ -901,17 +948,18 @@ def _whole_window(v, mode: str, plan):
     v0 = np.where(missing, 0.0, v)
     info = {"real_frac": float((~missing).mean()), "reflected_edges": (), "missing": missing,
             "offset_in_window": (0, 0), "real_px": {s: 0 for s in _EDGES},
-            "synthetic_px": {s: 0 for s in _EDGES}, "pad": None}
+            "synthetic_px": {s: 0 for s in _EDGES}, "pad": None, "real": ~missing}
     if fill["kind"] == "taper":
-        from dynamix.core.edges import tapered
+        from dynamix.core.edges import taper_band, tapered
 
         window = tapered(v0, np.arange(H), np.arange(W), (H, W), fill["mu"], fill["w_t"])
+        info["real"] = ~missing & ~taper_band(np.arange(H), np.arange(W), (H, W), fill["w_t"])
     else:
         from dynamix.core.daf import extend_2d
 
         window = extend_2d(v0, fill["tuned"])
-        info.update(missing=np.pad(missing, ((0, window.shape[0] - H), (0, window.shape[1] - W))),
-                    pad=0)
+        grow = ((0, window.shape[0] - H), (0, window.shape[1] - W))
+        info.update(missing=np.pad(missing, grow), real=np.pad(~missing, grow), pad=0)
     return window, info, fill, mode, extras
 
 

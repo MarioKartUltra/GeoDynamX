@@ -195,18 +195,22 @@ def interior(tmp_path_factory):
 
 @pytest.fixture(scope="module")
 def corner(tmp_path_factory):
-    """Same, for a ROI clipped at the parent's NW corner (mixed real/reflective margins)."""
-    return _oracle_case(tmp_path_factory, "corner", ROI_CORNER, seed=11)
+    """Same, for a ROI clipped at the parent's NW corner (mixed real/reflective margins). Both
+    sides run at thresh 0: the ROI path takes the threshold's max over the moduli real data alone
+    determine, the union reference over its whole reflect-padded window, and this oracle proves
+    the windows, not the threshold (``tests/test_edge_gprv.py`` pins that)."""
+    return _oracle_case(tmp_path_factory, "corner", ROI_CORNER, seed=11, thresh=0.0)
 
 
-def _oracle_case(tmp_path_factory, tag, roi, seed):
+def _oracle_case(tmp_path_factory, tag, roi, seed, thresh=None):
     parent = _synthetic_parent(seed=seed, loud_roi=roi)
     src = _write_tif(tmp_path_factory.mktemp(tag) / f"{tag}.tif", parent)
     m_max = max(MARGINS)
     union = _window_reference(parent, roi, m_max)
+    params = dict(PARAMS) if thresh is None else dict(PARAMS, thresh=thresh)
     return {"parent": parent, "source": src, "roi": roi, "m_max": m_max, "union": union,
-            "reference": run_wtmm2d(_field(union, tag), dict(PARAMS)),
-            "roi_result": run_wtmm2d_roi(src, parent.shape, roi, dict(PARAMS))}
+            "reference": run_wtmm2d(_field(union, tag), dict(params)),
+            "roi_result": run_wtmm2d_roi(src, parent.shape, roi, dict(params))}
 
 
 # ------------------------------------------------------------------- margins: hand-pinned values
@@ -403,6 +407,8 @@ def test_oracle_corner_holds_on_fields_the_fixtures_did_not_choose(seed, tmp_pat
     EVERY margin from 1.0*a to 6.28*a. That is part of the measurement behind
     :data:`MAX_NMS_TIES_PER_SCALE` -- the tie is not something a wider halo buys away, so the
     oracle verifies it is not isolated instead of pretending it is absent.
+
+    Both sides at thresh 0, as the corner fixture (its docstring says why).
     """
     parent = _synthetic_parent(seed=seed, loud_roi=ROI_CORNER)
     src = _write_tif(tmp_path / f"corner{seed}.tif", parent)
@@ -411,9 +417,9 @@ def test_oracle_corner_holds_on_fields_the_fixtures_did_not_choose(seed, tmp_pat
     union = _window_reference(parent, ROI_CORNER, m_max)
     backend = get_backend("python")
     cwt = backend.cwt2d(union, SCALES, wavelet="gaussian", pad=32)
-    ref = backend.extrema2d(cwt, SCALES, thresh=1e-3, field=union)
+    ref = backend.extrema2d(cwt, SCALES, thresh=0.0, field=union)
 
-    result = run_wtmm2d_roi(src, parent.shape, ROI_CORNER, dict(PARAMS))
+    result = run_wtmm2d_roi(src, parent.shape, ROI_CORNER, dict(PARAMS, thresh=0.0))
 
     total_ties = 0
     for i, a in enumerate(SCALES):

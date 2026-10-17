@@ -146,3 +146,60 @@ def test_a_daf_record_names_its_tuning_or_its_fallback(clean_registry, tmp_path)
                                                   "edge": "daf_periodic"})], "daf"), "edge")
     assert edge["requested"] == "daf_periodic" and edge["mode"] == "reflect"
     assert "points per wavelength" in edge["fallback"] and edge["f_b"] > 0 and edge["M"] == 12
+
+
+# ------------------------------------- the threshold reads real pixels only (the author, 2026-10-16)
+
+@pytest.mark.parametrize("edge", ["cut", "daf_periodic", "gaussian_taper"])
+def test_a_padded_spike_does_not_move_the_threshold(tmp_path, monkeypatch, edge):
+    """thresh is a fraction of the modulus max over the window's REAL pixels: a spike in the padding
+    (or the fill) moves no kept maximum anywhere in the ROI at the default thresh."""
+    from dynamix.roi import halo
+    from test_edge_taper import _labyrinth
+
+    # the DAF and the taper need a band-limited field to take effect on a 64 px ROI
+    v = _synthetic_parent(384, seed=7) if edge == "cut" else _labyrinth(384)
+    tif = _write_tif(tmp_path / "p.tif", v)
+    params = {"n_oct": 2, "n_voice": 4, "a_min": 1.0, "fracint_alpha": 0.0, "edge": edge}
+    roi = (0, 96, 128, 128)
+    plain = halo.run_wtmm2d_roi(tif, (384, 384), roi, params)
+    assert plain["_edge"]["mode"] == edge
+    if edge == "cut":
+        monkeypatch.setattr(halo, "_reflect_pad", _spiked_reflect_pad(1e4))
+    elif edge == "gaussian_taper":
+        from dynamix.core import edges
+
+        taper = edges.tapered
+
+        def spiked_band(block, rows, cols, parent_shape, mu, w_t):
+            out = taper(block, rows, cols, parent_shape, mu, w_t)
+            i = np.flatnonzero(np.asarray(rows) == 1)          # parent row 1: inside the band
+            if i.size:
+                out[i[0], out.shape[1] // 2] += 1e4
+            return out
+        monkeypatch.setattr(edges, "tapered", spiked_band)
+    else:
+        from dynamix.core import daf
+
+        extend = daf.extend_2d
+
+        def spiked(values, tuned):
+            out = extend(values, tuned)
+            out[values.shape[0] + tuned.gap // 2, out.shape[1] // 2] += 1e4   # in the filled gap
+            return out
+        monkeypatch.setattr(daf, "extend_2d", spiked)
+    spiked_res = halo.run_wtmm2d_roi(tif, (384, 384), roi, params)
+    far = 0
+    # Compared: maxima beyond the widest halo (59 px) and off the spike's column (ROI x 64, or 64
+    # plus half the DAF gap), where the kernel's axis ringing carries a 1e4 spike a long way.
+    def _far(level):
+        return (level["y"] >= 64) & ((level["x"] < 56) | (level["x"] > 80))
+
+    for a, b in zip(plain["extrema"], spiked_res["extrema"]):
+        keep = _far(a)
+        pa = {(int(y), int(x)) for y, x in zip(a["y"][keep], a["x"][keep])}
+        keepb = _far(b)
+        pb = {(int(y), int(x)) for y, x in zip(b["y"][keepb], b["x"][keepb])}
+        assert pa == pb
+        far += len(pa)
+    assert far > 0

@@ -8,12 +8,12 @@ edges. It delegates every bit of the actual halo/crop reasoning to
 :func:`dynamix.roi.halo.run_wtmm2d_roi`; see that module's docstring for the margin budget, the
 boundary modes and the missing-data convention.
 
-**Thresholding:** ``thresh`` is a FRACTION of the ANALYSED window's
-own modulus max, not the parent raster's -- and the analysed window is ``ROI ⊕ halo``, a different
-extent per scale. An ROI's extrema threshold is therefore always relative to its own window, never
-to the parent's global maximum: the same field can report differently "loud" extrema depending on
-where the box is drawn. This is inherent to relative thresholding over a windowed read, not a bug
-to fix here.
+**Thresholding:** ``thresh`` is a FRACTION of the modulus max over the analysed window's moduli
+that real data alone determine (``halo._real_thresh``): its real pixels farther than the scale's
+halo from any padded, filled, tapered or missing pixel and from the window's edge, so padding never
+moves it. That max is still the window's, not the parent raster's: the same field can report
+differently "loud" extrema depending on where the box is drawn, which is inherent to relative
+thresholding over a windowed read.
 
 **Where a scale's reach does not converge** (the sampled kernel rings at Nyquist; for the Mexican hat
 below about ``a_min`` 1.0, for heavier-tailed smoothers higher), no finite halo is honest
