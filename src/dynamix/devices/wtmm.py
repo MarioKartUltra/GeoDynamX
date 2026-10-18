@@ -806,13 +806,22 @@ class WTMM2D:
         win = prov.get("window")
         origin = (None if win is None else
                   (int(win["row_off"]) + int(r0), int(win["col_off"]) + int(core[1])))
+        # The halo reads the parent; spec 25's padded and periodic modes and the Border cut run on
+        # whole rasters, so past the parent's edges an ROI reflects (spec 22's modes stand).
+        edge = {p.name: params[p.name] for p in EDGE_PARAMS}
+        asked = edge["edge"]
+        if asked in ("auto", "periodic", "edge_pad", "zero_pad"):
+            edge["edge"] = "reflect"
         res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
                                        dict({k: params[k] for k in self._ROI_KEYS},
-                                            smoother_params=smoother_params(params),
-                                            **{p.name: params[p.name] for p in EDGE_PARAMS}),
+                                            smoother_params=smoother_params(params), **edge),
                                        progress=progress, parent_shape=full,
                                        roi_origin=origin)
         res = dict(res)
+        if asked not in ("auto", edge["edge"]):
+            res["_warnings"] = list(res.get("_warnings", [])) + [
+                f"edge = {asked} runs on whole rasters; in an ROI the halo reads the parent and "
+                "reflects past its edges"]
         res["_frame"] = getattr(window_field, "frame", None)
         attach_chain_product(res)
         warning = eta_warning(params)

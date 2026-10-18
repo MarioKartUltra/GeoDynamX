@@ -240,3 +240,22 @@ def test_a_large_raster_checks_the_reach_at_its_own_grid():
     first = edge["scales"][0]
     assert first["grids"] == [1024, 2048, 4096] and first["converged"] is False
     assert first["ratio_run"] > 1.25 and first["border"] == edge["scales"][-1]["border"]
+
+
+@pytest.mark.parametrize("edge", ["auto", "periodic", "edge_pad", "zero_pad"])
+def test_an_roi_layer_runs_spec_25s_whole_raster_modes_as_reflect(tmp_path, edge):
+    """On an ROI the halo reads the parent; spec 25's padded and periodic modes run on whole
+    rasters, so past the parent's edges an ROI reflects as before: ``auto`` quietly, a chosen mode
+    with a warning in the run saying so."""
+    from test_roi_wtmm_window import _picture
+
+    from dynamix.roi.runner import run_on_region
+
+    tif = tmp_path / "s.tif"
+    v = np.random.default_rng(7).standard_normal((96, 96)).cumsum(0).cumsum(1).astype(np.float32)
+    _write_tif(tif, v)
+    got = run_on_region([(WTMM2D(), _wtmm_params(n_oct=2, n_voice=2, edge=edge))], _picture(tif),
+                        (0, 0, 24, 28))
+    assert got["_edge"]["mode"] == "reflect"
+    warned = [w for w in got.get("_warnings", ()) if "whole rasters" in w]
+    assert bool(warned) == (edge != "auto")
