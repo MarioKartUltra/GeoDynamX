@@ -50,7 +50,7 @@ def _pair():
 def test_window_builds_headless_and_is_a_nonmodal_canonical_window(qtbot):
     window = MultifractalWindow(*_pair())
     qtbot.addWidget(window)
-    assert window.windowTitle() == "Multifractal spectrum — canonical (Arneodo WTMM)"
+    assert window.windowTitle() == "Partition functions — canonical (Arneodo WTMM)"
     assert window.isModal() is False
     # no-sup (std) is the default table: each line's modulus at the current scale, xsmurf's own
     # default, which keeps negative exponents (the sup flattens them toward 0).
@@ -231,8 +231,7 @@ def test_the_D_h_legend_is_a_row_under_the_panel_with_short_names(qtbot):
     window = MultifractalWindow(hd_std, hd_cmax,
                                 sources=[{"name": long_name, "hd_std": hd_std, "hd_cmax": hd_cmax}])
     qtbot.addWidget(window)
-    d_plot = window._spectrum_plots["D"]
-    assert d_plot.layout.itemAt(4, 1) is window._dh_legend_row     # under the bottom axis
+    assert window._glw.ci.rows[2][0] is window._dh_legend_row     # the strip under the spectra
     names = window._dh_legend_names()
     assert "holder_measure @A" in names and long_name not in names
     assert "canonical (Arneodo WTMM)" in names
@@ -252,8 +251,7 @@ def test_axes_read_plain_decimals_and_the_physical_axis_ticks_once_per_octave(qt
     axis = PhysicalAxis(lambda v: (2.0 ** v, "px"))
     assert axis.tickValues(2.3, 5.6, 600) == [(1.0, [3.0, 4.0, 5.0])]
     layout = window._glw.ci.layout
-    assert (layout.rowStretchFactor(0), layout.rowStretchFactor(1),
-            layout.rowStretchFactor(2)) == (3, 2, 2)
+    assert (layout.rowStretchFactor(0), layout.rowStretchFactor(1)) == (3, 0)
 
 
 def test_scale_window_changes_are_broadcast(qtbot):
@@ -346,19 +344,36 @@ def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot
 
 # ------------------------------------------------------------------------------- the grid layout
 
-def test_the_layout_is_partition_functions_over_a_two_by_two_grid_with_bershadskii_optional(qtbot):
+def test_the_layout_is_partition_functions_over_a_row_of_four_square_spectra_with_bershadskii_optional(qtbot):
+    """Three families on top, the four spectra τ(q), D(h), h(q), c(q) in one row of squares below
+    (the row's height follows a quarter of the grid's width), the Bershadskii row optional; D(h)
+    opens at h ∈ [−2, 2], D ∈ [−½, 1½]; the error bars are whiskers without caps."""
+    from dynamix.shell.multifractal_window import DH_RANGE
+
     window = MultifractalWindow(*_pair())
     qtbot.addWidget(window)
+    window.resize(1200, 800)
+    window.show()
+    qtbot.waitExposed(window)
+    qtbot.wait(50)                                   # the deferred squaring
     ci = window._glw.ci
-    assert ci.rows[0][0] is window._family_plots["tau_qa"] and ci.rows[0][4] is window._family_plots["D_qa"]
-    assert ci.rows[1][0] is window._spectrum_plots["tau"] and ci.rows[1][3] is window._spectrum_plots["D"]
-    assert ci.rows[2][0] is window._spectrum_plots["h"] and ci.rows[2][3] is window._cq_plot
-    assert (ci.layout.rowStretchFactor(0), ci.layout.rowStretchFactor(1), ci.layout.rowStretchFactor(2)) == (3, 2, 2)
-    assert [ci.layout.columnStretchFactor(c) for c in range(6)] == [1] * 6
+    assert ci.rows[0][0] is window._family_plots["tau_qa"] and ci.rows[0][8] is window._family_plots["D_qa"]
+    assert [ci.rows[1][c] for c in (0, 3, 6, 9)] == [window._spectrum_plots["tau"], window._spectrum_plots["D"],
+                                                    window._spectrum_plots["h"], window._cq_plot]
+    assert [ci.layout.columnStretchFactor(c) for c in range(12)] == [1] * 12
+    assert (ci.layout.rowStretchFactor(0), ci.layout.rowStretchFactor(1)) == (3, 0)
+    sizes = [window._spectrum_plots[k].size() for k in ("tau", "D", "h")] + [window._cq_plot.size()]
+    assert all(abs(sz.width() - sz.height()) <= 0.1 * sz.width() for sz in sizes), [(sz.width(), sz.height()) for sz in sizes]
+    assert all(abs(sz.width() - sizes[0].width()) <= 2 for sz in sizes)
+    vb = window._spectrum_plots["D"].getViewBox()
+    (x0, x1), (y0, y1) = vb.viewRange()
+    assert (x0, x1) == pytest.approx(DH_RANGE[0]) and (y0, y1) == pytest.approx(DH_RANGE[1])
+    assert all(err.opts["beam"] == 0.0 for err in window._spectrum_errbars.values())
     assert not window.bershadskii_check.isChecked()
     assert window._pt_plot not in ci.items and not window._pt_label.isVisible()
+    assert ci.rows[2][0] is window._dh_legend_row                # the legend strip
     window.bershadskii_check.setChecked(True)
-    assert ci.rows[3][0] is window._pt_plot and ci.rows[3][4] is window._pt_scan_plot
+    assert ci.rows[3][0] is window._pt_plot and ci.rows[3][8] is window._pt_scan_plot
     assert ci.layout.rowStretchFactor(0) == 3
     window.bershadskii_check.setChecked(False)
     assert window._pt_plot not in ci.items and ci.layout.rowStretchFactor(0) == 3

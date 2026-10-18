@@ -1536,7 +1536,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # window, ``multifractal_window.py``, outside the center view). Gated on the PARTITION
         # TABLES rather than chains: a finest-scale preview stamps ``hd_std=None`` and a
         # points-layer result carries neither table.
-        self._spectrum_button = QtWidgets.QPushButton("Multifractal spectrum…")
+        self._spectrum_button = QtWidgets.QPushButton("Partition functions…")
         self._spectrum_button.clicked.connect(self._on_spectrum_button_clicked)
         # The construction window's own button, same section -- gated more loosely
         # (an h_map-bearing holder result can show the microcanonical histogram with no tables).
@@ -3169,7 +3169,7 @@ both ``Canvas`` signals report the
 
     # -- multifractal spectrum window ---------------------------------
     def _refresh_spectrum_button(self) -> None:
-        """Enable/disable "Multifractal spectrum…" off the ACTIVE layer's own latest result --
+        """Enable/disable "Partition functions…" off the ACTIVE layer's own latest result --
         gated on BOTH partition tables being present (``hd_std``/``hd_cmax``): a finest-scale
         preview stamps them ``None``, and a points-layer/empty result has neither. The disabled
         tooltip names the reason, same doctrine as ``_refresh_skeleton_button``."""
@@ -3231,7 +3231,7 @@ both ``Canvas`` signals report the
         return float(np.log2(min(int(shape[0]), int(shape[1]))))
 
     def _on_spectrum_button_clicked(self) -> None:
-        """"Multifractal spectrum…" clicked -- a FRESH ``MultifractalWindow`` on the active
+        """"Partition functions…" clicked -- a FRESH ``MultifractalWindow`` on the active
         result's own tables, previous one closed first (``_on_skeleton_button_clicked``'s exact
         lifecycle, for the same reasons: construction is cheap, staleness tracking is not).
 

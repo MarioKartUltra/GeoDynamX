@@ -49,7 +49,7 @@ belongs to), not chrome -- the same Theme-Rule carve-out ``canvas.py``'s palette
 document -- and are numeric RGB tuples, never hex literals.
 
 **Lifecycle** is owned by ``main_window.py`` (the ``SkeletonDialog`` pattern): a fresh window per
-"Multifractal spectrum…" click, the previous one closed first, parented to the main window.
+"Partition functions…" click, the previous one closed first, parented to the main window.
 """
 from __future__ import annotations
 
@@ -85,7 +85,10 @@ class WheelAxisViewBox(pg.ViewBox):
 
 
 #: Six grid columns: the three families span two each on top, the 2 x 2 spectra three each.
-_SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (2, 0)}
+#: The grid has twelve columns: the three families span four each, the four spectra three each.
+_SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (1, 6), "cq": (1, 9)}
+#: D(h)'s opening view: h from −2 to 2, D from −½ to 1½, the same on every dataset until zoomed.
+DH_RANGE = ((-2.0, 2.0), (-0.5, 1.5))
 POWER_MEAN_LABEL = "(log₂Z − log₂N_a)/q"
 #: One hue per secondary source (another method's tables beside the primary's).
 _SOURCE_HUES = ((242, 169, 59), (76, 201, 240), (241, 91, 181), (158, 240, 26), (255, 107, 107), (179, 136, 255))
@@ -194,7 +197,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # the same choice SkeletonDialog/ProfileDialog made and for the same reason.
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
-        self.setWindowTitle(f"Multifractal spectrum — {self._source}")
+        self.setWindowTitle(f"Partition functions — {self._source}")
 
         self._hd_by_choice = {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
         self._filtered_tables = (hd_std, hd_cmax)
@@ -423,7 +426,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         warm = pg.mkColor(*Q_WARM)
         warm.setAlpha(28)
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
-            plot = self._glw.addPlot(row=0, col=2 * col, colspan=2, viewBox=WheelAxisViewBox())
+            plot = self._glw.addPlot(row=0, col=4 * col, colspan=4, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", "log₂ a")
             plot.setLabel("left", ylabel)
             if self._physical is not None:
@@ -477,7 +480,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             plot.setLabel("bottom", xlabel)
             plot.setLabel("left", ylabel)
             self._spectrum_plots[name] = plot
-            errbar = pg.ErrorBarItem(pen=muted, beam=0.05)
+            errbar = pg.ErrorBarItem(pen=muted, beam=0.0)      # whiskers alone, no caps
             plot.addItem(errbar)
             self._spectrum_errbars[name] = errbar
             curve = pg.PlotDataItem(pen=ink, connect="finite", symbol="o", symbolSize=4,
@@ -488,6 +491,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         # these axes "(x0.001)" whenever the exponents are small.
         self._spectrum_plots["D"].getAxis("bottom").enableAutoSIPrefix(False)
         self._spectrum_plots["h"].getAxis("left").enableAutoSIPrefix(False)
+        self._spectrum_plots["D"].setXRange(*DH_RANGE[0], padding=0.0)
+        self._spectrum_plots["D"].setYRange(*DH_RANGE[1], padding=0.0)
 
         # The tangent at the phase transition on D(h): through the fitted point at the Pont-2006
         # negative-branch convexity-loss abscissa q_c with slope q_c, drawn from the y axis past
@@ -540,7 +545,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # the PlotItem's own grid (row 4 sits below the axis row), never over the data.
         self._dh_legend_row = pg.GraphicsLayout()
         self._dh_legend_row.setContentsMargins(0, 0, 0, 0)
-        d_plot.layout.addItem(self._dh_legend_row, 4, 1)
+        self._glw.ci.addItem(self._dh_legend_row, row=2, col=0, colspan=12)
         self._dh_hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
         d_plot.addItem(self._dh_hist_err)
         self._dh_hist_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=4, symbolPen=None,
@@ -571,7 +576,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         # Row 3: the specific heat c(q) = -q² τ'' off the fit (points), the cumulant expansion's
         # curve from the maxima moduli, and the log-normal reference c₂ q² (the workbook's
         # specific-heat figure).
-        self._cq_plot = self._glw.addPlot(row=2, col=3, colspan=3, viewBox=WheelAxisViewBox())
+        self._cq_plot = self._glw.addPlot(*_SPECTRUM_CELLS["cq"], colspan=3, viewBox=WheelAxisViewBox())
         self._cq_plot.setLabel("bottom", "q")
         self._cq_plot.setLabel("left", "c(q) = −q² τ″")
         # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²:
@@ -913,19 +918,38 @@ class MultifractalWindow(QtWidgets.QDialog):
         ci = self._glw.ci
         visible = bool(visible)
         if visible and self._pt_plot not in ci.items:
-            ci.addItem(self._pt_plot, row=3, col=0, colspan=4)
-            ci.addItem(self._pt_scan_plot, row=3, col=4, colspan=2)
+            ci.addItem(self._pt_plot, row=3, col=0, colspan=8)
+            ci.addItem(self._pt_scan_plot, row=3, col=8, colspan=4)
         elif not visible and self._pt_plot in ci.items:
             ci.removeItem(self._pt_plot)
             ci.removeItem(self._pt_scan_plot)
-        for col in range(6):                   # equal columns: thirds on top, halves below
+        for col in range(12):                  # equal columns: thirds on top, quarters below
             ci.layout.setColumnStretchFactor(col, 1)
-        ci.layout.setRowStretchFactor(0, 3)      # the families, then the spectra at 2:2
-        ci.layout.setRowStretchFactor(1, 2)
-        ci.layout.setRowStretchFactor(2, 2)
+        ci.layout.setRowStretchFactor(0, 3)      # the families take what the squares leave
+        ci.layout.setRowStretchFactor(1, 0)
+        ci.layout.setRowStretchFactor(2, 0)      # the legend strip
         ci.layout.setRowStretchFactor(3, 1 if visible else 0)
+        self._square_spectra()
         for widget in (self._pt_label, self._qstar_label, self._qstar_spin):
             widget.setVisible(visible)
+
+    def _square_spectra(self) -> None:
+        """The four spectra are squares: the row's height is one plot's width, a quarter of the
+        grid's, so the panels keep one shape whatever the window's. Read once the plot widget
+        has its new size (the dialog's resize comes first), hence the deferred call."""
+        ci = self._glw.ci
+        width = self._glw.viewport().width() if self._glw.viewport() is not None else 0
+        if width <= 0:
+            return
+        side = max(120.0, (width - 5.0 * ci.layout.horizontalSpacing()) / 4.0)
+        ci.layout.setRowFixedHeight(1, side)
+        for col in range(12):
+            ci.layout.setColumnFixedWidth(col, side / 3.0)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, "_glw"):
+            QtCore.QTimer.singleShot(0, self._square_spectra)
 
     def _update_family_visibility(self) -> None:
         q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)
