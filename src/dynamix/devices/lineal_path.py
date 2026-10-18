@@ -102,6 +102,16 @@ class LinealPath:
                 "direction": params["direction"], "phase_fraction": float(phase.mean()),
                 "_shape": tuple(values.shape)}
 
+    def curves(self, result, field, params: dict) -> list:
+        """For the Curve window: L(r) against r in pixels."""
+        from dynamix.model.curves import Curve
+
+        if not isinstance(result, dict) or "L" not in result:
+            return []
+        return [Curve("lineal path L(r)", np.asarray(result["r"]), np.asarray(result["L"]),
+                      "r (px)", "L(r)", note=f"direction {result.get('direction', '')}, phase fraction "
+                      f"{result.get('phase_fraction', float('nan')):.3f}")]
+
     def cache_key(self, params: dict):
         return (self.name, float(params["threshold"]), params["direction"], int(params["r_max"]))
 

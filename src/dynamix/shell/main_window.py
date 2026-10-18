@@ -1554,10 +1554,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._anisotropy_button.clicked.connect(self._on_anisotropy_button_clicked)
         self._anisotropy_window: AnisotropyWindow | None = None
         spectrum_lay.addWidget(self._anisotropy_button)
+        # The curves a tool publishes (model.curves): the Periodic extension's power spectrum
+        # with its band limit, the measures against β, the lineal path.
+        self._curves_button = QtWidgets.QPushButton("Curves…")
+        self._curves_button.clicked.connect(self._on_curves_button_clicked)
+        self._curve_window = None
+        spectrum_lay.addWidget(self._curves_button)
         self.right_panel.add_section("Spectrum", spectrum_box)
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_curves()
         self._refresh_panel_relevance()
 
         # The grouping aids of a decomposition (ssa2d / tucker): thumbnails, shares and
@@ -3346,6 +3353,50 @@ both ``Canvas`` signals report the
         if ok and win is not None and win.isVisible():
             self._feed_anisotropy(win)
 
+    def _active_curves(self) -> tuple:
+        """``(curves, title)`` the active layer's last tool publishes for what is on screen: its
+        result, or the field a chain ending on a field stage produced."""
+        from dynamix.model.curves import curves_of
+
+        layer = self.layer
+        if layer is None or not layer.chain.steps or self.field is None:
+            return [], ""
+        ref = layer.chain.steps[-1]
+        try:
+            device = get_device(ref.device)
+        except KeyError:
+            return [], ""
+        result = self._active_result if isinstance(self._active_result, dict) and self._active_result else None
+        produced = (self._active_field[1] if self._active_field is not None
+                    and self._active_field[0] == layer.layer_id else None)
+        shown = result if result is not None else produced
+        if shown is None:
+            return [], ""
+        return curves_of(device, shown, self.field, dict(ref.params)), f"{layer.name}"
+
+    def _refresh_curves(self) -> None:
+        """Enable the Curves button when the active tool publishes curves for what is on screen,
+        and feed an open window."""
+        curves, title = self._active_curves()
+        ok = bool(curves)
+        self._curves_button.setEnabled(ok)
+        self._curves_button.setToolTip(
+            "; ".join(c.name for c in curves) if ok else
+            "Needs a result whose tool publishes curves (a measure against β, a spectrum, the lineal path)")
+        win = self._curve_window
+        if ok and win is not None and win.isVisible():
+            win.set_curves(curves, title)
+
+    def _on_curves_button_clicked(self) -> None:
+        from dynamix.shell.curve_window import CurveWindow
+
+        if self._curve_window is None:
+            self._curve_window = CurveWindow(self)
+        curves, title = self._active_curves()
+        self._curve_window.set_curves(curves, title)
+        self._curve_window.show()
+        self._curve_window.raise_()
+
     def _feed_anisotropy(self, win) -> None:
         from dynamix.shell.canvas import display_offset
 
@@ -4160,6 +4211,7 @@ both ``Canvas`` signals report the
         self._to_map_live()
         self._sync_composite_panel(result)
         self._refresh_panel_relevance()
+        self._refresh_curves()                 # a field stage's own curves (the spectrum)
         tail = self._names[-1] if self._names else ""
         if self._names == ["bus"]:
             self._notify("bus: drop pca, tucker or another multi-band tool after it to "
@@ -4604,6 +4656,7 @@ both ``Canvas`` signals report the
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_curves()
         self._refresh_panel_relevance()
         self._refresh_components_button()
         self._refresh_inpaint_button()
@@ -6139,6 +6192,7 @@ both ``Canvas`` signals report the
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_curves()
         self._refresh_panel_relevance()
         self._refresh_components_button()
         self._refresh_inpaint_button()
@@ -7983,6 +8037,7 @@ both ``Canvas`` signals report the
         self._refresh_spectrum_button()
         self._refresh_dh_button()
         self._refresh_anisotropy()
+        self._refresh_curves()
         self._refresh_panel_relevance()
         self._refresh_components_button()
         self._refresh_inpaint_button()

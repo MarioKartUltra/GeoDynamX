@@ -136,6 +136,33 @@ class PeriodicExtension:
             reason += "; the fill is rough (lower the power fraction or give a longer λ_b)"
         return {"band": reason}
 
+    def curves(self, result, field, params: dict) -> list:
+        """For the Curve window: the input field's radially averaged power spectrum with the
+        band limit and the spectral peak marked, and the fraction of the power below each k with
+        the band limit at the fraction asked for. What the tuning saw, so the fit can be read."""
+        from dynamix.core.daf import radial_spectrum
+        from dynamix.model.curves import Curve
+        from dynamix.model.device import validate_params
+
+        values = getattr(field, "values", None)
+        if values is None or np.asarray(values).ndim != 2:
+            return []
+        p = validate_params(self, params or {})
+        t = self._tuned(np.asarray(values, dtype=np.float64), p)
+        k, power, fraction = radial_spectrum(values)
+        peak = float(k[1:][np.argmax(power[1:])]) if k.size > 1 else float("nan")
+        marks = [(t.f_b, f"f_b = {t.f_b:.3g} (λ_b {1 / t.f_b:.1f} px)" if t.f_b > 0 else "f_b"),
+                 (peak, f"peak (λ {1 / peak:.1f} px)" if peak > 0 else "peak")]
+        how = (f"given λ_b = {p['lambda_b']:g} px" if p["band"] == "given"
+               else f"{p['band_frac']:.4g} of the power")
+        note = (f"band limit f_b = {t.f_b:.4g} cycles/px ({how}); gap {t.gap} px, σ {t.sigma:.2f} px, "
+                f"M {t.M}; {t.ppw:.1f} points per wavelength at f_b"
+                + ("" if t.band_limited else " — fewer than 6: the fill is rough"))
+        return [Curve("power spectrum", k, power, "k (cycles/px)", "power (annulus mean)",
+                      logx=True, logy=True, marks=tuple(marks), note=note),
+                Curve("power fraction below k", k, fraction, "k (cycles/px)", "fraction of the power",
+                      logx=True, marks=(marks[0],), note=note)]
+
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """Under the band-limit knob: what the tuning settled on for this field."""
         if name != "band" or getattr(field, "values", None) is None:

@@ -68,6 +68,17 @@ class HessianMeasure:
             "record": record, "warnings": warnings, "_shape": tuple(values.shape),
         }
 
+    def curves(self, result, field, params: dict) -> list:
+        """For the Curve window: μ(β) against β, log y."""
+        from dynamix.model.curves import Curve
+
+        if not isinstance(result, dict) or "hessian_measure" not in result:
+            return []
+        return [Curve("Hessian measure μ(β)", np.asarray(result["beta_mu"]),
+                      np.asarray(result["hessian_measure"]), "β", "μ(β) (px⁻¹)", logy=True,
+                      note=f"{result['record']['hessian_norm']} norm; "
+                           f"{result['record']['valid_pixels']} valid pixels")]
+
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 

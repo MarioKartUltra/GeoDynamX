@@ -141,9 +141,9 @@ def extend_periodic(lines, m: int, sigma: float, M: int, lam: float = LAM) -> np
     return fill_gap(g, known, sigma, M, periodic=True, lam=lam)
 
 
-def band_limit(values, frac: float = BAND_FRAC) -> float:
-    """The radial frequency (cycles/px) below which ``frac`` of the field's Hann-windowed power
-    (mean removed) lies; a line or a stack of lines reads along its last axis."""
+def _windowed_power(values):
+    """``(k, power)`` of the Hann-windowed field (mean removed), flat, over the half-plane with
+    the folded negative-k_x weight; ``k`` in cycles/px."""
     from dynamix.core import fft_policy
 
     a = np.atleast_2d(np.asarray(values, dtype=np.float64))
@@ -152,11 +152,35 @@ def band_limit(values, frac: float = BAND_FRAC) -> float:
     kx = np.fft.rfftfreq(a.shape[1])
     power[:, 1:(a.shape[1] + 1) // 2] *= 2.0              # the negative kx the half-plane folds in
     k = np.hypot(np.fft.fftfreq(a.shape[0])[:, None], kx[None, :]).ravel()
+    return k, power.ravel()
+
+
+def band_limit(values, frac: float = BAND_FRAC) -> float:
+    """The radial frequency (cycles/px) below which ``frac`` of the field's Hann-windowed power
+    (mean removed) lies; a line or a stack of lines reads along its last axis."""
+    k, power = _windowed_power(values)
     order = np.argsort(k)
-    cum = np.cumsum(power.ravel()[order])
+    cum = np.cumsum(power[order])
     if not cum[-1] > 0.0:
         return 0.0
     return float(k[order][np.searchsorted(cum, frac * cum[-1])])
+
+
+def radial_spectrum(values) -> tuple:
+    """``(k, power, fraction)``: the field's Hann-windowed power averaged over annuli of
+    ``k`` (cycles/px, one bin per 1/min(shape)), and the fraction of the power below each
+    ``k`` — the curve :func:`band_limit` reads ``frac`` off."""
+    k, power = _windowed_power(values)
+    a = np.atleast_2d(np.asarray(values))
+    dk = 1.0 / min(a.shape)
+    bins = np.floor(k / dk + 0.5).astype(np.int64)
+    counts = np.bincount(bins)
+    sums = np.bincount(bins, weights=power)
+    centres = np.arange(counts.size) * dk
+    keep = counts > 0
+    total = float(sums.sum())
+    fraction = np.cumsum(sums) / total if total > 0.0 else np.zeros_like(sums)
+    return centres[keep], sums[keep] / counts[keep], fraction[keep]
 
 
 @dataclasses.dataclass(frozen=True)

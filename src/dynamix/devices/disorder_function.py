@@ -201,6 +201,24 @@ class DisorderFunction:
         result["raster_out"] = self._shown(result, params["show"])
         return result
 
+    def curves(self, result, field, params: dict) -> list:
+        """For the Curve window: the mean, total and rooted mean disorder against β, log y."""
+        from dynamix.model.curves import Curve
+
+        if not isinstance(result, dict) or "k0" not in result:
+            return []
+        form = result["record"]["disorder_form"]
+        beta = np.asarray(result["beta_delta"])
+        note = (f"{form} form; λ₀ {2.0 * math.pi / float(result['k0']):.1f} px; "
+                f"{result['record']['valid_pixels']} valid pixels")
+        return [Curve(f"mean {form} disorder δ̄(β)", beta, np.asarray(result[f"mean_{form}_disorder"]),
+                      "β", "δ̄(β)", logy=True, note=note),
+                Curve(f"total {form} disorder δ(β)", beta, np.asarray(result[f"total_{form}_disorder"]),
+                      "β", "δ(β) (px²)", logy=True, note=note),
+                Curve(f"rooted mean {form} disorder", beta,
+                      np.asarray(result[f"rooted_mean_{form}_disorder"]), "β", "δ̄(β)^{1/β}",
+                      logy=True, note=note)]
+
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
