@@ -48,6 +48,8 @@ class InvariantMeasures:
               choice_labels=("minimum of δ̄(1)", "spectral peak", "given λ₀"), label="k₀"),
         Param("lambda0", ParamKind.FLOAT, default=20.0, min=2.0, max=1e6, soft_min=4.0, soft_max=200.0,
               units="px", label="λ₀ (px)", active_when=("k0", ("manual",))),
+        Param("disorder_form", ParamKind.CHOICE, default="field", choices=("field", "envelope"),
+              choice_labels=("field (PRE 57 Eq. 2)", "envelope (PRL 1995 Eq. 8)"), label="Disorder of"),
         Param("harmonic_filter", ParamKind.CHOICE, default="daf", choices=("daf", "bandpass", "none"),
               choice_labels=("DAF extension + band (Hoffman 2000)", "Gaussian band-pass at k₀", "none"),
               label="Harmonic filter"),
@@ -58,19 +60,25 @@ class InvariantMeasures:
         # The density floor for negative moment orders; 0 takes the core's default fraction.
         Param("beta_floor", ParamKind.FLOAT, default=0.0, min=0.0, max=1.0, soft_min=0.0,
               soft_max=1e-3, label="β < 0 floor (0 = auto)", level="advanced"),
-        # View-only: both densities are computed and cached once; the pick is a cache hit.
+        # View-only: the rasters are computed and cached once; the pick is a cache hit. A raster
+        # the chosen form did not make falls back to the form's own density.
         Param("show", ParamKind.CHOICE, default="field_disorder_density",
-              choices=("field_disorder_density", "hessian_density"),
-              choice_labels=("disorder density D(x)", "Hessian density |Λ(x)|"), label="Show",
-              view=True),
+              choices=("field_disorder_density", "envelope_disorder_density", "envelope_amplitude",
+                       "hessian_density"),
+              choice_labels=("disorder density D(x)", "envelope disorder density", "envelope |A(x)|",
+                             "Hessian density |Λ(x)|"), label="Show", view=True),
     )
 
+    @staticmethod
+    def _shown(result: dict, show):
+        return result[show] if show in result else result[result["record"]["disorder_density"]]
+
     def view(self, result: dict, params: dict) -> dict:
-        """``show`` picks which density replaces the field on the canvas, from the cached result."""
-        if params.get("show") not in ("field_disorder_density", "hessian_density"):
+        """``show`` picks which raster replaces the field on the canvas, from the cached result."""
+        if "record" not in result:
             return result
-        return {**result, "raster_out": result[params["show"]],
-                "params": {**result.get("params", {}), "show": params["show"]}}
+        return {**result, "raster_out": self._shown(result, params.get("show")),
+                "params": {**result.get("params", {}), "show": params.get("show")}}
 
     def roi_margin(self, params: dict) -> int:
         """The derivative kernel's reach: what an ROI must read beyond its window."""
@@ -114,12 +122,26 @@ class InvariantMeasures:
             filter_record = {"method": "none"}
 
         ny, nx = values.shape
-        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic, mask=stats, detrend_mode="none")
-        density = disorder.helmholtz_density(v, k0, **kw)[:ny, :nx]
-        hessian = disorder.hessian_density(v, norm=params["hessian_norm"], **kw)[:ny, :nx]
+        form = params["disorder_form"]
+        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic, mask=stats)
+        rasters = {}
+        if form == "envelope":
+            kvec = disorder.k0_direction(v, k0, mask=stats)
+            a = disorder.envelope_halfplane(v, kvec, periodic=periodic)
+            density = disorder.envelope_density(a, kvec, **kw)[:ny, :nx]
+            rasters["envelope_amplitude"] = np.where(stats, np.abs(a), np.nan)[:ny, :nx]
+            envelope_record = {"method": "fft_halfplane", "k0_vector": [kvec[0], kvec[1]],
+                               "direction_deg": math.degrees(math.atan2(kvec[1], kvec[0]))}
+        else:
+            density = disorder.helmholtz_density(v, k0, detrend_mode="none", **kw)[:ny, :nx]
+            envelope_record = None
+        hessian = disorder.hessian_density(v, norm=params["hessian_norm"], detrend_mode="none",
+                                           **kw)[:ny, :nx]
         floor = float(params["beta_floor"]) or None
         delta = disorder.disorder_moments(density, disorder.DELTA_BETAS, floor=floor)
         mu = disorder.hessian_measure(hessian, disorder.MU_BETAS, floor=floor)
+        names = {kind: f"{kind}_{form}_disorder" for kind in ("mean", "total", "rooted_mean")}
+        rasters.update({f"{form}_disorder_density": density, "hessian_density": hessian})
         deriv_record = {"scheme": deriv, "reach_px": disorder.reach(deriv, sigma_d)}
         if deriv == "daf":
             deriv_record.update(disorder.DAF_DEFAULTS)
@@ -130,27 +152,28 @@ class InvariantMeasures:
         warnings = [w for w in (delta["warning"], mu["warning"]) if w]
         record = {
             "deriv": deriv_record, "k0": k0_record, "harmonic_filter": filter_record,
+            "disorder_form": form, "envelope": envelope_record,
+            "disorder_density": f"{form}_disorder_density",
             "detrend": params["detrend"], "hessian_norm": params["hessian_norm"],
-            "disorder_normalization": {"mean_field_disorder": "mean",
-                                       "total_field_disorder": "total",
-                                       "rooted_mean_field_disorder": "rooted_mean"},
+            "disorder_normalization": {names["mean"]: "mean", names["total"]: "total",
+                                       names["rooted_mean"]: "rooted_mean"},
             "beta_floor": {"value": delta["floor"], "n_floor_disorder": delta["n_floor"],
                            "n_floor_hessian": mu["n_floor"]},
             "valid_pixels": int(delta["area"]), "warnings": warnings,
         }
-        rasters = {"field_disorder_density": density, "hessian_density": hessian}
-        return {
+        result = {
             "beta_delta": np.asarray(disorder.DELTA_BETAS, dtype=np.float64),
-            "mean_field_disorder": delta["mean"],
-            "total_field_disorder": delta["total"],
-            "rooted_mean_field_disorder": delta["rooted"],
+            names["mean"]: delta["mean"],
+            names["total"]: delta["total"],
+            names["rooted_mean"]: delta["rooted"],
             "beta_mu": np.asarray(disorder.MU_BETAS, dtype=np.float64),
             "hessian_measure": mu["mu"],
             **rasters,
-            "raster_out": rasters[params["show"]],
             "k0": k0, "record": record, "warnings": warnings,
             "_shape": tuple(values.shape),
         }
+        result["raster_out"] = self._shown(result, params["show"])
+        return result
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
@@ -163,6 +186,8 @@ class InvariantMeasures:
         k0 = float(result["k0"])
         how = {"manual": "given", "min_disorder": "min δ̄(1)", "spectral_peak": "spectral peak"}
         method = how.get(result.get("record", {}).get("k0", {}).get("method", ""), "")
-        d1 = float(np.asarray(result["mean_field_disorder"])[list(disorder.DELTA_BETAS).index(1.0)])
+        form = result["record"]["disorder_form"]
+        d1 = float(np.asarray(result[f"mean_{form}_disorder"])[list(disorder.DELTA_BETAS).index(1.0)])
         m1 = float(np.asarray(result["hessian_measure"])[list(disorder.MU_BETAS).index(1.0)])
-        return f"λ₀ {2.0 * math.pi / k0:.1f} px ({method}) · δ̄(1) {d1:.3g} · μ(1) {m1:.3g} px⁻¹"
+        return (f"λ₀ {2.0 * math.pi / k0:.1f} px ({method}) · δ̄^{form[:3]}(1) {d1:.3g} · "
+                f"μ(1) {m1:.3g} px⁻¹")

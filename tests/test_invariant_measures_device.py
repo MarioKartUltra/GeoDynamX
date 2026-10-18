@@ -149,3 +149,24 @@ def test_the_bandpass_filter_removes_a_second_harmonic(dev):
                                                            "harmonic_filter": "bandpass"}))
     assert filtered["mean_field_disorder"][3] < 0.1 * raw["mean_field_disorder"][3]
     assert filtered["record"]["harmonic_filter"] == {"method": "bandpass", "relative_width": 0.5}
+
+
+def test_the_envelope_form_publishes_the_prl_measures_and_its_amplitude(dev):
+    """Under disorder_form = "envelope" the device publishes δ̄^env, δ^env and δ_root^env with the
+    PRL's names, the envelope's density and |A| as rasters, and the Hessian measure as before."""
+    n = 240
+    p = validate_params(dev, {"disorder_form": "envelope", "periodic": True, "k0": "manual",
+                              "lambda0": n / 3, "harmonic_filter": "none"})
+    res = dev.compute(_field(_stripes(n, 5)), p)
+    assert np.allclose(res["mean_envelope_disorder"], (2 - res["beta_delta"]) * (8 / 9) ** res["beta_delta"], rtol=1e-6)
+    assert "mean_field_disorder" not in res
+    assert res["raster_out"] is res["envelope_disorder_density"]
+    assert np.allclose(res["envelope_amplitude"], 1.0, atol=1e-6)
+    assert res["record"]["disorder_form"] == "envelope"
+    assert res["record"]["envelope"]["method"] == "fft_halfplane"
+    assert res["record"]["envelope"]["direction_deg"] == pytest.approx(0.0, abs=1e-9)
+    assert res["record"]["disorder_normalization"] == {"mean_envelope_disorder": "mean",
+                                                        "total_envelope_disorder": "total",
+                                                        "rooted_mean_envelope_disorder": "rooted_mean"}
+    assert dev.view(res, {"show": "envelope_amplitude"})["raster_out"] is res["envelope_amplitude"]
+    assert np.all(res["hessian_measure"] == 0.0)

@@ -337,3 +337,56 @@ def test_the_daf_filter_extends_the_field_keeps_the_band_and_leaves_the_block_cl
     assert raw["mean"][0] > 0.3 and clean["mean"][0] < min(0.1, 0.1 * raw["mean"][0])
     same, block2, tuned2 = disorder.daf_filter(v, k_t, periodic=True)   # already periodic: no gap
     assert same.shape == v.shape and block2 == (n, n) and tuned2 is None
+
+
+# ---------------------------------------------------------------- the envelope form (PRL 1995)
+
+def test_the_half_plane_envelope_of_detuned_stripes_is_a_unit_plane_wave():
+    """u = cos(k₁x) about k₀x̂: the analytic signal from the half-plane k_x > 0 is e^{ik₁x}, so the
+    envelope is e^{i(k₁−k₀)x} with |A| = 1 everywhere (PRL 1995 Eq. 1; J. Stat. Phys. 1998 §4)."""
+    n = 240
+    k0, k1 = 2.0 * math.pi * 3 / n, 2.0 * math.pi * 5 / n
+    a = disorder.envelope_halfplane(_stripes(n, 5), (k0, 0.0), periodic=True)
+    assert a.shape == (n, n) and np.iscomplexobj(a)
+    assert np.allclose(np.abs(a), 1.0, atol=1e-10)
+    x = np.arange(n, dtype=np.float64)[None, :]
+    assert np.allclose(a, np.exp(1j * (k1 - k0) * x), atol=1e-9)
+
+
+def test_detuned_stripes_give_the_prl_envelope_closed_form_exactly():
+    """⊙A = (i/2)(k₁² − k₀²)A (PRL Eq. 4), so D^env = |k₁² − k₀²|/(2k₀²) = 8/9 at k₀ = 3, k₁ = 5
+    and δ̄^env(β) = (2 − β)(8/9)^β: a constant density, so the grid is exact at every β. The
+    field form is twice the envelope form at β = 1."""
+    n = 240
+    k0 = 2.0 * math.pi * 3 / n
+    u = _stripes(n, 5)
+    a = disorder.envelope_halfplane(u, (k0, 0.0), periodic=True)
+    d = disorder.envelope_density(a, (k0, 0.0), deriv="spectral", periodic=True)
+    assert np.allclose(d, 8 / 9, atol=1e-9)
+    betas = np.array(disorder.DELTA_BETAS)
+    out = disorder.disorder_moments(d, betas)
+    assert np.allclose(out["mean"], (2 - betas) * (8 / 9) ** betas, rtol=1e-9)
+    field = disorder.disorder_moments(disorder.helmholtz_density(u, k0, deriv="spectral", periodic=True), [1.0])
+    assert field["mean"][0] / out["mean"][3] == pytest.approx(2.0, rel=1e-9)
+
+
+def test_the_envelope_disorder_is_the_same_for_the_pattern_turned_by_a_right_angle():
+    n = 240
+    k0 = 2.0 * math.pi * 3 / n
+    u = _stripes(n, 5)
+    along_x = disorder.disorder_moments(disorder.envelope_density(
+        disorder.envelope_halfplane(u, (k0, 0.0), periodic=True), (k0, 0.0), deriv="spectral",
+        periodic=True), disorder.DELTA_BETAS)
+    v = np.rot90(u)                                   # stripes along y: k₀ points along ŷ
+    along_y = disorder.disorder_moments(disorder.envelope_density(
+        disorder.envelope_halfplane(v, (0.0, k0), periodic=True), (0.0, k0), deriv="spectral",
+        periodic=True), disorder.DELTA_BETAS)
+    assert np.allclose(along_x["mean"], along_y["mean"], rtol=1e-9)
+
+
+def test_the_spectral_peak_direction_points_along_the_stripes_wavevector():
+    n = 240
+    u = _stripes(n, 5, angle=0.4)
+    kx, ky = disorder.k0_direction(u, 2.0 * math.pi * 5 / n)
+    assert math.hypot(kx, ky) == pytest.approx(2.0 * math.pi * 5 / n, rel=1e-12)
+    assert math.atan2(ky, kx) == pytest.approx(0.4, abs=2 * math.pi / n)

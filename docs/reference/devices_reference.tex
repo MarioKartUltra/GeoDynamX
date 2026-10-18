@@ -653,8 +653,13 @@ $\beta \in \{0.1, 0.25, 0.5, 1, 1.5, 1.9\}$. The \emph{Hessian measure} of a sur
 planform (Nathan and Gunaratne 2005, PRE 71:035101, Eq.~1): $|\Lambda(x)| = |u_{xx}u_{yy} -
 u_{xy}^2| / \mathrm{Var}(u)$ and $\mu(\beta) = \langle|\Lambda|^\beta\rangle^{1/(4\beta)}$ in
 px$^{-1}$ at $\beta \in \{0.1, 0.25, 0.5, 1, 2, 3, 3.4, 5\}$. $\beta$ is the moment order
-throughout; the 1995 PRL writes it $\mu$. Both curves are Curve outputs against $\beta$; the two
-densities are rasters, \texttt{show} picking the one on screen. Derivatives (\texttt{deriv}) are
+throughout; the 1995 PRL writes it $\mu$. \texttt{disorder\_form} chooses the field form (default)
+or the PRL's envelope form: the complex envelope $A(x)$ about the wavevector $k_0$ along the
+spectral peak is the analytic signal from the Fourier half-plane $k\cdot k_0 > 0$, demodulated by
+$e^{-ik_0\cdot x}$ (Jones and Gunaratne 1998, \S4), and the density is $|\odot A| / (k_0^2
+\langle|A|\rangle)$ with $\odot = k_0\cdot\nabla - (i/2)\nabla^2$ (PRL Eqs.~2--3); the outputs then
+carry the envelope's names, and $|A(x)|$ joins the rasters. Both curves are Curve outputs against
+$\beta$; the densities are rasters, \texttt{show} picking the one on screen. Derivatives (\texttt{deriv}) are
 Fourier multipliers: the papers' Hermite DAF (M = 12, $\sigma/\Delta$ = 4, PRE 57 p.~5147; the
 default), a derivative of Gaussian of width \texttt{sigma\_d} px, or spectral derivatives, which
 need a periodized input --- a Periodic extension's stamp, or \texttt{periodic} declaring the field

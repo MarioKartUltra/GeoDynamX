@@ -33,8 +33,9 @@ from dynamix.core.daf import daf_gain
 
 __all__ = ["BANDPASS_WIDTH", "DAF_DEFAULTS", "DAF_REACH", "DELTA_BETAS", "DERIVS", "FLOOR_FRACTION",
            "GOLDMAN_BAND", "K0_METHODS", "MU_BETAS", "ZERO", "bandpass", "daf_filter", "detrend",
-           "disorder_moments", "filtered", "helmholtz_density", "hessian_density", "hessian_measure",
-           "k0_estimate", "radial_filter", "reach", "transfer"]
+           "disorder_moments", "envelope_density", "envelope_halfplane", "filtered",
+           "helmholtz_density", "hessian_density", "hessian_measure", "k0_direction", "k0_estimate",
+           "radial_filter", "reach", "transfer"]
 
 #: The derivative schemes: the papers' DAF, a derivative of Gaussian, or plain spectral derivatives.
 DERIVS = ("daf", "gaussian", "spectral")
@@ -98,7 +99,8 @@ def filtered(u, multipliers, *, deriv: str = "daf", sigma_d: float = 1.0,
         raise ValueError("spectral derivatives need a periodized input: run the Periodic extension "
                          "(DAF) first, or declare the layer periodic; otherwise choose the daf or "
                          "gaussian scheme (see the edge handling)")
-    u = np.asarray(u, dtype=np.float64)
+    complex_field = np.iscomplexobj(u)
+    u = np.asarray(u, dtype=np.complex128 if complex_field else np.float64)
     ny, nx = u.shape
     pad = 0 if periodic else reach(deriv, sigma_d)
     up = np.pad(u, pad, mode="reflect") if pad else u
@@ -109,7 +111,9 @@ def filtered(u, multipliers, *, deriv: str = "daf", sigma_d: float = 1.0,
     spectrum = np.asarray(fft.fft2(up))
     out = []
     for m in multipliers:
-        arr = np.real(np.asarray(fft.ifft2(spectrum * (gain * m(kx, ky)))))
+        arr = np.asarray(fft.ifft2(spectrum * (gain * m(kx, ky))))
+        if not complex_field:
+            arr = np.real(arr)
         out.append(arr[pad:pad + ny, pad:pad + nx] if pad else arr)
     return out
 
@@ -248,6 +252,65 @@ def _floored(vals, b, floor, finish):
                    f"pixels ({n_floor / max(area, 1):.2%}) sit at the floor {floor:.3g}, and raising "
                    f"the floor tenfold changes them by up to {change:.1%}")
     return values, floor, n_floor, warning
+
+
+def k0_direction(u, k0: float, *, mask=None) -> tuple:
+    """The wavevector of magnitude ``k0`` along the power spectrum's peak, folded into the
+    half-plane k_x > 0 (k_y > 0 on its edge): the k of PRL 1995 Eq. 1."""
+    v, valid = detrend(u, "mean", mask)
+    w = np.where(valid, v, 0.0)
+    power = np.abs(np.asarray(fft_policy.double().fft2(w))) ** 2
+    power[0, 0] = 0.0
+    i, j = np.unravel_index(int(np.argmax(power)), power.shape)
+    kx, ky = np.fft.fftfreq(w.shape[1])[j], np.fft.fftfreq(w.shape[0])[i]
+    if kx < 0 or (kx == 0 and ky < 0):
+        kx, ky = -kx, -ky
+    theta = math.atan2(ky, kx)
+    return (float(k0) * math.cos(theta), float(k0) * math.sin(theta))
+
+
+def envelope_halfplane(u, k0_vec, *, periodic: bool = False):
+    """The complex envelope A(x) of ``u`` about the wavevector ``k0_vec`` (PRL 1995 Eq. 1): the
+    analytic signal from the Fourier half-plane k·k₀ > 0 (half weight on its edge), doubled, then
+    demodulated by e^{−ik₀·x} (J. Stat. Phys. 1998 §4). The mean is removed; a non-periodic field
+    is reflected by two wavelengths first."""
+    k0x, k0y = (float(c) for c in k0_vec)
+    u = np.asarray(u, dtype=np.float64)
+    ny, nx = u.shape
+    pad = 0 if periodic else int(math.ceil(4.0 * math.pi / math.hypot(k0x, k0y)))
+    up = np.pad(u, pad, mode="reflect") if pad else u
+    ky = 2.0 * math.pi * np.fft.fftfreq(up.shape[0])[:, None]
+    kx = 2.0 * math.pi * np.fft.fftfreq(up.shape[1])[None, :]
+    along = kx * k0x + ky * k0y
+    weight = np.where(along > 0, 2.0, np.where(along == 0, 1.0, 0.0))
+    weight[0, 0] = 0.0
+    fft = fft_policy.double()
+    z = np.asarray(fft.ifft2(np.asarray(fft.fft2(up)) * weight))
+    y = np.arange(-pad, ny + pad, dtype=np.float64)[:, None]
+    x = np.arange(-pad, nx + pad, dtype=np.float64)[None, :]
+    a = z * np.exp(-1j * (k0x * x + k0y * y))
+    return a[pad:pad + ny, pad:pad + nx] if pad else a
+
+
+def envelope_density(a, k0_vec, *, deriv: str = "daf", sigma_d: float = 1.0,
+                     periodic: bool = False, mask=None):
+    """The envelope disorder density D^env(x) = |⊙A| / (k₀² ⟨|A|⟩), ⊙ = k₀·∇ − (i/2)∇² (PRL 1995
+    Eqs. 2–3), one multiplier i(k₀·k + |k|²/2), A and the normaliser under the scheme's smoothing;
+    NaN where the envelope is invalid."""
+    k0x, k0y = (float(c) for c in k0_vec)
+    k0_sq = k0x * k0x + k0y * k0y
+    a = np.array(a, dtype=np.complex128, copy=True)
+    valid = np.isfinite(a)
+    if mask is not None:
+        valid &= np.asarray(mask, dtype=bool)
+    a[~valid] = 0.0
+    operator, smoothed = filtered(
+        a, [lambda kx, ky: 1j * (k0x * kx + k0y * ky + 0.5 * (kx * kx + ky * ky)),
+            lambda kx, ky: 1.0],
+        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+    density = np.abs(operator) / (k0_sq * np.mean(np.abs(smoothed[valid])))
+    density[~valid] = np.nan
+    return density
 
 
 def disorder_moments(density, betas, *, mask=None, floor=None) -> dict:
