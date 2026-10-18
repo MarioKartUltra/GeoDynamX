@@ -8,7 +8,9 @@ The field is extended by a gap after its last row and column, filled by the self
 Kouri 2000), so that the whole is periodic. The grid keeps the field's pixel size and origin, so the
 extended raster reaches past the original bounds by the gap. The output carries the stamp
 ``edges.filled = {"rows": H, "cols": W}``, the real block, which WTMM reads: no maxima in the gap, the
-threshold from real pixels, and its Edge ``auto`` resolving to ``periodic``. Below the DAF's band
+threshold from real pixels, and its Edge ``auto`` resolving to ``periodic``. Under the ``centred``
+layout the same field is rolled so the data sit in the middle, and the stamp adds the block's
+offset, ``row0`` and ``col0``. Below the DAF's band
 limit (fewer than 6 points per wavelength) the extension does not apply: the field passes through
 unchanged and the strip's ⚠ gives the reason.
 """
@@ -27,10 +29,11 @@ __all__ = ["FILLED", "PeriodicExtension"]
 FILLED = "edges.filled"
 
 
-def _extended_axis(axis, n: int) -> np.ndarray:
+def _extended_axis(axis, n: int, lead: int = 0) -> np.ndarray:
+    """The axis continued by ``n`` samples, ``lead`` of them before the data's first sample."""
     axis = np.asarray(axis, dtype=np.float64)
     step = float(axis[1] - axis[0]) if axis.size > 1 else 1.0
-    return axis[0] + step * np.arange(axis.size + int(n), dtype=np.float64)
+    return axis[0] + step * (np.arange(axis.size + int(n), dtype=np.float64) - int(lead))
 
 
 class PeriodicExtension:
@@ -55,6 +58,12 @@ class PeriodicExtension:
               label="DAF order M"),
         Param("lam", ParamKind.FLOAT, default=1e-3, min=0.0, max=1.0, soft_min=0.0, soft_max=0.01,
               label="Regularization λ"),
+        # Where the data sit in the extended raster: at the origin with the gap after the last row
+        # and column, or in the middle with the gap split around them -- the same periodic field,
+        # rolled, the stamp carrying the block's offset.
+        Param("layout", ParamKind.CHOICE, default="origin", choices=("origin", "centred"),
+              choice_labels=("data at the origin", "centred"), label="Layout",
+              keyed_at_default=False),
     )
 
     @staticmethod
@@ -82,14 +91,22 @@ class PeriodicExtension:
             progress("periodic extension", 1.0)
         H, W = values.shape
         gy, gx = extended.shape[0] - H, extended.shape[1] - W
+        # One gap per axis, after the data: on the torus it bridges both edges of that axis.
+        # Centred, the same field is rolled so the data sit in the middle, the gap around them.
+        layout = params.get("layout", "origin")
+        r0, c0 = (gy // 2, gx // 2) if layout == "centred" else (0, 0)
+        if r0 or c0:
+            extended = np.roll(np.roll(extended, r0, axis=0), c0, axis=1)
         provenance = dict(field.provenance)
         provenance[FILLED] = {"rows": int(H), "cols": int(W)}
+        if r0 or c0:
+            provenance[FILLED].update(row0=int(r0), col0=int(c0))
         provenance["periodic_extension"] = {"f_b": float(tuned.f_b), "gap": int(tuned.gap),
                                             "M": int(tuned.M), "sigma": float(tuned.sigma),
-                                            "lam": float(tuned.lam)}
+                                            "lam": float(tuned.lam), "layout": layout}
         return dataclasses.replace(field, values=extended, name=f"{field.name}+daf{tuned.gap}",
-                                   x_axis=_extended_axis(field.x_axis, gx),
-                                   y_axis=_extended_axis(field.y_axis, gy),
+                                   x_axis=_extended_axis(field.x_axis, gx, c0),
+                                   y_axis=_extended_axis(field.y_axis, gy, r0),
                                    provenance=provenance)
 
     def knob_warnings(self, field, params: dict) -> dict:

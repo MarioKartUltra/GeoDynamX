@@ -532,7 +532,7 @@ _NEAREST_AXIS = 0.9995
 
 
 def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
-                       radius: int = 0, grid=None, real_block=None,
+                       radius: int = 0, grid=None, real_block=None, real_origin=(0, 0),
                        tie_rule: str = "asymmetric") -> dict:
     """Single-scale NMS modulus maxima -- the core shared by both entry points.
 
@@ -593,10 +593,12 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
     if real_block is None:
         mmax = m.max()
     else:
-        # A Periodic extension output (spec 25 §3.1): the real data are the top-left block, the
-        # rest a filled gap -- its maxima are not the data's, and its moduli set no threshold.
+        # A Periodic extension output (spec 25 §3.1): the real data are one block, at the origin
+        # or at the centred layout's offset, the rest a filled gap -- its maxima are not the
+        # data's, and its moduli set no threshold.
         rows, cols = (int(v) for v in real_block)
-        mmax = m[:rows, :cols].max()
+        r0, c0 = (int(v) for v in (real_origin or (0, 0)))
+        mmax = m[r0:r0 + rows, c0:c0 + cols].max()
     if tie_rule == "keep_both":
         peak = (m >= fore) & (m >= back)
     elif tie_rule == "asymmetric":
@@ -605,8 +607,10 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
         peak = (m > fore) & (m > back)
     mask = peak & (m >= thresh * mmax)
     if real_block is not None:
-        mask[rows:, :] = False
-        mask[:, cols:] = False
+        mask[:r0, :] = False
+        mask[r0 + rows:, :] = False
+        mask[:, :c0] = False
+        mask[:, c0 + cols:] = False
 
     if invalid is not None and invalid.any():
         # 8-connectivity (full 3x3) structuring element so each iteration grows
@@ -1077,7 +1081,7 @@ class PythonWTMMBackend:
         return out
 
     def extrema2d(self, cwt: dict, scales, *, thresh: float = 1e-3,
-                   field: "np.ndarray | None" = None, real_block=None,
+                   field: "np.ndarray | None" = None, real_block=None, real_origin=(0, 0),
                    tie_rule: str = "asymmetric") -> list:
         """Per-scale non-maximum-suppression (NMS) modulus maxima.
 
@@ -1115,8 +1119,10 @@ class PythonWTMMBackend:
             dropped (the NaN-fill in ``cwt2d`` would otherwise fabricate
             spurious ridge structure right at the mask boundary).
         real_block : (rows, cols) or None
-            A Periodic extension output's real data, the top-left block (spec 25
-            §3.1): no extrema outside it, and the threshold's maximum is the block's.
+            A Periodic extension output's real data, one block (spec 25 §3.1): no
+            extrema outside it, and the threshold's maximum is the block's.
+        real_origin : (row0, col0)
+            Where that block starts: the origin, or the centred layout's offset.
 
         Returns
         -------
@@ -1140,7 +1146,8 @@ class PythonWTMMBackend:
         return [
             _nms_extrema_scale(mod_stack[s], arg_stack[s], thresh=thresh,
                                 invalid=invalid, radius=int(np.ceil(scales[s])),
-                                grid=grid, real_block=real_block, tie_rule=tie_rule)
+                                grid=grid, real_block=real_block, real_origin=real_origin,
+                                tie_rule=tie_rule)
             for s in range(n_sc)
         ]
 
@@ -2042,6 +2049,8 @@ _WTMM2D_PARAM_DEFAULTS = {
     # A Periodic extension output's real block, (rows, cols) (spec 25 §3.1): no maxima in the filled
     # gap, and the threshold from the real data. None: the whole field is data.
     "real_block": None,
+    # Where that block starts: the origin, or the centred layout's offset; (0, 0) keeps the keys.
+    "real_origin": (0, 0),
     # The nms detector's tie rule (TIE_RULES): xsmurf's asymmetric test; ``keep_both`` is the rule
     # before it, whose stage keys it keeps.
     "tie_rule": "asymmetric",
@@ -2478,9 +2487,12 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
     if resolved["detector"] == "nms" and resolved["tie_rule"] != "keep_both":
         extrema_key["tie_rule"] = resolved["tie_rule"]
     real_block = resolved["real_block"]
+    real_origin = tuple(int(v) for v in (resolved.get("real_origin") or (0, 0)))
     if real_block is not None:                    # the whole field as data keeps its stage keys
         real_block = (int(real_block[0]), int(real_block[1]))
         extrema_key["real_block"] = real_block
+        if real_origin != (0, 0):                 # the block at the origin keeps its stage keys
+            extrema_key["real_origin"] = real_origin
 
     def compute_extrema():
         if follow:
@@ -2510,10 +2522,11 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                 # Follow thresholds inside its exact port, against the whole array; the gap's
                 # maxima are dropped here, and their line runs index the uncut points.
                 from dynamix.core import edges as _edges
-                found = _edges.drop_outside(found, real_block)
+                found = _edges.drop_outside(found, real_block, real_origin)
             return found
         ext = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values,
-                                real_block=real_block, tie_rule=resolved["tie_rule"])
+                                real_block=real_block, real_origin=real_origin,
+                                tie_rule=resolved["tie_rule"])
         if resolved["interpolate"]:
             # Parabolic refinement along the gradient (dynamix.core.subpixel): the refined
             # MODULUS replaces ``mod`` -- it feeds chaining and Z(q,a), the xsmurf follow /

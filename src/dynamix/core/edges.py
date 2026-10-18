@@ -134,16 +134,18 @@ def drop_in_cone(levels, borders, offset, parent_shape) -> list:
     return out
 
 
-def drop_outside(levels, block) -> list:
-    """Each level's maxima inside ``block`` = ``(rows, cols)``, the top-left real block of a
-    Periodic extension output (spec 25 §3.1); every per-point array subset in step, and the
-    follow detector's line runs, which index the uncut points, left out."""
+def drop_outside(levels, block, origin=(0, 0)) -> list:
+    """Each level's maxima inside ``block`` = ``(rows, cols)`` starting at ``origin`` =
+    ``(row0, col0)``, the real block of a Periodic extension output (spec 25 §3.1); every
+    per-point array subset in step, and the follow detector's line runs, which index the uncut
+    points, left out."""
     rows, cols = int(block[0]), int(block[1])
+    r0, c0 = int(origin[0]), int(origin[1])
     out = []
     for level in levels:
         x = np.asarray(level["x"], dtype=np.float64)
         y = np.asarray(level["y"], dtype=np.float64)
-        keep = (x < cols) & (y < rows)
+        keep = (x >= c0) & (x < c0 + cols) & (y >= r0) & (y < r0 + rows)
         n = keep.size
         out.append({k: (v[keep] if isinstance(v, np.ndarray) and v.ndim >= 1 and len(v) == n else v)
                     for k, v in level.items() if k not in ("_xs_runs", "_xs_closed")})

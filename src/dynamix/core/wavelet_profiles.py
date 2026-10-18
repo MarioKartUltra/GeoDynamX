@@ -238,7 +238,7 @@ def multiaffine_profile(wavelet: str, r: float, *, beta: float = 1.0, q_tsallis:
         extra["q_beta"] = qb
     label = {"g1": "g1", "g2": "Ricker (g2)", "g3": "g3", "gaussian": "Ricker",
              "q_mexican": f"q-Mexican hat q = {float(q_tsallis):g}, "
-                          f"β {'paired' if q_pairing == 'q-paired' else 'fixed'}",
+                          f"β_q {'paired' if q_pairing == 'q-paired' else 'fixed'}",
              "lorentzian_marr": f"Lorentzian-Marr β = {beta:g}",
              "frac_gaussian": f"fractional order n = {fn:g}"}.get(name, name)
     return Profile(x, psi, r, float(lam) * r if np.isfinite(lam) else float("nan"),

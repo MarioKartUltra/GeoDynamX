@@ -377,14 +377,14 @@ def _beta(params: dict) -> float:
 
 
 def _width_label(q: float, beta: float, given: bool) -> str:
-    """The β a q kernel runs with, for its label: "β paired" where it is the q-paired width
+    """The β_q a q kernel runs with, for its label: "β_q paired" where it is the q-paired width
     (``microcanonical.paired_q_beta``), else its value."""
     if given and q < 2.0:
         from dynamix.core.microcanonical import paired_q_beta
 
         if np.isclose(beta, paired_q_beta(q), rtol=1e-12, atol=0.0):
-            return "β paired"
-    return f"β {beta:g}"
+            return "β_q paired"
+    return f"β_q {beta:g}"
 
 
 def smoother(name: str, params: dict | None = None) -> Smoother:

@@ -161,7 +161,7 @@ def test_the_width_knobs_apply_only_to_the_q_smoothers_and_q_beta_only_while_fix
         pairing, beta = _param(dev, "q_pairing"), _param(dev, "q_beta")
         assert (pairing.default, pairing.choices, pairing.label) == ("fixed", ("fixed", "q-paired"),
                                                                      "q width")
-        assert (beta.default, beta.label) == (0.5, "q β")
+        assert (beta.default, beta.label) == (0.5, "β_q")
         assert not pairing.keyed_at_default and not beta.keyed_at_default
         assert not pairing.view and not beta.view
         pre = dev.param_groups["PRE"]
@@ -189,16 +189,16 @@ def test_the_caption_and_the_reading_name_the_width():
     dev = WTMM2D()
     fixed = _params(wavelet="q_gaussian", q_tsallis=1.5)
     paired = dict(fixed, q_pairing="q-paired")
-    assert "q-Gaussian q = 1.5, β 0.5" in dev.wavelet_profile(fixed, 8.0, 0).family
-    assert "q-Gaussian q = 1.5, β paired" in dev.wavelet_profile(paired, 8.0, 0).family
-    assert "β 2" in dev.wavelet_profile(dict(fixed, q_beta=2.0), 8.0, 0).family
-    assert "β paired" in dev.wavelet_profile(dict(paired, wavelet="q_mexican"), 8.0, 0).family
+    assert "q-Gaussian q = 1.5, β_q 0.5" in dev.wavelet_profile(fixed, 8.0, 0).family
+    assert "q-Gaussian q = 1.5, β_q paired" in dev.wavelet_profile(paired, 8.0, 0).family
+    assert "β_q 2" in dev.wavelet_profile(dict(fixed, q_beta=2.0), 8.0, 0).family
+    assert "β_q paired" in dev.wavelet_profile(dict(paired, wavelet="q_mexican"), 8.0, 0).family
     meyer = dev.wavelet_profile(dict(paired, wavelet="q_meyer"), 8.0, 0).family
     assert "band peak held" in meyer
     assert "band peak held" not in dev.wavelet_profile(dict(fixed, wavelet="q_meyer"), 8.0, 0).family
     for d in (dev, WTMM2DROI()):
         assert "escort variance held" in d.derived_reading("q_pairing", "q-paired", None, paired)
-        assert "β 1" in d.derived_reading("q_pairing", "q-paired", None, paired)
+        assert "β_q 1" in d.derived_reading("q_pairing", "q-paired", None, paired)
         assert "q moves width" in d.derived_reading("q_pairing", "fixed", None, fixed)
         assert "band peak held" in d.derived_reading(
             "q_pairing", "q-paired", None, dict(paired, wavelet="q_meyer"))

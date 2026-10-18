@@ -490,9 +490,10 @@ strip's warning gives the reason. On an ROI it extends the ROI's own pixels, and
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
-\texttt{band\_frac} (Band limit) & 0.99 & $[0.5,0.9999]$ & fraction of the power below $f_b$ (advanced) \\
-\texttt{M} (DAF order) & 12 & $[2,40]$ & Hermite order of the DAF (advanced) \\
-\texttt{lam} (Regularization) & $10^{-3}$ & $[0,1]$ & $\lambda$ of the gap solve (advanced) \\
+\texttt{band\_frac} (Band limit) & 0.99 & $[0.5,0.9999]$ & fraction of the power below $f_b$ \\
+\texttt{M} (DAF order) & 12 & $[2,40]$ & Hermite order of the DAF \\
+\texttt{lam} (Regularization) & $10^{-3}$ & $[0,1]$ & $\lambda$ of the gap solve \\
+\texttt{layout} (Layout) & origin & origin, centred & where the data sit in the extended raster: at the origin with the gap after the last row and column, or in the middle with the gap split around them (the same periodic field, rolled; the real-block stamp carries the offset and WTMM's real block follows it) \\
 \bottomrule
 \end{longtable}
 

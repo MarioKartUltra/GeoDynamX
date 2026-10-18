@@ -28,7 +28,7 @@ def width_knobs(q_wavelets: tuple, *, beta_wavelets: "tuple | None" = None,
               label="q width", active_when=("wavelet", q_wavelets),
               keyed_at_default=keyed_at_default),
         Param("q_beta", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1,
-              soft_max=2.0, units="", label="q β",
+              soft_max=2.0, units="", label="β_q",
               active_when=(("wavelet", beta_wavelets), ("q_pairing", ("fixed",))),
               keyed_at_default=keyed_at_default),
     )

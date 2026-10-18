@@ -157,7 +157,7 @@ def width_reading(params: dict) -> str:
     if wavelet not in _BETA_SMOOTHERS:
         return ""
     beta = smoother_params(params).get("beta", 0.5)
-    return f"β {beta:.3g}\n{'escort variance held' if paired else 'q moves width too'}"
+    return f"β_q {beta:.3g}\n{'escort variance held' if paired else 'q moves width too'}"
 
 
 #: The chaining-band knob, shared by wtmm2d and wtmm2d_roi.
@@ -264,6 +264,12 @@ def filled_block(field):
     """A Periodic extension output's real block ``(rows, cols)``, else None."""
     stamp = (getattr(field, "provenance", None) or {}).get("edges.filled")
     return None if not stamp else (int(stamp["rows"]), int(stamp["cols"]))
+
+
+def filled_origin(field) -> tuple:
+    """Where that block starts, ``(row0, col0)``: the origin, or the centred layout's offset."""
+    stamp = (getattr(field, "provenance", None) or {}).get("edges.filled") or {}
+    return (int(stamp.get("row0", 0)), int(stamp.get("col0", 0)))
 
 
 def resolved_boundary(params: dict, field) -> tuple:
@@ -631,7 +637,8 @@ class WTMM2D:
                    border_cut=params["border_cut"], border_pct=params["border_pct"],
                    border_k=params["border_k"], border_scope=params["border_scope"],
                    edge_eps=params["edge_eps"],
-                   real_block=filled_block(field) if extent == "real_data" else None)
+                   real_block=filled_block(field) if extent == "real_data" else None,
+                   real_origin=filled_origin(field) if extent == "real_data" else (0, 0))
         record = {"edge": edge, "pad_width": params["pad_width"] if edge != "periodic" else None,
                   "widths": widths, "pad": out["pad"], "notes": notes, "extent": extent}
         return out, record
