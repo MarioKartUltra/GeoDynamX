@@ -29,7 +29,8 @@ class _Superseded:
 def test_the_family_order_is_the_browser_tree():
     assert FAMILY_ORDER == ("Data preparation", "Edge detection", "Regularity", "Skeletons",
                             "Decomposition", "Reconstruction", "Topology", "Selection: extrema",
-                            "Selection: V-chains", "Points", "Microstructure", "Labs", "Other")
+                            "Selection: V-chains", "Points", "Measures", "Microstructure", "Labs",
+                            "Other")
 
 
 def test_an_undeclared_device_is_its_id_under_other():
@@ -69,7 +70,8 @@ LABELS = {
     "holder_multiaffine": "Microcanonical MFA, multiaffine",
     "wavelet_skeleton": "Wavelet skeleton",
     "lineal_path": "Lineal path",
-    "invariant_measures": "Invariant measures (Gunaratne)",
+    "disorder_function": "Disorder function (Gunaratne)",
+    "hessian_measure": "Hessian measure (Nathan–Gunaratne)",
     "pca": "PCA",
     "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
     "ssa2d": "2-D SSA",
@@ -109,7 +111,8 @@ FAMILY_TREE = {
     "Selection: V-chains": {"chain_holder", "chain_modulus", "chain_length", "chain_classify",
                             "min_vchains", "group_filter"},
     "Points": {"backproject"},
-    "Microstructure": {"lineal_path", "invariant_measures"},
+    "Measures": {"disorder_function", "hessian_measure"},
+    "Microstructure": {"lineal_path"},
     "Other": set(),
     "Labs": set(),                        # experimental plugins declare it; no built-in does
 }

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The Invariant measures tool (spec 19, Phase A): the device over ``dynamix.core.disorder`` —
-the field-form disorder δ̄(β), its total and rooted mean, and the Hessian measure μ(β) of one field,
-with k₀ found or given, the derivative scheme recorded, and the two densities as rasters."""
+"""The Disorder function tool (spec 19): the device over ``dynamix.core.disorder`` — the
+field-form or envelope-form disorder δ̄(β), its total and rooted mean, of one field, with k₀ found
+or given, the derivative scheme recorded, and the densities as rasters."""
 from __future__ import annotations
 
 import math
@@ -22,7 +22,7 @@ def dev(clean_registry):
     from dynamix.devices import register_builtin_devices
 
     register_builtin_devices()
-    return get_device("invariant_measures")
+    return get_device("disorder_function")
 
 
 def _field(values, provenance=None):
@@ -38,21 +38,21 @@ def _stripes(n: int, cycles: int, angle: float = 0.0) -> np.ndarray:
     return np.cos(k * (x * math.cos(angle) + y * math.sin(angle)))
 
 
-def test_the_device_is_registered_under_microstructure_and_produces_a_curve(dev):
-    assert dev.label == "Invariant measures (Gunaratne)" and dev.families == ("Microstructure",)
+def test_the_device_is_registered_under_measures_and_produces_a_curve(dev):
+    assert dev.label == "Disorder function (Gunaratne)" and dev.families == ("Measures",)
     assert dev.consumes == ((FIELD,),) and CURVE in dev.produces
 
 
 def test_the_defaults_are_the_papers_and_the_record_names_the_scheme(dev):
     p = validate_params(dev, {})
-    assert (p["deriv"], p["k0"], p["harmonic_filter"], p["detrend"], p["hessian_norm"]) == (
-        "daf", "min_disorder", "daf", "mean", "variance")
+    assert (p["deriv"], p["k0"], p["harmonic_filter"], p["detrend"]) == (
+        "daf", "min_disorder", "daf", "mean")
     assert p["sigma_d"] == 1.0 and p["periodic"] is False
     res = dev.compute(_field(_stripes(128, 6)), p)
     assert res["record"]["deriv"] == {"scheme": "daf", "M": 12, "sigma_over_dx": 4.0,
                                       "reach_px": disorder.reach("daf"), "periodized_by": "daf extension"}
     assert res["record"]["k0"]["method"] == "min_disorder"
-    assert {"deriv", "k0", "harmonic_filter", "detrend", "hessian_norm"} <= set(keyed_params(dev, p))
+    assert {"deriv", "k0", "harmonic_filter", "detrend"} <= set(keyed_params(dev, p))
 
 
 def test_the_dafs_order_and_width_are_knobs_that_default_to_the_papers(dev):
@@ -83,25 +83,23 @@ def test_perfect_periodic_stripes_read_zero_and_find_their_wavenumber(dev):
     res = dev.compute(_field(_stripes(n, cycles)),
                       validate_params(dev, {"periodic": True, "k0": "manual", "lambda0": n / cycles}))
     assert np.array_equal(res["beta_delta"], disorder.DELTA_BETAS)
-    assert np.array_equal(res["beta_mu"], disorder.MU_BETAS)
     assert np.all(res["mean_field_disorder"] == 0.0) and np.all(res["total_field_disorder"] == 0.0)
     assert np.all(res["rooted_mean_field_disorder"] == 0.0)
-    assert np.all(res["hessian_measure"] == 0.0)                 # u = f(x): det H = 0
     assert res["raster_out"] is res["field_disorder_density"] and res["raster_out"].shape == (n, n)
-    assert res["hessian_density"].shape == (n, n) and res["_shape"] == (n, n)
+    assert res["_shape"] == (n, n)
     from dynamix.core.derivative import raster_choices
 
     labels = [label for label, _arr in raster_choices(res)]
-    assert labels[0] == "as shown" and "D(x)" in labels and "|Λ(x)|" in labels
+    assert labels[0] == "as shown" and "D(x)" in labels
 
 
-def test_a_given_wavelength_and_the_hessian_raster_on_show(dev):
+def test_a_given_wavelength_and_show_falls_back_to_the_forms_own_density(dev):
     n = 128
-    p = validate_params(dev, {"k0": "manual", "lambda0": 20.0, "show": "hessian_density"})
+    p = validate_params(dev, {"k0": "manual", "lambda0": 20.0, "show": "envelope_amplitude"})
     res = dev.compute(_field(_stripes(n, 5)), p)
     assert res["k0"] == pytest.approx(2.0 * math.pi / 20.0)
     assert res["record"]["k0"] == {"method": "manual", "value": res["k0"], "lambda_px": 20.0}
-    assert res["raster_out"] is res["hessian_density"]
+    assert res["raster_out"] is res["field_disorder_density"]   # the field form made no envelope
     assert res["mean_field_disorder"][3] > 0.1                     # β = 1: detuned stripes
     # show is view-only: a flip is a cache hit through view(), never a recompute
     assert "show" not in keyed_params(dev, p)
@@ -121,11 +119,24 @@ def test_spectral_derivatives_need_a_periodized_input(dev):
     assert "periodized_by" not in dev.compute(field, validate_params(dev, bare))["record"]["deriv"]
 
 
-def test_the_reading_names_the_wavelength_and_both_measures_at_beta_1(dev):
+def test_the_reading_names_the_wavelength_and_the_disorder_at_beta_1(dev):
     p = validate_params(dev, {})
     res = dev.compute(_field(_stripes(128, 5, angle=0.4)), p)
     reading = dev.reading(res, p)
-    assert "λ₀" in reading and "δ̄(1)" in reading and "μ(1)" in reading and "px" in reading
+    assert "λ₀" in reading and "δ̄^fie(1)" in reading and "px" in reading
+
+
+def test_a_saved_chain_naming_the_old_invariant_measures_tool_runs_as_the_disorder_function(dev):
+    """The split's shim: a step saved as ``invariant_measures`` loads as ``disorder_function``,
+    its Hessian knobs dropped and the rest kept."""
+    from dynamix.model.chain import Chain
+
+    chain = Chain.from_payload({"steps": [{"device": "invariant_measures",
+                                           "params": {"k0": "manual", "lambda0": 24.0,
+                                                      "hessian_norm": "std"}}]})
+    (step,) = chain.steps
+    assert step.device == "disorder_function" and step.params["lambda0"] == 24.0
+    assert "hessian_norm" not in step.params and step.params["show"] == "field_disorder_density"
 
 
 def test_the_roi_margin_is_the_schemes_reach(dev):
@@ -146,8 +157,7 @@ def test_the_daf_harmonic_filter_is_the_default_and_records_its_extension_and_ba
     assert rec["method"] == "daf" and rec["band"] == [0.7, 1.3] and rec["k_t"] > 0
     assert rec["extension"]["fallback"] is None and rec["extension"]["gap"] >= 8
     assert res["record"]["deriv"]["periodized_by"] == "daf extension"
-    assert res["raster_out"].shape == (n, n) and res["hessian_density"].shape == (n, n)
-    assert res["record"]["valid_pixels"] == n * n
+    assert res["raster_out"].shape == (n, n) and res["record"]["valid_pixels"] == n * n
     assert res["mean_field_disorder"][3] < 0.1          # the periodization floor on a tilted crop
     noise = np.random.default_rng(2).standard_normal((96, 96))
     coarse = dev.compute(_field(noise), validate_params(dev, {"k0": "manual", "lambda0": 3.0}))
@@ -172,7 +182,7 @@ def test_the_bandpass_filter_removes_a_second_harmonic(dev):
 
 def test_the_envelope_form_publishes_the_prl_measures_and_its_amplitude(dev):
     """Under disorder_form = "envelope" the device publishes δ̄^env, δ^env and δ_root^env with the
-    PRL's names, the envelope's density and |A| as rasters, and the Hessian measure as before."""
+    PRL's names, the envelope's density and |A| as rasters."""
     n = 240
     p = validate_params(dev, {"disorder_form": "envelope", "periodic": True, "k0": "manual",
                               "lambda0": n / 3, "harmonic_filter": "none"})
@@ -188,7 +198,6 @@ def test_the_envelope_form_publishes_the_prl_measures_and_its_amplitude(dev):
                                                         "total_envelope_disorder": "total",
                                                         "rooted_mean_envelope_disorder": "rooted_mean"}
     assert dev.view(res, {"show": "envelope_amplitude"})["raster_out"] is res["envelope_amplitude"]
-    assert np.all(res["hessian_measure"] == 0.0)
 
 
 def test_the_wavelet_ridge_envelope_reads_the_prl_closed_form_and_records_the_ridge(dev):

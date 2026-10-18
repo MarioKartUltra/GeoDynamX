@@ -400,7 +400,8 @@ DECLARATIONS = {
     "backproject": (((POINTS,),), {POINTS}, {POINTS}),
     "derived_vectors": (((FIELD,), (STACK,)), {STACK}, {EXTREMA, VCHAINS}),
     "lineal_path": (((FIELD,),), {FIELD}, {CURVE}),
-    "invariant_measures": (((FIELD,),), {FIELD}, {CURVE}),
+    "disorder_function": (((FIELD,),), {FIELD}, {CURVE}),
+    "hessian_measure": (((FIELD,),), {FIELD}, {CURVE}),
 }
 
 

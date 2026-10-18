@@ -87,9 +87,27 @@ class Chain:
 
     @classmethod
     def from_payload(cls, payload: dict) -> "Chain":
-        """Rebuild, materialising defaults so a loaded chain is fully specified."""
+        """Rebuild, materialising defaults so a loaded chain is fully specified. A step naming a
+        superseded device is read as its successor (:data:`SUPERSEDED`), the knobs the successor
+        does not have dropped."""
         steps = tuple(
-            _normalized(DeviceRef(s["device"], s.get("params", {})))
+            _normalized(_succeeded(DeviceRef(s["device"], s.get("params", {}))))
             for s in payload.get("steps", [])
         )
         return cls(steps).validate()
+
+
+#: Superseded device ids and the device that reads a saved step naming them: the invariant
+#: measures tool split into the disorder function and the Hessian measure; a saved step runs as
+#: the disorder function, the Hessian knobs dropped.
+SUPERSEDED = {"invariant_measures": "disorder_function"}
+
+
+def _succeeded(ref: DeviceRef) -> DeviceRef:
+    """``ref`` with a superseded device id replaced by its successor's, keeping the knobs the
+    successor declares."""
+    successor = SUPERSEDED.get(ref.device)
+    if successor is None:
+        return ref
+    known = {p.name for p in get_device(successor).params}
+    return DeviceRef(successor, {k: v for k, v in ref.params.items() if k in known})

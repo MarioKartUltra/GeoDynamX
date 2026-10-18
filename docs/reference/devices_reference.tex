@@ -645,19 +645,16 @@ probability that a segment of $r$ pixels dropped along a row or a column lies en
 $L(0)$ is the phase fraction and $L$ never increases. It produces a Curve, the pair $(r, L(r))$,
 counted exactly from the phase-1 run lengths without periodic wrap.
 
-\subsection*{Invariant measures (Gunaratne)}\label{sec:invariant-measures}
-\tool{Invariant measures (Gunaratne)}{invariant\_measures} (family Microstructure) computes two
-families of Euclidean-invariant measures of one field from local densities of its second
-derivatives. The \emph{disorder function} of a locally striped pattern, in its field form
+\subsection*{Disorder function (Gunaratne)}\label{sec:disorder-function}
+\tool{Disorder function (Gunaratne)}{disorder\_function} (family Measures) computes the
+disorder function of a locally striped pattern, a Euclidean-invariant measure built from the
+local density of its second derivatives, in its field form
 (Gunaratne, Hoffman and Kouri 1998, PRE 57:5146, Eq.~2): the density
 $D(x) = |(\Delta + k_0^2)u| / (k_0^2 \langle|u|\rangle)$ vanishes on perfect stripes of wavenumber
 $k_0$, and its moments give the mean disorder $\bar\delta(\beta) = (2-\beta)\langle D^\beta\rangle$
 (dimensionless), the total $|\Omega|\,\bar\delta(\beta)$ in px$^2$ and the rooted mean
 $\bar\delta(\beta)^{1/\beta}$ (Hu et al.\ 2005), for $0 < \beta < 2$ at
-$\beta \in \{0.1, 0.25, 0.5, 1, 1.5, 1.9\}$. The \emph{Hessian measure} of a surface without a
-planform (Nathan and Gunaratne 2005, PRE 71:035101, Eq.~1): $|\Lambda(x)| = |u_{xx}u_{yy} -
-u_{xy}^2| / \mathrm{Var}(u)$ and $\mu(\beta) = \langle|\Lambda|^\beta\rangle^{1/(4\beta)}$ in
-px$^{-1}$ at $\beta \in \{0.1, 0.25, 0.5, 1, 2, 3, 3.4, 5\}$. $\beta$ is the moment order
+$\beta \in \{0.1, 0.25, 0.5, 1, 1.5, 1.9\}$. $\beta$ is the moment order
 throughout; the 1995 PRL writes it $\mu$. \texttt{disorder\_form} chooses the field form (default)
 or the PRL's envelope form: the complex envelope $A(x)$ about the wavevector $k_0$ along the
 spectral peak is the analytic signal from the Fourier half-plane $k\cdot k_0 > 0$, demodulated by
@@ -683,7 +680,7 @@ k_0^2) - \nabla^2 a)]$ from $a$, $K$ and $\nabla\!\cdot\!K$ alone, which needs n
 and is the same under $K \to -K$; or the PRL operator on $A\,e^{i(\Psi - k_0\cdot x)}$, blind within
 one node of the partition's fold. Pixels where the ridge does not converge (defect cores, a local
 wavenumber outside the bank) are left out and counted; $|K(x)|$ joins the rasters; the record
-carries $\omega$, $\alpha$, $q$, $\beta_q$, the bank, the steps and the counts. Both curves are Curve outputs against
+carries $\omega$, $\alpha$, $q$, $\beta_q$, the bank, the steps and the counts. The curves are Curve outputs against
 $\beta$; the densities are rasters, \texttt{show} picking the one on screen. Derivatives (\texttt{deriv}) are
 Fourier multipliers: the papers' Hermite DAF (the default; its order \texttt{daf\_M} and width
 \texttt{daf\_sigma} = $\sigma/\Delta$ are knobs, PRE 57 p.~5147's M = 12 and 4 by default), a
@@ -701,13 +698,23 @@ apply the field is reflected instead and the record says why), then the band $[0
 around the spectral peak kept (Goldman et al.\ 2002), the derivatives then running on the periodic
 extension and every statistic over the real pixels alone; or a Gaussian radial band-pass at $k_0$
 of relative width 0.5 (full width at half maximum); or none.
-\texttt{detrend} removes the mean (default) or a plane first; \texttt{hessian\_norm} keeps the
-variance of PRE 2005 Eq.~1, the standard deviation being a diagnostic that breaks the inverse-length
-dimensions. A density below $10^{-12}$ is a numerical zero. Negative moment orders are not in the
+\texttt{detrend} removes the mean (default) or a plane first. A density below $10^{-12}$ is a numerical zero. Negative moment orders are not in the
 default grids; when asked for, the density is clipped at \texttt{beta\_floor} (0 takes $10^{-6}$ of
 the mean density), the floored pixels are counted and a warning says how much a tenfold higher
 floor would change the value. The record names the scheme, its reach, $k_0$ and how it was found,
 the filter, the normalisation of each published curve and the floor.
+
+\subsection*{Hessian measure (Nathan--Gunaratne)}\label{sec:hessian-measure}
+\tool{Hessian measure (Nathan--Gunaratne)}{hessian\_measure} (family Measures) computes the
+Euclidean-invariant measure of a surface that need not have a planform, from the local density of its
+second derivatives. (Nathan and Gunaratne 2005, PRE 71:035101, Eq.~1): $|\Lambda(x)| = |u_{xx}u_{yy} -
+u_{xy}^2| / \mathrm{Var}(u)$ and $\mu(\beta) = \langle|\Lambda|^\beta\rangle^{1/(4\beta)}$ in
+px$^{-1}$ at $\beta \in \{0.1, 0.25, 0.5, 1, 2, 3, 3.4, 5\}$. $\beta$ is the moment order. The curve is a Curve output against $\beta$; the density is the raster.
+Derivatives (\texttt{deriv}, \texttt{daf\_M}, \texttt{daf\_sigma}, \texttt{sigma\_d}) and
+\texttt{periodic} are those of the disorder function (\S\ref{sec:disorder-function}); so are
+\texttt{detrend} and the floor for negative moment orders. \texttt{hessian\_norm} keeps the variance of
+PRE 2005 Eq.~1, the standard deviation being a diagnostic that breaks the inverse-length dimensions.
+The record names the scheme, its reach, the norm and the floor.
 
 \subsection*{Gradient arrows and anisotropy}\label{sec:arrows}
 The argument $\mathcal{A}=\arg T_\psi$ of each maximum points uphill in the pixel frame:
