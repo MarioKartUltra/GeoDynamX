@@ -113,6 +113,10 @@ def test_the_engine_computes_a_tool_at_its_precision(builtin, monkeypatch, tool)
     for precision in ("f32", "f64"):
         layer = project.add_layer(precision, src.source_id,
                                   Chain([DeviceRef(tool, {"precision": precision})]))
+        # The WTMM's measured reach (``core.reach.measured_radius``) is memoised once per
+        # process and measured in double by its own policy, whatever the run's precision: the
+        # first resolve warms it so the spied one sees the tool's own transforms alone.
+        resolve(layer, _field(), Cache())
         seen.clear()
         resolve(layer, _field(), Cache())
         assert seen == {32 if precision == "f32" else 64}, (tool, precision, seen)
