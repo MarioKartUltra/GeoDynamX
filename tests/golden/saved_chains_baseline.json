@@ -156,6 +156,12 @@
     1735.1408313810825
    ]
   },
+  "disorder_function": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": 2245.106347215286
+  },
   "dwt2d": {
    "chains": 0,
    "levels": [],
@@ -210,6 +216,12 @@
     1819.8880760520697,
     1735.1408313810825
    ]
+  },
+  "hessian_measure": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": 7.967429450197917
   },
   "hline_holder": {
    "chains": 71,
@@ -303,12 +315,6 @@
    "levels": [],
    "mod": [],
    "raster_out": -94318.4453125
-  },
-  "invariant_measures": {
-   "chains": 0,
-   "levels": [],
-   "mod": [],
-   "raster_out": 2245.106347215286
   },
   "lineal_path": {
    "chains": 0,
@@ -409,7 +415,7 @@
    "raster_out": 2.5334767997264862e-05
   },
   "periodic_extension": {
-   "field": -94318.44675307727
+   "field": -112314.04522255965
   },
   "pm_edges": {
    "chains": 0,
@@ -504,6 +510,12 @@
    "levels": [],
    "mod": [],
    "raster_out": -93033.43669836182
+  },
+  "wavelet_ridge": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": 98954.15547123116
   },
   "wavelet_skeleton": {
    "chains": 0,

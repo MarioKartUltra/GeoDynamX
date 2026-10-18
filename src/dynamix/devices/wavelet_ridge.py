@@ -43,7 +43,8 @@ class WaveletRidge:
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = frozenset({COMPONENTS})
-    capabilities = frozenset({"SelfReporting", "RegionAware", "Viewable"})
+    capabilities = frozenset({"SelfReporting", "RegionAware", "Viewable", "OutputProducer",
+                              "StripExtras"})
     params = (
         Param("k0", ParamKind.CHOICE, default="spectral_peak", choices=("spectral_peak", "manual"),
               choice_labels=("spectral peak", "given λ₀"), label="k₀"),

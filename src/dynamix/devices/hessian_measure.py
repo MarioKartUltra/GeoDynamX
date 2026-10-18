@@ -30,7 +30,7 @@ class HessianMeasure:
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = frozenset({CURVE})
-    capabilities = frozenset({"SelfReporting", "RegionAware", "Viewable"})
+    capabilities = frozenset({"SelfReporting", "RegionAware"})      # one raster: no view knob
     params = (
         *SCHEME_PARAMS,
         DETREND_PARAM,
