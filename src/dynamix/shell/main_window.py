@@ -368,7 +368,7 @@ def _display_style_of(layer) -> dict:
 _PRIMARY_ANALYZERS = ("wtmm2d", "mz_edges", "wavelet_skeleton", "cdf_edges", "pm_edges",
                       "holder_map", "holder_measure", "holder_multiaffine", "band_recon",
                       "band_recon_measure", "band_recon_multiaffine", "lineal_path",
-                      "disorder_function", "hessian_measure")
+                      "disorder_function", "hessian_measure", "wavelet_ridge")
 
 #: The band-reconstruction devices, newest first, and the variant each
 #: h-map producer's band fork commits -- the variant whose engine params are the producer's
@@ -9416,7 +9416,17 @@ both ``Canvas`` signals report the
         if not device or not isinstance(result, dict):
             return None, ""
         layers = result.get("extrema") or []
-        idx = 0 if len(layers) == 1 else int(result.get("_scale_idx", 0))
+        if len(layers) == 1:
+            idx = 0
+        elif "_scale_idx" in result:
+            idx = int(result["_scale_idx"])
+        else:
+            # A result without extrema layers (the DWT, the wavelet ridge) carries no scale
+            # stamp: the level on show is the layer's own.
+            from dynamix.engine.resolve import shown_level
+
+            level = shown_level(self.layer) if self.layer is not None else None
+            idx = 0 if level is None else int(level)
         try:
             profile = profile_for(device, params or {}, result, idx)
         except Exception as exc:                                     # noqa: BLE001

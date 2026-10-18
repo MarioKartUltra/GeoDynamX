@@ -402,6 +402,7 @@ DECLARATIONS = {
     "lineal_path": (((FIELD,),), {FIELD}, {CURVE}),
     "disorder_function": (((FIELD,),), {FIELD}, {CURVE}),
     "hessian_measure": (((FIELD,),), {FIELD}, {CURVE}),
+    "wavelet_ridge": (((FIELD,),), {FIELD}, {COMPONENTS}),
 }
 
 

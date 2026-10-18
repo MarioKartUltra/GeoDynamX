@@ -29,8 +29,8 @@ class _Superseded:
 def test_the_family_order_is_the_browser_tree():
     assert FAMILY_ORDER == ("Data preparation", "Edge detection", "Regularity", "Skeletons",
                             "Decomposition", "Reconstruction", "Topology", "Selection: extrema",
-                            "Selection: V-chains", "Points", "Measures", "Microstructure", "Labs",
-                            "Other")
+                            "Selection: V-chains", "Points", "Measures", "Patterns", "Microstructure",
+                            "Labs", "Other")
 
 
 def test_an_undeclared_device_is_its_id_under_other():
@@ -72,6 +72,7 @@ LABELS = {
     "lineal_path": "Lineal path",
     "disorder_function": "Disorder function (Gunaratne)",
     "hessian_measure": "Hessian measure (Nathan–Gunaratne)",
+    "wavelet_ridge": "Wavelet ridge (Passot–Newell)",
     "pca": "PCA",
     "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
     "ssa2d": "2-D SSA",
@@ -112,6 +113,7 @@ FAMILY_TREE = {
                             "min_vchains", "group_filter"},
     "Points": {"backproject"},
     "Measures": {"disorder_function", "hessian_measure"},
+    "Patterns": {"wavelet_ridge"},
     "Microstructure": {"lineal_path"},
     "Other": set(),
     "Labs": set(),                        # experimental plugins declare it; no built-in does

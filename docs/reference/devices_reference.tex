@@ -589,6 +589,9 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{n\_oct} (Octaves) & 3 & $[1,12]$ & scale range: $a$ spans \texttt{n\_oct} octaves above $a_{\min}$ \\
 \texttt{n\_voice} & 4 & $[1,64]$ & scales per octave (grid density) \\
+\texttt{q\_min} (q min) & $-3$ & $[-20,20]$ & the first moment order of the partition functions (MOMENTS group; out of the key at the defaults, so a saved chain keeps its results) \\
+\texttt{q\_max} (q max) & 6 & $[-20,20]$ & the last moment order, included when the step lands on it \\
+\texttt{q\_step} ($\Delta q$) & 0.5 & $[0.05,5]$ & the step between moment orders; the tables and the Partition functions window carry the list that ran \\
 \texttt{a\_min} ($a_{\min}$) & 1.0 & $[0.01,64]$ px & finest analyzed scale \\
 \texttt{wavelet} (Smoother $\theta$) & mexican & mexican / gaussian / frac\_bspline / q\_gaussian / q\_mexican / q\_meyer & the smoothing function; $\psi$ is its gradient: $g_3$, $g_1$, $\partial\theta_\alpha$, $\partial\theta_q$, q-$g_3$, $\partial\theta_q$ \\
 \texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the fractional B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
@@ -715,6 +718,34 @@ Derivatives (\texttt{deriv}, \texttt{daf\_M}, \texttt{daf\_sigma}, \texttt{sigma
 \texttt{detrend} and the floor for negative moment orders. \texttt{hessian\_norm} keeps the variance of
 PRE 2005 Eq.~1, the standard deviation being a diagnostic that breaks the inverse-length dimensions.
 The record names the scheme, its reach, the norm and the floor.
+
+\subsection*{Wavelet ridge (Passot--Newell)}\label{sec:wavelet-ridge}
+\tool{Wavelet ridge (Passot--Newell)}{wavelet\_ridge} (family Patterns) reads a striped field's
+slowly varying amplitude and its wavevector field off the ridge of a 2-D analytic wavelet transform
+(Passot and Newell 1994, Physica D 74:301, Appendix A): at each pixel the scale and orientation
+where the transform's phase is stationary, $aR_\theta\nabla\Psi = \omega$ (A.12--A.13, A.17--A.18),
+found on a log-polar bank of wavevectors around the planform wavenumber $k_0$ (half an octave to an
+octave either side, 4 voices, 12 orientations over the half-plane) by interpolation with Aitken's
+$\Delta^2$. The wavelet is the 2-D analytic q-Morlet of \texttt{dynamix.core.analytic\_cwt}: a
+Gaussian in $k$ centred where $aR_\theta k = \omega$ (A.15), the Morlet at $q = 1$, the q-Gaussian
+envelope of Borges et al.\ 2004 otherwise (\texttt{ridge\_q}, with its two widths
+\texttt{q\_pairing} and \texttt{q\_beta}); \texttt{omega} is the carrier (default 3, their 2-D
+runs), \texttt{anisotropy} the across/along stretch $\alpha_2/\alpha_1$ of A.16. The amplitude is
+$2|T|\,|\det N|^{1/2}/\sqrt{\alpha_1\alpha_2}$ with $N = R\,\mathrm{diag}(\alpha)R^T - ia^2H$ (A.19
+as the determinant it comes from, $H$ the Hessian of the ridge phase, smoothed over half the window)
+and the phase $\Psi + \tfrac12\arg\det N$ (A.8). \texttt{k0} centres the search: the spectral peak,
+or a given wavelength \texttt{lambda0}. The ridge rasters are scale-free, chosen by \texttt{show}:
+$|A(x)|$ (default), $|K(x)|$, the roll direction $\vartheta(x)$ as a director in $[0, 180^\circ)$,
+the ridge scale $a_r(x) = |\omega|/|K|$ and the phase $\varphi(x)$; pixels where the ridge does not
+converge (defect cores, a local wavenumber outside the bank) are blank and counted. The transform
+the ridge is read from sits on the Scale slider: over the ladder \texttt{a\_min}, \texttt{n\_oct},
+\texttt{n\_voice}, each level offers $|T|$ maximised over \texttt{orientations} wavelets centred on
+$|\kappa| = \omega/a$ (\emph{modulus}), the orientation that wins and the phase there, computed on
+request and cached per level. The scale bar labels each level with $\lambda^* = 2\pi a/\omega$, the
+carrier's wavelength, and draws the q-Morlet's section along its carrier. A non-periodic field is
+reflected by the widest wavelet's reach; a Periodic extension's stamp, or \texttt{periodic}, runs it
+periodic. The record carries $\omega$, $\alpha$, $q$, $\beta_q$, the bank, the steps, the counts,
+$k_0$ and the ladder.
 
 \subsection*{Gradient arrows and anisotropy}\label{sec:arrows}
 The argument $\mathcal{A}=\arg T_\psi$ of each maximum points uphill in the pixel frame:
