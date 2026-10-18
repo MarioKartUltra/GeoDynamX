@@ -48,7 +48,8 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import chain_groups, spectra
 from dynamix.shell.gc_guard import weak_method
-from dynamix.shell.multifractal_window import Q_COLD, Q_WARM, TABLE_CHOICES
+from dynamix.shell.multifractal_window import (Q_COLD, Q_WARM, TABLE_CHOICES, WheelAxisViewBox,
+                                                add_zero_lines)
 from dynamix.shell.theme import current
 
 __all__ = ["SpectrumWindow"]
@@ -341,10 +342,24 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
-        self._plot = self._glw.addPlot()
+        self._plot = self._glw.addPlot(viewBox=WheelAxisViewBox())   # wheel: x; Shift: y
         self._plot.setLabel("bottom", "h")
         self._plot.setLabel("left", "D(h)")
         self._legend = self._plot.addLegend(offset=(10, 10))
+        add_zero_lines(self._plot)
+        # The D(h) tangent at the phase transition off the current fit (the automatic q_c of
+        # spectra.phase_transition_tangent), across the whole view; hidden while the negative
+        # branch stays concave.
+        self._tangent_line = pg.PlotDataItem(
+            pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine), connect="finite")
+        self._tangent_marker = pg.ScatterPlotItem(size=7, pen=None, brush=current().ink_muted)
+        self._tangent_label = pg.TextItem(anchor=(0, 1), color=current().ink_muted)
+        for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
+            item.setVisible(False)
+            # Out of the auto-range: the line spans the view, and a view that grew to hold its
+            # ends would make it span a larger view, without end.
+            self._plot.addItem(item, ignoreBounds=True)
+        self._plot.getViewBox().sigXRangeChanged.connect(lambda *_a: self._update_tangent())
 
         muted = pg.mkPen(current().ink_muted)
         self._d_line = pg.InfiniteLine(
@@ -560,9 +575,27 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self._hull_curve.setData(hull["h"], hull["D"])
             else:
                 self._hull_curve.setData([], [])
+        self._update_tangent()
         self._update_grouping()
         self._update_hist_items()
         self._sync_legend()
+
+    def _update_tangent(self) -> None:
+        """The tangent at the phase transition off the current fit, drawn across the view."""
+        fit = getattr(self, "_fit", None)
+        items = (self._tangent_line, self._tangent_marker, self._tangent_label)
+        got = None
+        if fit is not None:
+            got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+        for item in items:
+            item.setVisible(got is not None)
+        if got is None:
+            return
+        x = np.asarray(self._plot.getViewBox().viewRange()[0], dtype=np.float64)
+        self._tangent_line.setData(x, got["intercept"] + got["q_c"] * x)
+        self._tangent_marker.setData([0.0], [got["intercept"]])
+        self._tangent_label.setText(f"{got['intercept']:.3f} at h = 0 · tangent at q_c = {got['q_c']:g}")
+        self._tangent_label.setPos(0.0, got["intercept"])
 
     def _update_grouping(self) -> None:
         if self._chains is None or self._current_hd() is None or self._scales is None:

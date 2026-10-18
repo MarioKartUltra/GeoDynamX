@@ -84,7 +84,17 @@ class WheelAxisViewBox(pg.ViewBox):
         super().wheelEvent(ev, axis)
 
 
-#: Six grid columns: the three families span two each on top, the 2 x 2 spectra three each.
+def add_zero_lines(plot) -> tuple:
+    """Thin lines at x = 0 and y = 0 on a D(h) plot, behind the data."""
+    pen = pg.mkPen(current().ink_muted, width=0.8)
+    lines = (pg.InfiniteLine(angle=90, pos=0.0, movable=False, pen=pen),
+             pg.InfiniteLine(angle=0, pos=0.0, movable=False, pen=pen))
+    for line in lines:
+        line.setZValue(-10)
+        plot.addItem(line)
+    return lines
+
+
 #: The grid has twelve columns: the three families span four each, the four spectra three each.
 _SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (1, 6), "cq": (1, 9)}
 #: D(h)'s opening view: h from −2 to 2, D from −½ to 1½, the same on every dataset until zoomed.
@@ -493,6 +503,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._spectrum_plots["h"].getAxis("left").enableAutoSIPrefix(False)
         self._spectrum_plots["D"].setXRange(*DH_RANGE[0], padding=0.0)
         self._spectrum_plots["D"].setYRange(*DH_RANGE[1], padding=0.0)
+        add_zero_lines(self._spectrum_plots["D"])
 
         # The tangent at the phase transition on D(h): through the fitted point at the Pont-2006
         # negative-branch convexity-loss abscissa q_c with slope q_c, drawn from the y axis past
@@ -505,7 +516,9 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._tangent_label = pg.TextItem(anchor=(0, 1), color=current().ink_muted)
         for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
             item.setVisible(False)
-            self._spectrum_plots["D"].addItem(item)
+            self._spectrum_plots["D"].addItem(item, ignoreBounds=True)   # spans the view: no auto-range
+        self._spectrum_plots["D"].getViewBox().sigXRangeChanged.connect(
+            lambda *_a: self._update_phase_tangent())
 
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
@@ -1258,9 +1271,10 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._update_cumulant_overlay()
 
     def _update_phase_tangent(self) -> None:
-        """The D(h) tangent at the phase transition, from the y axis to a quarter past the
-        fitted point; hidden while the negative branch stays concave."""
-        fit = self._fit
+        """The D(h) tangent at the phase transition, drawn across the whole view (redrawn as the
+        view moves, so only the plot's margin cuts it); hidden while the negative branch stays
+        concave."""
+        fit = getattr(self, "_fit", None)
         if fit is None:
             return
         got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"],
@@ -1272,8 +1286,7 @@ class MultifractalWindow(QtWidgets.QDialog):
             item.setVisible(got is not None)
         if got is None:
             return
-        h_end = 1.25 * got["h_c"] if got["h_c"] != 0.0 else 0.1
-        x = np.linspace(0.0, h_end, 2)
+        x = np.asarray(self._spectrum_plots["D"].getViewBox().viewRange()[0], dtype=np.float64)
         self._tangent_line.setData(x, got["intercept"] + got["q_c"] * x)
         self._tangent_marker.setData([0.0], [got["intercept"]])
         where = (f"q = {got['q_c']:g} (picked)" if got["picked"] else f"q_c = {got['q_c']:g}")

@@ -279,3 +279,33 @@ def test_the_legend_lists_only_what_is_drawn_and_names_the_source(qtbot):
     assert "Legendre hull of fitted τ(q)" in _legend_names(window._plot)
     # the histogram as points, the way the paper draws it
     assert window._hist_curve.opts["symbol"] == "o" and window._hist_curve.opts["pen"] is None
+
+
+def test_the_construction_plot_zooms_per_axis_has_zero_lines_and_draws_the_tangent_across_the_view(qtbot):
+    """The wheel zooms h, with Shift D(h) (the Partition functions window's view box); thin lines
+    sit at h = 0 and D = 0; the tangent at the phase transition off the current fit spans the
+    view and follows it, hidden while the negative branch is concave."""
+    from pyqtgraph import InfiniteLine
+
+    from dynamix.shell.multifractal_window import WheelAxisViewBox
+    from test_multifractal_window import _broken_pair
+
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    assert isinstance(window._plot.getViewBox(), WheelAxisViewBox)
+    zeros = [it for it in window._plot.items if isinstance(it, InfiniteLine) and it.value() == 0.0
+             and it.angle in (0, 90)]
+    assert len(zeros) == 2
+    assert not window._tangent_line.isVisible()                      # the clean pair: concave
+    broken = SpectrumWindow(*_broken_pair())
+    qtbot.addWidget(broken)
+    broken._table_combo.setCurrentText("sup (cmax)")
+    fit = broken.current_fit()
+    expect = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+    assert expect is not None and broken._tangent_line.isVisible()
+    x, y = broken._tangent_line.xData, broken._tangent_line.yData
+    assert list(x) == pytest.approx(broken._plot.getViewBox().viewRange()[0])
+    assert (y[-1] - y[0]) / (x[-1] - x[0]) == pytest.approx(expect["q_c"])
+    broken._plot.setXRange(-0.5, 2.5, padding=0.0)
+    assert list(broken._tangent_line.xData) == pytest.approx([-0.5, 2.5])
+    assert f"q_c = {expect['q_c']:g}" in broken._tangent_label.textItem.toPlainText()

@@ -216,10 +216,13 @@ def test_the_phase_transition_tangent_on_D_h_tracks_the_negative_branch(qtbot):
     line = window._tangent_line
     assert line.isVisible()
     x, y = line.xData, line.yData
-    assert x[0] == 0.0 and y[0] == pytest.approx(expect["intercept"])   # read off the y axis
+    view_x = window._spectrum_plots["D"].getViewBox().viewRange()[0]
+    assert list(x) == pytest.approx(view_x)                          # across the whole view
     assert (y[-1] - y[0]) / (x[-1] - x[0]) == pytest.approx(expect["q_c"])  # slope q_c
-    assert abs(x[-1]) > abs(expect["h_c"]) and np.sign(x[-1]) == np.sign(expect["h_c"])  # past the point
+    assert y[0] + expect["q_c"] * (0.0 - x[0]) == pytest.approx(expect["intercept"])  # through (0, intercept)
     assert f"{expect['intercept']:.3f}" in window._tangent_label.textItem.toPlainText()
+    window._spectrum_plots["D"].setXRange(-1.0, 3.0, padding=0.0)   # the view moves: so does the line
+    assert list(window._tangent_line.xData) == pytest.approx([-1.0, 3.0])
     assert not hasattr(window, "_convexity_line")                   # the tau(q) marker is gone
     window._table_combo.setCurrentText("no-sup (std)")
     assert not line.isVisible()                                     # std is clean
@@ -756,7 +759,8 @@ def test_a_q_picked_on_the_c_q_panel_sets_the_d_h_tangent(qtbot):
     assert line.isVisible()
     x, y = line.xData, line.yData
     assert (y[-1] - y[0]) / (x[-1] - x[0]) == pytest.approx(-1.5)
-    assert y[0] == pytest.approx(fit["D"][i] + 1.5 * fit["h"][i])
+    at_zero = y[0] - 1.5 * (0.0 - x[0])                            # the line spans the view
+    assert at_zero == pytest.approx(fit["D"][i] + 1.5 * fit["h"][i])
     assert "q = -1.5" in window._tangent_label.textItem.toPlainText()
     window._table_combo.setCurrentText("sup (cmax)")
     assert window._tangent_line.isVisible() and pick.value() == pytest.approx(-1.5)
