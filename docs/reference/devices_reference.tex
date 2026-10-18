@@ -914,6 +914,43 @@ method --- not one of Unser \& Blu's fractional spline wavelet bases, which beha
 fractional differentiators $|\omega|^{\alpha+1}$.}
 \end{figure}
 
+\subsection{\tool{Wavelet leaders}{wavelet\_leaders} --- leaders, p-leaders and $(\theta,\omega)$-leaders on the DWT pyramid}
+Three multiresolution quantities of the Jaffard school on the critically sampled orthogonal
+pyramid of \texttt{dynamix.core.dwt} (PyWavelets in periodization on the mirror-extended field,
+each level half the resolution of the last), computed in one pass over levels $j = 1 \dots J$
+(cell side $2^j$\,px): the \textbf{leader} $\ell(\lambda) = \sup |d|$ over the three bands, the
+$3\times3$ block $3\lambda$ and every descendant (Jaffard; Dumeur et al.\ 2025, Def.~1.2), the
+\textbf{p-leader} $\ell^{(p)} = (\sum |d|^p\,2^{-2(j-j')})^{1/p}$ over the same set with
+Leonarduzzi et al.\ 2017's finite-resolution factor when $\eta(p) > 0$, and the
+\textbf{$(\theta,\omega)$-leader} $\ell^w$, the sup over a window of finer levels and
+neighbouring cells (Dumeur et al.\ 2025, Def.~2.2), Meyer's weak scaling exponent. Coefficients
+are $L^1$ ($2^{-j}$ times the orthonormal ones), every band rolled onto the field's dyadic grid by
+its atom's centroid, and cells within the bank's border of an edge or of a non-finite pixel are
+left out (\texttt{wavelet}: sym4 5 cells, sym7 6, db4 5, bl3 13). \texttt{scale\_min} and
+\texttt{scale\_max} (powers of two) bound the fitted levels, at least three; \texttt{gamma} is a
+pseudo-fractional integration of the coefficients by $2^{\gamma j}$, every readout given in the
+integrated frame and shifted back ($\tau - \gamma q$, $h - \gamma$, $c_1 - \gamma$);
+\texttt{dither} perturbs quantised data by half a least significant bit; \texttt{p} is the
+p-leaders' order. The window of the $(\theta,\omega)$-leader follows \texttt{wse\_rule}: the
+paper's $\theta(j) = j + j^{\beta}$, $\omega(j') = j'$ in the resolution index (\texttt{wse\_beta},
+default $\tfrac14$), or a fixed \texttt{wse\_depth} of octaves below each level and
+\texttt{wse\_width} of coarse cells either side (depth 1, width 1 lies inside $3\lambda$). The
+moment orders \texttt{q\_min}, \texttt{q\_max}, \texttt{q\_step} are the WTMM's. Admissibility:
+leaders need $h_{\min} > 0$ (the slope of $\log_2 \max|d|$ against the level), p-leaders
+$\eta(p) > 0$ (the slope of $\log_2$ mean $|d|^p$), the $(\theta,\omega)$-leaders nothing; a
+method that fails is computed, stamped and named in the reading with the $\gamma$ in steps of
+$\tfrac12$ that would clear it. Per method the result carries a structure-function table in the
+partition schema ($\log_2$ of the mean of $\ell^q$ over the valid cells times the field's cell
+count, so $\tau(q) = \zeta(q) - 2$ and $\tau(0) = -2$), the log-cumulants $c_1 \dots c_3$ over the
+fitted levels in the app's cascade sign ($c_2 > 0$ for a cascade), and a local exponent per cell
+of the finest fitted level with its $R^2$, painted on the native grid as the h-map. \texttt{method}
+chooses which of the three the h-map and the Structure functions window show; \texttt{show} draws
+the h-map or, on the Scale slider, $\log_2$ of a quantity per level or the oscillation ratio
+$\log_2(\ell/\ell^w)$ (0 at a cusp, large at a chirp when the window lies inside $3\lambda$).
+The Curves window offers $C_1(a)$ and $C_2(a)$ of $\ln\ell$ per method. The record carries the
+bank, the levels, $\gamma$, $p$, the window schedule, the border, the registration, the counts,
+the admissibility and the cumulants.
+
 \subsection{\tool{Wavelet skeleton}{wavelet\_skeleton} --- medial-axis (modulus-minima) extractor}
 Tang--You 2003 (the constructed compact-support wavelet $\kappa$: support radius $=$
 scale, maxima-pair separation $=$ scale, width- and gray-invariant) $+$ You et al.\ 2006

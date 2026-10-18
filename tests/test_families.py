@@ -73,6 +73,7 @@ LABELS = {
     "disorder_function": "Disorder function (Gunaratne)",
     "hessian_measure": "Hessian measure (Nathan–Gunaratne)",
     "wavelet_ridge": "Wavelet ridge (Passot–Newell)",
+    "wavelet_leaders": "Wavelet leaders",
     "pca": "PCA",
     "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
     "ssa2d": "2-D SSA",
@@ -101,7 +102,8 @@ LABELS = {
 FAMILY_TREE = {
     "Data preparation": {"band_select", "noise", "fill", "periodic_extension"},
     "Edge detection": {"wtmm2d", "wtmm2d_roi", "mz_edges", "cdf_edges", "pm_edges"},
-    "Regularity": {"wtmm2d", "wtmm2d_roi", "mz_edges", "holder_measure", "holder_multiaffine"},
+    "Regularity": {"wtmm2d", "wtmm2d_roi", "mz_edges", "holder_measure", "holder_multiaffine",
+                   "wavelet_leaders"},
     "Skeletons": {"wavelet_skeleton"},
     "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d", "dwt2d"},
     "Reconstruction": {"mz_edges", "holder_measure", "holder_multiaffine", "ssa2d",

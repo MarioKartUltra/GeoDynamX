@@ -59,7 +59,7 @@ import or validate is a greyed browser row with its error; discovery runs once p
 
 ## Roles today
 
-- primary analyzers: `wtmm2d`, `mz_edges`, `wavelet_skeleton`, `cdf_edges`, `pm_edges`, `holder_map`, `holder_measure`, `holder_multiaffine`, `band_recon`, `band_recon_measure`, `band_recon_multiaffine`, `lineal_path`, `disorder_function`, `hessian_measure`, `wavelet_ridge`
+- primary analyzers: `wtmm2d`, `mz_edges`, `wavelet_skeleton`, `cdf_edges`, `pm_edges`, `holder_map`, `holder_measure`, `holder_multiaffine`, `band_recon`, `band_recon_measure`, `band_recon_multiaffine`, `lineal_path`, `disorder_function`, `hessian_measure`, `wavelet_ridge`, `wavelet_leaders`
 - chain producers: `wtmm2d`, `wtmm2d_roi`, `mz_edges`, `wavelet_skeleton`, `cdf_edges`, `pm_edges`
 - chain consumers: `chain_topology`, `min_vchains`, `scale_select`, `orientation_wedge`, `modulus_threshold`, `hline_length`, `hline_modulus`, `hline_holder`, `chain_holder`, `chain_modulus`, `chain_length`, `chain_classify`, `group_paint`, `group_filter`
 - band variants: `band_recon_measure` for `holder_measure`, `band_recon_multiaffine` for `holder_multiaffine`, `band_recon` for `holder_map`

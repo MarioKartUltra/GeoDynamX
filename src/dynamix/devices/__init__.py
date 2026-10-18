@@ -23,6 +23,7 @@ from dynamix.devices.inpaint import Fill, Inpaint
 from dynamix.devices.disorder_function import DisorderFunction
 from dynamix.devices.hessian_measure import HessianMeasure
 from dynamix.devices.wavelet_ridge import WaveletRidge
+from dynamix.devices.wavelet_leaders import WaveletLeaders
 from dynamix.devices.lineal_path import LinealPath
 from dynamix.devices.derived_vectors import DerivedVectors
 from dynamix.devices.chain_classify import ChainClassify
@@ -125,6 +126,7 @@ BUILTIN_DEVICES = (
     DisorderFunction,
     HessianMeasure,
     WaveletRidge,
+    WaveletLeaders,
 )
 
 

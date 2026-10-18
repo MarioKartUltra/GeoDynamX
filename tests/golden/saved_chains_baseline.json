@@ -511,6 +511,12 @@
    "mod": [],
    "raster_out": -93033.43669836182
   },
+  "wavelet_leaders": {
+   "chains": 0,
+   "h_map": 954.796142578125,
+   "levels": [],
+   "mod": []
+  },
   "wavelet_ridge": {
    "chains": 0,
    "levels": [],
