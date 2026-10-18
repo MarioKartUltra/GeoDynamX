@@ -10,9 +10,11 @@ extended raster reaches past the original bounds by the gap. The output carries 
 ``edges.filled = {"rows": H, "cols": W}``, the real block, which WTMM reads: no maxima in the gap, the
 threshold from real pixels, and its Edge ``auto`` resolving to ``periodic``. Under the ``centred``
 layout the same field is rolled so the data sit in the middle, and the stamp adds the block's
-offset, ``row0`` and ``col0``. Below the DAF's band
-limit (fewer than 6 points per wavelength) the extension does not apply: the field passes through
-unchanged and the strip's ⚠ gives the reason.
+offset, ``row0`` and ``col0``. The band limit is read off the data, where a fraction of the power
+lies, or given as a wavelength λ_b; the gap is two wavelengths and σ follows from the DAF's gain
+there. Fewer than 6 points per wavelength at the limit makes a rough fill, which the strip's ⚠
+says while the extension runs (WTMM's automatic edge handling reflects instead at that point);
+only a stencil that cannot fit the field with its gap passes the field through unchanged.
 """
 from __future__ import annotations
 
@@ -50,10 +52,14 @@ class PeriodicExtension:
     #: Input-preserving: an extended field stays a field.
     produces = (RECEIVED,)
 
-    #: The DAF's three knobs sit on the tool's box in the rack.
+    #: The DAF's knobs sit on the tool's box in the rack.
     params = (
+        Param("band", ParamKind.CHOICE, default="auto", choices=("auto", "given"),
+              choice_labels=("fraction of the power", "given λ_b"), label="Band limit"),
         Param("band_frac", ParamKind.FLOAT, default=0.99, min=0.5, max=0.9999, soft_min=0.9,
-              soft_max=0.999, label="Band limit (fraction of the power)"),
+              soft_max=0.999, label="Power fraction", active_when=("band", ("auto",))),
+        Param("lambda_b", ParamKind.FLOAT, default=20.0, min=4.0, max=1e5, soft_min=6.0,
+              soft_max=200.0, units="px", label="λ_b (px)", active_when=("band", ("given",))),
         Param("M", ParamKind.INT, default=12, min=2, max=40, soft_min=4, soft_max=24,
               label="DAF order M"),
         Param("lam", ParamKind.FLOAT, default=1e-3, min=0.0, max=1.0, soft_min=0.0, soft_max=0.01,
@@ -70,7 +76,9 @@ class PeriodicExtension:
     def _tuned(values, params: dict):
         from dynamix.core.daf import self_tune
 
-        return self_tune(values, frac=params["band_frac"], M=params["M"], lam=params["lam"])
+        given = 1.0 / float(params["lambda_b"]) if params.get("band") == "given" else None
+        return self_tune(values, frac=params["band_frac"], M=params["M"], lam=params["lam"],
+                         f_b=given)
 
     def compute(self, field, params: dict, *, progress=None):
         if isinstance(field, dict):
@@ -82,8 +90,8 @@ class PeriodicExtension:
         if values.ndim != 2:
             raise ValueError("Periodic extension takes a single-band field")
         tuned = self._tuned(values, params)
-        if tuned.fallback:
-            return field                             # nothing honest to add; the ⚠ says why
+        if not tuned.fits:
+            return field                             # nothing to compute; the ⚠ says why
         if progress is not None:
             progress("periodic extension", 0.0)
         extended = extend_2d(values, tuned)
@@ -103,21 +111,44 @@ class PeriodicExtension:
             provenance[FILLED].update(row0=int(r0), col0=int(c0))
         provenance["periodic_extension"] = {"f_b": float(tuned.f_b), "gap": int(tuned.gap),
                                             "M": int(tuned.M), "sigma": float(tuned.sigma),
-                                            "lam": float(tuned.lam), "layout": layout}
+                                            "lam": float(tuned.lam), "layout": layout,
+                                            "band": params.get("band", "auto"),
+                                            "points_per_wavelength": float(tuned.ppw),
+                                            "band_limited": bool(tuned.band_limited)}
         return dataclasses.replace(field, values=extended, name=f"{field.name}+daf{tuned.gap}",
                                    x_axis=_extended_axis(field.x_axis, gx, c0),
                                    y_axis=_extended_axis(field.y_axis, gy, r0),
                                    provenance=provenance)
 
     def knob_warnings(self, field, params: dict) -> dict:
-        """The ⚠ beside the band-limit knob where the DAF extension does not apply to this field."""
+        """The ⚠ beside the band-limit knob: a rough band limit (the extension runs), or a stencil
+        that does not fit (the field passes through)."""
         values = getattr(field, "values", None)
         if values is None or np.asarray(values).ndim != 2:
             return {}
         from dynamix.model.device import validate_params
 
         tuned = self._tuned(np.asarray(values, dtype=np.float64), validate_params(self, params or {}))
-        return {"band_frac": tuned.fallback} if tuned.fallback else {}
+        if tuned.fits and tuned.band_limited:
+            return {}
+        reason = tuned.fallback.replace("; reflection used", "")
+        if tuned.fits:
+            reason += "; the fill is rough (lower the power fraction or give a longer λ_b)"
+        return {"band": reason}
+
+    def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
+        """Under the band-limit knob: what the tuning settled on for this field."""
+        if name != "band" or getattr(field, "values", None) is None:
+            return None
+        values = np.asarray(field.values)
+        if values.ndim != 2:
+            return None
+        from dynamix.model.device import validate_params
+
+        t = self._tuned(values.astype(np.float64), validate_params(self, params or {}))
+        if not t.f_b > 0.0:
+            return "no band limit"
+        return f"λ_b {1.0 / t.f_b:.1f} px · gap {t.gap} px · σ {t.sigma:.1f} px"
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k

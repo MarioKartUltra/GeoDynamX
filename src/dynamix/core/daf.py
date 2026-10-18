@@ -161,7 +161,12 @@ def band_limit(values, frac: float = BAND_FRAC) -> float:
 
 @dataclasses.dataclass(frozen=True)
 class SelfTuned:
-    """The self-tuned extension's settings and, where it does not apply, why (``fallback``)."""
+    """The self-tuned extension's settings, and two facts about them: ``band_limited``, whether
+    the data hold at least ``MIN_PPW`` points per wavelength at the band limit (below it the fill
+    is rough), and ``fits``, whether the stencil fits the line with its gap (without it there is
+    nothing to compute). ``fallback`` names the first failing one for a caller that then reflects
+    instead, as WTMM's automatic edge handling does; the Periodic extension tool extends through
+    a rough band limit and refuses only an unfit stencil."""
 
     f_b: float
     gap: int
@@ -170,33 +175,38 @@ class SelfTuned:
     lam: float
     ppw: float
     fallback: "str | None"
+    band_limited: bool = True
+    fits: bool = True
 
 
-def self_tune(values, frac: float = BAND_FRAC, M: int = M_SELF, lam: float = LAM) -> SelfTuned:
+def self_tune(values, frac: float = BAND_FRAC, M: int = M_SELF, lam: float = LAM,
+              f_b: "float | None" = None) -> SelfTuned:
     """Every setting of the periodic extension from the data (spec 22 §3.4): the band limit at
-    ``frac`` of the power, the gap 2/f_b, σ for the gain at that limit under order ``M``, ``lam``.
-    The defaults are the self-tuned ones; Periodic extension (DAF) offers them as overrides."""
+    ``frac`` of the power (or the given ``f_b``, cycles/px), the gap 2/f_b, σ for the gain at that
+    limit under order ``M``, ``lam``. The defaults are the self-tuned ones; Periodic extension
+    (DAF) offers them as overrides."""
     a = np.atleast_2d(np.asarray(values, dtype=np.float64))
     M = int(M)
-    f_b = band_limit(a, float(frac))
+    f_b = band_limit(a, float(frac)) if f_b is None else float(f_b)
     if not f_b > 0.0:
         return SelfTuned(0.0, MIN_GAP, M, 0.0, float(lam), math.inf,
-                         "the field has no band limit (it is constant)")
+                         "the field has no band limit (it is constant)", False, False)
     ppw = 1.0 / f_b
     gap = max(MIN_GAP, int(round(2.0 / f_b)))
     sigma = sigma_for_gain(f_b, M)
-    fallback = None
-    if ppw < MIN_PPW:
+    half = hermite_daf(sigma, M).size // 2
+    shortest = min(a.shape) if a.shape[0] > 1 else a.shape[1]
+    band_limited = ppw >= MIN_PPW
+    fits = 2 * half < shortest + gap
+    fallback = None                                   # the harder failure first
+    if not fits:
+        fallback = (f"the DAF stencil (±{half} px at σ = {sigma:.1f} px) does not fit a "
+                    f"{shortest} px line with its {gap} px gap; reflection used")
+    elif not band_limited:
         fallback = (f"fewer than {MIN_PPW:g} points per wavelength at the band limit "
                     f"({ppw:.1f} px at f_b = {f_b:.3f} cycles/px): the data are not band-limited "
                     "enough for the DAF extension; reflection used")
-    else:
-        half = hermite_daf(sigma, M).size // 2
-        shortest = min(a.shape) if a.shape[0] > 1 else a.shape[1]
-        if 2 * half >= shortest + gap:
-            fallback = (f"the DAF stencil (±{half} px at σ = {sigma:.1f} px) does not fit a "
-                        f"{shortest} px line with its {gap} px gap; reflection used")
-    return SelfTuned(f_b, gap, M, sigma, float(lam), ppw, fallback)
+    return SelfTuned(f_b, gap, M, sigma, float(lam), ppw, fallback, band_limited, fits)
 
 
 def extend_2d(values, tuned: SelfTuned) -> np.ndarray:

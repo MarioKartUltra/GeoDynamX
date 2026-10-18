@@ -6,6 +6,7 @@ keeps no maxima in the gap; below the DAF's band limit the field passes through 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from dynamix.devices import register_builtin_devices
 from dynamix.model.device import defaults_for, get_device
@@ -56,15 +57,36 @@ def test_the_extended_field_is_periodic_across_its_wrap(clean_registry):
     assert wrap <= 2.0 * neighbour and seam > 3.0 * wrap
 
 
-def test_below_the_band_limit_the_field_passes_through_with_the_reason(clean_registry):
+def test_below_the_band_limit_the_tool_extends_anyway_and_warns(clean_registry):
+    """White noise has no band limit worth the name (every pixel is a wavelength): the tool still
+    extends, the ⚠ under the band knob says the fill is rough, and the record carries the points
+    per wavelength. Only a stencil that cannot fit the field passes it through."""
     dev = _device()
     noise = make_field(np.random.default_rng(0).standard_normal((64, 64)))
     out = dev.compute(noise, defaults_for(dev))
-    np.testing.assert_array_equal(out.values, noise.values)
-    assert "edges.filled" not in out.provenance
+    assert out.provenance["edges.filled"] == {"rows": 64, "cols": 64}
+    assert out.values.shape[0] > 64 and out.provenance["periodic_extension"]["band_limited"] is False
     warnings = dev.knob_warnings(noise, defaults_for(dev))
-    assert warnings and "points per wavelength" in next(iter(warnings.values()))
+    assert set(warnings) == {"band"} and "points per wavelength" in warnings["band"]
+    assert "rough" in warnings["band"] and "reflection" not in warnings["band"]
     assert dev.knob_warnings(make_field(_smooth()), defaults_for(dev)) == {}
+    tiny = make_field(_smooth()[:12, :12])
+    unfit = dev.compute(tiny, defaults_for(dev))
+    np.testing.assert_array_equal(unfit.values, tiny.values)
+    assert "edges.filled" not in unfit.provenance
+    assert "does not fit" in dev.knob_warnings(tiny, defaults_for(dev))["band"]
+
+
+def test_a_given_band_wavelength_sets_the_gap_and_the_reading_says_what_ran(clean_registry):
+    dev = _device()
+    field = make_field(_smooth())
+    p = {**defaults_for(dev), "band": "given", "lambda_b": 32.0}
+    out = dev.compute(field, p)
+    rec = out.provenance["periodic_extension"]
+    assert rec["band"] == "given" and rec["f_b"] == pytest.approx(1 / 32) and rec["gap"] == 64
+    assert out.values.shape == (192 + 64, 192 + 64)
+    assert dev.derived_reading("band", "given", field, p) == f"λ_b 32.0 px · gap 64 px · σ {rec['sigma']:.1f} px"
+    assert dev.derived_reading("M", 12, field, p) is None
 
 
 def test_it_sits_in_data_preparation(clean_registry):
