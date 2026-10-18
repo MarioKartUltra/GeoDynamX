@@ -27,10 +27,11 @@ import warnings
 
 import numpy as np
 
-__all__ = ["BANKS", "approximations", "battle_lemarie_filters", "child_shift", "cycle_shift",
-           "cycle_unshift", "dc_gain", "detail_l1", "filter_length", "full_depth", "inverse", "max_level",
-           "mirror", "only_band", "pyramid", "quarter", "require_pywt", "soft_threshold",
-           "stationary", "stationary_inverse", "wavelet", "working_shape"]
+__all__ = ["BANKS", "approximations", "atom_centroid", "battle_lemarie_filters", "border_cells",
+           "child_shift", "cycle_shift", "cycle_unshift", "dc_gain", "detail_l1", "filter_length",
+           "full_depth", "hyperbolic", "inverse", "max_level", "mirror", "only_band", "pyramid", "quarter",
+           "registration", "require_pywt", "soft_threshold", "stationary", "stationary_inverse", "wavelet",
+           "working_shape"]
 
 BANKS = ("sym4", "sym5", "sym6", "sym7", "sym8", "db4", "db5", "db6", "db7", "db8",
          "coif4", "coif5", "coif6", "bl3")
@@ -39,6 +40,8 @@ _NEEDS_PYWT = ("the DWT tools (dwt2d, inpaint, fill) need PyWavelets; install it
                "pip install PyWavelets")
 _BL3 = None
 _CHILD_SHIFT: dict = {}
+_CENTROID: dict = {}
+_BORDER: dict = {}
 
 
 def require_pywt():
@@ -118,8 +121,13 @@ def working_shape(shape, levels: int) -> tuple:
 
 def mirror(x, shape=None) -> np.ndarray:
     """``x`` padded symmetrically to half of ``shape`` (default ``(2 ny, 2 nx)``), then
-    followed by its flips: one period of an even periodic image, continuous at every edge."""
+    followed by its flips: one period of an even periodic image, continuous at every edge.
+    A 1-D ``x`` is extended the same way along its one axis."""
     x = np.asarray(x, dtype=np.float64)
+    if x.ndim == 1:
+        m = 2 * x.size if shape is None else int(shape[0])
+        x = np.pad(x, (0, m // 2 - x.size), mode="symmetric")
+        return np.concatenate([x, x[::-1]])
     ny, nx = x.shape[:2]
     my, mx = (2 * ny, 2 * nx) if shape is None else (int(shape[0]), int(shape[1]))
     x = np.pad(x, ((0, my // 2 - ny), (0, mx // 2 - nx)), mode="symmetric")
@@ -153,6 +161,33 @@ def pyramid(x, name: str, level: int) -> list:
 
 def inverse(coeffs, name: str) -> np.ndarray:
     return require_pywt().waverec2(coeffs, wavelet(name), mode="periodization")
+
+
+def hyperbolic(x, name: str, level: int) -> dict:
+    """The fully separable (hyperbolic) dyadic transform: the one-dimensional periodized DWT
+    along x to depth ``level``, then along y to the same depth on every row band, one array per
+    pair ``(j1, j2)`` of detail levels (1 the finest, the cell 2^j1 × 2^j2 px), the terms with
+    the scaling function along either axis left out. In L¹ normalisation, 2^{−(j1+j2)/2} times
+    PyWavelets' orthonormal coefficients, so the equal-level diagonal is the ordinary pyramid's
+    diagonal band at its own L¹ scale (2^{−j} times ``wavedec2``'s), and on a product
+    u(x) v(y) each pair is the outer product of the two one-dimensional details. The hyperbolic
+    basis of DeVore, Konyagin and Temlyakov holds every anisotropy at once: the anisotropic
+    structure functions of the directional formalism read it along the index sets Γ_j(α)."""
+    pywt = require_pywt()
+    w = wavelet(name)
+    J = int(level)
+    out = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        rows = pywt.wavedec(np.asarray(x, dtype=np.float64), w, mode="periodization", level=J,
+                            axis=1)
+        for i1, band in enumerate(rows[1:]):              # rows[1] is the coarsest x detail
+            j1 = J - i1
+            cols = pywt.wavedec(band, w, mode="periodization", level=J, axis=0)
+            for i2, c in enumerate(cols[1:]):
+                j2 = J - i2
+                out[(j1, j2)] = c * 2.0 ** (-(j1 + j2) / 2.0)
+    return out
 
 
 def approximations(x, name: str, levels: int) -> list:
@@ -200,6 +235,78 @@ def child_shift(name: str) -> int:
         off = (centre_col(3, n // 16) - 0.5 * (centre_col(2, n // 8) + centre_col(2, n // 8 + 1))) / 4.0
         _CHILD_SHIFT[name] = int(math.floor(off + 0.5 + 1e-3))
     return _CHILD_SHIFT[name]
+
+
+def atom_centroid(name: str, level: int, atom: str) -> float:
+    """The offset, in px, of the level-``level`` wavelet (``psi``) or scaling (``phi``) atom's
+    amplitude-weighted centroid from its nominal cell centre ``2**level * (k + 1/2) - 1/2``,
+    measured once per bank on a 1-D periodized grid long enough that no atom wraps."""
+    key = (name, int(level), atom)
+    if key not in _CENTROID:
+        pywt = require_pywt()
+        j = int(level)
+        n = 1 << (j + 8)
+        k0 = n // 2 ** j // 2
+        coeffs = [np.zeros(n // 2 ** j)] + [np.zeros(n // 2 ** i) for i in range(j, 0, -1)]
+        coeffs[0 if atom == "phi" else 1][k0] = 1.0
+        a = np.abs(pywt.waverec(coeffs, wavelet(name), mode="periodization"))
+        _CENTROID[key] = float((a * np.arange(n)).sum() / a.sum()) - (2 ** j * (k0 + 0.5) - 0.5)
+    return _CENTROID[key]
+
+
+def _cell_shift(offset_px: float, level: int) -> int:
+    """The nearest whole cell; an exact half rounds up, the :func:`child_shift` tie rule."""
+    return int(math.floor(offset_px / 2 ** int(level) + 0.5 + 1e-3))
+
+
+def registration(name: str, levels: int) -> dict:
+    """``{(j, band): (shift_rows, shift_cols, residual_rows_px, residual_cols_px)}`` for the
+    three detail bands at j = 1..``levels``, and ``(j, "detail"): (shift, residual_px)`` for the
+    one band of a 1-D transform: the whole cells by which a coefficient's atom sits off its own
+    cell, so that rolling each band by its shift puts every level of every band on the field's
+    dyadic grid (parent k over children 2k, 2k + 1 per axis), and what remains in px. A 2-D atom
+    is the wavelet atom along the band's band-pass axis times the scaling atom along the other,
+    so its centroid is the pair of 1-D ones; along the low-pass axis the shift settles to
+    :func:`child_shift` by level 4 (level 3 for most banks) and can differ below."""
+    out = {}
+    for j in range(1, int(levels) + 1):
+        psi, phi = atom_centroid(name, j, "psi"), atom_centroid(name, j, "phi")
+        for band, (ry, rx) in (("horizontal", (psi, phi)), ("vertical", (phi, psi)),
+                               ("diagonal", (psi, psi))):
+            sy, sx = _cell_shift(ry, j), _cell_shift(rx, j)
+            out[(j, band)] = (sy, sx, ry - sy * 2 ** j, rx - sx * 2 ** j)
+        s = _cell_shift(psi, j)
+        out[(j, "detail")] = (s, psi - s * 2 ** j)
+    return out
+
+
+def border_cells(name: str, tol: float = 1e-4) -> int:
+    """Cells per edge whose coefficients the mirror extension can change: the cells, counted
+    from an edge of the field, whose registered atom (wavelet or scaling, the 2-D atom being
+    separable) carries at least ``tol`` of its L¹ mass beyond that edge, the largest count over
+    both edges and levels 1..6, plus one for the leaders' 3 × 3 block. At 1e-4 the leaders of
+    every bank agree with the periodic parent's to 1e-3 of the level mean on the cells kept.
+    Measured once per bank: sym4 5, sym7 6, db4 5, bl3 13."""
+    key = (name, float(tol))
+    if key not in _BORDER:
+        pywt = require_pywt()
+        w = wavelet(name)
+        e = 0
+        for j in range(1, 7):
+            n = 1 << (j + 8)
+            k0 = n // 2 ** j // 2
+            for atom in ("psi", "phi"):
+                coeffs = [np.zeros(n // 2 ** j)] + [np.zeros(n // 2 ** i) for i in range(j, 0, -1)]
+                coeffs[0 if atom == "phi" else 1][k0] = 1.0
+                a = np.abs(pywt.waverec(coeffs, w, mode="periodization"))
+                cum = np.cumsum(a / a.sum())
+                c = k0 + _cell_shift(atom_centroid(name, j, atom), j)
+                m = np.arange(64)
+                left = int((cum[2 ** j * (c - m) - 1] >= tol).sum())
+                right = int((1.0 - cum[2 ** j * (c + 1 + m) - 1] >= tol).sum())
+                e = max(e, left, right)
+        _BORDER[key] = e + 1
+    return _BORDER[key]
 
 
 def cycle_shift(x, rng, level: int) -> tuple:

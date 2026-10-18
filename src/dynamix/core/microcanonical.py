@@ -867,8 +867,10 @@ def partition_tables(T, scales, q_list, *, d: float = 2.0, chunk: int = 1 << 18)
     r^-d-decimated boxes, as the WTMM's maxima count does, so Z(q, r) = (r0/r)^d Σ_x |T|^q and a
     monofractal reads tau(q) = qH - d, h(q) = H, D(q) = d, with D = q h - tau per scale. Pixels
     are not independent beyond the kernel's footprint: the effective count N (r0/r)^d is the
-    tables' N_a and enters the sigmas."""
-    T = np.asarray(T, dtype=np.float64)
+    tables' N_a and enters the sigmas. ``T`` may also be a sequence of per-scale arrays of
+    different shapes (the critically sampled cell grids of the leaders) with ``d=0``: no
+    decimation, every cell counts once."""
+    T = [np.asarray(t, dtype=np.float64) for t in T]
     scales = np.asarray(scales, dtype=np.float64)
     q = np.asarray(q_list, dtype=np.float64)
     n_q, n_sc = q.size, scales.size
