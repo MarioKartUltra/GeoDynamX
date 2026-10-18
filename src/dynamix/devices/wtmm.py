@@ -373,6 +373,27 @@ def seam_ratio(values) -> float:
 
 #: The nms detector's tie rule (``dynamix.core.wtmm_backend.TIE_RULES``): xsmurf's asymmetric
 #: test by default (one pixel of a tied pair), strict (neither), or both as the detector did before.
+#: The moment orders of the partition functions: q from ``q_min`` to ``q_max`` in steps of
+#: ``q_step`` (the backend's default −3…6 by ½). Out of the key at their defaults, so a saved
+#: chain keeps its results.
+MOMENT_PARAMS = (
+    Param("q_min", ParamKind.FLOAT, default=-3.0, min=-20.0, max=20.0, soft_min=-6.0, soft_max=0.0,
+          label="q min", keyed_at_default=False),
+    Param("q_max", ParamKind.FLOAT, default=6.0, min=-20.0, max=20.0, soft_min=0.0, soft_max=10.0,
+          label="q max", keyed_at_default=False),
+    Param("q_step", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1, soft_max=1.0,
+          label="Δq", keyed_at_default=False),
+)
+
+
+def q_list(params: dict) -> np.ndarray:
+    """The moment orders the knobs ask for, ``q_max`` included when the step lands on it."""
+    lo, hi, step = (float(params[k]) for k in ("q_min", "q_max", "q_step"))
+    if hi <= lo:
+        raise ValueError(f"q max ({hi:g}) must exceed q min ({lo:g})")
+    return np.round(np.arange(lo, hi + 0.5 * step, step), 10)
+
+
 TIE_RULE_PARAM = Param("tie_rule", ParamKind.CHOICE, default="asymmetric",
                        choices=("asymmetric", "strict", "keep_both"),
                        choice_labels=("one of a tie (xsmurf)", "strict", "keep both (before)"),
@@ -439,8 +460,10 @@ class WTMM2D:
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
         "EDGES": ("edge", "pad_width", "border_cut"),
+        "MOMENTS": ("q_min", "q_max", "q_step"),
     }
     params = (
+        *MOMENT_PARAMS,
         Param("n_oct", ParamKind.INT, default=3, min=1, max=12, label="Octaves"),
         Param("n_voice", ParamKind.INT, default=4, min=1, max=64, label="Voices/octave"),
         Param("a_min", ParamKind.FLOAT, default=1.0, min=0.01, max=64.0,
@@ -556,6 +579,7 @@ class WTMM2D:
                 "dist2_max": params["dist2_max"],
                 "box_ratio": params["box_ratio"],
                 "similitude": params["similitude"],
+                "q_list": q_list(params),
                 "fracint_alpha": params["fracint_alpha"],
                 "interpolate": params["interpolate"],
                 "detector": params["detector"],
@@ -873,7 +897,8 @@ class WTMM2D:
             edge["edge"] = "reflect"
         res = run_wtmm2d_roi_on_window(values, real, int(r0), int(h), int(w),
                                        dict({k: params[k] for k in self._ROI_KEYS},
-                                            smoother_params=smoother_params(params), **edge),
+                                            smoother_params=smoother_params(params),
+                                            q_list=q_list(params), **edge),
                                        progress=progress, parent_shape=full,
                                        roi_origin=origin)
         res = dict(res)

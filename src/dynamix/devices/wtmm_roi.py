@@ -27,7 +27,7 @@ from __future__ import annotations
 from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
-from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_PARAMS,
+from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_PARAMS, MOMENT_PARAMS, q_list,
                                   TIE_RULE_PARAM,
                                   SMOOTHER_PARAMS, chaining_reading, eta_warning,
                                   smoother_params, width_reading)
@@ -152,8 +152,10 @@ class WTMM2DROI:
                 "n_voice", "smooth", "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
+        "MOMENTS": ("q_min", "q_max", "q_step"),
     }
     params = (
+        *MOMENT_PARAMS,
         # The first four mirror wtmm2d's declarations exactly (dynamix/devices/wtmm.py) -- same
         # defaults, bounds and labels, duplicated rather than imported so this file stays a
         # self-contained device declaration.
@@ -254,6 +256,7 @@ class WTMM2DROI:
             "wavelet": params["wavelet"],
             "smoother_params": smoother_params(params),
             "fracint_alpha": params["fracint_alpha"],
+            "q_list": q_list(params),
             "interpolate": params["interpolate"],
             "detector": params["detector"],
             "tie_rule": params["tie_rule"],
