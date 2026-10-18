@@ -72,3 +72,45 @@ def test_it_sits_in_data_preparation(clean_registry):
 
     dev = _device()
     assert dev.label == "Periodic extension (DAF)" and families_of(dev) == ("Data preparation",)
+
+
+def _roi_layer(*steps, window="20,30,96,96"):
+    from dynamix.model.chain import Chain, DeviceRef
+    from dynamix.model.layer import Layer
+
+    layer = Layer(layer_id=1, name="roi", source_id="s",
+                  chain=Chain(tuple(DeviceRef(d, p) for d, p in steps)).materialized())
+    layer.tags["roi.window"] = window
+    return layer
+
+
+def test_on_an_roi_it_extends_the_rois_own_pixels(clean_registry):
+    """An ROI layer whose chain opens with Periodic extension: the region runner hands the tool the
+    ROI's own pixels, and its field (the ROI and the filled gap, stamped, placed at the ROI) is the
+    result."""
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+
+    register_builtin_devices()
+    field = make_field(_smooth(192, seed=1))
+    out = resolve(_roi_layer(("periodic_extension", {})), field, Cache()).result
+    assert out.provenance["edges.filled"] == {"rows": 96, "cols": 96}
+    assert out.provenance["window"] == {"row_off": 20, "col_off": 30}
+    np.testing.assert_array_equal(np.asarray(out.values)[:96, :96],
+                                  np.asarray(field.values)[20:116, 30:126])
+    assert np.asarray(out.values).shape[0] > 96
+
+
+def test_wtmm_after_it_on_an_roi_runs_periodic_on_the_extended_roi(clean_registry):
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+
+    register_builtin_devices()
+    field = make_field(_smooth(192, seed=1))
+    res = resolve(_roi_layer(("periodic_extension", {}), ("wtmm2d", {"n_oct": 2, "n_voice": 2})),
+                  field, Cache()).result
+    assert res["params"]["pad_mode"] == "periodic" and res["params"]["real_block"] == (96, 96)
+    assert tuple(res["_roi"]["roi"]) == (20, 30, 96, 96)          # drawn at the ROI
+    assert any(len(e["x"]) for e in res["extrema"])
+    for e in res["extrema"]:
+        assert (np.asarray(e["x"]) < 96).all() and (np.asarray(e["y"]) < 96).all()

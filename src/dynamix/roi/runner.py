@@ -106,6 +106,27 @@ def _bands_fit(bands, window) -> bool:
     return len(bands) == (window.shape[-1] if window.ndim == 3 else 1)
 
 
+def _makes_a_field(device) -> bool:
+    """True for a tool whose result is a field (it declares only field contracts)."""
+    from dynamix.model.contracts import FIELD, RECEIVED, STACK
+
+    decl = getattr(device, "produces", None)
+    return decl is not None and not callable(decl) and set(decl) <= {FIELD, RECEIVED, STACK}
+
+
+def _roi_crop(window, m: int, h: int, w: int):
+    """The ROI's own pixels of a processing window ``m`` px wider on every side, placed at the
+    ROI (``provenance["window"]`` moved in by ``m``)."""
+    if m == 0:
+        return window
+    prov = dict(getattr(window, "provenance", None) or {})
+    origin = prov.get("window") or {"row_off": 0, "col_off": 0}
+    prov["window"] = {"row_off": int(origin["row_off"]) + m, "col_off": int(origin["col_off"]) + m}
+    return dataclasses.replace(window, values=np.asarray(window.values)[m:m + h, m:m + w].copy(),
+                               x_axis=np.asarray(window.x_axis)[m:m + w].copy(),
+                               y_axis=np.asarray(window.y_axis)[m:m + h].copy(), provenance=prov)
+
+
 def read_processing_window(field, rect, margin: int):
     """Read ROI ``rect`` = ``(row, col, h, w)`` (FILE pixels) plus ``margin`` on every side.
 
@@ -363,6 +384,12 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
         with fft_policy.scope_for(device, params):
             window = device.compute(window, params, progress=progress, **kw)
     analyzer, aparams = steps[-1]
+    if _makes_a_field(analyzer):
+        # A tool that makes a field on the region (Periodic extension): it reads the ROI's own
+        # pixels, and its field, placed at the ROI, is the result.
+        kw = {"cancel": cancel} if capabilities.has(analyzer, "Cancellable") else {}
+        with fft_policy.scope_for(analyzer, aparams):
+            return analyzer.compute(_roi_crop(window, m, h, w), aparams, progress=progress, **kw)
     compute_roi = getattr(analyzer, "compute_roi", None)
     if compute_roi is not None:
         rkw = {"cancel": cancel} if "cancel" in inspect.signature(compute_roi).parameters else {}

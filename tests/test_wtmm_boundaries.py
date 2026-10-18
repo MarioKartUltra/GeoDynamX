@@ -33,12 +33,14 @@ def _scales(params):
 def test_the_defaults_and_the_hidden_superseded_choices(wtmm):
     p = {q.name: q for q in wtmm.params}
     assert p["edge"].default == "auto" and set(p["edge"].hidden_choices) == {"cut", "daf_periodic"}
-    assert p["pad_width"].default == "measured_reach" and p["border_cut"].default == "auto"
+    assert p["pad_width"].default == "measured_reach" and p["border_cut"].default == "none"
     assert p["border_policy"].level == "hidden" and p["coi_k"].level == "hidden"
     assert p["cut_scope"].level == "hidden"
 
 
-def test_a_default_run_pads_by_the_widest_measured_reach_and_cuts_by_it(wtmm):
+def test_a_default_run_mirrors_to_the_widest_measured_reach_and_cuts_nothing(wtmm):
+    """The default is the mirror (JPEG2000's symmetric extension), wide enough that nothing wraps
+    round; the padding is cropped off before the maxima are found, and the Border cut is a choice."""
     from dynamix.core.edges import border_widths, pad_widths
 
     field = make_field(_smooth())
@@ -46,9 +48,10 @@ def test_a_default_run_pads_by_the_widest_measured_reach_and_cuts_by_it(wtmm):
     res = wtmm.compute(field, params)
     widths, _ = pad_widths(_scales(params), "measured_reach", wavelet=params["wavelet"])
     assert res["params"]["pad"] == max(widths) and res["params"]["pad_mode"] == "reflect"
-    assert res["_padding"]["widths"] == widths
+    assert res["_padding"]["widths"] == widths and "_border_cut" not in res
+    cut = wtmm.compute(field, _params(wtmm, border_cut="measured_reach"))
     want = border_widths(_scales(params), "measured_reach", wavelet=params["wavelet"], scope="largest")
-    assert res["_border_cut"]["borders"] == want
+    assert cut["_border_cut"]["borders"] == want
 
 
 def test_auto_after_periodic_extension_is_periodic_with_no_padding_and_no_cut(wtmm):
@@ -103,7 +106,8 @@ def test_a_border_that_covers_the_raster_warns_and_auto_then_cuts_nothing(wtmm):
     from dynamix.devices.wtmm import resolved_boundary
 
     field = make_field(_smooth(128, seed=3))
-    heavy = _params(wtmm, n_oct=3, n_voice=4, wavelet="q_gaussian", q_tsallis=1.5)
+    heavy = _params(wtmm, n_oct=3, n_voice=4, wavelet="q_gaussian", q_tsallis=1.5,
+                    border_cut="auto")
     chosen = dict(heavy, border_cut="measured_reach")
     assert "covers this 128 × 128" in wtmm.knob_warnings(field, chosen)["border_cut"]
     assert all(len(level["mod"]) == 0 for level in wtmm.compute(field, chosen)["extrema"])
@@ -111,7 +115,7 @@ def test_a_border_that_covers_the_raster_warns_and_auto_then_cuts_nothing(wtmm):
     assert wtmm.knob_warnings(field, heavy)["border_cut"].startswith("auto cuts nothing")
     assert any(len(level["mod"]) for level in wtmm.compute(field, heavy)["extrema"])
     assert "would cover" in wtmm.derived_reading("border_cut", "auto", field, heavy)
-    fits = _params(wtmm, n_oct=2, n_voice=4, wavelet="gaussian")
+    fits = _params(wtmm, n_oct=2, n_voice=4, wavelet="gaussian", border_cut="auto")
     assert resolved_boundary(fits, field) == ("reflect", "measured_reach")
     assert "border_cut" not in wtmm.knob_warnings(field, fits)
     assert "border_cut" not in wtmm.knob_warnings(field, dict(heavy, border_cut="none"))

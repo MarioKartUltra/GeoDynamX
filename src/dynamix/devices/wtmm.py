@@ -205,10 +205,13 @@ EDGE_PARAMS = (
 #: Spec 25's boundary and Border cut knobs for the whole-raster tool. Every convolution is circular:
 #: ``edge`` says what the FFT torus holds beyond the field (``dynamix.core.wtmm_backend.PAD_MODES``),
 #: ``pad_width`` how wide the padding is, and the Border cut, run between the H-chains and the
-#: V-chains, which maxima go before the chaining (``dynamix.core.edges``). ``auto`` reads the field:
-#: on a Periodic extension output periodic, no padding and no cut, otherwise reflect and the
-#: measured-reach cut. Spec 22's ``cut`` and ``daf_periodic`` stay valid for saved recipes but are
-#: no longer offered; their own scope knob is hidden with them.
+#: V-chains, which maxima go before the chaining (``dynamix.core.edges``). The Edge's ``auto`` reads
+#: the field: on a Periodic extension output periodic with no padding, otherwise the mirror
+#: (JPEG2000's symmetric extension), which the transform crops off before the maxima are found. The
+#: Border cut is off by default; its ``auto`` cuts by the measured reach except on a Periodic
+#: extension output and where that border would cover the raster. Spec 22's ``cut`` and
+#: ``daf_periodic`` stay valid for saved recipes but are no longer offered; their own scope knob is
+#: hidden with them.
 BOUNDARY_PARAMS = (
     Param("edge", ParamKind.CHOICE, default="auto",
           choices=("auto", "reflect", "periodic", "edge_pad", "zero_pad", "gaussian_taper", "cut",
@@ -224,9 +227,9 @@ BOUNDARY_PARAMS = (
           label="Padding px", level="advanced", active_when=("pad_width", ("fixed_px",))),
     Param("pad_pct", ParamKind.FLOAT, default=0.72, min=0.0, max=10.0, soft_min=0.1, soft_max=2.0,
           label="Padding %", level="advanced", active_when=("pad_width", ("border_pct",))),
-    Param("border_cut", ParamKind.CHOICE, default="auto",
-          choices=("auto", "none", "measured_reach", "border_pct", "k_scale"),
-          choice_labels=("auto", "none", "measured reach", "border %", "k × scale"),
+    Param("border_cut", ParamKind.CHOICE, default="none",
+          choices=("none", "measured_reach", "border_pct", "k_scale", "auto"),
+          choice_labels=("none", "measured reach", "border %", "k × scale", "auto"),
           label="Border cut"),
     Param("border_pct", ParamKind.FLOAT, default=0.72, min=0.0, max=10.0, soft_min=0.1,
           soft_max=2.0, label="Border %", level="advanced", active_when=("border_cut", ("border_pct",))),
@@ -263,7 +266,7 @@ def resolved_boundary(params: dict, field) -> tuple:
     the measured-reach border would cover the raster and leave it no maxima."""
     stamped = filled_block(field) is not None
     edge = params.get("edge", "auto")
-    border = params.get("border_cut", "auto")
+    border = params.get("border_cut", "none")
     if edge == "auto":
         edge = "periodic" if stamped else "reflect"
     if border == "auto":
@@ -298,7 +301,7 @@ def boundary_reading(name: str, params: dict, field) -> "str | None":
                 tail = " · the finest scales take the widest converged reach" if notes else ""
                 return (head + f" · pad {max(widths)} px" + tail).lstrip(" ·")
             return head or None
-        head = f"→ {border.replace('_', ' ')}" if params.get("border_cut", "auto") == "auto" else ""
+        head = f"→ {border.replace('_', ' ')}" if params.get("border_cut", "none") == "auto" else ""
         if border == "none":
             values = getattr(field, "values", None)
             if head and filled_block(field) is None and values is not None:
@@ -334,7 +337,7 @@ def _covering(params: dict, border: str, shape: tuple) -> "tuple | None":
 def border_covering(params: dict, border: str, shape: tuple) -> "str | None":
     """The ⚠ beside the Border cut where its border covers a ``shape`` raster: a chosen cut keeps
     no maxima from that scale up; ``auto`` cuts nothing there and keeps the maxima near the edges."""
-    asked = params.get("border_cut", "auto")
+    asked = params.get("border_cut", "none")
     hit = _covering(params, "measured_reach" if asked == "auto" else border, shape)
     if hit is None:
         return None
@@ -691,7 +694,7 @@ class WTMM2D:
                                f"its neighbours (above {SEAM_LIMIT:g}×), and periodic joins them; "
                                "Periodic extension (DAF) first, or a padded mode")
         if values is not None and filled_block(field) is None and (
-                params.get("border_cut", "auto") == "auto" or _border != "none"):
+                params.get("border_cut", "none") == "auto" or _border != "none"):
             covered = border_covering(params, _border, np.asarray(values).shape[:2])
             if covered:
                 out["border_cut"] = covered

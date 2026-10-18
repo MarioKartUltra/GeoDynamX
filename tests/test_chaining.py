@@ -26,9 +26,9 @@ def _field(values):
 
 #: ``cache_key("wtmm2d", "s", keyed_params(...))`` at the defaults before the ``chainer`` param
 #: existed (main 9e222f7), and the same for the ROI device. The whole-raster key is the one its
-#: boundary defaults gave it (spec 25: measured-reach padding and the Border cut, keyed at their
-#: defaults so a result padded by the old 32 px is never served for them).
-KEY_BEFORE = {"wtmm2d": "408e7f7288743cb072ae0a600a0af296",
+#: boundary defaults gave it (spec 25: the mirror padded to the measured reach, no Border cut,
+#: keyed at their defaults so a result padded by the old 32 px is never served for them).
+KEY_BEFORE = {"wtmm2d": "560ad6d4e151843e38dc66a46feb704c",
               "wtmm2d_roi": "20cbab1b24b2d32580f53085bf1854a2"}
 
 

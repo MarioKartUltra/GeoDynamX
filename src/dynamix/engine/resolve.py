@@ -365,6 +365,12 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                     return stamp_fill(d.compute(s, p, progress=progress, **kw), s)
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
+            if (roi_steps and isinstance(result, dict) and not result.get("_roi")
+                    and hasattr(src, "values")):
+                # A transform after a region step that made a field (Periodic extension on an
+                # ROI) works in that field's grid, which starts at the ROI: drawn there.
+                rect = tuple(int(v) for v in layer.tags["roi.window"].split(","))
+                result = {**result, "_roi": {"source": None, "roi": rect, "boundary": "auto"}}
             analysis_raw = result
             analysis = (device.name, params, key, src)
             upstream = key

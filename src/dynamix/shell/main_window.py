@@ -1050,7 +1050,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._edge_footprint_timer.setSingleShot(True)
         self._edge_footprint_timer.setInterval(4000)
         self._edge_footprint_timer.timeout.connect(self._on_edge_footprint_timeout)
-        self.resolved.connect(self._on_resolved_edge_footprint)
         # id-> Layer, populated alongside _row_layers by add_layer_row -- what every LayerPanel
         # signal (layer_id-keyed, not row-index-keyed) resolves back to an actual Layer through.
         self._layer_by_id: dict[int, object] = {}
@@ -7900,6 +7899,7 @@ both ``Canvas`` signals report the
             self.canvas.clear_overlays()
             self.canvas.set_fill_outline(None)
             self._land_field_result(result)
+            self._on_resolved_edge_footprint()
             self.resolved.emit(renderable)
             return
         # The ACTIVE layer's own latest result, for _refresh_topology_panel's "chain
@@ -8024,6 +8024,7 @@ both ``Canvas`` signals report the
         self._sync_controls()
         self._update_readings(renderable)
         self._update_scale_bar()
+        self._on_resolved_edge_footprint()
         self.resolved.emit(renderable)
 
     def _sync_controls(self) -> None:
@@ -8338,6 +8339,7 @@ both ``Canvas`` signals report the
             self.canvas.clear_overlays()
             self.canvas.set_fill_outline(None)
             self._land_field_result(renderable.result)
+            self._on_resolved_edge_footprint()
             self.resolved.emit(renderable)
             self._land_after_worker()
             return
@@ -10592,7 +10594,8 @@ both ``Canvas`` signals report the
             self._edge_footprint_timer.stop()
             self.canvas.clear_footprint()
 
-    def _on_resolved_edge_footprint(self, *_args) -> None:
+    def _on_resolved_edge_footprint(self) -> None:
+        """A result landed (its overlays cleared): a kept footprint is drawn again."""
         if self._edge_footprint_kept():
             self._show_edge_footprint(linger=False)
 

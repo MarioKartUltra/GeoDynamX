@@ -29,8 +29,8 @@ def _params(dev, **over):
     return dict(defaults_for(dev), n_oct=2, n_voice=4, wavelet="gaussian", **over)
 
 
-def test_the_default_footprint_is_the_runs_padding_and_border(wtmm, field):
-    params = _params(wtmm)
+def test_the_footprint_is_the_runs_padding_and_border(wtmm, field):
+    params = _params(wtmm, border_cut="measured_reach")
     fp = wtmm.footprint(field, params, 0)
     res = wtmm.compute(field, params)
     p = res["_padding"]["pad"]
@@ -57,10 +57,10 @@ def test_each_padded_mode_shows_its_own_content(wtmm, field, edge):
 
 
 def test_the_border_follows_the_shown_scale_under_per_scale(wtmm, field):
-    params = _params(wtmm, border_scope="per_scale")
+    params = _params(wtmm, border_cut="measured_reach", border_scope="per_scale")
     first, last = wtmm.footprint(field, params, 0), wtmm.footprint(field, params, 7)
     assert 0 < first["border"] < last["border"]
-    largest = _params(wtmm)
+    largest = _params(wtmm, border_cut="measured_reach")
     assert wtmm.footprint(field, largest, 0)["border"] == last["border"]
     assert wtmm.footprint(field, _params(wtmm, border_cut="none"), 0)["border"] == 0
 
