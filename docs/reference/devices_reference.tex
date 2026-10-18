@@ -680,8 +680,9 @@ one node of the partition's fold. Pixels where the ridge does not converge (defe
 wavenumber outside the bank) are left out and counted; $|K(x)|$ joins the rasters; the record
 carries $\omega$, $\alpha$, $q$, $\beta_q$, the bank, the steps and the counts. Both curves are Curve outputs against
 $\beta$; the densities are rasters, \texttt{show} picking the one on screen. Derivatives (\texttt{deriv}) are
-Fourier multipliers: the papers' Hermite DAF (M = 12, $\sigma/\Delta$ = 4, PRE 57 p.~5147; the
-default), a derivative of Gaussian of width \texttt{sigma\_d} px, or spectral derivatives, which
+Fourier multipliers: the papers' Hermite DAF (the default; its order \texttt{daf\_M} and width
+\texttt{daf\_sigma} = $\sigma/\Delta$ are knobs, PRE 57 p.~5147's M = 12 and 4 by default), a
+derivative of Gaussian of width \texttt{sigma\_d} px, or spectral derivatives, which
 need a periodized input --- a Periodic extension's stamp, or \texttt{periodic} declaring the field
 periodic as it stands. The two Helmholtz terms are filtered alike and the normalising
 $\langle|u|\rangle$ carries the same smoothing, so a perfect stripe reads exactly zero whatever the

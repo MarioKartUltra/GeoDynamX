@@ -55,6 +55,25 @@ def test_the_defaults_are_the_papers_and_the_record_names_the_scheme(dev):
     assert {"deriv", "k0", "harmonic_filter", "detrend", "hessian_norm"} <= set(keyed_params(dev, p))
 
 
+def test_the_dafs_order_and_width_are_knobs_that_default_to_the_papers(dev):
+    """M and σ/Δ sit on the box under the DAF scheme (PRE 57's 12 and 4 by default), reach the
+    kernel, the reach and the record, and are keyed; the labels carry no citations."""
+    p = validate_params(dev, {"daf_M": 8, "daf_sigma": 3.0, "periodic": True, "k0": "manual",
+                              "lambda0": 128 / 6, "harmonic_filter": "none"})
+    assert {"daf_M", "daf_sigma"} <= set(keyed_params(dev, p))
+    assert dev.roi_margin(p) == disorder.reach("daf", M=8, sigma_over_dx=3.0) < disorder.reach("daf")
+    res = dev.compute(_field(_stripes(128, 6)), p)
+    assert res["record"]["deriv"]["M"] == 8 and res["record"]["deriv"]["sigma_over_dx"] == 3.0
+    assert np.all(res["mean_field_disorder"] == 0.0)          # perfect stripes still read zero
+    by_name = {q.name: q for q in dev.params}
+    assert by_name["daf_M"].active_when == ("deriv", ("daf",)) and by_name["daf_M"].default == 12
+    assert by_name["daf_sigma"].default == 4.0
+    for q in dev.params:
+        for text in (q.label, *(getattr(q, "choice_labels", None) or ())):
+            assert "(" not in text or text in ("D(x)", "D^env(x)", "|A(x)|", "|K(x)|", "|Λ(x)|",
+                                               "σ_d (px)", "λ₀ (px)", "min δ̄(1)"), text
+
+
 def test_perfect_periodic_stripes_read_zero_and_find_their_wavenumber(dev):
     n, cycles = 128, 6
     found = dev.compute(_field(_stripes(n, cycles)), validate_params(dev, {"periodic": True}))

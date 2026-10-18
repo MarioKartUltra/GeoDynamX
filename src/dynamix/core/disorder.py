@@ -71,12 +71,13 @@ def transfer(k, deriv: str, *, sigma_d: float = 1.0, M: int = DAF_DEFAULTS["M"],
 _DAF_HALF_WIDTH: dict = {}
 
 
-def reach(deriv: str, sigma_d: float = 1.0) -> int:
+def reach(deriv: str, sigma_d: float = 1.0, *, M: int = DAF_DEFAULTS["M"],
+          sigma_over_dx: float = DAF_DEFAULTS["sigma_over_dx"]) -> int:
     """How far the scheme's kernel reaches in px: the DAF's full tap extent (37 at σ/Δ = 4, M = 12;
     PRE 57's 20-point stencil cuts its tail at 1e-4), four σ_d for the Gaussian, nothing for the
     spectral scheme. A non-periodic field is reflected by this much before the transform."""
     if deriv == "daf":
-        key = (DAF_DEFAULTS["sigma_over_dx"], DAF_DEFAULTS["M"])
+        key = (float(sigma_over_dx), int(M))
         if key not in _DAF_HALF_WIDTH:
             from dynamix.core.daf import hermite_daf
 
@@ -90,9 +91,11 @@ def reach(deriv: str, sigma_d: float = 1.0) -> int:
 
 
 def filtered(u, multipliers, *, deriv: str = "daf", sigma_d: float = 1.0,
+             M: int = DAF_DEFAULTS["M"], sigma_over_dx: float = DAF_DEFAULTS["sigma_over_dx"],
              periodic: bool = False) -> list:
     """``u`` passed through each Fourier multiplier ``m(kx, ky)`` of ``multipliers`` times the
-    scheme's smoothing gain; ``kx``, ``ky`` in rad/px. A non-periodic field is reflected past its
+    scheme's smoothing gain (``sigma_d`` the Gaussian's width, ``M`` and ``sigma_over_dx`` the
+    DAF's order and width); ``kx``, ``ky`` in rad/px. A non-periodic field is reflected past its
     edges by the scheme's reach first and cropped after."""
     if deriv not in DERIVS:
         raise ValueError(f"unknown derivative scheme {deriv!r}; expected one of {DERIVS}")
@@ -103,11 +106,11 @@ def filtered(u, multipliers, *, deriv: str = "daf", sigma_d: float = 1.0,
     complex_field = np.iscomplexobj(u)
     u = np.asarray(u, dtype=np.complex128 if complex_field else np.float64)
     ny, nx = u.shape
-    pad = 0 if periodic else reach(deriv, sigma_d)
+    pad = 0 if periodic else reach(deriv, sigma_d, M=M, sigma_over_dx=sigma_over_dx)
     up = np.pad(u, pad, mode="reflect") if pad else u
     ky = 2.0 * math.pi * np.fft.fftfreq(up.shape[0])[:, None]
     kx = 2.0 * math.pi * np.fft.fftfreq(up.shape[1])[None, :]
-    gain = transfer(np.hypot(kx, ky), deriv, sigma_d=sigma_d)
+    gain = transfer(np.hypot(kx, ky), deriv, sigma_d=sigma_d, M=M, sigma_over_dx=sigma_over_dx)
     fft = fft_policy.double()
     spectrum = np.asarray(fft.fft2(up))
     out = []
@@ -199,15 +202,16 @@ def detrend(u, mode: str = "mean", mask=None):
     return v, valid
 
 
-def helmholtz_density(u, k0: float, *, deriv: str = "daf", sigma_d: float = 1.0,
-                      periodic: bool = False, mask=None, detrend_mode: str = "mean"):
+def helmholtz_density(u, k0: float, *, periodic: bool = False, mask=None,
+                      detrend_mode: str = "mean", **scheme):
     """The field-form disorder density D(x) = |(Δ + k₀²)u| / (k₀² ⟨|u|⟩) (PRE 57 Eq. 2), both
-    terms and the normaliser under the scheme's smoothing; NaN where the field is invalid."""
+    terms and the normaliser under the scheme's smoothing (``scheme``: :func:`filtered`'s
+    ``deriv``, ``sigma_d``, ``M``, ``sigma_over_dx``); NaN where the field is invalid."""
     k0 = float(k0)
     v, valid = detrend(u, detrend_mode, mask)
     operator, smoothed = filtered(
         v, [lambda kx, ky: k0 * k0 - (kx * kx + ky * ky), lambda kx, ky: 1.0],
-        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+        periodic=periodic, **scheme)
     density = np.abs(operator) / (k0 * k0 * np.mean(np.abs(smoothed[valid])))
     density[~valid] = np.nan
     return density
@@ -293,8 +297,7 @@ def envelope_halfplane(u, k0_vec, *, periodic: bool = False):
     return a[pad:pad + ny, pad:pad + nx] if pad else a
 
 
-def envelope_density(a, k0_vec, *, deriv: str = "daf", sigma_d: float = 1.0,
-                     periodic: bool = False, mask=None):
+def envelope_density(a, k0_vec, *, periodic: bool = False, mask=None, **scheme):
     """The envelope disorder density D^env(x) = |⊙A| / (k₀² ⟨|A|⟩), ⊙ = k₀·∇ − (i/2)∇² (PRL 1995
     Eqs. 2–3), one multiplier i(k₀·k + |k|²/2), A and the normaliser under the scheme's smoothing;
     NaN where the envelope is invalid."""
@@ -308,14 +311,14 @@ def envelope_density(a, k0_vec, *, deriv: str = "daf", sigma_d: float = 1.0,
     operator, smoothed = filtered(
         a, [lambda kx, ky: 1j * (k0x * kx + k0y * ky + 0.5 * (kx * kx + ky * ky)),
             lambda kx, ky: 1.0],
-        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+        periodic=periodic, **scheme)
     density = np.abs(operator) / (k0_sq * np.mean(np.abs(smoothed[valid])))
     density[~valid] = np.nan
     return density
 
 
-def phase_field_density(amplitude, kx, ky, div_k, k0: float, *, deriv: str = "daf",
-                        sigma_d: float = 1.0, periodic: bool = False, mask=None):
+def phase_field_density(amplitude, kx, ky, div_k, k0: float, *, periodic: bool = False,
+                        mask=None, **scheme):
     """The envelope disorder density in its phase-field form: for A = a e^{iφ} with the local
     wavevector K = k₀ + ∇φ, ⊙A = e^{iφ}·½[∇·(a²K)/a + i(a(|K|² − k₀²) − ∇²a)], so
     D^env = |⊙A| / (k₀² ⟨a⟩) needs a, K and ∇·K alone — no ±k partition, and the same under
@@ -332,7 +335,7 @@ def phase_field_density(amplitude, kx, ky, div_k, k0: float, *, deriv: str = "da
     ax, ay, lap, smoothed = filtered(
         a, [lambda kx_, ky_: 1j * kx_, lambda kx_, ky_: 1j * ky_,
             lambda kx_, ky_: -(kx_ * kx_ + ky_ * ky_), lambda kx_, ky_: 1.0],
-        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+        periodic=periodic, **scheme)
     kx, ky, div_k = (np.where(valid, np.asarray(v, dtype=np.float64), 0.0) for v in (kx, ky, div_k))
     real = ax * kx + ay * ky + 0.5 * smoothed * div_k
     imag = 0.5 * (smoothed * (kx * kx + ky * ky - k0_sq) - lap)
@@ -359,8 +362,8 @@ def disorder_moments(density, betas, *, mask=None, floor=None) -> dict:
             "area": area, "floor": floor, "n_floor": n_floor, "warning": warning}
 
 
-def hessian_density(u, *, deriv: str = "daf", sigma_d: float = 1.0, periodic: bool = False,
-                    mask=None, norm: str = "variance", detrend_mode: str = "mean"):
+def hessian_density(u, *, periodic: bool = False, mask=None, norm: str = "variance",
+                    detrend_mode: str = "mean", **scheme):
     """The Hessian density |Λ(x)| = |u_xx u_yy − u_xy²| / Var(u) (PRE 71:035101 Eq. 1), the
     variance over the valid pixels; ``norm = "std"`` is the diagnostic variant, which breaks the
     inverse-length dimensions. NaN where the field is invalid."""
@@ -369,7 +372,7 @@ def hessian_density(u, *, deriv: str = "daf", sigma_d: float = 1.0, periodic: bo
     v, valid = detrend(u, detrend_mode, mask)
     uxx, uyy, uxy = filtered(
         v, [lambda kx, ky: -kx * kx, lambda kx, ky: -ky * ky, lambda kx, ky: -kx * ky],
-        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+        periodic=periodic, **scheme)
     spread = np.var(v[valid]) if norm == "variance" else np.std(v[valid])
     density = np.abs(uxx * uyy - uxy * uxy) / spread
     density[~valid] = np.nan
@@ -410,9 +413,8 @@ def _spectral_peak(v, valid) -> float:
     return float(np.argmax(mean_power) * dk)
 
 
-def k0_estimate(u, method: str = "min_disorder", *, deriv: str = "daf", sigma_d: float = 1.0,
-                periodic: bool = False, mask=None, bracket=(0.5, 2.0),
-                detrend_mode: str = "mean") -> float:
+def k0_estimate(u, method: str = "min_disorder", *, periodic: bool = False, mask=None,
+                bracket=(0.5, 2.0), detrend_mode: str = "mean", **scheme) -> float:
     """The planform wavenumber k₀ in rad/px (:data:`K0_METHODS`). ``min_disorder`` minimises
     δ̄(1; k₀) = ⟨|S u − Δ_S u / k₀²|⟩ / ⟨|S u|⟩ over k₀ in ``bracket`` times the spectral peak,
     which is convex and piecewise linear in 1/k₀² (S the scheme's smoothing, Δ_S the smoothed
@@ -427,7 +429,7 @@ def k0_estimate(u, method: str = "min_disorder", *, deriv: str = "daf", sigma_d:
 
     smoothed, laplacian = filtered(
         v, [lambda kx, ky: 1.0, lambda kx, ky: -(kx * kx + ky * ky)],
-        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+        periodic=periodic, **scheme)
     s_u, l_u = smoothed[valid], laplacian[valid]
     denominator = np.mean(np.abs(s_u))
 

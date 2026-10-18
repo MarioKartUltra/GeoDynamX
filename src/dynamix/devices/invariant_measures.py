@@ -39,8 +39,12 @@ class InvariantMeasures:
     capabilities = frozenset({"SelfReporting", "RegionAware", "Viewable"})
     params = (
         Param("deriv", ParamKind.CHOICE, default="daf", choices=disorder.DERIVS,
-              choice_labels=("DAF (M = 12, σ/Δ = 4)", "Gaussian (σ_d)", "spectral (periodic input)"),
-              label="Derivatives"),
+              choice_labels=("DAF", "Gaussian", "spectral"), label="Derivatives"),
+        # The DAF's order and width, PRE 57's by default; the Gaussian's width.
+        Param("daf_M", ParamKind.INT, default=disorder.DAF_DEFAULTS["M"], min=2, max=40,
+              soft_min=4, soft_max=20, label="M", active_when=("deriv", ("daf",))),
+        Param("daf_sigma", ParamKind.FLOAT, default=disorder.DAF_DEFAULTS["sigma_over_dx"], min=1.0,
+              max=12.0, soft_min=2.0, soft_max=6.0, label="σ/Δ", active_when=("deriv", ("daf",))),
         Param("sigma_d", ParamKind.FLOAT, default=1.0, min=0.3, max=16.0, soft_min=0.5, soft_max=4.0,
               units="px", label="σ_d (px)", active_when=("deriv", ("gaussian",))),
         # A field that is periodic as it stands (model output on a periodic domain): no padding,
@@ -48,49 +52,45 @@ class InvariantMeasures:
         Param("periodic", ParamKind.BOOL, default=False, label="Periodic input"),
         Param("k0", ParamKind.CHOICE, default="min_disorder",
               choices=(*disorder.K0_METHODS, "manual"),
-              choice_labels=("minimum of δ̄(1)", "spectral peak", "given λ₀"), label="k₀"),
+              choice_labels=("min δ̄(1)", "spectral peak", "given λ₀"), label="k₀"),
         Param("lambda0", ParamKind.FLOAT, default=20.0, min=2.0, max=1e6, soft_min=4.0, soft_max=200.0,
               units="px", label="λ₀ (px)", active_when=("k0", ("manual",))),
         Param("disorder_form", ParamKind.CHOICE, default="field", choices=("field", "envelope"),
-              choice_labels=("field (PRE 57 Eq. 2)", "envelope (PRL 1995 Eq. 8)"), label="Disorder of"),
+              label="Disorder of"),
         Param("envelope", ParamKind.CHOICE, default="fft_halfplane",
               choices=("fft_halfplane", "wavelet_ridge"),
-              choice_labels=("Fourier half-plane (Jones 1998 §4)", "wavelet ridge (Passot–Newell 1994)"),
-              label="Envelope", active_when=("disorder_form", ("envelope",))),
+              choice_labels=("half-plane", "wavelet ridge"), label="Envelope",
+              active_when=("disorder_form", ("envelope",))),
         # The ridge's density: the phase-field form needs no ±k partition (the default); the
         # PRL's operator on A e^{i(Ψ − k₀·x)} is the comparison, blind within a node of the fold.
         Param("density", ParamKind.CHOICE, default="phase_field",
               choices=("phase_field", "envelope_operator"),
-              choice_labels=("phase field (a, K, ∇·K)", "⊙A on the demodulated ridge"),
-              label="Ridge density", active_when=_RIDGE),
+              choice_labels=("phase field", "operator"), label="Density", active_when=_RIDGE),
         Param("omega", ParamKind.FLOAT, default=analytic_cwt.OMEGA, min=2.0, max=12.0, soft_min=2.0,
-              soft_max=6.0, label="ω (carrier)", active_when=_RIDGE),
+              soft_max=6.0, label="ω", active_when=_RIDGE),
         Param("anisotropy", ParamKind.FLOAT, default=1.0, min=0.25, max=4.0, soft_min=0.25, soft_max=4.0,
-              label="α₂/α₁ (across / along)", active_when=_RIDGE),
+              label="α₂/α₁", active_when=_RIDGE),
         Param("ridge_q", ParamKind.FLOAT, default=1.0, min=-1.0, max=1.95, soft_min=0.5, soft_max=1.5,
-              label="q (q-Morlet)", active_when=_RIDGE),
+              label="q", active_when=_RIDGE),
         Param("q_pairing", ParamKind.CHOICE, default="fixed", choices=("fixed", "q-paired"),
               label="q width", active_when=_RIDGE),
         Param("q_beta", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1, soft_max=2.0,
               label="β_q", active_when=(*_RIDGE, ("q_pairing", ("fixed",)))),
         Param("harmonic_filter", ParamKind.CHOICE, default="daf", choices=("daf", "bandpass", "none"),
-              choice_labels=("DAF extension + band (Hoffman 2000)", "Gaussian band-pass at k₀", "none"),
-              label="Harmonic filter"),
+              choice_labels=("DAF + band", "band-pass", "none"), label="Harmonic filter"),
         Param("detrend", ParamKind.CHOICE, default="mean", choices=("mean", "plane", "none"),
               label="Detrend"),
         Param("hessian_norm", ParamKind.CHOICE, default="variance", choices=("variance", "std"),
-              choice_labels=("variance (PRE 2005 Eq. 1)", "std (diagnostic)"), label="Hessian norm"),
+              label="Hessian norm"),
         # The density floor for negative moment orders; 0 takes the core's default fraction.
         Param("beta_floor", ParamKind.FLOAT, default=0.0, min=0.0, max=1.0, soft_min=0.0,
-              soft_max=1e-3, label="β < 0 floor (0 = auto)", level="advanced"),
+              soft_max=1e-3, label="β<0 floor", level="advanced"),
         # View-only: the rasters are computed and cached once; the pick is a cache hit. A raster
         # the chosen form did not make falls back to the form's own density.
         Param("show", ParamKind.CHOICE, default="field_disorder_density",
               choices=("field_disorder_density", "envelope_disorder_density", "envelope_amplitude",
                        "local_wavenumber", "hessian_density"),
-              choice_labels=("disorder density D(x)", "envelope disorder density", "envelope |A(x)|",
-                             "local wavenumber |K(x)|", "Hessian density |Λ(x)|"), label="Show",
-              view=True),
+              choice_labels=("D(x)", "D^env(x)", "|A(x)|", "|K(x)|", "|Λ(x)|"), label="Show", view=True),
     )
 
     @staticmethod
@@ -104,9 +104,15 @@ class InvariantMeasures:
         return {**result, "raster_out": self._shown(result, params.get("show")),
                 "params": {**result.get("params", {}), "show": params.get("show")}}
 
+    @staticmethod
+    def _scheme(params: dict) -> dict:
+        """:func:`disorder.filtered`'s keywords from the knobs."""
+        return dict(deriv=params["deriv"], sigma_d=float(params["sigma_d"]),
+                    M=int(params["daf_M"]), sigma_over_dx=float(params["daf_sigma"]))
+
     def roi_margin(self, params: dict) -> int:
         """The derivative kernel's reach: what an ROI must read beyond its window."""
-        return disorder.reach(params["deriv"], float(params["sigma_d"]))
+        return disorder.reach(**self._scheme(params))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         values = np.asarray(field.values, dtype=np.float64)
@@ -116,7 +122,7 @@ class InvariantMeasures:
         periodized_by = ("declared periodic" if params["periodic"]
                          else "edges.filled" if provenance.get("edges.filled") else None)
         periodic = periodized_by is not None
-        deriv, sigma_d = params["deriv"], float(params["sigma_d"])
+        scheme = self._scheme(params)
         v, valid = disorder.detrend(values, params["detrend"])
         # The Chaos filter first: it may extend the field, so the statistics' mask grows with it
         # (the filled gap stays out) and the derivatives run on the periodic extension.
@@ -135,8 +141,8 @@ class InvariantMeasures:
             k0 = 2.0 * math.pi / float(params["lambda0"])
             k0_record = {"method": "manual", "value": k0, "lambda_px": float(params["lambda0"])}
         else:
-            k0 = disorder.k0_estimate(v, params["k0"], deriv=deriv, sigma_d=sigma_d,
-                                      periodic=periodic, mask=stats, detrend_mode="none")
+            k0 = disorder.k0_estimate(v, params["k0"], periodic=periodic, mask=stats,
+                                      detrend_mode="none", **scheme)
             k0_record = {"method": params["k0"], "value": k0, "lambda_px": 2.0 * math.pi / k0}
 
         if params["harmonic_filter"] == "bandpass":
@@ -147,7 +153,7 @@ class InvariantMeasures:
 
         ny, nx = values.shape
         form = params["disorder_form"]
-        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+        kw = dict(periodic=periodic, **scheme)
         rasters = {}
         warnings = []
         if form == "envelope" and params["envelope"] == "wavelet_ridge":
@@ -196,11 +202,11 @@ class InvariantMeasures:
         mu = disorder.hessian_measure(hessian, disorder.MU_BETAS, floor=floor)
         names = {kind: f"{kind}_{form}_disorder" for kind in ("mean", "total", "rooted_mean")}
         rasters.update({f"{form}_disorder_density": density, "hessian_density": hessian})
-        deriv_record = {"scheme": deriv, "reach_px": disorder.reach(deriv, sigma_d)}
-        if deriv == "daf":
-            deriv_record.update(disorder.DAF_DEFAULTS)
-        elif deriv == "gaussian":
-            deriv_record["sigma_d"] = sigma_d
+        deriv_record = {"scheme": scheme["deriv"], "reach_px": disorder.reach(**scheme)}
+        if scheme["deriv"] == "daf":
+            deriv_record.update({"M": scheme["M"], "sigma_over_dx": scheme["sigma_over_dx"]})
+        elif scheme["deriv"] == "gaussian":
+            deriv_record["sigma_d"] = scheme["sigma_d"]
         if periodic:
             deriv_record["periodized_by"] = periodized_by
         warnings += [w for w in (delta["warning"], mu["warning"]) if w]
