@@ -482,15 +482,20 @@ zero-gradient flats.
 Makes a non-periodic field periodic, so that a scale-space tool after it can transform it with periodic
 boundaries and no padding. A gap after the last row and column is filled with the self-tuned Hermite DAF
 (Frishman, Hoffman, Rakauskas \& Kouri 1996; Hoffman, Gunaratne, Zhang \& Kouri 2000): the band limit
-$f_b$ holds the chosen fraction of the power, the gap is $2/f_b$, and $\sigma$ gives a gain of 0.99 at
-$f_b$ under order $M$. The output is the field plus the gap, its real block stamped, so WTMM keeps no
-maxima in the gap, takes its threshold from real pixels and resolves its Edge \texttt{auto} to
-\texttt{periodic}. Below 6 points per wavelength at $f_b$ the field passes through unchanged, and the
-strip's warning gives the reason. On an ROI it extends the ROI's own pixels, and the extended field is the row's result, placed at the ROI; a tool after it on that row works on the extended field, or fork the output to analyse it as its own dataset.
+$f_b$ holds the chosen fraction of the power, or is a given wavelength $\lambda_b = 1/f_b$; the gap is
+$2/f_b$, and $\sigma$ gives a gain of 0.99 at $f_b$ under order $M$. The output is the field plus the gap,
+its real block stamped, so WTMM keeps no maxima in the gap, takes its threshold from real pixels and
+resolves its Edge \texttt{auto} to \texttt{periodic}. Below 6 points per wavelength at $f_b$ the fill is
+rough: the tool extends anyway and the warning under the band knob says so (lower the power fraction, or
+give a longer $\lambda_b$); WTMM's automatic edge handling reflects instead at that point. Only a stencil
+that cannot fit the field with its gap passes the field through unchanged. The reading under the knob
+gives $\lambda_b$, the gap and $\sigma$ for the field at hand. On an ROI it extends the ROI's own pixels, and the extended field is the row's result, placed at the ROI; a tool after it on that row works on the extended field, or fork the output to analyse it as its own dataset.
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
-\texttt{band\_frac} (Band limit) & 0.99 & $[0.5,0.9999]$ & fraction of the power below $f_b$ \\
+\texttt{band} (Band limit) & auto & auto, given & the band limit from the data (a fraction of the power) or as a given wavelength \\
+\texttt{band\_frac} (Power fraction) & 0.99 & $[0.5,0.9999]$ & fraction of the power below $f_b$, under \emph{auto} \\
+\texttt{lambda\_b} ($\lambda_b$) & 20 px & $[4, 10^5]$ & the wavelength at the band limit, under \emph{given} \\
 \texttt{M} (DAF order) & 12 & $[2,40]$ & Hermite order of the DAF \\
 \texttt{lam} (Regularization) & $10^{-3}$ & $[0,1]$ & $\lambda$ of the gap solve \\
 \texttt{layout} (Layout) & origin & origin, centred & where the data sit in the extended raster: at the origin with the gap after the last row and column, or in the middle with the gap split around them (the same periodic field, rolled; the real-block stamp carries the offset and WTMM's real block follows it) \\

@@ -323,6 +323,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
     removeLayerOnlyRequested = QtCore.Signal(int)
     #: "Delete ROI" / Delete on an ROI row -- the shell refuses while results use it.
     removeRoiRequested = QtCore.Signal(str)
+    #: "Fork ROI as dataset…" on an ROI row: the region's own pixels as a dataset of their own.
+    forkRoiRequested = QtCore.Signal(str)
     #: Delete with several rows selected: ``(layer_ids, roi_ids, source_ids)``, one confirmation.
     removeManyRequested = QtCore.Signal(list, list, list)
     #: "Fork derivative dataset…" on a result row: the shell asks what to fork, then writes it.
@@ -1201,8 +1203,11 @@ class LayerPanel(QtWidgets.QTreeWidget):
         return menu
 
     def _build_roi_context_menu(self, roi_id: str) -> QtWidgets.QMenu:
-        """An ROI row's menu: Delete ROI (the shell refuses while results use it)."""
+        """An ROI row's menu: Fork ROI as dataset… (the region's pixels as a dataset of their
+        own) and Delete ROI (the shell refuses while results use it)."""
         menu = QtWidgets.QMenu(self)
+        fork_action = menu.addAction("Fork ROI as dataset…")
+        fork_action.triggered.connect(lambda: self.forkRoiRequested.emit(roi_id))
         delete_action = menu.addAction("Delete ROI")
         delete_action.triggered.connect(lambda: self.removeRoiRequested.emit(roi_id))
         return menu

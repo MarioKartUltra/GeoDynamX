@@ -1278,6 +1278,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # The two deletes, ROI delete and several rows at once.
         self.layer_list.removeLayerOnlyRequested.connect(self._on_remove_layer_only_requested)
         self.layer_list.removeRoiRequested.connect(self._on_remove_roi_requested)
+        self.layer_list.forkRoiRequested.connect(self._on_fork_roi_requested)
         self.layer_list.removeManyRequested.connect(self._on_remove_many_requested)
         # Derivative datasets: fork what a result shows; keep a temporary one as a file.
         self.layer_list.forkDerivativeRequested.connect(self._on_fork_derivative)
@@ -5968,6 +5969,57 @@ both ``Canvas`` signals report the
         for node in subtree:                         # parents before their own children
             self.layer_list.add_layer_row(node, self._fields.get(node.layer_id, self.field))
         self._on_remove_requested(layer_id)
+
+    def _on_fork_roi_requested(self, roi_id: str) -> None:
+        """"Fork ROI as dataset…": the region's own pixels, read off its source at full
+        resolution with their georeference, written once as a dataset of their own and opened
+        like any raw one (:mod:`dynamix.core.derivative`). The fork's provenance names the source
+        and the region as history only; nothing links back."""
+        from datetime import datetime
+
+        from dynamix.core.derivative import write_derivative
+        from dynamix.roi.runner import read_processing_window
+
+        roi = next((r for r in self.project.rois if r.roi_id == roi_id), None)
+        if roi is None:
+            return
+        field = (self._field_for_source(roi.source_id) if roi.source_id else None) or self.field
+        if field is None or not hasattr(field, "values"):
+            self._notify("fork an ROI from a loaded raster", "status")
+            return
+        window, _info = read_processing_window(field, (roi.row, roi.col, roi.h, roi.w), 0)
+        src = self.project.sources.get(roi.source_id) if roi.source_id else None
+        dataset = (src.label or Path(src.path).stem) if src is not None else "dataset"
+        region = roi.label or roi.roi_id
+        rasters = _field_choices(window, f"ROI {region}")
+        dialog = ForkDialog(name=f"{dataset} · ROI {region}",
+                            raster_labels=[l for l, _a in rasters], vector_counts=(0, 0),
+                            parent_name=dataset, parent=self)
+        if not dialog.exec():
+            return
+        choice = dialog.choices()
+        path = self._derivative_path(choice["name"], temporary=choice["temporary"])
+        if path is None:
+            return
+        provenance = {"derived": {
+            "from_dataset": src.path if src is not None else None,
+            "from_sha256": src.sha256 if src is not None else None,
+            "roi": {"row": int(roi.row), "col": int(roi.col), "h": int(roi.h), "w": int(roi.w),
+                    "label": roi.label},
+            "forked": datetime.now().isoformat(timespec="seconds")}}
+        crs = (getattr(field, "provenance", None) or {}).get("crs")
+        if crs:
+            provenance["crs"] = crs
+        try:
+            write_derivative(path, bands=[rasters[i] for i in choice["bands"]],
+                             frame=window.frame, x_axis=window.x_axis, y_axis=window.y_axis,
+                             name=choice["name"], units=str(getattr(field, "units", "") or ""),
+                             provenance=provenance)
+        except ValueError as exc:
+            self._notify(f"fork refused: {exc}", "status")
+            return
+        self._open_derivative(path, name=choice["name"], temporary=choice["temporary"],
+                              nest_under=roi.source_id if choice["nest"] else None, vectors=False)
 
     def _on_remove_roi_requested(self, roi_id: str) -> bool:
         """"Delete ROI": refused while any result was computed on it -- the notice names them; otherwise the record and its row go. Returns

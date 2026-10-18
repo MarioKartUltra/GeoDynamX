@@ -1361,13 +1361,16 @@ def test_a_result_rows_menu_offers_delete_layer_and_delete_layer_and_children(pa
     assert sig.args == [layer.layer_id]
 
 
-def test_an_roi_row_offers_delete_roi_by_menu_and_by_key(panel, project, qtbot):
+def test_an_roi_row_offers_fork_and_delete_roi_by_menu_and_delete_by_key(panel, project, qtbot):
     source, master, roi = _roi_setup(panel, project)
     item = panel._roi_items[roi.roi_id]
     menu = panel._build_roi_context_menu(roi.roi_id)
-    assert [a.text() for a in menu.actions()] == ["Delete ROI"]
-    with qtbot.waitSignal(panel.removeRoiRequested, timeout=1000) as sig:
+    assert [a.text() for a in menu.actions()] == ["Fork ROI as dataset…", "Delete ROI"]
+    with qtbot.waitSignal(panel.forkRoiRequested, timeout=1000) as sig:
         menu.actions()[0].trigger()
+    assert sig.args == [roi.roi_id]
+    with qtbot.waitSignal(panel.removeRoiRequested, timeout=1000) as sig:
+        menu.actions()[1].trigger()
     assert sig.args == [roi.roi_id]
     panel.setCurrentItem(item)
     with qtbot.waitSignal(panel.removeRoiRequested, timeout=1000) as sig:

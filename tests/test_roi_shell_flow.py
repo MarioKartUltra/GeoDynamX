@@ -1337,3 +1337,24 @@ def test_a_strided_live_band_preview_is_registered_over_its_whole_extent(plain_w
     r = item.mapRectToView(item.boundingRect())
     assert (r.x(), r.y()) == (col_off - s / 2, row_off - s / 2)
     assert abs(r.width() - w) < s and abs(r.height() - h) < s
+
+
+def test_an_roi_forks_its_own_pixels_as_a_dataset(plain_window, qtbot, monkeypatch):
+    """"Fork ROI as dataset…" on the ROI row: the region's pixels, read off the source, become a
+    dataset of their own with the ROI recorded as history; the parent is untouched."""
+    import dynamix.shell.main_window as mw
+
+    win = plain_window
+    parent = np.asarray(win.field.values)
+    _save(win, row=4, col=5, h=16, w=20)
+    roi = win.project.rois[-1]
+    monkeypatch.setattr(mw, "ForkDialog", _Fork({"name": "roi crop", "bands": [0], "vectors": False,
+                                                 "nest": True, "temporary": True}))
+    before = set(win.project.sources)
+    win._on_fork_roi_requested(roi.roi_id)
+    (new,) = set(win.project.sources) - before
+    forked = win._field_for_source(new)
+    np.testing.assert_array_equal(np.asarray(forked.values), parent[4:20, 5:25])
+    assert forked.provenance["derived"]["roi"] == {"row": 4, "col": 5, "h": 16, "w": 20, "label": roi.label}
+    assert win.project.sources[new].nest_under == roi.source_id
+    np.testing.assert_array_equal(np.asarray(win._field_for_source(roi.source_id).values), parent)
