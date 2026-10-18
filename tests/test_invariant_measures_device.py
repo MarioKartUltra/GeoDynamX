@@ -46,10 +46,11 @@ def test_the_device_is_registered_under_microstructure_and_produces_a_curve(dev)
 def test_the_defaults_are_the_papers_and_the_record_names_the_scheme(dev):
     p = validate_params(dev, {})
     assert (p["deriv"], p["k0"], p["harmonic_filter"], p["detrend"], p["hessian_norm"]) == (
-        "daf", "min_disorder", "none", "mean", "variance")
+        "daf", "min_disorder", "daf", "mean", "variance")
     assert p["sigma_d"] == 1.0 and p["periodic"] is False
     res = dev.compute(_field(_stripes(128, 6)), p)
-    assert res["record"]["deriv"] == {"scheme": "daf", "M": 12, "sigma_over_dx": 4.0, "reach_px": disorder.reach("daf")}
+    assert res["record"]["deriv"] == {"scheme": "daf", "M": 12, "sigma_over_dx": 4.0,
+                                      "reach_px": disorder.reach("daf"), "periodized_by": "daf extension"}
     assert res["record"]["k0"]["method"] == "min_disorder"
     assert {"deriv", "k0", "harmonic_filter", "detrend", "hessian_norm"} <= set(keyed_params(dev, p))
 
@@ -90,14 +91,15 @@ def test_a_given_wavelength_and_the_hessian_raster_on_show(dev):
 
 def test_spectral_derivatives_need_a_periodized_input(dev):
     field = _field(_stripes(96, 4)[:80, :70])
+    bare = {"harmonic_filter": "none"}                 # the DAF filter would periodize it itself
     with pytest.raises(ValueError, match="Periodic extension"):
-        dev.compute(field, validate_params(dev, {"deriv": "spectral"}))
-    declared = dev.compute(field, validate_params(dev, {"deriv": "spectral", "periodic": True}))
+        dev.compute(field, validate_params(dev, {"deriv": "spectral", **bare}))
+    declared = dev.compute(field, validate_params(dev, {"deriv": "spectral", "periodic": True, **bare}))
     assert declared["record"]["deriv"]["periodized_by"] == "declared periodic"
     stamped = _field(_stripes(96, 4), provenance={"edges.filled": {"rows": 80, "cols": 70}})
-    extended = dev.compute(stamped, validate_params(dev, {"deriv": "spectral"}))
+    extended = dev.compute(stamped, validate_params(dev, {"deriv": "spectral", **bare}))
     assert extended["record"]["deriv"]["periodized_by"] == "edges.filled"
-    assert "periodized_by" not in dev.compute(field, validate_params(dev, {}))["record"]["deriv"]
+    assert "periodized_by" not in dev.compute(field, validate_params(dev, bare))["record"]["deriv"]
 
 
 def test_the_reading_names_the_wavelength_and_both_measures_at_beta_1(dev):
@@ -113,13 +115,35 @@ def test_the_roi_margin_is_the_schemes_reach(dev):
     assert dev.roi_margin(validate_params(dev, {"deriv": "spectral", "periodic": True})) == 0
 
 
+def test_the_daf_harmonic_filter_is_the_default_and_records_its_extension_and_band(dev):
+    """The Chaos pipeline on a non-periodic crop: the extension's tuning and the band go in the
+    record, the rasters keep the field's shape, and the statistics ignore the filled gap."""
+    n, cycles = 160, 8
+    y, x = np.mgrid[0:n, 0:n].astype(np.float64)
+    phase = 2.0 * math.pi * cycles / n * (x * math.cos(0.25) + y * math.sin(0.25))
+    u = np.cos(phase) + 0.3 * np.cos(2 * phase) + 0.4 * x / n
+    res = dev.compute(_field(u), validate_params(dev, {"k0": "manual", "lambda0": n / cycles}))
+    rec = res["record"]["harmonic_filter"]
+    assert rec["method"] == "daf" and rec["band"] == [0.7, 1.3] and rec["k_t"] > 0
+    assert rec["extension"]["fallback"] is None and rec["extension"]["gap"] >= 8
+    assert res["record"]["deriv"]["periodized_by"] == "daf extension"
+    assert res["raster_out"].shape == (n, n) and res["hessian_density"].shape == (n, n)
+    assert res["record"]["valid_pixels"] == n * n
+    assert res["mean_field_disorder"][3] < 0.1          # the periodization floor on a tilted crop
+    noise = np.random.default_rng(2).standard_normal((96, 96))
+    coarse = dev.compute(_field(noise), validate_params(dev, {"k0": "manual", "lambda0": 3.0}))
+    assert isinstance(coarse["record"]["harmonic_filter"]["extension"]["fallback"], str)
+    assert "periodized_by" not in coarse["record"]["deriv"]
+
+
 def test_the_bandpass_filter_removes_a_second_harmonic(dev):
     """Stripes plus their second harmonic: the Gaussian band-pass at k₀ (relative width 0.5)
     leaves nearly perfect stripes, so δ̄(1) drops well below the unfiltered value."""
     n, cycles = 192, 6
     u = _stripes(n, cycles) + 0.3 * _stripes(n, 2 * cycles)
     raw = dev.compute(_field(u), validate_params(dev, {"periodic": True, "k0": "manual",
-                                                      "lambda0": n / cycles}))
+                                                      "lambda0": n / cycles,
+                                                      "harmonic_filter": "none"}))
     filtered = dev.compute(_field(u), validate_params(dev, {"periodic": True, "k0": "manual",
                                                            "lambda0": n / cycles,
                                                            "harmonic_filter": "bandpass"}))

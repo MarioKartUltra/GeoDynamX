@@ -309,3 +309,31 @@ def test_spectral_derivatives_are_refused_on_a_non_periodic_crop():
     with pytest.raises(ValueError, match="Periodic extension"):
         disorder.helmholtz_density(u, 0.3, deriv="spectral", periodic=False)
     assert np.isfinite(disorder.helmholtz_density(u, 0.3, deriv="daf", periodic=False)).all()
+
+
+# ---------------------------------------------------------------- the harmonic filter (Hoffman et al. 2000)
+
+def test_the_daf_filter_extends_the_field_keeps_the_band_and_leaves_the_block_clean():
+    """Stripes with a second harmonic and a drift, cut non-periodically: the DAF extension makes
+    the field periodic, the Goldman band [0.7, 1.3]·k_t drops the harmonic and the drift, and over
+    the real block the disorder falls from the raw field's to near zero."""
+    n, cycles = 160, 8
+    y, x = np.mgrid[0:n, 0:n].astype(np.float64)
+    k1 = 2.0 * math.pi * cycles / n
+    phase = k1 * (x * math.cos(0.25) + y * math.sin(0.25))
+    u = np.cos(phase) + 0.3 * np.cos(2 * phase) + 0.4 * x / n
+    v, _valid = disorder.detrend(u)
+    k_t = disorder.k0_estimate(v, "spectral_peak")
+    filtered, block, tuned = disorder.daf_filter(v, k_t)
+    assert tuned.fallback is None and block == (n, n)
+    assert filtered.shape[0] > n and filtered.shape[1] > n
+    inside = np.zeros(filtered.shape, dtype=bool)
+    inside[:n, :n] = True
+    clean = disorder.disorder_moments(
+        disorder.helmholtz_density(filtered, k1, deriv="daf", periodic=True, mask=inside), [1.0])
+    raw = disorder.disorder_moments(disorder.helmholtz_density(v, k1, deriv="daf"), [1.0])
+    # the floor is the periodization of a tilted, drifting crop (about 9% RMS against clean
+    # stripes after the gap fill); the band mask itself leaves periodic stripes at exactly 0
+    assert raw["mean"][0] > 0.3 and clean["mean"][0] < min(0.1, 0.1 * raw["mean"][0])
+    same, block2, tuned2 = disorder.daf_filter(v, k_t, periodic=True)   # already periodic: no gap
+    assert same.shape == v.shape and block2 == (n, n) and tuned2 is None

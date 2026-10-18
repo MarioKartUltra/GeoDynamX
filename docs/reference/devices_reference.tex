@@ -663,8 +663,13 @@ $\langle|u|\rangle$ carries the same smoothing, so a perfect stripe reads exactl
 scheme; a non-periodic field is reflected past its edges by the kernel's reach first. \texttt{k0}
 is the minimum of $\bar\delta(1)$ over a bracket around the spectral peak (Gunaratne, Ratnaweera
 and Tennekone 1999; convex in $1/k_0^2$, so unique), the spectral peak itself, or a given
-wavelength \texttt{lambda0} in px. \texttt{harmonic\_filter}: none, or a Gaussian radial band-pass
-at $k_0$ of relative width 0.5 (full width at half maximum), which drops harmonics and drift.
+wavelength \texttt{lambda0} in px. \texttt{harmonic\_filter} (default \emph{daf}): Hoffman et al.\
+2000's pipeline --- the field made periodic by the self-tuned DAF extension of
+\S\ref{sec:periodic-extension} (skipped when the input is periodic already; where it does not
+apply the field is reflected instead and the record says why), then the band $[0.7, 1.3]\,k_t$
+around the spectral peak kept (Goldman et al.\ 2002), the derivatives then running on the periodic
+extension and every statistic over the real pixels alone; or a Gaussian radial band-pass at $k_0$
+of relative width 0.5 (full width at half maximum); or none.
 \texttt{detrend} removes the mean (default) or a plane first; \texttt{hessian\_norm} keeps the
 variance of PRE 2005 Eq.~1, the standard deviation being a diagnostic that breaks the inverse-length
 dimensions. A density below $10^{-12}$ is a numerical zero. Negative moment orders are not in the

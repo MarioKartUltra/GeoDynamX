@@ -32,9 +32,9 @@ from dynamix.core import fft_policy
 from dynamix.core.daf import daf_gain
 
 __all__ = ["BANDPASS_WIDTH", "DAF_DEFAULTS", "DAF_REACH", "DELTA_BETAS", "DERIVS", "FLOOR_FRACTION",
-           "K0_METHODS", "MU_BETAS", "ZERO", "bandpass", "detrend", "disorder_moments", "filtered",
-           "helmholtz_density", "hessian_density", "hessian_measure", "k0_estimate", "reach",
-           "transfer"]
+           "GOLDMAN_BAND", "K0_METHODS", "MU_BETAS", "ZERO", "bandpass", "daf_filter", "detrend",
+           "disorder_moments", "filtered", "helmholtz_density", "hessian_density", "hessian_measure",
+           "k0_estimate", "radial_filter", "reach", "transfer"]
 
 #: The derivative schemes: the papers' DAF, a derivative of Gaussian, or plain spectral derivatives.
 DERIVS = ("daf", "gaussian", "spectral")
@@ -119,24 +119,56 @@ def filtered(u, multipliers, *, deriv: str = "daf", sigma_d: float = 1.0,
 BANDPASS_WIDTH = 0.5
 
 
-def bandpass(u, k0: float, *, relative_width: float = BANDPASS_WIDTH, periodic: bool = False):
-    """``u`` through a Gaussian radial band-pass at ``k0``, of full width at half maximum
-    ``relative_width``·k₀, the mean removed; a non-periodic field is reflected by two wavelengths
-    first. The cheap harmonic filter: it keeps the planform and drops its harmonics and the
-    low-frequency drift (the DAF pipeline of Hoffman et al. 2000 is the other one)."""
-    k0 = float(k0)
+#: The band kept around the spectral peak by the DAF harmonic filter (Goldman et al. 2002, fn. 18).
+GOLDMAN_BAND = (0.7, 1.3)
+
+
+def radial_filter(u, gain, *, periodic: bool = False, pad: int = 0):
+    """``u`` through the radial Fourier multiplier ``gain(|k|)`` (|k| in rad/px), its mean removed;
+    reflected by ``pad`` px first when not periodic."""
     u = np.asarray(u, dtype=np.float64)
     ny, nx = u.shape
-    pad = 0 if periodic else int(math.ceil(2.0 * 2.0 * math.pi / k0))
+    pad = 0 if periodic else int(pad)
     up = np.pad(u, pad, mode="reflect") if pad else u
     ky = 2.0 * math.pi * np.fft.fftfreq(up.shape[0])[:, None]
     kx = 2.0 * math.pi * np.fft.fftfreq(up.shape[1])[None, :]
-    sigma_k = relative_width * k0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))
-    gain = np.exp(-0.5 * ((np.hypot(kx, ky) - k0) / sigma_k) ** 2)
-    gain[0, 0] = 0.0
+    g = np.asarray(gain(np.hypot(kx, ky)), dtype=np.float64)
+    g[0, 0] = 0.0
     fft = fft_policy.double()
-    out = np.real(np.asarray(fft.ifft2(np.asarray(fft.fft2(up)) * gain)))
+    out = np.real(np.asarray(fft.ifft2(np.asarray(fft.fft2(up)) * g)))
     return out[pad:pad + ny, pad:pad + nx] if pad else out
+
+
+def bandpass(u, k0: float, *, relative_width: float = BANDPASS_WIDTH, periodic: bool = False):
+    """A Gaussian band-pass at k₀ of full width at half maximum ``relative_width``·k₀: the cheap
+    harmonic filter, two wavelengths of reflection when the field is not periodic."""
+    k0 = float(k0)
+    sigma_k = relative_width * k0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))
+    return radial_filter(u, lambda k: np.exp(-0.5 * ((k - k0) / sigma_k) ** 2),
+                         periodic=periodic, pad=math.ceil(4.0 * math.pi / k0))
+
+
+def daf_filter(u, k_t: float, *, band=GOLDMAN_BAND, periodic: bool = False):
+    """Hoffman et al. 2000's harmonic filter: the field made periodic by the self-tuned DAF
+    extension (spec 25's rule; skipped when the input is periodic already), then the band
+    ``band``·k_t around the spectral peak kept, which drops the harmonics and the drift together.
+    Returns ``(filtered, block, tuned)``: the filtered field on the extended grid, the real block
+    ``(rows, cols)`` at its origin, and the extension's tuning (None for a periodic input). Where
+    the extension does not apply (``tuned.fallback``) the field is reflected by two wavelengths
+    instead; the filled gap is never part of a statistic."""
+    from dynamix.core import daf
+
+    u = np.asarray(u, dtype=np.float64)
+    block = u.shape
+    tuned = None
+    if not periodic:
+        tuned = daf.self_tune(u)
+        if tuned.fallback is None:
+            u, periodic = daf.extend_2d(u, tuned), True
+    lo, hi = (float(b) * float(k_t) for b in band)
+    filtered = radial_filter(u, lambda k: (k >= lo) & (k <= hi), periodic=periodic,
+                             pad=math.ceil(4.0 * math.pi / k_t))
+    return filtered, block, tuned
 
 
 def detrend(u, mode: str = "mean", mask=None):

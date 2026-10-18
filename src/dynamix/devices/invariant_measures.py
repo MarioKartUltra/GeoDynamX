@@ -12,6 +12,7 @@ Periodic extension's stamp or the ``periodic`` knob declares.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
@@ -47,8 +48,9 @@ class InvariantMeasures:
               choice_labels=("minimum of δ̄(1)", "spectral peak", "given λ₀"), label="k₀"),
         Param("lambda0", ParamKind.FLOAT, default=20.0, min=2.0, max=1e6, soft_min=4.0, soft_max=200.0,
               units="px", label="λ₀ (px)", active_when=("k0", ("manual",))),
-        Param("harmonic_filter", ParamKind.CHOICE, default="none", choices=("none", "bandpass"),
-              choice_labels=("none", "Gaussian band-pass at k₀"), label="Harmonic filter"),
+        Param("harmonic_filter", ParamKind.CHOICE, default="daf", choices=("daf", "bandpass", "none"),
+              choice_labels=("DAF extension + band (Hoffman 2000)", "Gaussian band-pass at k₀", "none"),
+              label="Harmonic filter"),
         Param("detrend", ParamKind.CHOICE, default="mean", choices=("mean", "plane", "none"),
               label="Detrend"),
         Param("hessian_norm", ParamKind.CHOICE, default="variance", choices=("variance", "std"),
@@ -84,32 +86,40 @@ class InvariantMeasures:
         periodic = periodized_by is not None
         deriv, sigma_d = params["deriv"], float(params["sigma_d"])
         v, valid = disorder.detrend(values, params["detrend"])
-        if progress is not None:
-            progress("invariant measures", 0.0)
+        # The Chaos filter first: it may extend the field, so the statistics' mask grows with it
+        # (the filled gap stays out) and the derivatives run on the periodic extension.
+        stats = valid
+        if params["harmonic_filter"] == "daf":
+            k_t = disorder.k0_estimate(v, "spectral_peak", mask=valid, detrend_mode="none")
+            v, block, tuned = disorder.daf_filter(v, k_t, periodic=periodic)
+            if tuned is not None and tuned.fallback is None:
+                periodic, periodized_by = True, "daf extension"
+                stats = np.zeros(v.shape, dtype=bool)
+                stats[:block[0], :block[1]] = valid
+            filter_record = {"method": "daf", "band": list(disorder.GOLDMAN_BAND), "k_t": k_t,
+                             "extension": None if tuned is None else dataclasses.asdict(tuned)}
 
         if params["k0"] == "manual":
             k0 = 2.0 * math.pi / float(params["lambda0"])
             k0_record = {"method": "manual", "value": k0, "lambda_px": float(params["lambda0"])}
         else:
             k0 = disorder.k0_estimate(v, params["k0"], deriv=deriv, sigma_d=sigma_d,
-                                      periodic=periodic, mask=valid, detrend_mode="none")
+                                      periodic=periodic, mask=stats, detrend_mode="none")
             k0_record = {"method": params["k0"], "value": k0, "lambda_px": 2.0 * math.pi / k0}
 
         if params["harmonic_filter"] == "bandpass":
             v = disorder.bandpass(v, k0, periodic=periodic)
             filter_record = {"method": "bandpass", "relative_width": disorder.BANDPASS_WIDTH}
-        else:
+        elif params["harmonic_filter"] == "none":
             filter_record = {"method": "none"}
 
-        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic, mask=valid, detrend_mode="none")
-        density = disorder.helmholtz_density(v, k0, **kw)
-        hessian = disorder.hessian_density(v, norm=params["hessian_norm"], **kw)
+        ny, nx = values.shape
+        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic, mask=stats, detrend_mode="none")
+        density = disorder.helmholtz_density(v, k0, **kw)[:ny, :nx]
+        hessian = disorder.hessian_density(v, norm=params["hessian_norm"], **kw)[:ny, :nx]
         floor = float(params["beta_floor"]) or None
         delta = disorder.disorder_moments(density, disorder.DELTA_BETAS, floor=floor)
         mu = disorder.hessian_measure(hessian, disorder.MU_BETAS, floor=floor)
-        if progress is not None:
-            progress("invariant measures", 1.0)
-
         deriv_record = {"scheme": deriv, "reach_px": disorder.reach(deriv, sigma_d)}
         if deriv == "daf":
             deriv_record.update(disorder.DAF_DEFAULTS)
