@@ -4754,18 +4754,22 @@ both ``Canvas`` signals report the
 
     def _on_step_selected(self, i: int) -> None:
         """A chain box was clicked (or the strip rebuilt, ``i`` negative): the inspector's Device
-        section shows that step's strip knobs, basic open and advanced collapsed."""
+        section shows that step's knobs the box does not -- its advanced ones, and a superseded
+        one a recipe holds -- or hides where the box shows them all."""
         if not (0 <= i < len(self._names)):
             self._hide_device_section()
             return
         device = get_device(self._names[i])
-        params = [p for p in device.params if not p.section and p.kind is not ParamKind.TEXT]
-        self._inspected_step = i
         values = {**defaults_for(device), **self._params[i]}      # a step stores only what it set
+        params = [p for p in device.params if not p.section and p.kind is not ParamKind.TEXT
+                  and p.level != "basic"]
+        shown = [p for p in params
+                 if p.level != "hidden" or values.get(p.name, p.default) != p.default]
+        self._inspected_step = i
         if self._device_panel.set_device(params, values):
             self.right_panel.protect_from_wheel(self._device_panel)
         self.right_panel.set_section_title("Device", f"Device: {label_of(device)}")
-        self.right_panel.apply_relevance({"Device": True})
+        self.right_panel.apply_relevance({"Device": bool(shown)})
 
     def _hide_device_section(self) -> None:
         self._inspected_step = None

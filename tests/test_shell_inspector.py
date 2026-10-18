@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The inspector follows the selection: a chain step's knobs, basic open and advanced collapsed."""
+"""The inspector follows the selection: a chain step's knobs the rack does not show (its advanced
+ones, and a superseded one a recipe holds), drawn open; the basic ones live on the strip only."""
 from __future__ import annotations
 
 from PySide6 import QtWidgets
@@ -28,6 +29,17 @@ def test_device_panel_keeps_advanced_knobs_collapsed_until_asked(qtbot):
     assert _val(panel.controls["a"]) == 3
 
 
+def test_with_only_advanced_knobs_the_panel_draws_them_open(qtbot):
+    """What the inspector is handed for a step: the knobs the strip does not show. With no basic
+    knob among them there is nothing to fold away, so they draw open with no toggle."""
+    panel = DevicePanel()
+    qtbot.addWidget(panel)
+    panel.show()
+    panel.set_device((Param("b", ParamKind.INT, default=2, min=0, max=9, level="advanced"),),
+                     {"b": 2})
+    assert panel.controls["b"].isVisible() and not panel.advanced_button.isVisible()
+
+
 def test_selecting_a_step_shows_its_knobs_and_a_layer_hides_them(qtbot, loaded):
     w = loaded
     section = w.right_panel._sections["Device"]
@@ -35,7 +47,7 @@ def test_selecting_a_step_shows_its_knobs_and_a_layer_hides_them(qtbot, loaded):
     w.strips.strip(0).selected.emit()
     assert not section.isHidden() and w._inspected_step == 0
     assert section.isAncestorOf(w._device_panel)
-    assert "n_scales" in w._device_panel.controls
+    assert "gain" in w._device_panel.controls and "n_scales" not in w._device_panel.controls
     assert w.right_panel._headings["Device"].text().startswith("Device")
     w.layer_list.layerSelected.emit(w.layer.layer_id)
     assert section.isHidden() and w._inspected_step is None
@@ -56,14 +68,21 @@ def test_a_chain_rebuild_keeps_the_device_section_on_the_surviving_step(qtbot, l
     assert section.isHidden() and w._inspected_step is None
 
 
-def test_an_inspector_edit_takes_the_box_edit_path_and_mirrors_into_the_box(qtbot, loaded):
+def test_an_inspector_edit_takes_the_box_edit_path(qtbot, loaded):
     w = loaded
     w.strips.strip(0).selected.emit()
-    w._device_panel.paramChanged.emit("n_scales", 5)
-    assert w._params[0]["n_scales"] == 5
-    assert _val(w.strips.strip(0).controls["n_scales"]) == 5
-    w.strips.strip(0).controls["n_scales"].valueChanged.emit(6)       # a box edit
-    assert _val(w._device_panel.controls["n_scales"]) == 6
+    w._device_panel.paramChanged.emit("gain", 3)
+    assert w._params[0]["gain"] == 3
+    assert _val(w._device_panel.controls["gain"]) == 3
+
+
+def test_a_step_with_nothing_beyond_the_rack_hides_the_device_section(qtbot, loaded):
+    w = loaded
+    section = w.right_panel._sections["Device"]
+    w.strips.strip(1).selected.emit()                        # scale_select: one basic knob
+    assert section.isHidden()
+    w.strips.strip(0).selected.emit()
+    assert not section.isHidden()
 
 
 def test_a_refused_inspector_edit_shows_in_neither_control(qtbot, loaded):
@@ -71,12 +90,11 @@ def test_a_refused_inspector_edit_shows_in_neither_control(qtbot, loaded):
     only proposes a value, the owner shows it once accepted)."""
     w = loaded
     w.strips.strip(0).selected.emit()
-    before = _val(w.strips.strip(0).controls["n_scales"])
+    before = w._params[0].get("gain", 1)
     w.layer.tags["ui.lock"] = "1"
-    knob = w._device_panel.controls["n_scales"]
+    knob = w._device_panel.controls["gain"]
     knob.set_value(before + 1)                        # the user turned the inspector knob...
     knob.valueChanged.emit(before + 1)                # ...and the panel proposed the value
-    assert w._params[0].get("n_scales", before) == before
-    assert _val(w.strips.strip(0).controls["n_scales"]) == before
+    assert w._params[0].get("gain", before) == before
     assert _val(knob) == before
     assert "locked" in w.strips.reading_label.text()          # refused for that reason, and said so

@@ -57,7 +57,10 @@ class _StubStack:
     """Stand-in for wtmm2d: a Transform (compute + cache_key) with one param to turn."""
 
     name = "stub_stack"
-    params = (Param("n_scales", ParamKind.INT, default=3, min=1, max=8, label="Scales"),)
+    params = (Param("n_scales", ParamKind.INT, default=3, min=1, max=8, label="Scales"),
+              # an advanced knob, so the inspector (which shows what the strip does not) has one
+              Param("gain", ParamKind.INT, default=1, min=1, max=4, label="Gain",
+                    level="advanced"))
 
     #: (event, seconds, thread name) per compute, so a compute that never ends says whether the
     #: worker reached the device at all.

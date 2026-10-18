@@ -704,10 +704,11 @@ class ReconstructionPanel(QtWidgets.QWidget):
 
 
 class DevicePanel(QtWidgets.QWidget):
-    """The inspector's Device section: the selected chain step's knobs, basic ones open, advanced
-    ones under a collapsed toggle. Built the way ReconstructionPanel builds knobs; an edit leaves
-    as ``paramChanged`` and the window writes it through the step's own path, so this widget holds
-    no param state of its own."""
+    """The inspector's Device section: the knobs it is handed, basic ones open, advanced ones
+    under a collapsed toggle, or open when there is no basic one to fold them under (the window
+    hands it a step's knobs the strip does not show). Built the way ReconstructionPanel builds
+    knobs; an edit leaves as ``paramChanged`` and the window writes it through the step's own
+    path, so this widget holds no param state of its own."""
     paramChanged = QtCore.Signal(str, object)
 
     def __init__(self, parent=None):
@@ -787,7 +788,9 @@ class DevicePanel(QtWidgets.QWidget):
             cell.show()                      # a cell added to a shown panel appears at once
             counts[level] += 1
             self.controls[p.name], self._cells[p.name] = control, cell
-        self.advanced_button.setVisible(counts["advanced"] > 0)
+        folded = counts["basic"] > 0 and counts["advanced"] > 0
+        self.advanced_button.setVisible(folded)
+        self._advanced_host.setVisible(self.advanced_button.isChecked() or not folded)
         self._names = tuple(p.name for p in params)
 
 
