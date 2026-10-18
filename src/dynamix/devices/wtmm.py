@@ -219,6 +219,12 @@ BOUNDARY_PARAMS = (
           choice_labels=("auto", "reflect", "periodic", "edge-value padding", "zero padding",
                          "Gaussian taper", "cut at COI", "DAF periodic"),
           hidden_choices=("cut", "daf_periodic"), label="Edge"),
+    # On a Periodic extension output: the maxima kept to the real block and the threshold read
+    # from it (the filled gap is padding), or the whole extended field analysed, gap included, so
+    # the two spectra can be compared. On any other field the two are the same.
+    Param("extent", ParamKind.CHOICE, default="real_data", choices=("real_data", "whole_field"),
+          choice_labels=("real data", "whole extended field"), label="Analyse",
+          keyed_at_default=False),
     Param("pad_width", ParamKind.CHOICE, default="measured_reach",
           choices=("measured_reach", "fixed_px", "border_pct"),
           choice_labels=("measured reach", "fixed px", "border %"), label="Padding",
@@ -620,12 +626,14 @@ class WTMM2D:
                                        smoother_params=smoother_params(params),
                                        eps=params["edge_eps"], pad_px=params["pad_px"],
                                        pad_pct=params["pad_pct"], run_grid=max(shape))
+        extent = params.get("extent", "real_data")
         out = dict(backend_params, pad=max(widths) if widths else 0, pad_mode=edge,
                    border_cut=params["border_cut"], border_pct=params["border_pct"],
                    border_k=params["border_k"], border_scope=params["border_scope"],
-                   edge_eps=params["edge_eps"], real_block=filled_block(field))
+                   edge_eps=params["edge_eps"],
+                   real_block=filled_block(field) if extent == "real_data" else None)
         record = {"edge": edge, "pad_width": params["pad_width"] if edge != "periodic" else None,
-                  "widths": widths, "pad": out["pad"], "notes": notes}
+                  "widths": widths, "pad": out["pad"], "notes": notes, "extent": extent}
         return out, record
 
     def footprint(self, field, params: dict, level: int, stride: int = 1) -> "dict | None":

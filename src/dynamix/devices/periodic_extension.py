@@ -47,13 +47,14 @@ class PeriodicExtension:
     #: Input-preserving: an extended field stays a field.
     produces = (RECEIVED,)
 
+    #: The DAF's three knobs sit on the tool's box in the rack.
     params = (
         Param("band_frac", ParamKind.FLOAT, default=0.99, min=0.5, max=0.9999, soft_min=0.9,
-              soft_max=0.999, label="Band limit (fraction of the power)", level="advanced"),
+              soft_max=0.999, label="Band limit (fraction of the power)"),
         Param("M", ParamKind.INT, default=12, min=2, max=40, soft_min=4, soft_max=24,
-              label="DAF order M", level="advanced"),
+              label="DAF order M"),
         Param("lam", ParamKind.FLOAT, default=1e-3, min=0.0, max=1.0, soft_min=0.0, soft_max=0.01,
-              label="Regularization λ", level="advanced"),
+              label="Regularization λ"),
     )
 
     @staticmethod
