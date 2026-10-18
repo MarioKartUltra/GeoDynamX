@@ -367,7 +367,8 @@ def _display_style_of(layer) -> dict:
 #: ``tests/test_roles.py`` asserts.
 _PRIMARY_ANALYZERS = ("wtmm2d", "mz_edges", "wavelet_skeleton", "cdf_edges", "pm_edges",
                       "holder_map", "holder_measure", "holder_multiaffine", "band_recon",
-                      "band_recon_measure", "band_recon_multiaffine", "lineal_path")
+                      "band_recon_measure", "band_recon_multiaffine", "lineal_path",
+                      "invariant_measures")
 
 #: The band-reconstruction devices, newest first, and the variant each
 #: h-map producer's band fork commits -- the variant whose engine params are the producer's

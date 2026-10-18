@@ -304,6 +304,12 @@
    "mod": [],
    "raster_out": -94318.4453125
   },
+  "invariant_measures": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": 7146.221259915415
+  },
   "lineal_path": {
    "chains": 0,
    "levels": [],

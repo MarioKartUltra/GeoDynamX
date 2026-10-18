@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""The Invariant measures tool (spec 19, Phase A): the device over ``dynamix.core.disorder`` —
+the field-form disorder δ̄(β), its total and rooted mean, and the Hessian measure μ(β) of one field,
+with k₀ found or given, the derivative scheme recorded, and the two densities as rasters."""
+from __future__ import annotations
+
+import math
+
+import numpy as np
+import pytest
+
+from dynamix.core import disorder
+from dynamix.core.frames import LocalFrame
+from dynamix.core.rasterfield import RasterField
+from dynamix.model.contracts import CURVE, FIELD
+from dynamix.model.device import defaults_for, get_device, keyed_params, validate_params
+
+
+@pytest.fixture
+def dev(clean_registry):
+    from dynamix.devices import register_builtin_devices
+
+    register_builtin_devices()
+    return get_device("invariant_measures")
+
+
+def _field(values, provenance=None):
+    values = np.asarray(values, dtype=np.float64)
+    return RasterField(name="f", values=values, frame=LocalFrame(units="px"),
+                       x_axis=np.arange(float(values.shape[1])),
+                       y_axis=np.arange(float(values.shape[0])), provenance=provenance or {})
+
+
+def _stripes(n: int, cycles: int, angle: float = 0.0) -> np.ndarray:
+    y, x = np.mgrid[0:n, 0:n].astype(np.float64)
+    k = 2.0 * math.pi * cycles / n
+    return np.cos(k * (x * math.cos(angle) + y * math.sin(angle)))
+
+
+def test_the_device_is_registered_under_microstructure_and_produces_a_curve(dev):
+    assert dev.label == "Invariant measures (Gunaratne)" and dev.families == ("Microstructure",)
+    assert dev.consumes == ((FIELD,),) and CURVE in dev.produces
+
+
+def test_the_defaults_are_the_papers_and_the_record_names_the_scheme(dev):
+    p = validate_params(dev, {})
+    assert (p["deriv"], p["k0"], p["harmonic_filter"], p["detrend"], p["hessian_norm"]) == (
+        "daf", "min_disorder", "none", "mean", "variance")
+    assert p["sigma_d"] == 1.0 and p["periodic"] is False
+    res = dev.compute(_field(_stripes(128, 6)), p)
+    assert res["record"]["deriv"] == {"scheme": "daf", "M": 12, "sigma_over_dx": 4.0, "reach_px": disorder.reach("daf")}
+    assert res["record"]["k0"]["method"] == "min_disorder"
+    assert {"deriv", "k0", "harmonic_filter", "detrend", "hessian_norm"} <= set(keyed_params(dev, p))
+
+
+def test_perfect_periodic_stripes_read_zero_and_find_their_wavenumber(dev):
+    n, cycles = 128, 6
+    found = dev.compute(_field(_stripes(n, cycles)), validate_params(dev, {"periodic": True}))
+    assert found["k0"] == pytest.approx(2.0 * math.pi * cycles / n, rel=1e-6)
+    assert found["mean_field_disorder"][3] < 1e-6          # β = 1 at the found k₀: a residual
+    # the exact zero needs the exact k₀: a found one is right to ~1e-12, and (1e-12)^0.1 is 0.06
+    res = dev.compute(_field(_stripes(n, cycles)),
+                      validate_params(dev, {"periodic": True, "k0": "manual", "lambda0": n / cycles}))
+    assert np.array_equal(res["beta_delta"], disorder.DELTA_BETAS)
+    assert np.array_equal(res["beta_mu"], disorder.MU_BETAS)
+    assert np.all(res["mean_field_disorder"] == 0.0) and np.all(res["total_field_disorder"] == 0.0)
+    assert np.all(res["rooted_mean_field_disorder"] == 0.0)
+    assert np.all(res["hessian_measure"] == 0.0)                 # u = f(x): det H = 0
+    assert res["raster_out"] is res["field_disorder_density"] and res["raster_out"].shape == (n, n)
+    assert res["hessian_density"].shape == (n, n) and res["_shape"] == (n, n)
+    from dynamix.core.derivative import raster_choices
+
+    labels = [label for label, _arr in raster_choices(res)]
+    assert labels[0] == "as shown" and "D(x)" in labels and "|Λ(x)|" in labels
+
+
+def test_a_given_wavelength_and_the_hessian_raster_on_show(dev):
+    n = 128
+    p = validate_params(dev, {"k0": "manual", "lambda0": 20.0, "show": "hessian_density"})
+    res = dev.compute(_field(_stripes(n, 5)), p)
+    assert res["k0"] == pytest.approx(2.0 * math.pi / 20.0)
+    assert res["record"]["k0"] == {"method": "manual", "value": res["k0"], "lambda_px": 20.0}
+    assert res["raster_out"] is res["hessian_density"]
+    assert res["mean_field_disorder"][3] > 0.1                     # β = 1: detuned stripes
+    # show is view-only: a flip is a cache hit through view(), never a recompute
+    assert "show" not in keyed_params(dev, p)
+    assert dev.view(res, {"show": "field_disorder_density"})["raster_out"] is res["field_disorder_density"]
+
+
+def test_spectral_derivatives_need_a_periodized_input(dev):
+    field = _field(_stripes(96, 4)[:80, :70])
+    with pytest.raises(ValueError, match="Periodic extension"):
+        dev.compute(field, validate_params(dev, {"deriv": "spectral"}))
+    declared = dev.compute(field, validate_params(dev, {"deriv": "spectral", "periodic": True}))
+    assert declared["record"]["deriv"]["periodized_by"] == "declared periodic"
+    stamped = _field(_stripes(96, 4), provenance={"edges.filled": {"rows": 80, "cols": 70}})
+    extended = dev.compute(stamped, validate_params(dev, {"deriv": "spectral"}))
+    assert extended["record"]["deriv"]["periodized_by"] == "edges.filled"
+    assert "periodized_by" not in dev.compute(field, validate_params(dev, {}))["record"]["deriv"]
+
+
+def test_the_reading_names_the_wavelength_and_both_measures_at_beta_1(dev):
+    p = validate_params(dev, {})
+    res = dev.compute(_field(_stripes(128, 5, angle=0.4)), p)
+    reading = dev.reading(res, p)
+    assert "λ₀" in reading and "δ̄(1)" in reading and "μ(1)" in reading and "px" in reading
+
+
+def test_the_roi_margin_is_the_schemes_reach(dev):
+    assert dev.roi_margin(validate_params(dev, {})) == disorder.reach("daf")
+    assert dev.roi_margin(validate_params(dev, {"deriv": "gaussian", "sigma_d": 2.0})) == disorder.reach("gaussian", 2.0)
+    assert dev.roi_margin(validate_params(dev, {"deriv": "spectral", "periodic": True})) == 0
+
+
+def test_the_bandpass_filter_removes_a_second_harmonic(dev):
+    """Stripes plus their second harmonic: the Gaussian band-pass at k₀ (relative width 0.5)
+    leaves nearly perfect stripes, so δ̄(1) drops well below the unfiltered value."""
+    n, cycles = 192, 6
+    u = _stripes(n, cycles) + 0.3 * _stripes(n, 2 * cycles)
+    raw = dev.compute(_field(u), validate_params(dev, {"periodic": True, "k0": "manual",
+                                                      "lambda0": n / cycles}))
+    filtered = dev.compute(_field(u), validate_params(dev, {"periodic": True, "k0": "manual",
+                                                           "lambda0": n / cycles,
+                                                           "harmonic_filter": "bandpass"}))
+    assert filtered["mean_field_disorder"][3] < 0.1 * raw["mean_field_disorder"][3]
+    assert filtered["record"]["harmonic_filter"] == {"method": "bandpass", "relative_width": 0.5}

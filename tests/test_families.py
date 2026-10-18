@@ -69,6 +69,7 @@ LABELS = {
     "holder_multiaffine": "Microcanonical MFA, multiaffine",
     "wavelet_skeleton": "Wavelet skeleton",
     "lineal_path": "Lineal path",
+    "invariant_measures": "Invariant measures (Gunaratne)",
     "pca": "PCA",
     "tucker_HOOI_HOSVD": "Tucker (HOOI / HOSVD)",
     "ssa2d": "2-D SSA",
@@ -108,7 +109,7 @@ FAMILY_TREE = {
     "Selection: V-chains": {"chain_holder", "chain_modulus", "chain_length", "chain_classify",
                             "min_vchains", "group_filter"},
     "Points": {"backproject"},
-    "Microstructure": {"lineal_path"},
+    "Microstructure": {"lineal_path", "invariant_measures"},
     "Other": set(),
     "Labs": set(),                        # experimental plugins declare it; no built-in does
 }

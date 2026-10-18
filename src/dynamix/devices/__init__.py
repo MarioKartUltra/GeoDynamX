@@ -20,6 +20,7 @@ from dynamix.devices.decompose import PCADevice, TuckerHavok, TuckerHOOIHOSVD
 from dynamix.devices.ssa2d import SSA2D
 from dynamix.devices.dwt2d import DWT2D
 from dynamix.devices.inpaint import Fill, Inpaint
+from dynamix.devices.invariant_measures import InvariantMeasures
 from dynamix.devices.lineal_path import LinealPath
 from dynamix.devices.derived_vectors import DerivedVectors
 from dynamix.devices.chain_classify import ChainClassify
@@ -119,6 +120,7 @@ BUILTIN_DEVICES = (
     StubHolder,
     StubWedge,
     LinealPath,
+    InvariantMeasures,
 )
 
 

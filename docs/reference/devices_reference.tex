@@ -640,6 +640,39 @@ probability that a segment of $r$ pixels dropped along a row or a column lies en
 $L(0)$ is the phase fraction and $L$ never increases. It produces a Curve, the pair $(r, L(r))$,
 counted exactly from the phase-1 run lengths without periodic wrap.
 
+\subsection*{Invariant measures (Gunaratne)}\label{sec:invariant-measures}
+\tool{Invariant measures (Gunaratne)}{invariant\_measures} (family Microstructure) computes two
+families of Euclidean-invariant measures of one field from local densities of its second
+derivatives. The \emph{disorder function} of a locally striped pattern, in its field form
+(Gunaratne, Hoffman and Kouri 1998, PRE 57:5146, Eq.~2): the density
+$D(x) = |(\Delta + k_0^2)u| / (k_0^2 \langle|u|\rangle)$ vanishes on perfect stripes of wavenumber
+$k_0$, and its moments give the mean disorder $\bar\delta(\beta) = (2-\beta)\langle D^\beta\rangle$
+(dimensionless), the total $|\Omega|\,\bar\delta(\beta)$ in px$^2$ and the rooted mean
+$\bar\delta(\beta)^{1/\beta}$ (Hu et al.\ 2005), for $0 < \beta < 2$ at
+$\beta \in \{0.1, 0.25, 0.5, 1, 1.5, 1.9\}$. The \emph{Hessian measure} of a surface without a
+planform (Nathan and Gunaratne 2005, PRE 71:035101, Eq.~1): $|\Lambda(x)| = |u_{xx}u_{yy} -
+u_{xy}^2| / \mathrm{Var}(u)$ and $\mu(\beta) = \langle|\Lambda|^\beta\rangle^{1/(4\beta)}$ in
+px$^{-1}$ at $\beta \in \{0.1, 0.25, 0.5, 1, 2, 3, 3.4, 5\}$. $\beta$ is the moment order
+throughout; the 1995 PRL writes it $\mu$. Both curves are Curve outputs against $\beta$; the two
+densities are rasters, \texttt{show} picking the one on screen. Derivatives (\texttt{deriv}) are
+Fourier multipliers: the papers' Hermite DAF (M = 12, $\sigma/\Delta$ = 4, PRE 57 p.~5147; the
+default), a derivative of Gaussian of width \texttt{sigma\_d} px, or spectral derivatives, which
+need a periodized input --- a Periodic extension's stamp, or \texttt{periodic} declaring the field
+periodic as it stands. The two Helmholtz terms are filtered alike and the normalising
+$\langle|u|\rangle$ carries the same smoothing, so a perfect stripe reads exactly zero whatever the
+scheme; a non-periodic field is reflected past its edges by the kernel's reach first. \texttt{k0}
+is the minimum of $\bar\delta(1)$ over a bracket around the spectral peak (Gunaratne, Ratnaweera
+and Tennekone 1999; convex in $1/k_0^2$, so unique), the spectral peak itself, or a given
+wavelength \texttt{lambda0} in px. \texttt{harmonic\_filter}: none, or a Gaussian radial band-pass
+at $k_0$ of relative width 0.5 (full width at half maximum), which drops harmonics and drift.
+\texttt{detrend} removes the mean (default) or a plane first; \texttt{hessian\_norm} keeps the
+variance of PRE 2005 Eq.~1, the standard deviation being a diagnostic that breaks the inverse-length
+dimensions. A density below $10^{-12}$ is a numerical zero. Negative moment orders are not in the
+default grids; when asked for, the density is clipped at \texttt{beta\_floor} (0 takes $10^{-6}$ of
+the mean density), the floored pixels are counted and a warning says how much a tenfold higher
+floor would change the value. The record names the scheme, its reach, $k_0$ and how it was found,
+the filter, the normalisation of each published curve and the floor.
+
 \subsection*{Gradient arrows and anisotropy}\label{sec:arrows}
 The argument $\mathcal{A}=\arg T_\psi$ of each maximum points uphill in the pixel frame:
 $0^\circ$ toward increasing column, $+90^\circ$ toward increasing row (clockwise on screen).
