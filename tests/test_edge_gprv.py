@@ -219,6 +219,10 @@ def test_a_padded_spike_does_not_move_the_threshold(tmp_path, monkeypatch, edge)
         pa = {(int(y), int(x)) for y, x in zip(a["y"][keep], a["x"][keep])}
         keepb = _far(b)
         pb = {(int(y), int(x)) for y, x in zip(b["y"][keepb], b["x"][keepb])}
-        assert pa == pb
-        far += len(pa)
+        # A 1e4 spike also raises the FFT's float32 round-off floor everywhere (about 1e4 times the
+        # machine epsilon), which can flip a point sitting at the threshold or at a tie, and which
+        # bits flip differs between FFT engines and versions. A threshold that read the spike would
+        # drop hundreds of points, so two per scale is the tolerance.
+        assert len(pa ^ pb) <= 2, (sorted(pa ^ pb), len(pa), len(pb))
+        far += len(pa & pb)
     assert far > 0

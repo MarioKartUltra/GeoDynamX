@@ -97,7 +97,9 @@ def test_the_region_runner_matches_the_file_path(tmp_path):
     for g, w in zip(got["extrema"], want["extrema"]):
         pg, pw = _points(g), _points(w)
         assert pg.keys() == pw.keys()
-        assert np.allclose([pg[k] for k in pw], [pw[k] for k in pw], rtol=1e-6, atol=1e-9)
+        # float32: the two paths transform the same pixels on differently padded windows, so the
+        # moduli agree to the engine's float32 round-off, not bit for bit.
+        assert np.allclose([pg[k] for k in pw], [pw[k] for k in pw], rtol=1e-5, atol=1e-7)
 
 
 def test_a_whole_raster_runs_on_its_periodic_extension():
