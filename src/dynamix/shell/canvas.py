@@ -1752,17 +1752,19 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.fill_outline_item.setData(xs[:n] + (c0 + dc), ys[:n] + (r0 + dr))
 
     def set_footprint(self, footprint: "dict | None") -> None:
-        """Draw a WTMM edge footprint (``WTMM2D.footprint``): ``padded`` (every ``stride``-th
-        pixel, its first sample ``offset`` px before the raster's first) faintly outside the
-        raster, the padded extent ``shown`` px out as a dashed outline, and ``border`` px inside
-        each edge hatched; None clears it."""
+        """Draw a WTMM edge footprint (``WTMM2D.footprint`` / ``roi_footprint``) of the block of
+        ``shape`` at ``origin`` (the raster's own px; ``(0, 0)``, the whole raster, by default):
+        ``padded`` (every ``stride``-th px, its first sample ``offset`` px before the block's
+        first) faintly wherever the raster on show has no pixel, the block's extent ``shown`` px
+        out as a dashed outline, and ``border`` px inside its edges hatched; None clears it."""
         if footprint is None:
             self.clear_footprint()
             return
         br, bc = self._base_off
         H, W = (int(v) for v in footprint["shape"])
+        r0, c0 = (int(v) for v in footprint.get("origin", (0, 0)))
         out, b = int(footprint["shown"]), int(footprint["border"])
-        x0, y0 = bc - 0.5, br - 0.5
+        x0, y0 = bc + c0 - 0.5, br + r0 - 0.5
         if out > 0:
             self.footprint_outline_item.setData(
                 np.array([x0 - out, x0 + W + out, x0 + W + out, x0 - out, x0 - out], dtype=float),
@@ -1771,11 +1773,15 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self.footprint_outline_item.setData([], [])
         s, off = int(footprint["stride"]), int(footprint["offset"])
         padded = np.array(footprint["padded"], dtype=np.float64)
-        # The raster on show draws its own pixels; a footprint larger than it (an in-chain
-        # extension's gap) keeps the rest.
+        # The raster on show draws its own pixels (an ROI's real halo, the whole raster); the
+        # rest -- the mirror past its edges, an in-chain extension's gap -- is drawn here.
         shown_h, shown_w = np.shape(getattr(self._field, "values", np.empty((H, W))))[:2]
-        q, n_y, n_x = -off // s, -(-min(H, shown_h) // s), -(-min(W, shown_w) // s)
-        padded[q:q + n_y, q:q + n_x] = np.nan
+        k = display_stride(self._field) if self._field is not None else 1
+        rows = r0 + off + s * np.arange(padded.shape[0])
+        cols = c0 + off + s * np.arange(padded.shape[1])
+        on_raster = (((rows >= 0) & (rows < shown_h * k))[:, None]
+                     & ((cols >= 0) & (cols < shown_w * k))[None, :])
+        padded[on_raster] = np.nan
         if out > 0 and np.isfinite(padded).any():
             levels = self.image_item.getLevels()
             values = np.asarray(getattr(self._field, "values", padded), dtype=np.float64)

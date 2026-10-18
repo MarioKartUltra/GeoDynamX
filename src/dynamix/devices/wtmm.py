@@ -674,6 +674,36 @@ class WTMM2D:
         return {"edge": edge, "pad": pad, "shown": shown, "padded": padded, "stride": s,
                 "offset": -q * s, "border": width, "band": band, "shape": (H, W)}
 
+    def roi_footprint(self, field, params: dict, rect, level: int, stride: int = 1) -> dict:
+        """The footprint of the run on an ROI ``rect = (row, col, h, w)`` (the field's own px):
+        scale ``level``'s halo (spec 22's halo plan; the whole dataset where the reach does not
+        converge), as the run reads it -- the dataset where it has pixels, mirrored about its
+        edges past them (``_reflect_pad``'s rule) -- sampled every ``stride`` px. An ROI has no
+        Border cut: that runs on whole rasters."""
+        from dynamix.roi.picture import display_stride
+
+        v = np.asarray(field.values, dtype=np.float64)
+        v = v[..., 0] if v.ndim == 3 else v
+        k = display_stride(field)                     # file px per stored sample (a picture)
+        H, W = v.shape[0] * k, v.shape[1] * k
+        r, c, h, w = (int(x) for x in rect)
+        plan = self._halo_plan(params, parent_shape=(H, W))
+        sh = plan[min(max(int(level), 0), len(plan) - 1)]
+        m = max(r, c, H - r - h, W - c - w) if sh.whole else int(sh.margin)
+        s = max(1, int(stride)) * k
+
+        def axis(start, length, n):
+            px = start - m + s * np.arange(-(-(length + 2 * m) // s))
+            period = 2 * (n - 1)
+            px = np.abs(px) % period if period > 0 else np.zeros_like(px)
+            px = np.where(px >= n, period - px, px)
+            return np.minimum(px // k, n // k - 1)
+
+        return {"edge": "reflect", "pad": m, "shown": m, "padded": v[np.ix_(axis(r, h, H),
+                                                                            axis(c, w, W))],
+                "stride": s, "offset": -m, "border": 0, "band": "border_cut", "shape": (h, w),
+                "origin": (r, c)}
+
     def knob_warnings(self, field, params: dict) -> dict:
         """The knobs whose value the grid cannot carry honestly, for the strip's ⚠: ``a_min`` by
         :func:`eta_warning`, ``edge`` where the Gaussian taper would not fit this field or where

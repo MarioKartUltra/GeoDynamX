@@ -10572,11 +10572,26 @@ both ``Canvas`` signals report the
         prior = [DeviceRef(self._names[k], dict(self._params[k])) for k in range(i)
                  if not self._bypassed[k]]
         field = cached_input(self.layer, dataset, self.cache, prior)
+        params, level = validate_params(device, self._params[i]), shown_level(self.layer) or 0
+        roi = self.layer.tags.get("roi.window")
         try:
-            footprint = device.footprint(dataset if field is None else field,
-                                         validate_params(device, self._params[i]),
-                                         shown_level(self.layer) or 0,
-                                         stride=self.canvas._image_stride)
+            if roi and field is dataset:
+                # An ROI's run reads each scale's halo around the ROI: its footprint sits there.
+                from dynamix.shell.canvas import window_offset
+
+                r, c, h, w = (int(v) for v in roi.split(","))
+                wr, wc = window_offset(dataset)
+                footprint = device.roi_footprint(dataset, params, (r - wr, c - wc, h, w), level,
+                                                 stride=self.canvas._image_stride)
+            else:
+                footprint = device.footprint(dataset if field is None else field, params, level,
+                                             stride=self.canvas._image_stride)
+                if footprint is not None and field is not None and field is not dataset:
+                    # a field made on an ROI (an extension) starts where its window does
+                    from dynamix.shell.canvas import window_offset
+
+                    (fr, fc), (dr, dc) = window_offset(field), window_offset(dataset)
+                    footprint["origin"] = (fr - dr, fc - dc)
         except (KeyError, ValueError):
             footprint = None
         self.canvas.set_footprint(footprint)

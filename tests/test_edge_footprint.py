@@ -106,3 +106,21 @@ def test_the_field_reaching_a_step_is_read_from_the_cache_alone(wtmm, field):
     extended = cached_input(layer, field, cache, prior)
     assert "edges.filled" in extended.provenance
     assert wtmm.footprint(extended, _params(wtmm), 0)["edge"] == "periodic"
+
+
+def test_on_an_roi_the_footprint_is_its_halo_mirrored_past_the_dataset(wtmm, field):
+    """An ROI's run reads each scale's halo off the dataset and mirrors only past the dataset's
+    edges (spec 22): the footprint sits on the ROI, as wide as the shown scale's halo, its content
+    the dataset there and the mirror beyond, with no Border cut (that runs on whole rasters)."""
+    params = _params(wtmm)
+    rect = (3, 20, 40, 40)
+    fp = wtmm.roi_footprint(field, params, rect, 0)
+    m = wtmm._halo_plan(params, parent_shape=(128, 128))[0].margin
+    assert fp["pad"] == fp["shown"] == m > 3 and fp["offset"] == -m
+    assert fp["origin"] == (3, 20) and fp["shape"] == (40, 40) and fp["border"] == 0
+    v = np.asarray(field.values)
+    assert fp["padded"].shape == (40 + 2 * m, 40 + 2 * m)
+    np.testing.assert_array_equal(fp["padded"][m:m + 40, m:m + 40], v[3:43, 20:60])
+    np.testing.assert_array_equal(fp["padded"][m - 4, m:m + 40], v[1, 20:60])   # row -1 mirrors 1
+    coarse = wtmm.roi_footprint(field, params, rect, 7)
+    assert coarse["pad"] > m                                                    # its own halo

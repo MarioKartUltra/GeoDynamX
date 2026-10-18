@@ -95,3 +95,17 @@ def test_an_extensions_gap_beyond_the_shown_raster_is_drawn_faintly(qtbot):
     assert np.isnan(shown[4:20, 4:20]).all()
     assert np.isfinite(shown[20:24, 4:24]).all() and np.isfinite(shown[4:24, 20:24]).all()
     assert _extent(canvas.footprint_outline_item) == (-4.5, 23.5, -4.5, 23.5)
+
+
+def test_an_roi_footprint_sits_on_the_roi_and_only_the_mirror_is_drawn(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(_field(16))
+    fp = {**_footprint(n=6, pad=4, border=0), "origin": (2, 3)}          # a 6 px ROI at (2, 3)
+    canvas.set_footprint(fp)
+    assert _extent(canvas.footprint_outline_item) == (3 - 4.5, 3 + 5.5 + 4, 2 - 4.5, 2 + 5.5 + 4)
+    shown = np.asarray(canvas.footprint_image_item.image)          # (x, y), first sample at (-1, -2)
+    assert np.isfinite(shown[0]).all() and np.isfinite(shown[:, 0]).all()   # past the dataset
+    assert np.isnan(shown[1:, 2:]).all()                                       # on the dataset
+    rect = canvas.footprint_image_item.mapRectToView(canvas.footprint_image_item.boundingRect())
+    assert (rect.x(), rect.y()) == (-1.5, -2.5)
