@@ -737,7 +737,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
             scale_extrema = backend.extrema2d(cwt, [a],
                                               thresh=_real_thresh(cwt["mod"][0], info,
                                                                   resolved["thresh"], depth),
-                                              field=window)[0]
+                                              field=window, tie_rule=resolved["tie_rule"])[0]
             if resolved["interpolate"]:
                 # Same refinement as the full run's extrema stage, on the window's own lifted
                 # mod raster BEFORE the crop (the parabola's probes need the halo pixels).

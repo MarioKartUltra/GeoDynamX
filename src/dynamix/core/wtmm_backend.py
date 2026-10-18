@@ -522,8 +522,18 @@ def _order_lines(x, y, line_id, grid, nx, ny):
     return order, seg, starts
 
 
+#: The nms detector's rules for a pixel tied with a neighbour along the gradient. ``asymmetric`` is xsmurf's NMS path (``wtmm2d`` under ``useNMaxSup 1``:
+#: ``Remove_Gradient_NonMaxima_Slice_2D``, edge/extrema_core.c): strict toward the gradient, >=
+#: against it, so one pixel of a tied pair survives, and the nearest pixel within ~1.8 deg of an
+#: axis. ``strict`` keeps neither, ``keep_both`` (>= both sides, interpolated) both.
+TIE_RULES = ("asymmetric", "strict", "keep_both")
+#: xsmurf's ``_EPSILON_DERIVATIVE_``: past it a normalised gradient component reads the nearest pixel.
+_NEAREST_AXIS = 0.9995
+
+
 def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
-                        radius: int = 0, grid=None, real_block=None) -> dict:
+                       radius: int = 0, grid=None, real_block=None,
+                       tie_rule: str = "asymmetric") -> dict:
     """Single-scale NMS modulus maxima -- the core shared by both entry points.
 
     :meth:`PythonWTMMBackend.extrema2d` calls this once per scale, and
@@ -545,6 +555,8 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
     grid : (2, ny, nx) float array or None
         Precomputed ``np.mgrid`` row/column coordinates; built on demand when
         ``None`` (``extrema2d`` builds it once and reuses it across scales).
+    tie_rule : str
+        One of :data:`TIE_RULES`.
 
     Returns
     -------
@@ -553,6 +565,8 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
     """
     from scipy.ndimage import binary_dilation, label, map_coordinates
 
+    if tie_rule not in TIE_RULES:
+        raise ValueError(f"unknown tie_rule {tie_rule!r}; expected one of {TIE_RULES}")
     m = np.asarray(mod, dtype=np.float64)
     a = np.asarray(arg, dtype=np.float64)
     ny, nx = m.shape
@@ -564,6 +578,17 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
     sy = np.sin(a)
     fore = map_coordinates(m, [yy + sy, xx + cx], order=1, mode="nearest")
     back = map_coordinates(m, [yy - sy, xx - cx], order=1, mode="nearest")
+    if tie_rule != "keep_both":
+        near = (np.abs(cx) > _NEAREST_AXIS) | (np.abs(sy) > _NEAREST_AXIS)
+        if near.any():
+            # the C's (int)(x + g + 0.5): truncation toward zero; edges read the nearest pixel
+            def nearest(dy, dx):
+                r = np.clip(np.trunc(yy + dy + 0.5).astype(np.int64), 0, ny - 1)
+                c = np.clip(np.trunc(xx + dx + 0.5).astype(np.int64), 0, nx - 1)
+                return m[r, c]
+
+            fore = np.where(near, nearest(sy, cx), fore)
+            back = np.where(near, nearest(-sy, -cx), back)
 
     if real_block is None:
         mmax = m.max()
@@ -572,7 +597,13 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
         # rest a filled gap -- its maxima are not the data's, and its moduli set no threshold.
         rows, cols = (int(v) for v in real_block)
         mmax = m[:rows, :cols].max()
-    mask = (m >= fore) & (m >= back) & (m >= thresh * mmax)
+    if tie_rule == "keep_both":
+        peak = (m >= fore) & (m >= back)
+    elif tie_rule == "asymmetric":
+        peak = (m > fore) & (m >= back)
+    else:
+        peak = (m > fore) & (m > back)
+    mask = peak & (m >= thresh * mmax)
     if real_block is not None:
         mask[rows:, :] = False
         mask[:, cols:] = False
@@ -1046,12 +1077,14 @@ class PythonWTMMBackend:
         return out
 
     def extrema2d(self, cwt: dict, scales, *, thresh: float = 1e-3,
-                   field: "np.ndarray | None" = None, real_block=None) -> list:
+                   field: "np.ndarray | None" = None, real_block=None,
+                   tie_rule: str = "asymmetric") -> list:
         """Per-scale non-maximum-suppression (NMS) modulus maxima.
 
-        For each scale, a pixel is kept when its modulus is >= both of its
+        For each scale, a pixel is kept when its modulus beats its
         bilinearly-interpolated neighbours one step along the (unit)
-        gradient direction and one step against it -- the standard
+        gradient direction and one step against it, ties broken by ``tie_rule``
+        (:data:`TIE_RULES`; xsmurf's: > along, >= against) -- the standard
         Canny-style directional NMS, but using the *wavelet* gradient angle
         (``cwt["arg"]``) rather than a re-derived image gradient, and fully
         vectorized over the pixel grid (``scipy.ndimage.map_coordinates`` on
@@ -1107,7 +1140,7 @@ class PythonWTMMBackend:
         return [
             _nms_extrema_scale(mod_stack[s], arg_stack[s], thresh=thresh,
                                 invalid=invalid, radius=int(np.ceil(scales[s])),
-                                grid=grid, real_block=real_block)
+                                grid=grid, real_block=real_block, tie_rule=tie_rule)
             for s in range(n_sc)
         ]
 
@@ -2007,6 +2040,9 @@ _WTMM2D_PARAM_DEFAULTS = {
     # A Periodic extension output's real block, (rows, cols) (spec 25 §3.1): no maxima in the filled
     # gap, and the threshold from the real data. None: the whole field is data.
     "real_block": None,
+    # The nms detector's tie rule (TIE_RULES): xsmurf's asymmetric test; ``keep_both`` is the rule
+    # before it, whose stage keys it keeps.
+    "tie_rule": "asymmetric",
     # The Border cut (spec 25 §3.3; dynamix.core.edges.border_widths): off here, so a direct caller's
     # run is unchanged; the WTMM tool sets its own default.
     "border_cut": "none",
@@ -2437,6 +2473,8 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                        fracint_alpha=resolved["fracint_alpha"],
                        interpolate=resolved["interpolate"],
                        detector=resolved["detector"])
+    if resolved["detector"] == "nms" and resolved["tie_rule"] != "keep_both":
+        extrema_key["tie_rule"] = resolved["tie_rule"]
     real_block = resolved["real_block"]
     if real_block is not None:                    # the whole field as data keeps its stage keys
         real_block = (int(real_block[0]), int(real_block[1]))
@@ -2473,7 +2511,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                 found = _edges.drop_outside(found, real_block)
             return found
         ext = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values,
-                                real_block=real_block)
+                                real_block=real_block, tie_rule=resolved["tie_rule"])
         if resolved["interpolate"]:
             # Parabolic refinement along the gradient (dynamix.core.subpixel): the refined
             # MODULUS replaces ``mod`` -- it feeds chaining and Z(q,a), the xsmurf follow /
@@ -2766,7 +2804,8 @@ def run_wtmm2d_preview(field, params: dict, *, backend=None) -> dict:
                                         thresh=resolved["thresh"], invalid=invalid,
                                         radius=int(np.ceil(scales[0])))]
     else:
-        extrema = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values)
+        extrema = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values,
+                                    tie_rule=resolved["tie_rule"])
         if resolved["interpolate"]:
             # Same refinement as the full run's extrema stage -- the preview's value-identity
             # with the full run's scale-0 layer (test_progressive_compute) holds THROUGH it.

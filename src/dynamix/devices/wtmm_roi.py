@@ -28,6 +28,7 @@ from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
 from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_PARAMS,
+                                  TIE_RULE_PARAM,
                                   SMOOTHER_PARAMS, chaining_reading, eta_warning,
                                   smoother_params, width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
@@ -176,6 +177,7 @@ class WTMM2DROI:
         # Mirrors wtmm2d's detector knob (nms / follow) -- shared-params law.
         Param("detector", ParamKind.CHOICE, default="nms", choices=("nms", "follow"),
               label="Detector"),
+        TIE_RULE_PARAM,
         Param("min_chain_len", ParamKind.INT, default=2, min=1, max=1024,
               soft_min=2, soft_max=16, label="Min chain length"),
         # These five mirror wtmm2d's own declarations (see that file for the backend-default
@@ -254,6 +256,7 @@ class WTMM2DROI:
             "fracint_alpha": params["fracint_alpha"],
             "interpolate": params["interpolate"],
             "detector": params["detector"],
+            "tie_rule": params["tie_rule"],
             "min_chain_len": params["min_chain_len"],
             "smooth": params["smooth"],
             "thresh": params["thresh"],

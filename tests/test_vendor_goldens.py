@@ -122,9 +122,10 @@ def _run(piece: str) -> dict:
         return {"n_chains": len(res["chains"]),
                 "chain_mod_sums": [float(np.sum(c["mod"])) for c in res["chains"]],
                 "hd_std": res["hd_std"], "hd_cmax": res["hd_cmax"]}
-    # eta = 1 as recorded (the default at the snapshot), pinned so a change of default leaves
-    # the goldens valid.
-    res = run_wtmm2d(_field(v), {"n_oct": 2, "n_voice": 3, "fracint_alpha": 1.0})
+    # eta = 1 and the keep-both tie rule as recorded (the defaults at the snapshot), pinned so a
+    # change of default leaves the goldens valid.
+    res = run_wtmm2d(_field(v), {"n_oct": 2, "n_voice": 3, "fracint_alpha": 1.0,
+                                 "tie_rule": "keep_both"})
     if piece == "chain_filters":
         from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
                                                    ChainModulusFilter)

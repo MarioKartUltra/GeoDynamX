@@ -24,12 +24,12 @@ def _field(values):
                        y_axis=np.arange(float(values.shape[0])))
 
 
-#: ``cache_key("wtmm2d", "s", keyed_params(...))`` at the defaults before the ``chainer`` param
-#: existed (main 9e222f7), and the same for the ROI device. The whole-raster key is the one its
-#: boundary defaults gave it (spec 25: the mirror padded to the measured reach, no Border cut,
-#: keyed at their defaults so a result padded by the old 32 px is never served for them).
-KEY_BEFORE = {"wtmm2d": "560ad6d4e151843e38dc66a46feb704c",
-              "wtmm2d_roi": "20cbab1b24b2d32580f53085bf1854a2"}
+#: ``cache_key("wtmm2d", "s", keyed_params(...))`` at the defaults: the keys the chainer param left
+#: as they were (main 9e222f7), since moved by the boundary defaults (spec 25: the mirror padded
+#: to the measured reach, no Border cut, keyed at their defaults) and by xsmurf's tie rule, which
+#: changes the maxima of both tools.
+KEY_BEFORE = {"wtmm2d": "d8d3b16cadd38777d8777661047d8849",
+              "wtmm2d_roi": "839d22e65fe30efe03cb745b190b3553"}
 
 
 def test_the_benchmark_is_the_default_and_an_unknown_name_is_refused():

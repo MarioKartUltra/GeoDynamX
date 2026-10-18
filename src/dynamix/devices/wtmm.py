@@ -359,6 +359,13 @@ def seam_ratio(values) -> float:
     return across / inside if inside > 0 else (0.0 if across == 0 else math.inf)
 
 
+#: The nms detector's tie rule (``dynamix.core.wtmm_backend.TIE_RULES``): xsmurf's asymmetric
+#: test by default (one pixel of a tied pair), strict (neither), or both as the detector did before.
+TIE_RULE_PARAM = Param("tie_rule", ParamKind.CHOICE, default="asymmetric",
+                       choices=("asymmetric", "strict", "keep_both"),
+                       choice_labels=("one of a tie (xsmurf)", "strict", "keep both (before)"),
+                       label="Ties", level="advanced", active_when=("detector", ("nms",)))
+
 BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
                        choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
 
@@ -454,6 +461,7 @@ class WTMM2D:
         # interpolate knob above is inert under it (keyed regardless -- k_edge precedent).
         Param("detector", ParamKind.CHOICE, default="nms", choices=("nms", "follow"),
               label="Detector"),
+        TIE_RULE_PARAM,
         Param("min_chain_len", ParamKind.INT, default=2, min=1, max=1024,
               soft_min=2, soft_max=16, label="Min chain length"),
         # The five exposed here for the first time. Defaults/bounds verified against the
@@ -537,6 +545,7 @@ class WTMM2D:
                 "fracint_alpha": params["fracint_alpha"],
                 "interpolate": params["interpolate"],
                 "detector": params["detector"],
+                "tie_rule": params["tie_rule"],
                 "band_per": params["band_per"],
                 "chainer": params["chainer"],
                 **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
@@ -794,7 +803,7 @@ class WTMM2D:
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
-                 "similitude", "band_per", "chainer")
+                 "similitude", "band_per", "chainer", "tie_rule")
 
     def _halo_plan(self, params: dict, parent_shape=None) -> list:
         from dynamix.core.wtmm_backend import compute_scales2d
@@ -878,6 +887,7 @@ class WTMM2D:
             "dist2_max": params["dist2_max"], "box_ratio": params["box_ratio"],
             "similitude": params["similitude"], "fracint_alpha": params["fracint_alpha"],
             "interpolate": params["interpolate"], "detector": params["detector"],
+            "tie_rule": params["tie_rule"],
         })
 
     def cache_key(self, source_id: str, params: dict) -> str:

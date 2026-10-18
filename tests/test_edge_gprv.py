@@ -176,7 +176,10 @@ def test_a_padded_spike_does_not_move_the_threshold(tmp_path, monkeypatch, edge)
     # the DAF and the taper need a band-limited field to take effect on a 64 px ROI
     v = _synthetic_parent(384, seed=7) if edge == "cut" else _labyrinth(384)
     tif = _write_tif(tmp_path / "p.tif", v)
-    params = {"n_oct": 2, "n_voice": 4, "a_min": 1.0, "fracint_alpha": 0.0, "edge": edge}
+    # keep_both: the spike's ringing flips a near-tie 15 px away under the tie rule's nearest-pixel
+    # reading, and ties are not what this pins
+    params = {"n_oct": 2, "n_voice": 4, "a_min": 1.0, "fracint_alpha": 0.0, "edge": edge,
+              "tie_rule": "keep_both"}
     roi = (0, 96, 128, 128)
     plain = halo.run_wtmm2d_roi(tif, (384, 384), roi, params)
     assert plain["_edge"]["mode"] == edge

@@ -591,6 +591,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{fracint\_alpha} ($\eta$) & 0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$; 0 leaves a chain's slope equal to its $h$) \\
 \texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
 \texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient (\texttt{follow} always refines) \\
+\texttt{tie\_rule} (Ties) & asymmetric & asymmetric, strict, keep\_both & advanced, under \texttt{nms}: a pixel tied with its neighbour along the gradient. \emph{asymmetric} is xsmurf's NMS (its \texttt{wtmm2d} command, \texttt{Remove\_Gradient\_NonMaxima\_Slice\_2D}): a pixel must beat the neighbour ahead of the gradient and at least equal the one behind, so one pixel of a tie survives, the one ahead; within about $1.8^\circ$ of an axis ($|g|/\|g\| > 0.9995$) the neighbours are the nearest pixels. \emph{strict} keeps neither, \emph{keep\_both} (the rule before, interpolated, $\geq$ on both sides) keeps both \\
 \texttt{min\_chain\_len} & 2 & $[1,1024]$ & discard maxima lines spanning fewer scales \\
 \texttt{smooth} & on & bool & smooth maxima-line traces \\
 \texttt{thresh} & 0.001 & $[0,1]$ & modulus floor for maxima detection (fraction) \\
