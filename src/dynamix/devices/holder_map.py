@@ -176,6 +176,7 @@ class HolderMap:
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": scales, "params": dict(params),
             "hd_std": extras["hd"], "hd_cmax": extras["hd"], "hd_source": MOMENT_SOURCE,
+        "hd_kind": "structure",
             "dh_curves": extras["dh_curves"],
             "_frame": getattr(field, "frame", None), "_shape": vals.shape,
         }

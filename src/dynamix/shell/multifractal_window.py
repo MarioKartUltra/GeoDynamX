@@ -73,6 +73,16 @@ Q_WARM = (235, 95, 60)
 #: over finer scales along the chain) is the option -- it flattens any part of the spectrum with
 #: h < 0 toward 0, so it is wrong where negative exponents are expected.
 TABLE_CHOICES = ("no-sup (std)", "sup (cmax)")
+#: What a source's tables are, by ``hd_kind``: partition functions over maxima lines (WTMM, box
+#: counting) or structure functions (moments over the projections, wavelet leaders). The words
+#: change; the fit does not.
+VOCABULARY = {"partition": ("Partition functions", "log₂ Z(q,a)"),
+              "structure": ("Structure functions", "log₂ S(q,a)")}
+
+
+def vocabulary(kind) -> tuple:
+    """``(window title, label of the first family)`` for ``kind`` (partition by default)."""
+    return VOCABULARY.get(str(kind or "partition"), VOCABULARY["partition"])
 
 
 class WheelAxisViewBox(pg.ViewBox):
@@ -170,7 +180,10 @@ class MultifractalWindow(QtWidgets.QDialog):
                  forward_note: str = "", parent=None, physical_of_log2a=None,
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
                  extrema_mods=None, scales=None, dh_hist=None, dh_box=None,
-                 source: str = "canonical (Arneodo WTMM)", sources=None, h_map=None):
+                 source: str = "canonical (Arneodo WTMM)", sources=None, h_map=None,
+                 kind: str = "partition"):
+        #: What the tables are (``VOCABULARY``): names the window and its first family.
+        self._kind = str(kind or "partition")
         #: The h-map, for the box-counting construction on request.
         self._h_map = np.asarray(h_map) if h_map is not None else None
         self._dh_legend_entries: list = []
@@ -207,9 +220,11 @@ class MultifractalWindow(QtWidgets.QDialog):
         # the same choice SkeletonDialog/ProfileDialog made and for the same reason.
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
-        self.setWindowTitle(f"Partition functions — {self._source}")
+        self.setWindowTitle(f"{vocabulary(self._kind)[0]} — {self._source}")
 
         self._hd_by_choice = {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
+        #: One table under two names (the moment route): the choice means nothing and is hidden.
+        self._one_table = hd_std is hd_cmax
         self._filtered_tables = (hd_std, hd_cmax)
         if self._filter_note:
             self.setWindowTitle(self.windowTitle() + f" — {self._filter_note}")
@@ -254,11 +269,14 @@ class MultifractalWindow(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
 
         controls = QtWidgets.QHBoxLayout()
-        controls.addWidget(QtWidgets.QLabel("Table"))
+        self._table_label = QtWidgets.QLabel("Table")
+        controls.addWidget(self._table_label)
         self._table_combo = QtWidgets.QComboBox()
         self._table_combo.addItems(list(TABLE_CHOICES))
         self._table_combo.currentTextChanged.connect(self._on_table_changed)
         controls.addWidget(self._table_combo)
+        for w in (self._table_label, self._table_combo):
+            w.setVisible(not self._one_table)
 
         controls.addWidget(QtWidgets.QLabel("η"))
         self._eta_spin = QtWidgets.QDoubleSpinBox()
@@ -438,7 +456,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
             plot = self._glw.addPlot(row=0, col=4 * col, colspan=4, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", "log₂ a")
-            plot.setLabel("left", ylabel)
+            plot.setLabel("left", vocabulary(self._kind)[1] if key == "tau_qa" else ylabel)
             if self._physical is not None:
                 plot.setAxisItems({"top": PhysicalAxis(self._physical)})
                 plot.showAxis("top")
@@ -648,8 +666,9 @@ class MultifractalWindow(QtWidgets.QDialog):
             self._family_items_by_table[key] = []
             self._family_lines_by_table[key] = []
             table = self._family_table(key)
-            plot.setLabel("left", POWER_MEAN_LABEL
-                          if key == "tau_qa" and self._power_mean_view() else label)
+            if key == "tau_qa":
+                label = POWER_MEAN_LABEL if self._power_mean_view() else vocabulary(self._kind)[1]
+            plot.setLabel("left", label)
             n_q = table.shape[0]
             for i in range(n_q):
                 # The data as points, the fit the only line (the EBSD figures' look).

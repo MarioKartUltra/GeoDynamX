@@ -71,10 +71,13 @@ class SpectrumWindow(QtWidgets.QDialog):
                  forward_note: str = "", min_chain_len: int = 2,
                  log2_L: "float | None" = None, parent=None, all_tables=None,
                  filter_note: str = "", dh_curves=None, gh_field=None,
-                 source: str = "canonical (Arneodo direct)"):
+                 source: str = "canonical (Arneodo direct)", kind: str = "partition"):
         super().__init__(parent, QtCore.Qt.Window)
         #: What the canonical points are: the WTMM's direct construction, or the moment route.
         self._source = str(source)
+        self._kind = str(kind or "partition")
+        #: One table under two names (the moment route): the choice means nothing and is hidden.
+        self._one_table = hd_std is not None and hd_std is hd_cmax
         #: The legend lists what is drawn: (item, name) pairs synced after every change.
         self._legend_entries: list = []
         self._in_legend: dict = {}
@@ -175,11 +178,14 @@ class SpectrumWindow(QtWidgets.QDialog):
         has_hd = self._hd_by_choice is not None
 
         controls = QtWidgets.QHBoxLayout()
-        controls.addWidget(QtWidgets.QLabel("Table"))
+        self._table_label = QtWidgets.QLabel("Table")
+        controls.addWidget(self._table_label)
         self._table_combo = QtWidgets.QComboBox()
         self._table_combo.addItems(list(TABLE_CHOICES))
         self._table_combo.currentTextChanged.connect(lambda _t: self._recompute())
         controls.addWidget(self._table_combo)
+        for w in (self._table_label, self._table_combo):
+            w.setVisible(not self._one_table)
         if self._all_tables is not None and self._hd_by_choice is not None:
             # The rack's filters narrowed the chains: the tables are over the survivors; this
             # switch shows the whole transform's instead.

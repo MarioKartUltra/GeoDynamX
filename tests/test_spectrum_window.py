@@ -309,3 +309,13 @@ def test_the_construction_plot_zooms_per_axis_has_zero_lines_and_draws_the_tange
     broken._plot.setXRange(-0.5, 2.5, padding=0.0)
     assert list(broken._tangent_line.xData) == pytest.approx([-0.5, 2.5])
     assert f"q_c = {expect['q_c']:g}" in broken._tangent_label.textItem.toPlainText()
+
+
+def test_the_construction_window_hides_the_table_choice_for_one_table(qtbot):
+    hd_std, hd_cmax = _pair()
+    one = SpectrumWindow(hd_std, hd_std, kind="structure")
+    qtbot.addWidget(one)
+    assert one._table_combo.isHidden() and one._table_label.isHidden() and one.current_fit() is not None
+    two = SpectrumWindow(hd_std, hd_cmax)
+    qtbot.addWidget(two)
+    assert not two._table_combo.isHidden()

@@ -3181,12 +3181,18 @@ both ``Canvas`` signals report the
         gated on BOTH partition tables being present (``hd_std``/``hd_cmax``): a finest-scale
         preview stamps them ``None``, and a points-layer/empty result has neither. The disabled
         tooltip names the reason, same doctrine as ``_refresh_skeleton_button``."""
+        from dynamix.shell.multifractal_window import vocabulary
+
         result = self._active_result
         enabled = bool(result) and result.get("hd_std") is not None \
             and result.get("hd_cmax") is not None
         self._spectrum_button.setEnabled(enabled)
+        # The button names what the active result holds: partition functions over maxima lines,
+        # or structure functions (the moment route, wavelet leaders).
+        title = vocabulary(result.get("hd_kind") if enabled else None)[0]
+        self._spectrum_button.setText(f"{title}…")
         self._spectrum_button.setToolTip(
-            "Open the interactive τ(q)/D(h) scale-window fitter over the partition tables"
+            f"Open the interactive τ(q)/D(h) scale-window fitter over the {title.lower()}"
             if enabled else
             "No partition tables in the active layer's result yet -- run a full wtmm2d compute "
             "(a finest-scale preview has none) before opening the spectrum window")
@@ -3275,7 +3281,8 @@ both ``Canvas`` signals report the
                                     filter_note=filter_note, extrema_mods=mods, scales=scales,
                                     dh_hist=dh_hist, h_map=result.get("h_map"),
                                     source=result.get("hd_source") or "canonical (Arneodo WTMM)",
-                                    sources=self._spectrum_sources(result))
+                                    sources=self._spectrum_sources(result),
+                                    kind=result.get("hd_kind", "partition"))
         self._multifractal_window = window
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
@@ -3484,7 +3491,8 @@ both ``Canvas`` signals report the
             min_chain_len=int(params.get("min_chain_len", 2)),
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
             dh_curves=result.get("dh_curves"), gh_field=gh_field,
-            source=result.get("hd_source") or "canonical (Arneodo direct)")
+            source=result.get("hd_source") or "canonical (Arneodo direct)",
+            kind=result.get("hd_kind", "partition"))
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)
