@@ -183,7 +183,7 @@ class WTMM2DROI:
         # These five mirror wtmm2d's own declarations (see that file for the backend-default
         # verification, and for ``similitude``'s bound reasoning). ``run_wtmm2d_roi`` resolves
         # them through the identical ``_resolve_wtmm2d_params`` contract wtmm2d uses.
-        Param("smooth", ParamKind.BOOL, default=True, label="Smooth"),
+        Param("smooth", ParamKind.BOOL, default=False, label="Smooth"),
         Param("thresh", ParamKind.FLOAT, default=1e-3, min=0.0, max=1.0,
               soft_min=0.0, soft_max=0.05, units="", label="Thresh"),
         Param("dist2_max", ParamKind.FLOAT, default=50.0, min=0.0, max=1000000.0,

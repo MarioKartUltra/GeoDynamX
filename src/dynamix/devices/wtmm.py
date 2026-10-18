@@ -476,7 +476,9 @@ class WTMM2D:
         # ``inf``) and 1 (empty band); soft bounds sit close around the 0.8 default, matching
         # ``a_min``/``box_ratio``'s own convention of a narrow default slider span within a wide
         # hard range.
-        Param("smooth", ParamKind.BOOL, default=True, label="Smooth"),
+        # ``ssm -smooth``'s dip filling before the single-max test: an xsmurf option its WTMM
+        # scripts never pass, so off by default.
+        Param("smooth", ParamKind.BOOL, default=False, label="Smooth"),
         Param("thresh", ParamKind.FLOAT, default=1e-3, min=0.0, max=1.0,
               soft_min=0.0, soft_max=0.05, units="", label="Thresh"),
         Param("dist2_max", ParamKind.FLOAT, default=50.0, min=0.0, max=1000000.0,

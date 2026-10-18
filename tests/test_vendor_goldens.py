@@ -118,14 +118,15 @@ def _run(piece: str) -> dict:
         return {"coeffs": coeffs, "scales": scales1, "valid": valid}
     if piece == "tensor":
         res = run_wtmm2d(_field(stack), {"n_oct": 2, "n_voice": 3, "mode": "tensor",
-                                         "fracint_alpha": 1.0})
+                                         "fracint_alpha": 1.0, "smooth": True})
         return {"n_chains": len(res["chains"]),
                 "chain_mod_sums": [float(np.sum(c["mod"])) for c in res["chains"]],
                 "hd_std": res["hd_std"], "hd_cmax": res["hd_cmax"]}
-    # eta = 1 and the keep-both tie rule as recorded (the defaults at the snapshot), pinned so a
-    # change of default leaves the goldens valid.
+    # eta = 1, the keep-both tie rule and the dip filling before the single-max test (smooth) as
+    # recorded (the defaults at the snapshot), pinned so a change of default leaves the goldens
+    # valid.
     res = run_wtmm2d(_field(v), {"n_oct": 2, "n_voice": 3, "fracint_alpha": 1.0,
-                                 "tie_rule": "keep_both"})
+                                 "tie_rule": "keep_both", "smooth": True})
     if piece == "chain_filters":
         from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
                                                    ChainModulusFilter)

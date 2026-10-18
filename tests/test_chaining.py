@@ -27,9 +27,10 @@ def _field(values):
 #: ``cache_key("wtmm2d", "s", keyed_params(...))`` at the defaults: the keys the chainer param left
 #: as they were (main 9e222f7), since moved by the boundary defaults (spec 25: the mirror padded
 #: to the measured reach, no Border cut, keyed at their defaults) and by xsmurf's tie rule, which
-#: changes the maxima of both tools.
-KEY_BEFORE = {"wtmm2d": "d8d3b16cadd38777d8777661047d8849",
-              "wtmm2d_roi": "839d22e65fe30efe03cb745b190b3553"}
+#: changes the maxima of both tools, and by ``smooth`` going off by default (xsmurf's ``ssm -smooth``,
+#: which its WTMM scripts never pass).
+KEY_BEFORE = {"wtmm2d": "e9a4bfa02d816d403145bd15ce7a4179",
+              "wtmm2d_roi": "c8658398f7e09c37a05f1d63d50e5def"}
 
 
 def test_the_benchmark_is_the_default_and_an_unknown_name_is_refused():

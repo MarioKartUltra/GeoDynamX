@@ -1283,7 +1283,9 @@ def kam64_stack():
     from tests.conftest import FIXED_EDGES
 
     field = RasterField.load_npz("tests/fixtures/kam_64.npz")
-    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0, **FIXED_EDGES))
+    # smooth on: the 73 chains were recorded with the dip filling before the single-max test.
+    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0, smooth=True,
+                                        **FIXED_EDGES))
 
 
 def test_fresh_chain_holder_box_shows_the_kam_64_reading_after_a_result_lands(

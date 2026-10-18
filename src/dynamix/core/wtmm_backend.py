@@ -445,7 +445,7 @@ def _walk_lines_py(x, y, gidx, members, starts, grid, nx, ny,
 
 
 def _smooth_dips_py(mod, seg):
-    """xsmurf ``smooth_chains``: single forward pass of 3-point dip filling.
+    """xsmurf ``ssm -smooth``: single forward pass of 3-point dip filling.
 
     Transcribes ``xsmurf_wrapper.core.smooth_chains`` exactly: sliding a
     3-point window along the ordered line, a middle point that is a strict dip
@@ -933,7 +933,7 @@ def _make_chain_adapter(backend, *, box_ratio: float = 1.0,
     Phase C's benchmark harness.
     """
     def chain_and_extract(ext_images, scales, method="greedy", a_min=1.0,
-                          n_oct=4, n_vox=8, similitude=0.8, smooth=True,
+                          n_oct=4, n_vox=8, similitude=0.8, smooth=False,
                           border_percent=1.0, dist_frac=0.1, **_ignored):
         extrema = [_cut_edge_extrema(ext.to_extrema_dict(), ext.lx, ext.ly,
                                       border_percent)
@@ -1144,14 +1144,14 @@ class PythonWTMMBackend:
             for s in range(n_sc)
         ]
 
-    def single_maxima2d(self, extrema: list, *, smooth: bool = True) -> list:
+    def single_maxima2d(self, extrema: list, *, smooth: bool = False) -> list:
         """xsmurf ``ssm``: an EXACT port of ``single_max.c::_is_single_max_``.
 
         The WTMM skeleton proper (the "WTMMM" points) is not the full NMS
-        extrema set: xsmurf optionally smooths modulus dips along each maxima
-        line (``smooth_chains``) and then keeps only the points that pass
-        ``_is_single_max_`` (``search_single_max``). Only those points take
-        part in vertical (cross-scale) chaining -- see :meth:`chains2d`.
+        extrema set: xsmurf keeps only the points that pass ``_is_single_max_``
+        (``search_single_max``), after ``ssm -smooth``'s optional dip filling
+        along each maxima line. Only those points take part in vertical
+        (cross-scale) chaining -- see :meth:`chains2d`.
 
         The C's test is purely LOCAL -- it never consults the line ordering,
         only the per-scale extrema mask (``array``, built from *all* extrema at
@@ -1176,9 +1176,9 @@ class PythonWTMMBackend:
         per-point Python loop.
 
         The ordered-line walk (``_walk_lines_py``, njit ``cache=True``) is
-        retained ONLY for ``smooth=True``: xsmurf runs ``smooth_chains`` BEFORE
-        ``ssm`` and overwrites ``e->mod`` in place, so the smoothed modulus is
-        what feeds BOTH tests above and what the returned dicts carry.
+        retained ONLY for ``smooth=True``: ``ssm -smooth`` overwrites ``e->mod``
+        in place before the test, so the smoothed modulus is what feeds BOTH
+        tests above and what the returned dicts carry.
 
         Deviation (unavoidable, negligible): the C's ``_is_in_image_`` derives
         ``x = pos % lx`` from a flat index, so a neighbour off the left/right
@@ -1192,11 +1192,11 @@ class PythonWTMMBackend:
             Per-scale extrema as returned by :meth:`extrema2d` (needs
             ``{"x", "y", "mod", "arg", "line_id"}``).
         smooth : bool
-            Apply xsmurf's ``smooth_chains`` dip-filling along each ordered
-            line before the ``_is_single_max_`` test. As in xsmurf (which
-            overwrites ``e->mod`` in place) the SMOOTHED modulus is what the
-            returned dicts carry, so cross-scale comparisons see the same
-            values.
+            Apply ``ssm -smooth``'s dip filling along each ordered line before
+            the ``_is_single_max_`` test. Off by default: xsmurf's WTMM scripts
+            call ``ssm`` without it. When on, as in xsmurf (which overwrites
+            ``e->mod`` in place) the SMOOTHED modulus is what the returned
+            dicts carry, so cross-scale comparisons see the same values.
 
         Returns
         -------
@@ -1264,7 +1264,7 @@ class PythonWTMMBackend:
 
     @staticmethod
     def _smooth_chains(x, y, mod, line_id, grid, nx, ny):
-        """xsmurf ``smooth_chains``: dip filling ALONG each ordered maxima line.
+        """xsmurf ``ssm -smooth``: dip filling ALONG each ordered maxima line.
 
         Each line (``line_id`` component of :meth:`extrema2d`) is ORDERED along
         itself by a nearest-neighbour walk from an endpoint (``_walk_lines_py``,
@@ -1289,7 +1289,7 @@ class PythonWTMMBackend:
 
     def chains2d(self, extrema: list, scales, *, similitude: float = 0.8,
                  box_ratio: float = 1.0, dist2_max: float = 50.0,
-                 min_len: int = 2, smooth: bool = True, band_per: str = "voice",
+                 min_len: int = 2, smooth: bool = False, band_per: str = "voice",
                  angle_test: bool = False, angle_threshold: float = 0.8,
                  radius_rule: str = "xsmurf", radius_c: float = 1.0,
                  tie_break: str = "distance") -> list:
@@ -2026,7 +2026,9 @@ _WTMM2D_PARAM_DEFAULTS = {
     "band_per": "voice",
     "box_ratio": 1.0,
     "dist2_max": 50.0,
-    "smooth": True,
+    # ``ssm -smooth``'s dip filling along each maxima line before the single-max test: an xsmurf
+    # option its WTMM scripts never pass, so off here too.
+    "smooth": False,
     "min_chain_len": 2,
     # The chainer (dynamix.core.chaining): the benchmark by default, so the chains stage's key is
     # what it was for every recipe that names none.

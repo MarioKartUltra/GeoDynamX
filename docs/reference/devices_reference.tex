@@ -593,7 +593,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient (\texttt{follow} always refines) \\
 \texttt{tie\_rule} (Ties) & asymmetric & asymmetric, strict, keep\_both & advanced, under \texttt{nms}: a pixel tied with its neighbour along the gradient. \emph{asymmetric} is xsmurf's NMS (its \texttt{wtmm2d} command, \texttt{Remove\_Gradient\_NonMaxima\_Slice\_2D}): a pixel must beat the neighbour ahead of the gradient and at least equal the one behind, so one pixel of a tie survives, the one ahead; within about $1.8^\circ$ of an axis ($|g|/\|g\| > 0.9995$) the neighbours are the nearest pixels. \emph{strict} keeps neither, \emph{keep\_both} (the rule before, interpolated, $\geq$ on both sides) keeps both \\
 \texttt{min\_chain\_len} & 2 & $[1,1024]$ & discard maxima lines spanning fewer scales \\
-\texttt{smooth} & on & bool & smooth maxima-line traces \\
+\texttt{smooth} & off & bool & fill modulus dips along maxima lines before the single-max test \\
 \texttt{thresh} & 0.001 & $[0,1]$ & modulus floor for maxima detection (fraction) \\
 \texttt{dist2\_max} & 50 & $[0,10^6]$ px$^2$ & max squared jump when chaining maxima across scales \\
 \texttt{box\_ratio} & 1.0 & $[0.001,64]$ & chaining search-box anisotropy \\

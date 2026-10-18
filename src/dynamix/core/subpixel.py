@@ -9,10 +9,12 @@ A REIMPLEMENTATION against documented reference semantics, never a copy (the
   through the extremum and its two neighbours refines BOTH the position and the value, stored
   ALONGSIDE the integer index, with an out-of-bounds clamp back to the grid point. That dual
   representation is what this module transplants to 2-D.
-- **xsmurf** (``follow``/``eiset``, ``interpreter/wt2d_cmds.c``): interpolates the modulus at a
-  subpixel offset along the gradient and keeps only the refined MODULUS -- the value it stores
-  feeds the partition function, exactly as LastWave's 1-D WTMM consumes the parabola-refined
-  ordinate (``pf_functions.c``). ``mod_sub`` here is that parity channel. xsmurf computes the
+- **xsmurf** (``follow``/``eiset``, ``interpreter/wt2d_cmds.c``): under ``followVersion`` 1, the
+  live default, interpolates the modulus at the kappa = 0 crossing along one grid axis (a cubic
+  through four axis samples, evaluated at the crossing ratio; ``-v2`` samples along the gradient
+  angle instead) and keeps only the refined MODULUS -- the value it stores feeds the partition
+  function, exactly as LastWave's 1-D WTMM consumes the parabola-refined ordinate
+  (``pf_functions.c``). ``mod_sub`` here is that parity channel. xsmurf computes the crossing
   offset and throws it away (``wt2d_cmds.c:5222``); we keep it, because the display staircase
   is a position problem.
 - **The probes are the NMS's own.** ``wtmm_backend._nms_extrema_scale`` keeps a pixel when its

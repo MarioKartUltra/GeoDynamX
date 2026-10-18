@@ -26,7 +26,9 @@ from dynamix.core.wtmm_backend import run_wtmm2d
 GOLDEN = Path(__file__).parent / "golden" / "chaining" / "benchmark.json"
 H_VALUES = (0.3, 0.5, 0.7)
 N = 128
-WTMM = {"n_oct": 3, "n_voice": 4, "thresh": 1e-3, "fracint_alpha": 0.0}
+#: ``smooth`` on: the golden was recorded with the dip filling before the single-max test, and
+#: the chainers are the subject here.
+WTMM = {"n_oct": 3, "n_voice": 4, "thresh": 1e-3, "fracint_alpha": 0.0, "smooth": True}
 
 
 def _machine() -> str:

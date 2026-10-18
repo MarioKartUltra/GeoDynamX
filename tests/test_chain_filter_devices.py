@@ -41,7 +41,10 @@ def stack():
     real physics but not what these reading-format/triage regressions pin. The lift itself is
     covered by tests/test_fracint_scalar.py."""
     field = RasterField.load_npz(FIXTURE)
-    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0, **FIXED_EDGES))
+    # smooth on: the triage numbers below were recorded with the dip filling before the single-max
+    # test, and the filters are the subject here.
+    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0, smooth=True,
+                                        **FIXED_EDGES))
 
 
 def _dict_path(stack):

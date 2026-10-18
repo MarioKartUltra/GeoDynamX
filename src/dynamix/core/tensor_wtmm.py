@@ -44,7 +44,7 @@ def _eig_2x2(A, B, C):
 def alpha_jacobian_twtmm(field3: np.ndarray, scales, *, cwt_2d_f32, xsm, chain_and_extract,
                          fracint_alpha: float = 1.0, pad: int = 32, wavelet: str = "gaussian",
                          wavelet_hessian: str = "gaussian", use_wavelet_hessian: bool = True,
-                         similitude: float = 0.8, smooth_chain: bool = True,
+                         similitude: float = 0.8, smooth_chain: bool = False,
                          thresh: float = 1e-3, svd_modes: tuple = ("sigma_max",),
                          verbose: bool = False) -> dict:
     """``{mode: {"chains", "holders", "mod", "ext_images", "scales"}}`` for every mode of
