@@ -614,6 +614,63 @@ class WTMM2D:
                   "widths": widths, "pad": out["pad"], "notes": notes}
         return out, record
 
+    def footprint(self, field, params: dict, level: int, stride: int = 1) -> "dict | None":
+        """What the Raster view draws while the edge knobs move (spec 25 §3.4), from the numbers
+        the run uses at scale ``level``: ``pad`` (the run's padding, px; 0 for periodic),
+        ``shown`` (the outline's width outside the raster: the pad, or for periodic the measured
+        reach the coarsest scale reads round the wrap), ``padded`` (the raster as the mode fills
+        it, every ``stride``-th pixel, padded by ``shown`` in samples), ``offset`` (px from the
+        raster's first pixel back to ``padded``'s first), and ``border`` (px of the band inside
+        the raster ``band`` names: the Border cut at this scale, or the taper's). None for the
+        superseded modes, which keep spec 22's own record."""
+        from dynamix.core.edges import border_widths, pad_widths
+        from dynamix.core.wtmm_backend import _WTMM2D_PARAM_DEFAULTS, _padded, compute_scales2d
+
+        v = np.asarray(field.values, dtype=np.float64)
+        v = v[..., 0] if v.ndim == 3 else v
+        H, W = v.shape
+        edge, border = resolved_boundary(params, field)
+        params = dict(params, edge=edge, border_cut=border)
+        scales = list(compute_scales2d(params["n_oct"], params["n_voice"], params["a_min"]))
+        level = min(max(int(level), 0), len(scales) - 1)
+        sp, eps = smoother_params(params), params["edge_eps"]
+        content, mode, band, width = v, edge, "border_cut", 0
+        if edge in ("reflect", "periodic", "edge_pad", "zero_pad"):
+            backend, _record = self._boundary(field, params, {})
+            pad = shown = int(backend["pad"])
+            if edge == "periodic":
+                widths, _ = pad_widths(scales, "measured_reach", wavelet=params["wavelet"],
+                                       smoother_params=sp, eps=eps, run_grid=max(H, W))
+                shown = int(max(widths))
+            if border != "none":
+                width = int(border_widths(scales, border, wavelet=params["wavelet"],
+                                          smoother_params=sp, eps=eps, pct=params["border_pct"],
+                                          k=params["border_k"], scope=params["border_scope"],
+                                          run_grid=max(H, W) + 2 * pad)[level])
+        elif edge == "gaussian_taper":
+            # the taper's own path: the backend's fixed pad around the tapered raster, no cut
+            from dynamix.core.edges import tapered
+            from dynamix.core.wtmm_backend import _resolve_wtmm2d_params
+            from dynamix.roi.halo import _taper_fill, _whole_plan
+
+            pad = shown = int(_WTMM2D_PARAM_DEFAULTS["pad"])
+            resolved = _resolve_wtmm2d_params({k: params[k] for k in _LEVEL_KEYS}
+                                              | {"smoother_params": sp})
+            fill, _extras = _taper_fill(v, (H, W), _whole_plan(resolved, eps, (H, W)))
+            mode = "reflect"
+            if fill is not None:
+                content = tapered(np.where(np.isfinite(v), v, 0.0), np.arange(H), np.arange(W),
+                                  (H, W), fill["mu"], fill["w_t"])
+                band, width = "taper", int(fill["w_t"])
+        else:
+            return None
+        s = max(1, int(stride))
+        q = -(-shown // s)
+        small = content[::s, ::s]
+        padded = np.pad(small, q, mode="wrap") if mode == "periodic" else _padded(small, q, mode)[0]
+        return {"edge": edge, "pad": pad, "shown": shown, "padded": padded, "stride": s,
+                "offset": -q * s, "border": width, "band": band, "shape": (H, W)}
+
     def knob_warnings(self, field, params: dict) -> dict:
         """The knobs whose value the grid cannot carry honestly, for the strip's ⚠: ``a_min`` by
         :func:`eta_warning`, ``edge`` where the Gaussian taper would not fit this field or where

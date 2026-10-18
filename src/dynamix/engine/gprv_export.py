@@ -213,6 +213,24 @@ def _step_warnings(device, params: dict, edge: "dict | None" = None) -> dict:
     return {p.name: found[p.name].split("\n\n") for p in device.params if p.name in found}
 
 
+def _padding_report(result: dict, params: dict) -> dict:
+    """Spec 25's edge report for a padded or periodic run: the mode, the padding rule, the pad the
+    transform used (the widest scale's), the Border cut, and each scale's own width and border."""
+    padding, cut = result["_padding"], result.get("_border_cut") or {}
+    scales = [float(a) for a in (result.get("scales") if result.get("scales") is not None else ())]
+    borders = list(cut.get("borders") or [0] * len(scales))
+    report = {"device": "wtmm2d", "mode": padding["edge"], "pad_width": padding["pad_width"],
+              "pad": int(padding["pad"]), "eps": params["edge_eps"],
+              "border_cut": cut.get("border_cut", "none"),
+              "scales": [{"a": a, "padding": int(w), "border": int(b)}
+                         for a, w, b in zip(scales, padding["widths"], borders)]}
+    if cut:
+        report["border_scope"] = cut["border_scope"]
+    if padding.get("notes"):
+        report["notes"] = list(padding["notes"])
+    return report
+
+
 def _recorded_params(device, params: dict) -> dict:
     """The step's parameters: every declared one except the view-only and the inactive ones,
     plus the private ones a recipe carries (``_sends``, ``_path``)."""
@@ -376,6 +394,9 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
             # Spec 22: what filled each scale's reach -- the halo, the whole parent, the
             # padding, the cut border -- and the reach itself with the grids it was measured on.
             reports.append({"name": "edge", "description": json.loads(json.dumps(edge))})
+        elif (device.name == "wtmm2d" and isinstance(result, dict)
+              and result.get("_padding") is not None):
+            reports.append({"name": "edge", "description": _padding_report(result, params)})
         if reports:
             step["report"] = reports
         record_steps.append(step)

@@ -41,7 +41,7 @@ from __future__ import annotations
 import numpy as np
 from dynamix.model.project import REFERENCE_COLORS
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core.chain_pick import chains_in_box, chains_in_polygon, pick_chain
 from dynamix.core.chain_product import DRAW_CAP as _DRAW_CAP
@@ -939,6 +939,26 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.roi_bounds_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().amber)), connect="all")
         self.view.addItem(self.roi_bounds_item)
 
+        # The edge footprint (set_footprint): what the WTMM's Edge and Border cut do at the raster's
+        # edges, drawn while those knobs move. The padding's content sits beneath the raster,
+        # faint and transparent inside it, so only the padding shows; the outline is the padded
+        # extent; the band the cut removes is hatched over the raster, its centre left open.
+        self.footprint_image_item = pg.ImageItem()
+        self.footprint_image_item.setOpacity(0.45)
+        self.footprint_image_item.setZValue(self.image_item.zValue() - 1)
+        self.footprint_image_item.setVisible(False)
+        self.view.addItem(self.footprint_image_item)
+        self.footprint_outline_item = pg.PlotDataItem(
+            pen=pg.mkPen(COI_COLOR, width=1.5, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
+        self.view.addItem(self.footprint_outline_item)
+        self.footprint_band_item = QtWidgets.QGraphicsPathItem()
+        self.footprint_band_item.setBrush(QtGui.QBrush(QtGui.QColor(*COI_COLOR),
+                                                       QtCore.Qt.BrushStyle.BDiagPattern))
+        band_edge = QtGui.QPen(QtGui.QColor(*COI_COLOR), 1.5)
+        band_edge.setCosmetic(True)                  # the cut's inner edge, crisp at any zoom
+        self.footprint_band_item.setPen(band_edge)
+        self.view.addItem(self.footprint_band_item)
+
         # The ROI rubber band, in the theme's ``roi`` role (amber by default, and by the One-Accent
         # Rule rather than in spite of it: the spec grants this the accent explicitly, "the only
         # amber on screen wins its exception here: the box IS a selection"). A theme ROLE, not a
@@ -1731,6 +1751,59 @@ a bounded gather of at most :attr:`draw_cap` chains per
         dr, dc = dr + self._display_shift[0], dc + self._display_shift[1]
         self.fill_outline_item.setData(xs[:n] + (c0 + dc), ys[:n] + (r0 + dr))
 
+    def set_footprint(self, footprint: "dict | None") -> None:
+        """Draw a WTMM edge footprint (``WTMM2D.footprint``): ``padded`` (every ``stride``-th
+        pixel, its first sample ``offset`` px before the raster's first) faintly outside the
+        raster, the padded extent ``shown`` px out as a dashed outline, and ``border`` px inside
+        each edge hatched; None clears it."""
+        if footprint is None:
+            self.clear_footprint()
+            return
+        br, bc = self._base_off
+        H, W = (int(v) for v in footprint["shape"])
+        out, b = int(footprint["shown"]), int(footprint["border"])
+        x0, y0 = bc - 0.5, br - 0.5
+        if out > 0:
+            self.footprint_outline_item.setData(
+                np.array([x0 - out, x0 + W + out, x0 + W + out, x0 - out, x0 - out], dtype=float),
+                np.array([y0 - out, y0 - out, y0 + H + out, y0 + H + out, y0 - out], dtype=float))
+        else:
+            self.footprint_outline_item.setData([], [])
+        s, off = int(footprint["stride"]), int(footprint["offset"])
+        padded = np.array(footprint["padded"], dtype=np.float64)
+        # The raster on show draws its own pixels; a footprint larger than it (an in-chain
+        # extension's gap) keeps the rest.
+        shown_h, shown_w = np.shape(getattr(self._field, "values", np.empty((H, W))))[:2]
+        q, n_y, n_x = -off // s, -(-min(H, shown_h) // s), -(-min(W, shown_w) // s)
+        padded[q:q + n_y, q:q + n_x] = np.nan
+        if out > 0 and np.isfinite(padded).any():
+            levels = self.image_item.getLevels()
+            values = np.asarray(getattr(self._field, "values", padded), dtype=np.float64)
+            if levels is None or np.ndim(levels) != 1:
+                finite = values[np.isfinite(values)]
+                levels = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 1.0)
+            self.footprint_image_item.setImage(padded.T, levels=tuple(levels))
+            cmap = _resolve_cmap(self._colormap or "viridis")
+            if cmap is not None:
+                self.footprint_image_item.setColorMap(cmap)
+            self.footprint_image_item.setRect(QtCore.QRectF(
+                x0 + off, y0 + off, padded.shape[1] * s, padded.shape[0] * s))
+            self.footprint_image_item.setVisible(True)
+        else:
+            self.footprint_image_item.setVisible(False)
+        path = QtGui.QPainterPath()
+        if b > 0:
+            path.addRect(QtCore.QRectF(x0, y0, W, H))
+            if W > 2 * b and H > 2 * b:
+                path.addRect(QtCore.QRectF(x0 + b, y0 + b, W - 2 * b, H - 2 * b))
+        self.footprint_band_item.setPath(path)
+
+    def clear_footprint(self) -> None:
+        """Take the edge footprint off the canvas."""
+        self.footprint_outline_item.setData([], [])
+        self.footprint_image_item.setVisible(False)
+        self.footprint_band_item.setPath(QtGui.QPainterPath())
+
     def clear_overlays(self) -> None:
         """Take every WTMM-result overlay off the canvas -- everything :meth:`set_result` draws --
         leaving the raster itself and the corner readings untouched.
@@ -1760,6 +1833,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.selection_item.setData([], [])             # Ditto
         self.coi_item.setData([], [])
         self.roi_bounds_item.setData([], [])
+        self.clear_footprint()
 
     def clear_field(self) -> None:
         """Undo :meth:`set_field` and every reading it feeds -- the raster image, every WTMM

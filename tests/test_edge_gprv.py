@@ -77,10 +77,26 @@ def test_a_cut_record_names_each_scales_border(clean_registry, tmp_path):
     assert all(isinstance(r["border"], int) and r["border"] > 0 for r in edge["scales"])
 
 
-def test_the_default_whole_raster_record_has_no_edge_report(clean_registry, tmp_path):
-    reports = _record(tmp_path, [("wtmm2d", {"n_oct": 2, "n_voice": 2, "precision": "f64"})],
-                      "plain")
-    assert _report(reports, "edge") is None
+def test_the_default_whole_raster_record_names_its_padding(clean_registry, tmp_path):
+    """Spec 25 §3.5: a padded run's edge report carries the mode, the padding rule, the pad it
+    used (the widest scale's) and each scale's own width and border."""
+    edge = _report(_record(tmp_path, [("wtmm2d", {"n_oct": 2, "n_voice": 2, "precision": "f64"})],
+                           "plain"), "edge")
+    assert edge["mode"] == "reflect" and edge["pad_width"] == "measured_reach"
+    assert edge["eps"] == 0.001 and len(edge["scales"]) == 4
+    assert edge["pad"] == max(r["padding"] for r in edge["scales"]) > 0
+    assert edge["border_cut"] in ("none", "measured_reach")
+
+
+def test_a_border_cut_record_names_each_scales_border(clean_registry, tmp_path):
+    edge = _report(_record(tmp_path, [("wtmm2d", {"n_oct": 2, "n_voice": 2, "precision": "f64",
+                                                  "edge": "edge_pad", "border_cut": "border_pct",
+                                                  "border_scope": "per_scale"})],
+                           "border"), "edge")
+    assert edge["mode"] == "edge_pad" and edge["border_cut"] == "border_pct"
+    assert edge["border_scope"] == "per_scale"
+    borders = [r["border"] for r in edge["scales"]]
+    assert borders == [int(r["a"] * 0.72) for r in edge["scales"]] and borders[0] < borders[-1]
 
 
 def test_the_warning_report_reads_the_parent_as_the_run_did(clean_registry, tmp_path):

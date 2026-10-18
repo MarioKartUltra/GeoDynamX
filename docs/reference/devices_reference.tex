@@ -620,6 +620,15 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \bottomrule
 \end{longtable}
 
+\textbf{The edge footprint.} While an Edge, padding or Border cut knob moves, and for four seconds
+after, the Raster view draws what they do at the shown scale, from the numbers the run uses: the
+padded extent as a dashed outline (for \emph{periodic}, as far as the coarsest scale reads round
+the wrap), the padding's content faintly outside the raster (the mirror, the repeated edge values,
+the zeros, the wrapped opposite edges, or the mirror of the tapered raster), and the band the
+Border cut or the taper removes hatched inside it. \emph{View} $\triangleright$ \emph{Edge
+Footprint} keeps it on, following the shown scale. After a Periodic extension in the same chain
+it reads the extension the last run cached, so the gap shows beyond the raster.
+
 \subsection*{Lineal path}\label{sec:lineal}
 \tool{Lineal path}{lineal\_path} (family Microstructure) thresholds the field into two phases
 (\texttt{threshold}: phase 1 lies above it) and computes the lineal-path function $L(r)$, the

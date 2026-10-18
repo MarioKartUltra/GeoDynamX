@@ -63,6 +63,7 @@ from dynamix.core.pointset import read_csv_points
 from dynamix.core.transect import chains_in_buffer, sample_profile
 from dynamix.devices import register_builtin_devices
 from dynamix.devices.groups import encode_groups
+from dynamix.devices.wtmm import BOUNDARY_PARAMS
 from dynamix.engine import Cache, resolve, source_identity
 from dynamix.engine.gprv_export import bundle_path, record_beside
 from dynamix.engine.resolve import (output_key, seed_shown_level, selection_recipe,
@@ -178,6 +179,8 @@ _CASCADE_DEVICES = frozenset({"holder_measure", "holder_multiaffine", "holder_ma
 #: names ("lasso", not "freehand"). ``"transect"`` is legal from day one (it gets its own gesture) -- :meth:`MainWindow.set_selection_mode` raises on anything
 #: outside this tuple.
 _SELECTION_MODES = ("click", "box", "lasso", "transect", "mask")
+#: WTMM's Edge, padding and Border cut knobs: moving one draws the edge footprint.
+_EDGE_KNOBS = frozenset(p.name for p in BOUNDARY_PARAMS)
 
 #: `v`'s own cycle order ("`v` -> `_cycle_selection_mode`... cycles only the non-click
 #: modes"), deliberately excluding ``"click"`` -- `c` owns click directly, and EQSelect's own `v`
@@ -1041,6 +1044,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # the selected LAYER, not of the window -- ``self.field`` is just whichever one that is.
         self._row_layers: list = []
         self._fields: dict[int, object] = {}
+        # The edge footprint (spec 25 §3.4): drawn while a WTMM edge knob moves and gone this long
+        # after, unless View > Edge Footprint keeps it; then it follows the scale and each landing.
+        self._edge_footprint_timer = QtCore.QTimer(self)
+        self._edge_footprint_timer.setSingleShot(True)
+        self._edge_footprint_timer.setInterval(4000)
+        self._edge_footprint_timer.timeout.connect(self._on_edge_footprint_timeout)
+        self.resolved.connect(self._on_resolved_edge_footprint)
         # id-> Layer, populated alongside _row_layers by add_layer_row -- what every LayerPanel
         # signal (layer_id-keyed, not row-index-keyed) resolves back to an actual Layer through.
         self._layer_by_id: dict[int, object] = {}
@@ -7400,6 +7410,9 @@ both ``Canvas`` signals report the
         self._params[step_index][name] = value
         if self._inspected_step == step_index:
             self._device_panel.set_values(self._params[step_index])
+        if self._names[step_index] == "wtmm2d" and (name in _EDGE_KNOBS
+                                                    or self._edge_footprint_kept()):
+            self._show_edge_footprint(linger=True)
         # While the layer has a shown level (the Transport's ``ui.scale_idx``), a scale_select
         # step is inactive: its knob edits the step's param and moves no level.
         legacy_scale = (self._names[step_index] == "scale_select" and name == "scale_idx"
@@ -7695,6 +7708,8 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             return
         self.layer.tags["ui.scale_idx"] = str(int(idx))
+        if self._edge_footprint_kept():
+            self._show_edge_footprint(linger=False)
         if self._load_level_filters(int(idx) + 1):
             self.layer.chain = self._chain()
             self._snapshot_recipe()
@@ -10502,6 +10517,7 @@ both ``Canvas`` signals report the
             "view.reset_layout": self.reset_layout,
             "view.layouts.save_as": self._save_layout_as,
             "view.palette": self.show_palette,
+            "view.edge_footprint": self._on_edge_footprint_toggled,
             "racks.editor": lambda: self._open_rack_editor(None),
             "settings.auto_run": self._on_auto_run_toggled,
             "help.about": self._show_about,
@@ -10532,6 +10548,53 @@ both ``Canvas`` signals report the
         named = self._theme_files().get(load_settings().theme)
         if named is not None:
             self._theme_watcher.addPath(str(named))
+
+    def _edge_footprint_kept(self) -> bool:
+        action = self.commands.get("view.edge_footprint") if hasattr(self, "commands") else None
+        return action is not None and action.isChecked()
+
+    def _show_edge_footprint(self, *, linger: bool) -> None:
+        """The active layer's WTMM edge footprint on the canvas at the shown scale, read off the
+        field reaching the WTMM step (from the cache, so nothing computes here; the dataset where
+        an earlier transform has not run). ``linger``: it goes when the timer runs out unless
+        View > Edge Footprint keeps it."""
+        from dynamix.engine.resolve import cached_input
+
+        if (self.layer is None or self.field is None or "wtmm2d" not in self._names
+                or self._bypassed[self._names.index("wtmm2d")]):
+            self.canvas.clear_footprint()
+            return
+        i = self._names.index("wtmm2d")
+        device = get_device("wtmm2d")
+        dataset = self._fields.get(self.layer.layer_id, self.field)
+        prior = [DeviceRef(self._names[k], dict(self._params[k])) for k in range(i)
+                 if not self._bypassed[k]]
+        field = cached_input(self.layer, dataset, self.cache, prior)
+        try:
+            footprint = device.footprint(dataset if field is None else field,
+                                         validate_params(device, self._params[i]),
+                                         shown_level(self.layer) or 0,
+                                         stride=self.canvas._image_stride)
+        except (KeyError, ValueError):
+            footprint = None
+        self.canvas.set_footprint(footprint)
+        if linger and not self._edge_footprint_kept():
+            self._edge_footprint_timer.start()
+
+    def _on_edge_footprint_timeout(self) -> None:
+        if not self._edge_footprint_kept():
+            self.canvas.clear_footprint()
+
+    def _on_edge_footprint_toggled(self, checked: bool) -> None:
+        if checked:
+            self._show_edge_footprint(linger=False)
+        else:
+            self._edge_footprint_timer.stop()
+            self.canvas.clear_footprint()
+
+    def _on_resolved_edge_footprint(self, *_args) -> None:
+        if self._edge_footprint_kept():
+            self._show_edge_footprint(linger=False)
 
     def _fill_view_menu_tail(self, menu: QtWidgets.QMenu) -> None:
         """The Layouts submenu the table placed (``view.layouts.save_as``) gets the saved names."""

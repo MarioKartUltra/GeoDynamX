@@ -419,6 +419,24 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     )
 
 
+def cached_input(layer, field, cache: Cache, steps) -> Any:
+    """The field reaching the step after ``steps`` (the layer's enabled steps before it), from
+    ``cache`` alone: ``field`` where no transform comes first, the last transform's cached field
+    where every transform there has run, else None. Nothing is computed: the edge footprint
+    reads it on the GUI thread."""
+    sid = source_identity(layer)
+    upstream, reached = None, field
+    for ref in steps:
+        device = get_device(ref.device)
+        if not is_transform(device):
+            continue
+        upstream = step_key(device, sid, validate_params(device, ref.params), upstream)
+        if upstream not in cache:
+            return None
+        reached = cache.get(upstream)
+    return reached if hasattr(reached, "values") else None
+
+
 def selection_steps(steps, layer_input: str | None = None) -> list:
     """``[(key, ref), ...]``: the filter steps of ``steps`` a selecting output reads (every filter
     but ``scale_select``, whose level pick is the display's), keyed by device name, ``#2``, ``#3``
