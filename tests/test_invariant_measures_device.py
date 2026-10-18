@@ -170,3 +170,31 @@ def test_the_envelope_form_publishes_the_prl_measures_and_its_amplitude(dev):
                                                         "rooted_mean_envelope_disorder": "rooted_mean"}
     assert dev.view(res, {"show": "envelope_amplitude"})["raster_out"] is res["envelope_amplitude"]
     assert np.all(res["hessian_measure"] == 0.0)
+
+
+def test_the_wavelet_ridge_envelope_reads_the_prl_closed_form_and_records_the_ridge(dev):
+    """envelope = "wavelet_ridge": the 2-D q-Morlet ridge (Passot–Newell 1994 App. A) gives the
+    amplitude and the local wavevector; the phase-field density on detuned stripes is the constant
+    |k₁² − k₀²|/(2k₀²), so δ̄^env(β) = (2 − β)(8/9)^β again, the operator route agrees on a plane
+    wave, |A| and |K| join the rasters, and the record carries the ridge's settings."""
+    n = 240
+    base = {"disorder_form": "envelope", "envelope": "wavelet_ridge", "periodic": True,
+            "k0": "manual", "lambda0": n / 3, "harmonic_filter": "none"}
+    p = validate_params(dev, base)
+    assert (p["density"], p["omega"], p["anisotropy"], p["ridge_q"], p["q_pairing"]) == (
+        "phase_field", 3.0, 1.0, 1.0, "fixed")
+    assert {"envelope", "density", "omega", "anisotropy", "ridge_q", "q_pairing", "q_beta"} <= set(keyed_params(dev, p))
+    res = dev.compute(_field(_stripes(n, 5)), p)
+    betas = res["beta_delta"]
+    assert np.allclose(res["mean_envelope_disorder"], (2 - betas) * (8 / 9) ** betas, rtol=1e-5)
+    assert np.allclose(res["envelope_amplitude"], 1.0, atol=1e-6)
+    assert np.allclose(res["local_wavenumber"], 2.0 * math.pi * 5 / n, rtol=1e-6)
+    rec = res["record"]["envelope"]
+    assert (rec["method"], rec["wavelet"], rec["density"], rec["omega"], rec["q"], rec["q_beta"]) == (
+        "wavelet_ridge", "q_morlet", "phase_field", 3.0, 1.0, 0.5)
+    assert rec["n_unconverged"] == 0 and rec["bank"]["nodes"] == 108 and res["warnings"] == []
+    assert rec["direction_deg"] == pytest.approx(0.0, abs=1e-9)
+    assert dev.view(res, {"show": "local_wavenumber"})["raster_out"] is res["local_wavenumber"]
+    operator = dev.compute(_field(_stripes(n, 5)), validate_params(dev, {**base, "density": "envelope_operator"}))
+    assert np.allclose(operator["mean_envelope_disorder"], (2 - betas) * (8 / 9) ** betas, rtol=1e-5)
+    assert operator["record"]["envelope"]["density"] == "envelope_operator"

@@ -658,7 +658,27 @@ or the PRL's envelope form: the complex envelope $A(x)$ about the wavevector $k_
 spectral peak is the analytic signal from the Fourier half-plane $k\cdot k_0 > 0$, demodulated by
 $e^{-ik_0\cdot x}$ (Jones and Gunaratne 1998, \S4), and the density is $|\odot A| / (k_0^2
 \langle|A|\rangle)$ with $\odot = k_0\cdot\nabla - (i/2)\nabla^2$ (PRL Eqs.~2--3); the outputs then
-carry the envelope's names, and $|A(x)|$ joins the rasters. Both curves are Curve outputs against
+carry the envelope's names, and $|A(x)|$ joins the rasters. \texttt{envelope} = \emph{wavelet
+ridge} takes the envelope from Passot and Newell's wavelet ridge instead (Physica D 74:301, 1994,
+Appendix A): the 2-D analytic q-Morlet of \texttt{dynamix.core.analytic\_cwt} --- a Gaussian in $k$
+centred where $aR_\theta k = \omega$ (A.15), the Morlet at $q = 1$, the q-Gaussian envelope of
+Borges et al.\ 2004 through its closed 2-D transform otherwise --- is applied on a log-polar bank
+of wavevectors around $k_0$ (half an octave to an octave either side at 4 voices, 12 orientations
+over the half-plane about $k_0$'s direction), and at each pixel the fixed point $aR_\theta\nabla\Psi
+= \omega$ (A.12--A.13, A.17--A.18) is found by interpolation on the bank with Aitken's $\Delta^2$,
+giving the local wavevector $K = \nabla\phi$, the amplitude $2|T|\,|\det N|^{1/2}/\sqrt{\alpha_1
+\alpha_2}$ with $N = R\,\mathrm{diag}(\alpha)R^{T} - ia^2H$ (A.19 as the determinant it comes
+from, $H$ the Hessian of the ridge phase) and the phase $\Psi + \tfrac12\arg\det N$ (A.8).
+\texttt{omega} is the carrier (default 3, their 2-D runs; the window's phase curvature grows as
+$\omega^2$, and on a target $\omega = 6$ reads the total 3--6\% high where 3 reads it within 1\%),
+\texttt{anisotropy} the across/along stretch $\alpha_2/\alpha_1$ of A.16, \texttt{ridge\_q} the
+q with its two widths (\texttt{q\_pairing}, \texttt{q\_beta}). \texttt{density} picks the
+phase-field form (default): $\odot A = e^{i\phi}\tfrac12[\nabla\!\cdot\!(a^2K)/a + i(a(|K|^2 -
+k_0^2) - \nabla^2 a)]$ from $a$, $K$ and $\nabla\!\cdot\!K$ alone, which needs no $\pm k$ partition
+and is the same under $K \to -K$; or the PRL operator on $A\,e^{i(\Psi - k_0\cdot x)}$, blind within
+one node of the partition's fold. Pixels where the ridge does not converge (defect cores, a local
+wavenumber outside the bank) are left out and counted; $|K(x)|$ joins the rasters; the record
+carries $\omega$, $\alpha$, $q$, $\beta_q$, the bank, the steps and the counts. Both curves are Curve outputs against
 $\beta$; the densities are rasters, \texttt{show} picking the one on screen. Derivatives (\texttt{deriv}) are
 Fourier multipliers: the papers' Hermite DAF (M = 12, $\sigma/\Delta$ = 4, PRE 57 p.~5147; the
 default), a derivative of Gaussian of width \texttt{sigma\_d} px, or spectral derivatives, which

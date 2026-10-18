@@ -17,11 +17,14 @@ import math
 
 import numpy as np
 
-from dynamix.core import disorder
+from dynamix.core import analytic_cwt, disorder, ridge
 from dynamix.model.contracts import CURVE, FIELD
 from dynamix.model.param import Param, ParamKind
 
 __all__ = ["InvariantMeasures"]
+
+#: The knobs of the wavelet ridge apply under the envelope form by the ridge.
+_RIDGE = (("disorder_form", ("envelope",)), ("envelope", ("wavelet_ridge",)))
 
 
 class InvariantMeasures:
@@ -50,6 +53,26 @@ class InvariantMeasures:
               units="px", label="λ₀ (px)", active_when=("k0", ("manual",))),
         Param("disorder_form", ParamKind.CHOICE, default="field", choices=("field", "envelope"),
               choice_labels=("field (PRE 57 Eq. 2)", "envelope (PRL 1995 Eq. 8)"), label="Disorder of"),
+        Param("envelope", ParamKind.CHOICE, default="fft_halfplane",
+              choices=("fft_halfplane", "wavelet_ridge"),
+              choice_labels=("Fourier half-plane (Jones 1998 §4)", "wavelet ridge (Passot–Newell 1994)"),
+              label="Envelope", active_when=("disorder_form", ("envelope",))),
+        # The ridge's density: the phase-field form needs no ±k partition (the default); the
+        # PRL's operator on A e^{i(Ψ − k₀·x)} is the comparison, blind within a node of the fold.
+        Param("density", ParamKind.CHOICE, default="phase_field",
+              choices=("phase_field", "envelope_operator"),
+              choice_labels=("phase field (a, K, ∇·K)", "⊙A on the demodulated ridge"),
+              label="Ridge density", active_when=_RIDGE),
+        Param("omega", ParamKind.FLOAT, default=analytic_cwt.OMEGA, min=2.0, max=12.0, soft_min=2.0,
+              soft_max=6.0, label="ω (carrier)", active_when=_RIDGE),
+        Param("anisotropy", ParamKind.FLOAT, default=1.0, min=0.25, max=4.0, soft_min=0.25, soft_max=4.0,
+              label="α₂/α₁ (across / along)", active_when=_RIDGE),
+        Param("ridge_q", ParamKind.FLOAT, default=1.0, min=-1.0, max=1.95, soft_min=0.5, soft_max=1.5,
+              label="q (q-Morlet)", active_when=_RIDGE),
+        Param("q_pairing", ParamKind.CHOICE, default="fixed", choices=("fixed", "q-paired"),
+              label="q width", active_when=_RIDGE),
+        Param("q_beta", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.1, soft_max=2.0,
+              label="β_q", active_when=(*_RIDGE, ("q_pairing", ("fixed",)))),
         Param("harmonic_filter", ParamKind.CHOICE, default="daf", choices=("daf", "bandpass", "none"),
               choice_labels=("DAF extension + band (Hoffman 2000)", "Gaussian band-pass at k₀", "none"),
               label="Harmonic filter"),
@@ -64,9 +87,10 @@ class InvariantMeasures:
         # the chosen form did not make falls back to the form's own density.
         Param("show", ParamKind.CHOICE, default="field_disorder_density",
               choices=("field_disorder_density", "envelope_disorder_density", "envelope_amplitude",
-                       "hessian_density"),
+                       "local_wavenumber", "hessian_density"),
               choice_labels=("disorder density D(x)", "envelope disorder density", "envelope |A(x)|",
-                             "Hessian density |Λ(x)|"), label="Show", view=True),
+                             "local wavenumber |K(x)|", "Hessian density |Λ(x)|"), label="Show",
+              view=True),
     )
 
     @staticmethod
@@ -123,20 +147,50 @@ class InvariantMeasures:
 
         ny, nx = values.shape
         form = params["disorder_form"]
-        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic, mask=stats)
+        kw = dict(deriv=deriv, sigma_d=sigma_d, periodic=periodic)
         rasters = {}
-        if form == "envelope":
+        warnings = []
+        if form == "envelope" and params["envelope"] == "wavelet_ridge":
+            kvec = disorder.k0_direction(v, k0, mask=stats)
+            q = float(params["ridge_q"])
+            if params["q_pairing"] == "q-paired":
+                from dynamix.core.microcanonical import paired_q_beta
+
+                q_beta = paired_q_beta(q)
+            else:
+                q_beta = float(params["q_beta"])
+            r = ridge.extract_ridge(v, kvec, omega=float(params["omega"]),
+                                    alpha=(1.0, float(params["anisotropy"])), q=q, q_beta=q_beta,
+                                    periodic=periodic)
+            good = stats & r.converged
+            if params["density"] == "phase_field":
+                density = disorder.phase_field_density(r.amplitude, r.kx, r.ky, r.div_k, k0,
+                                                       mask=good, **kw)
+            else:
+                yy, xx = np.mgrid[0:v.shape[0], 0:v.shape[1]].astype(np.float64)
+                a = r.amplitude * np.exp(1j * (r.phase - kvec[0] * xx - kvec[1] * yy))
+                density = disorder.envelope_density(a, kvec, mask=good & ~r.boundary, **kw)
+            density = density[:ny, :nx]
+            rasters["envelope_amplitude"] = np.where(good, r.amplitude, np.nan)[:ny, :nx]
+            rasters["local_wavenumber"] = np.where(good, np.hypot(r.kx, r.ky), np.nan)[:ny, :nx]
+            envelope_record = {**r.record, "density": params["density"],
+                               "direction_deg": math.degrees(math.atan2(kvec[1], kvec[0]))}
+            if r.record["n_unconverged"]:
+                warnings.append(f"the wavelet ridge did not converge at {r.record['n_unconverged']} "
+                                f"pixels (defect cores, or a local wavenumber outside "
+                                f"{ridge.BRACKET[0]:g}–{ridge.BRACKET[1]:g} k₀); they are left out")
+        elif form == "envelope":
             kvec = disorder.k0_direction(v, k0, mask=stats)
             a = disorder.envelope_halfplane(v, kvec, periodic=periodic)
-            density = disorder.envelope_density(a, kvec, **kw)[:ny, :nx]
+            density = disorder.envelope_density(a, kvec, mask=stats, **kw)[:ny, :nx]
             rasters["envelope_amplitude"] = np.where(stats, np.abs(a), np.nan)[:ny, :nx]
             envelope_record = {"method": "fft_halfplane", "k0_vector": [kvec[0], kvec[1]],
                                "direction_deg": math.degrees(math.atan2(kvec[1], kvec[0]))}
         else:
-            density = disorder.helmholtz_density(v, k0, detrend_mode="none", **kw)[:ny, :nx]
+            density = disorder.helmholtz_density(v, k0, detrend_mode="none", mask=stats, **kw)[:ny, :nx]
             envelope_record = None
         hessian = disorder.hessian_density(v, norm=params["hessian_norm"], detrend_mode="none",
-                                           **kw)[:ny, :nx]
+                                           mask=stats, **kw)[:ny, :nx]
         floor = float(params["beta_floor"]) or None
         delta = disorder.disorder_moments(density, disorder.DELTA_BETAS, floor=floor)
         mu = disorder.hessian_measure(hessian, disorder.MU_BETAS, floor=floor)
@@ -149,7 +203,7 @@ class InvariantMeasures:
             deriv_record["sigma_d"] = sigma_d
         if periodic:
             deriv_record["periodized_by"] = periodized_by
-        warnings = [w for w in (delta["warning"], mu["warning"]) if w]
+        warnings += [w for w in (delta["warning"], mu["warning"]) if w]
         record = {
             "deriv": deriv_record, "k0": k0_record, "harmonic_filter": filter_record,
             "disorder_form": form, "envelope": envelope_record,

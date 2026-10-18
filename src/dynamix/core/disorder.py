@@ -34,6 +34,7 @@ from dynamix.core.daf import daf_gain
 __all__ = ["BANDPASS_WIDTH", "DAF_DEFAULTS", "DAF_REACH", "DELTA_BETAS", "DERIVS", "FLOOR_FRACTION",
            "GOLDMAN_BAND", "K0_METHODS", "MU_BETAS", "ZERO", "bandpass", "daf_filter", "detrend",
            "disorder_moments", "envelope_density", "envelope_halfplane", "filtered",
+           "phase_field_density",
            "helmholtz_density", "hessian_density", "hessian_measure", "k0_direction", "k0_estimate",
            "radial_filter", "reach", "transfer"]
 
@@ -309,6 +310,33 @@ def envelope_density(a, k0_vec, *, deriv: str = "daf", sigma_d: float = 1.0,
             lambda kx, ky: 1.0],
         deriv=deriv, sigma_d=sigma_d, periodic=periodic)
     density = np.abs(operator) / (k0_sq * np.mean(np.abs(smoothed[valid])))
+    density[~valid] = np.nan
+    return density
+
+
+def phase_field_density(amplitude, kx, ky, div_k, k0: float, *, deriv: str = "daf",
+                        sigma_d: float = 1.0, periodic: bool = False, mask=None):
+    """The envelope disorder density in its phase-field form: for A = a e^{iφ} with the local
+    wavevector K = k₀ + ∇φ, ⊙A = e^{iφ}·½[∇·(a²K)/a + i(a(|K|² − k₀²) − ∇²a)], so
+    D^env = |⊙A| / (k₀² ⟨a⟩) needs a, K and ∇·K alone — no ±k partition, and the same under
+    K → −K. a, ∇a and ∇²a carry the scheme's smoothing; K and ∇·K come from the ridge, which
+    smoothed them already at the wavelet's own width. NaN where the ridge is invalid; an invalid
+    pixel (a defect core) holds the valid mean under the transform, so no step is planted at its
+    rim."""
+    k0_sq = float(k0) ** 2
+    a = np.array(amplitude, dtype=np.float64, copy=True)
+    valid = np.isfinite(a) & np.isfinite(kx) & np.isfinite(ky) & np.isfinite(div_k)
+    if mask is not None:
+        valid &= np.asarray(mask, dtype=bool)
+    a[~valid] = a[valid].mean()
+    ax, ay, lap, smoothed = filtered(
+        a, [lambda kx_, ky_: 1j * kx_, lambda kx_, ky_: 1j * ky_,
+            lambda kx_, ky_: -(kx_ * kx_ + ky_ * ky_), lambda kx_, ky_: 1.0],
+        deriv=deriv, sigma_d=sigma_d, periodic=periodic)
+    kx, ky, div_k = (np.where(valid, np.asarray(v, dtype=np.float64), 0.0) for v in (kx, ky, div_k))
+    real = ax * kx + ay * ky + 0.5 * smoothed * div_k
+    imag = 0.5 * (smoothed * (kx * kx + ky * ky - k0_sq) - lap)
+    density = np.hypot(real, imag) / (k0_sq * np.mean(np.abs(smoothed[valid])))
     density[~valid] = np.nan
     return density
 

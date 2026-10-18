@@ -37,7 +37,9 @@ _SINGLES = (("ssa_recon", "recon"), ("ssa_residual", "residual"),
             ("tucker_recon", "recon"), ("tucker_residual", "residual"),
             ("filtered", "u (filtered)"), ("edge_channel", "v (edge detector)"),
             ("h_map", "h(x)"), ("r2_map", "r²"), ("band_mask", "band mask"),
-            ("field_disorder_density", "D(x)"), ("hessian_density", "|Λ(x)|"))
+            ("field_disorder_density", "D(x)"), ("envelope_disorder_density", "D^env(x)"),
+            ("envelope_amplitude", "|A(x)|"), ("local_wavenumber", "|K(x)|"),
+            ("hessian_density", "|Λ(x)|"))
 
 
 def raster_choices(result: dict, shown_label: str = "as shown") -> list:
