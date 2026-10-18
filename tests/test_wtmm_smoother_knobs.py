@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from conftest import fbm2d
+from conftest import FIXED_EDGES, fbm2d
 
 from dynamix.core.rasterfield import RasterField
 from dynamix.devices.wtmm import WTMM2D, smoother_params
@@ -84,7 +84,7 @@ def test_an_fbm_reads_the_same_h2_with_every_smoother(wavelet, knob, reference):
 
     dev = WTMM2D()
     field = RasterField._from_bare_array(fbm2d(128, 0.5, seed=3), "fbm", name="fbm")
-    base = dict(defaults_for(dev), n_oct=3, n_voice=4, fracint_alpha=1.0)
+    base = dict(defaults_for(dev), n_oct=3, n_voice=4, fracint_alpha=1.0, **FIXED_EDGES)
 
     def h2(params):
         hd = dev.compute(field, params)["hd_std"]

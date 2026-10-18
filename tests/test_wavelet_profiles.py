@@ -163,6 +163,7 @@ def test_a_plane_wave_peaks_where_lambda_reads_its_wavelength(clean_registry):
     """The acceptance of the spec (§9): the scale with the largest mean WTMM modulus has λ* = L."""
     from dynamix.devices import register_builtin_devices
     from dynamix.model.device import defaults_for, get_device
+    from tests.conftest import FIXED_EDGES
 
     register_builtin_devices()
     L = 24.0
@@ -173,7 +174,7 @@ def test_a_plane_wave_peaks_where_lambda_reads_its_wavelength(clean_registry):
     field = RasterField._from_bare_array(wave, "wave", name="wave")
     dev = get_device("wtmm2d")
     params = {**defaults_for(dev), "wavelet": "gaussian", "n_oct": 4, "n_voice": 8,
-              "fracint_alpha": 0.0}
+              "fracint_alpha": 0.0, **FIXED_EDGES}
     res = dev.compute(field, params)
     strengths = [float(np.mean(np.asarray(ext["mod"]))) if len(ext["mod"]) else 0.0
                  for ext in res["extrema"]]

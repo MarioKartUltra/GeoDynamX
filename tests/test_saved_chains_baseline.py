@@ -23,7 +23,11 @@ GOLDEN = Path(__file__).parent / "golden" / "saved_chains_baseline.json"
 
 #: Devices that read a file or a point set this test does not build; their own tests cover them.
 NEEDS_FILES = ("wtmm2d_roi", "bus", "derived_vectors", "backproject")
-_ANALYSIS = {"device": "wtmm2d", "params": {"n_oct": 2}}
+#: The analysis the filters read keeps the 32 px reflect pad and every maximum (spec 25's
+#: ``FIXED_EDGES``), so the filters' fingerprints stay the ones recorded with it. The ``wtmm2d``
+#: entry itself runs at the defaults.
+_ANALYSIS = {"device": "wtmm2d", "params": {"n_oct": 2, "edge": "reflect", "pad_width": "fixed_px",
+                                            "pad_px": 32, "border_cut": "none"}}
 
 
 def _machine() -> str:

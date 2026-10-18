@@ -7,6 +7,9 @@ predicate over the result, which is what makes the scale slider feel instant.
 """
 from __future__ import annotations
 
+import dataclasses
+import math
+
 import numpy as np
 
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
@@ -199,6 +202,160 @@ EDGE_PARAMS = (
           soft_max=1e-2, label="Edge ε", level="advanced", keyed_at_default=False),
 )
 
+#: Spec 25's boundary and Border cut knobs for the whole-raster tool. Every convolution is circular:
+#: ``edge`` says what the FFT torus holds beyond the field (``dynamix.core.wtmm_backend.PAD_MODES``),
+#: ``pad_width`` how wide the padding is, and the Border cut, run between the H-chains and the
+#: V-chains, which maxima go before the chaining (``dynamix.core.edges``). ``auto`` reads the field:
+#: on a Periodic extension output periodic, no padding and no cut, otherwise reflect and the
+#: measured-reach cut. Spec 22's ``cut`` and ``daf_periodic`` stay valid for saved recipes but are
+#: no longer offered; their own scope knob is hidden with them.
+BOUNDARY_PARAMS = (
+    Param("edge", ParamKind.CHOICE, default="auto",
+          choices=("auto", "reflect", "periodic", "edge_pad", "zero_pad", "gaussian_taper", "cut",
+                   "daf_periodic"),
+          choice_labels=("auto", "reflect", "periodic", "edge-value padding", "zero padding",
+                         "Gaussian taper", "cut at COI", "DAF periodic"),
+          hidden_choices=("cut", "daf_periodic"), label="Edge"),
+    Param("pad_width", ParamKind.CHOICE, default="measured_reach",
+          choices=("measured_reach", "fixed_px", "border_pct"),
+          choice_labels=("measured reach", "fixed px", "border %"), label="Padding",
+          active_when=("edge", ("auto", "reflect", "edge_pad", "zero_pad"))),
+    Param("pad_px", ParamKind.INT, default=32, min=0, max=8192, soft_min=0, soft_max=256,
+          label="Padding px", level="advanced", active_when=("pad_width", ("fixed_px",))),
+    Param("pad_pct", ParamKind.FLOAT, default=0.72, min=0.0, max=10.0, soft_min=0.1, soft_max=2.0,
+          label="Padding %", level="advanced", active_when=("pad_width", ("border_pct",))),
+    Param("border_cut", ParamKind.CHOICE, default="auto",
+          choices=("auto", "none", "measured_reach", "border_pct", "k_scale"),
+          choice_labels=("auto", "none", "measured reach", "border %", "k × scale"),
+          label="Border cut"),
+    Param("border_pct", ParamKind.FLOAT, default=0.72, min=0.0, max=10.0, soft_min=0.1,
+          soft_max=2.0, label="Border %", level="advanced", active_when=("border_cut", ("border_pct",))),
+    Param("border_k", ParamKind.FLOAT, default=2.0, min=0.1, max=10.0, soft_min=1.0, soft_max=4.0,
+          label="Border k", level="advanced", active_when=("border_cut", ("k_scale",))),
+    Param("border_scope", ParamKind.CHOICE, default="largest", choices=("largest", "per_scale"),
+          choice_labels=("largest scale", "each scale"), label="Border scope", level="advanced"),
+    Param("cut_scope", ParamKind.CHOICE, default="largest", choices=("largest", "per_scale"),
+          choice_labels=("largest scale's COI", "each scale's COI"), label="Cut scope",
+          level="hidden", keyed_at_default=False, active_when=("edge", ("cut",))),
+    Param("edge_eps", ParamKind.FLOAT, default=1e-3, min=1e-6, max=0.1, soft_min=1e-4,
+          soft_max=1e-2, label="Edge ε", level="advanced"),
+)
+
+#: The whole-raster tool's chaining options: the old chain trim is superseded by the Border cut.
+WTMM2D_CHAINING_OPTION_PARAMS = tuple(
+    dataclasses.replace(p, level="hidden") if p.name in ("border_policy", "coi_k") else p
+    for p in CHAINING_OPTION_PARAMS)
+
+#: Above this the periodic seam warns: the RMS difference across opposite edges over the RMS
+#: difference between neighbours inside the field (spec 25 §3.2).
+SEAM_LIMIT = 3.0
+
+
+def filled_block(field):
+    """A Periodic extension output's real block ``(rows, cols)``, else None."""
+    stamp = (getattr(field, "provenance", None) or {}).get("edges.filled")
+    return None if not stamp else (int(stamp["rows"]), int(stamp["cols"]))
+
+
+def resolved_boundary(params: dict, field) -> tuple:
+    """``(edge, border_cut)`` with ``auto`` read from ``field``: on a Periodic extension output
+    ``("periodic", "none")``, otherwise ``("reflect", "measured_reach")``, the cut ``none`` where
+    the measured-reach border would cover the raster and leave it no maxima."""
+    stamped = filled_block(field) is not None
+    edge = params.get("edge", "auto")
+    border = params.get("border_cut", "auto")
+    if edge == "auto":
+        edge = "periodic" if stamped else "reflect"
+    if border == "auto":
+        border = "none" if stamped else "measured_reach"
+        values = getattr(field, "values", None)
+        if border == "measured_reach" and values is not None and _covering(
+                params, border, np.shape(values)[:2]) is not None:
+            border = "none"
+    return edge, border
+
+
+def boundary_reading(name: str, params: dict, field) -> "str | None":
+    """The line beside the Edge or Border cut knob: what ``auto`` resolved to, and the padding or
+    the coarsest scale's border in px (spec 25 §3.2, §3.3)."""
+    from dynamix.core.edges import border_widths, pad_widths
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    try:
+        edge, border = resolved_boundary(params, field)
+        scales = list(compute_scales2d(params["n_oct"], params["n_voice"], params["a_min"]))
+        sp = smoother_params(params)
+        eps = float(params.get("edge_eps", 1e-3))
+        if name == "edge":
+            head = f"→ {edge}" if params.get("edge", "auto") == "auto" else ""
+            if edge == "periodic":
+                return (head + " · no padding").lstrip(" ·")
+            if edge in ("reflect", "edge_pad", "zero_pad"):
+                widths, notes = pad_widths(scales, params.get("pad_width", "measured_reach"),
+                                           wavelet=params["wavelet"], smoother_params=sp, eps=eps,
+                                           pad_px=params.get("pad_px", 32),
+                                           pad_pct=params.get("pad_pct", 0.72))
+                tail = " · the finest scales take the widest converged reach" if notes else ""
+                return (head + f" · pad {max(widths)} px" + tail).lstrip(" ·")
+            return head or None
+        head = f"→ {border.replace('_', ' ')}" if params.get("border_cut", "auto") == "auto" else ""
+        if border == "none":
+            values = getattr(field, "values", None)
+            if head and filled_block(field) is None and values is not None:
+                return head + " · the measured reach would cover the raster"
+            return head or None
+        b = border_widths(scales, border, wavelet=params["wavelet"], smoother_params=sp, eps=eps,
+                          pct=params.get("border_pct", 0.72), k=params.get("border_k", 2.0),
+                          scope=params.get("border_scope", "largest"))
+        return (head + f" · {b[-1]:.0f} px at the coarsest scale").lstrip(" ·")
+    except (KeyError, ValueError):
+        return None
+
+
+def _covering(params: dict, border: str, shape: tuple) -> "tuple | None":
+    """``(border px, scale px)`` at the first scale whose Border cut meets itself across a
+    ``shape`` raster (twice the border reaches its shorter side), else None."""
+    from dynamix.core.edges import border_widths
+    from dynamix.core.wtmm_backend import compute_scales2d
+
+    try:
+        scales = list(compute_scales2d(params["n_oct"], params["n_voice"], params["a_min"]))
+        b = border_widths(scales, border, wavelet=params["wavelet"],
+                          smoother_params=smoother_params(params),
+                          eps=float(params.get("edge_eps", 1e-3)), pct=params.get("border_pct", 0.72),
+                          k=params.get("border_k", 2.0), scope=params.get("border_scope", "largest"),
+                          run_grid=max(shape))
+    except (KeyError, ValueError):
+        return None
+    first = next((i for i, w in enumerate(b) if 2 * w >= min(int(shape[0]), int(shape[1]))), None)
+    return None if first is None else (b[first], scales[first])
+
+
+def border_covering(params: dict, border: str, shape: tuple) -> "str | None":
+    """The ⚠ beside the Border cut where its border covers a ``shape`` raster: a chosen cut keeps
+    no maxima from that scale up; ``auto`` cuts nothing there and keeps the maxima near the edges."""
+    asked = params.get("border_cut", "auto")
+    hit = _covering(params, "measured_reach" if asked == "auto" else border, shape)
+    if hit is None:
+        return None
+    b, a = hit
+    H, W = int(shape[0]), int(shape[1])
+    if asked == "auto":
+        return (f"auto cuts nothing on this raster: the measured-reach border ({b:.0f} px at scale "
+                f"{a:.3g} px) would cover its {H} × {W} pixels, so the maxima near its edges are "
+                "kept; border % or k × scale cut less")
+    return (f"the border ({b:.0f} px at scale {a:.3g} px) covers this {H} × {W} raster: no maxima "
+            "are kept from that scale up; a smaller border, fewer octaves, or none")
+
+
+def seam_ratio(values) -> float:
+    """The RMS difference across opposite edges over the RMS difference between neighbours."""
+    v = np.asarray(values, dtype=np.float64)
+    inside = math.sqrt(np.nanmean(np.diff(v, axis=0) ** 2) + np.nanmean(np.diff(v, axis=1) ** 2))
+    across = math.sqrt(np.nanmean((v[0] - v[-1]) ** 2) + np.nanmean((v[:, 0] - v[:, -1]) ** 2))
+    return across / inside if inside > 0 else (0.0 if across == 0 else math.inf)
+
+
 BAND_PER_PARAM = Param("band_per", ParamKind.CHOICE, default="voice", choices=("voice", "octave"),
                        choice_labels=("per voice (xsmurf)", "per octave"), label="Similitude per")
 
@@ -259,6 +416,7 @@ class WTMM2D:
                 "n_voice", "smooth", "dither", "fracint_alpha", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
+        "EDGES": ("edge", "pad_width", "border_cut"),
     }
     params = (
         Param("n_oct", ParamKind.INT, default=3, min=1, max=12, label="Octaves"),
@@ -323,8 +481,8 @@ class WTMM2D:
         Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
               choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
               label="Chainer", keyed_at_default=False),
-        *CHAINING_OPTION_PARAMS,
-        *EDGE_PARAMS,
+        *WTMM2D_CHAINING_OPTION_PARAMS,
+        *BOUNDARY_PARAMS,
         # The raster drawn in place of the field: "edges" is the field itself under the
         # maxima; "modulus" and "argument" name the per-scale outputs below, at the level the
         # Transport shows. View-only, so the analysis key never sees it.
@@ -381,6 +539,11 @@ class WTMM2D:
                 **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
         }
         res, fell_back = None, None
+        edge, border = resolved_boundary(params, field)
+        params = dict(params, edge=edge, border_cut=border)
+        padding = None
+        if edge in ("reflect", "periodic", "edge_pad", "zero_pad"):
+            backend_params, padding = self._boundary(field, params, backend_params)
         if params.get("edge", "reflect") in ("gaussian_taper", "daf_periodic"):
             # An edge mode that changes the data runs scale by scale over the whole raster as
             # its own ROI (dynamix.roi.halo); where it does not fit, the backend's run stands.
@@ -402,6 +565,8 @@ class WTMM2D:
                 tuple(field.values.shape)[:2], fell_back)
         if params.get("edge", "reflect") == "cut":
             res = cut_whole(res, params, tuple(field.values.shape)[:2])
+        if padding is not None:
+            res["_padding"] = padding
         res["_frame"] = getattr(field, "frame", None)
         res["_shape"] = tuple(field.values.shape)
         # H-line ordering, paid HERE on the worker: run on the MAIN thread, the _order_lines
@@ -423,15 +588,56 @@ class WTMM2D:
             res["_warnings"] = [warning]
         return res
 
+    @staticmethod
+    def _boundary(field, params: dict, backend_params: dict) -> tuple:
+        """``(backend params, padding record)`` for a padded or periodic Edge (spec 25 §3.2): the
+        pad mode, the padding (the widest scale's width, since the transform pads once), the
+        Border cut and, on a Periodic extension output, its real block."""
+        from dynamix.core.edges import pad_widths
+        from dynamix.core.wtmm_backend import compute_scales2d
+
+        scales = list(compute_scales2d(params["n_oct"], params["n_voice"], params["a_min"]))
+        shape = tuple(np.asarray(field.values).shape)[:2]
+        edge = params["edge"]
+        if edge == "periodic":
+            widths, notes = [0] * len(scales), []
+        else:
+            widths, notes = pad_widths(scales, params["pad_width"], wavelet=params["wavelet"],
+                                       smoother_params=smoother_params(params),
+                                       eps=params["edge_eps"], pad_px=params["pad_px"],
+                                       pad_pct=params["pad_pct"], run_grid=max(shape))
+        out = dict(backend_params, pad=max(widths) if widths else 0, pad_mode=edge,
+                   border_cut=params["border_cut"], border_pct=params["border_pct"],
+                   border_k=params["border_k"], border_scope=params["border_scope"],
+                   edge_eps=params["edge_eps"], real_block=filled_block(field))
+        record = {"edge": edge, "pad_width": params["pad_width"] if edge != "periodic" else None,
+                  "widths": widths, "pad": out["pad"], "notes": notes}
+        return out, record
+
     def knob_warnings(self, field, params: dict) -> dict:
         """The knobs whose value the grid cannot carry honestly, for the strip's ⚠: ``a_min`` by
-        :func:`eta_warning`, ``edge`` where the Gaussian taper would not fit this field."""
+        :func:`eta_warning`, ``edge`` where the Gaussian taper would not fit this field or where
+        ``periodic`` meets a raster whose opposite edges do not match, ``border_cut`` where the
+        border covers the raster. A scale whose reach does not converge pads by the widest
+        converged one: the run records it and the Edge knob's reading says so."""
         params = params or {}
         out = {}
         warning = eta_warning(params)
         if warning:
             out["a_min"] = warning
         values = getattr(field, "values", None)
+        edge, _border = resolved_boundary(params, field)
+        if edge == "periodic" and values is not None and filled_block(field) is None:
+            ratio = seam_ratio(np.asarray(values)[..., 0] if np.asarray(values).ndim == 3 else values)
+            if ratio > SEAM_LIMIT:
+                out["edge"] = (f"the raster is not periodic: its opposite edges differ {ratio:.1f}× "
+                               f"its neighbours (above {SEAM_LIMIT:g}×), and periodic joins them; "
+                               "Periodic extension (DAF) first, or a padded mode")
+        if values is not None and filled_block(field) is None and (
+                params.get("border_cut", "auto") == "auto" or _border != "none"):
+            covered = border_covering(params, _border, np.asarray(values).shape[:2])
+            if covered:
+                out["border_cut"] = covered
         if params.get("edge") in ("gaussian_taper", "daf_periodic") and values is not None:
             from dynamix.roi.halo import edge_fallback
 
@@ -482,8 +688,13 @@ class WTMM2D:
                                                **{p.name: params[p.name] for p in EDGE_PARAMS}),
                                   idx)
         if one is None:
+            # The padding the analysis used (spec 25 §3.2), so a level's modulus is the one its
+            # maxima were found on.
+            ran = (result or {}).get("params") or {}
+            padding = {k: ran[k] for k in ("pad", "pad_mode") if k in ran}
             one = run_wtmm2d_level(values, dict({k: params[k] for k in _LEVEL_KEYS},
-                                                smoother_params=smoother_params(params)), idx)
+                                                smoother_params=smoother_params(params), **padding),
+                                   idx)
         if progress is not None:
             progress(f"{name} scale {idx + 1}/{n}", 1.0)
         raster = one["mod"] if name == "modulus" else one["arg"]
@@ -583,6 +794,8 @@ class WTMM2D:
         backwards (see ``scale_units``' docstring). ``None`` for every other param: a derived
         reading explains a knob whose face value is not itself physical, not a general per-param
         annotation mechanism."""
+        if name in ("edge", "border_cut"):
+            return boundary_reading(name, params or {}, field)
         if name == "similitude":
             return chaining_reading(value, params or {})
         if name == "q_pairing":

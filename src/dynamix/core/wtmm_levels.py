@@ -51,7 +51,8 @@ def run_wtmm2d_level(values, params: dict, level: int, *, backend=None) -> dict:
     one = scales[level:level + 1]
     derivs = "all" if resolved["detector"] == "follow" else "first"
     cwt = backend.cwt2d(values, one, wavelet=resolved["wavelet"], pad=resolved["pad"],
-                        derivs=derivs, smoother_params=resolved["smoother_params"])
+                        pad_mode=resolved["pad_mode"], derivs=derivs,
+                        smoother_params=resolved["smoother_params"])
     cwt = _apply_fracint2d({"mod": cwt["mod"], "arg": cwt["arg"]}, one,
                            resolved["fracint_alpha"])
     return {"mod": cwt["mod"][0], "arg": cwt["arg"][0], "scale": float(one[0])}

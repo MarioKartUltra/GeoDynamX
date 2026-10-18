@@ -113,8 +113,9 @@ def test_device_box_exposes_one_control_per_param_including_the_five_new_ones(
     box = DeviceBox(0, dev, defaults_for(dev))
     qtbot.addWidget(box)
 
-    # every knob but the advanced ones, which live in the inspector's collapsed section
-    assert set(box.controls) == {p.name for p in dev.params if p.level != "advanced"}
+    # the basic knobs: the advanced ones live in the inspector's collapsed section, and the hidden
+    # (superseded) ones show only where a project holds another value
+    assert set(box.controls) == {p.name for p in dev.params if p.level == "basic"}
     assert "angle_test" in {p.name for p in dev.params} and "angle_test" not in box.controls
     for new_param in ("smooth", "thresh", "dist2_max", "box_ratio", "similitude"):
         assert new_param in box.controls
@@ -1276,11 +1277,13 @@ def kam64_stack():
     the numbers above were measured on the unlifted pipeline -- the lift shifts every
     chain's OLS slope by +alpha and re-links chains through the similitude band, which is not
     what these hint/snap regressions pin (tests/test_fracint_scalar.py covers the lift; the
-    same pin, same reason, as tests/test_chain_filter_devices.py's ``stack``)."""
+    same pin, same reason, as tests/test_chain_filter_devices.py's ``stack``), and the 32 px
+    reflect pad the numbers were measured with (``FIXED_EDGES``)."""
     from dynamix.core.rasterfield import RasterField
+    from tests.conftest import FIXED_EDGES
 
     field = RasterField.load_npz("tests/fixtures/kam_64.npz")
-    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0))
+    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0, **FIXED_EDGES))
 
 
 def test_fresh_chain_holder_box_shows_the_kam_64_reading_after_a_result_lands(

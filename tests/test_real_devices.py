@@ -16,6 +16,7 @@ from dynamix.devices.filters import (ModulusThreshold, OrientationWedge, ScaleSe
                                      _wrapped_delta)
 from dynamix.devices.wtmm import WTMM2D
 from dynamix.model.device import defaults_for, validate_params
+from tests.conftest import FIXED_EDGES
 
 FIXTURE = "tests/fixtures/kam_64.npz"
 
@@ -31,7 +32,7 @@ def stack():
     here every time the schema grows.
     """
     field = RasterField.load_npz(FIXTURE)
-    return WTMM2D().compute(field, defaults_for(WTMM2D()))
+    return WTMM2D().compute(field, {**defaults_for(WTMM2D()), **FIXED_EDGES})
 
 
 # --------------------------------------------------------------------------- the transform

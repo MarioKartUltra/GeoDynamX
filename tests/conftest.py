@@ -17,6 +17,12 @@ def fbm2d(n=64, H=0.7, seed=0):
     return (f - f.mean()) / f.std()
 
 
+#: The wtmm2d boundary handling before measured-reach padding and the Border cut (spec 25): a 32 px
+#: reflect pad and every maximum kept. Tests whose subject is not the edges pin it, so their numbers
+#: stay the ones measured with it.
+FIXED_EDGES = {"edge": "reflect", "pad_width": "fixed_px", "pad_px": 32, "border_cut": "none"}
+
+
 @pytest.fixture
 def fbm64():
     return fbm2d(64, 0.7, seed=0)

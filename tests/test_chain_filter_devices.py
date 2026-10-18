@@ -23,6 +23,7 @@ from dynamix.devices.chain_filters import (ChainHolderFilter, ChainLengthFilter,
                                            ChainModulusFilter, _chain_filters)
 from dynamix.devices.wtmm import WTMM2D
 from dynamix.model.device import defaults_for
+from tests.conftest import FIXED_EDGES
 
 FIXTURE = "tests/fixtures/kam_64.npz"
 needs_backing = pytest.mark.skipif(_chain_filters() is None,
@@ -40,7 +41,7 @@ def stack():
     real physics but not what these reading-format/triage regressions pin. The lift itself is
     covered by tests/test_fracint_scalar.py."""
     field = RasterField.load_npz(FIXTURE)
-    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0))
+    return WTMM2D().compute(field, dict(defaults_for(WTMM2D()), fracint_alpha=0.0, **FIXED_EDGES))
 
 
 def _dict_path(stack):

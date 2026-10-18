@@ -31,12 +31,21 @@ def _roi_params(**kw):
     return validate_params(dev, p)
 
 
-@pytest.mark.parametrize("dev", [WTMM2D(), WTMM2DROI()], ids=["wtmm2d", "wtmm2d_roi"])
-def test_edge_params_are_out_of_the_key_at_their_defaults(dev):
+def test_edge_params_are_out_of_the_key_at_their_defaults():
+    dev = WTMM2DROI()
     names = {p.name for p in dev.params}
     assert EDGE_KEYS <= names
     assert not EDGE_KEYS & set(keyed_params(dev, defaults_for(dev)))
     assert defaults_for(dev)["edge"] == "reflect"
+
+
+def test_the_whole_raster_edge_defaults_are_keyed_and_the_old_cut_scope_is_not():
+    """wtmm2d's ``auto`` edge pads by the measured reach and cuts the border (spec 25), which moves
+    every result, so those knobs enter the key at their defaults; spec 22's ``cut_scope`` does not."""
+    dev = WTMM2D()
+    keyed = set(keyed_params(dev, defaults_for(dev)))
+    assert defaults_for(dev)["edge"] == "auto"
+    assert {"edge", "pad_width", "border_cut", "edge_eps"} <= keyed and "cut_scope" not in keyed
 
 
 def test_reflect_at_a_corner_warns_naming_scales_widths_and_mirror_maxima():

@@ -3553,8 +3553,8 @@ both ``Canvas`` signals report the
         knobs moved, not yet run) is refused."""
         from datetime import datetime
 
-        from dynamix.core.derivative import (raster_choices, result_grid, vector_counts,
-                                             write_derivative)
+        from dynamix.core.derivative import (carried_from, raster_choices, result_grid,
+                                             vector_counts, write_derivative)
 
         if self.layer is None or self.layer.layer_id != layer_id:
             self.layer_list.select_layer(layer_id)
@@ -3604,6 +3604,8 @@ both ``Canvas`` signals report the
         crs = (getattr(field, "provenance", None) or {}).get("crs")
         if crs:
             provenance["crs"] = crs
+        if produced is not None:              # a Periodic extension's real block rides over
+            provenance.update(carried_from(produced))
         try:
             write_derivative(path, bands=[rasters[i] for i in choice["bands"]], frame=frame,
                              x_axis=x_axis, y_axis=y_axis, name=choice["name"],

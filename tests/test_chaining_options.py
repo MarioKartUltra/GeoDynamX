@@ -97,7 +97,8 @@ def test_the_options_are_wtmm_params_out_of_the_key_at_their_defaults(clean_regi
         declared = {p.name: p for p in device.params}
         for key, default in OPTION_DEFAULTS.items():
             assert declared[key].default == default and not declared[key].keyed_at_default, key
-            assert declared[key].level == "advanced", key
+            superseded = name == "wtmm2d" and key in ("border_policy", "coi_k")  # the Border cut
+            assert declared[key].level == ("hidden" if superseded else "advanced"), key
         params = validate_params(device, {})
         assert not set(OPTION_DEFAULTS) & set(keyed_params(device, params))
         on = keyed_params(device, {**params, "angle_test": True})

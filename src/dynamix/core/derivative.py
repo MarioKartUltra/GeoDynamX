@@ -25,8 +25,12 @@ import json
 
 import numpy as np
 
-__all__ = ["raster_choices", "read_vectors", "result_grid", "vector_counts",
-           "write_derivative"]
+__all__ = ["CARRIED", "carried_from", "raster_choices", "read_vectors", "result_grid",
+           "vector_counts", "write_derivative"]
+
+#: Provenance a forked field keeps: it describes the field's own pixels, which the fork writes on
+#: the same grid. ``edges.filled`` is a Periodic extension's real block, which WTMM's ``auto`` reads.
+CARRIED = ("edges.filled",)
 
 #: Single rasters a result may carry, in the order a fork offers them.
 _SINGLES = (("ssa_recon", "recon"), ("ssa_residual", "residual"),
@@ -66,6 +70,12 @@ def raster_choices(result: dict, shown_label: str = "as shown") -> list:
     for key, label in _SINGLES:
         add(label, result.get(key))
     return out
+
+
+def carried_from(field) -> dict:
+    """The :data:`CARRIED` provenance of a produced ``field`` that a fork of it keeps."""
+    prov = getattr(field, "provenance", None) or {}
+    return {k: prov[k] for k in CARRIED if k in prov}
 
 
 def result_grid(result: dict, field):

@@ -193,7 +193,9 @@ def test_the_nms_maxima_of_the_level_k_modulus_are_the_stored_level_k_extrema(bu
 
     values = np.round(_smooth() * 4.0) / 4.0           # a measurable value lattice (dither)
     field, cache = _field(values), Cache()
-    layer = _layer(("wtmm2d", {**FAST_WTMM, **extra}))
+    # The stored maxima are those before the Border cut removes any (spec 25): the padding stays
+    # the analysis's default, which the level's modulus must share.
+    layer = _layer(("wtmm2d", {**FAST_WTMM, "border_cut": "none", **extra}))
     r = resolve(layer, field, cache)
     raw = cache.get(r.analysis_key)
     params = r.analysis_params
@@ -227,8 +229,10 @@ def test_a_band_row_of_a_stack_gets_its_bands_levels(builtins):
     steps = (("band_select", {"band": 2}), ("wtmm2d", FAST_WTMM))
     layer = _layer(*steps)
     out = resolve_output(layer, field, cache, "modulus", level=1)
+    ran = cache.get(resolve(layer, field, cache).analysis_key)["params"]    # its padding
     want = run_wtmm2d_level(stack[..., 1], {"n_oct": 2, "n_voice": 2, "a_min": 1.0,
-                                            "wavelet": "mexican", "fracint_alpha": 0.0}, 1)
+                                            "wavelet": "mexican", "fracint_alpha": 0.0,
+                                            "pad": ran["pad"], "pad_mode": ran["pad_mode"]}, 1)
     np.testing.assert_array_equal(out["raster"], want["mod"])
     reduced = _layer(*steps, tags={"data.bands": "b1,b2"})
     r1 = resolve(layer, field, cache)

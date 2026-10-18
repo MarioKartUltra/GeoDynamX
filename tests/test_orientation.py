@@ -79,6 +79,7 @@ def test_a_striped_field_is_anisotropic_and_points_across_the_stripes(clean_regi
     from dynamix.core.rasterfield import RasterField
     from dynamix.devices import register_builtin_devices
     from dynamix.model.device import defaults_for, get_device
+    from tests.conftest import FIXED_EDGES
 
     register_builtin_devices()
     rng = np.random.default_rng(1)
@@ -88,7 +89,7 @@ def test_a_striped_field_is_anisotropic_and_points_across_the_stripes(clean_regi
     f = RasterField(name="s", values=stripes + 1e-3 * rng.normal(size=(96, 96)),
                     frame=LocalFrame(), x_axis=np.arange(96.0), y_axis=np.arange(96.0))
     dev = get_device("wtmm2d")
-    res = dev.compute(f, {**defaults_for(dev), "n_oct": 3})
+    res = dev.compute(f, {**defaults_for(dev), "n_oct": 3, **FIXED_EDGES})
     w = wtmmm_by_scale(res["extrema"])[1]
     o = from_arg(w["arg"])
     _c, pdf = angle_pdf(o, bins=8)
