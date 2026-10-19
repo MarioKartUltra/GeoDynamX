@@ -624,6 +624,17 @@ def _read_shape(layer, field) -> tuple[int, int]:
     return native_shape(field)
 
 
+def _workflow_reading_field(layer, field):
+    """A metadata-only view for knob readings on a native ROI or display overview.
+
+    Pixel arrays remain untouched; this view is never submitted to the engine.
+    """
+    if field is None or not hasattr(field, "provenance") or layer is None:
+        return field
+    return dataclasses.replace(field, provenance={**field.provenance,
+                               "_reading_shape": _read_shape(layer, field)})
+
+
 def _field_choices(field, note: str) -> list:
     """A produced field as fork choices ``[(label, 2-D array)]``: the field itself when it is
     one band, else one choice per band (tick them all for a multiband derivative)."""
@@ -2745,7 +2756,7 @@ off / z from this layer's own values / z from another loaded
             descriptors = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
                            for n, pp, b, r in zip(self._names, params, self._bypassed,
                                                   self._rack)]
-            self.strips.set_steps(descriptors, field=self.field)
+            self.strips.set_steps(descriptors, field=_workflow_reading_field(self.layer, self.field))
             self._on_chain_edited(descriptors)
             return
         band_step = _band_step_for(self._names)
@@ -2755,7 +2766,7 @@ off / z from this layer's own values / z from another loaded
             params[names.index(band_step)].update(band)
             descriptors = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
                            for n, pp, b, r in zip(names, params, self._bypassed, self._rack)]
-            self.strips.set_steps(descriptors, field=self.field)
+            self.strips.set_steps(descriptors, field=_workflow_reading_field(self.layer, self.field))
             self._on_chain_edited(descriptors)
             return
         recon_name = _band_device_for(self._names)
@@ -7522,7 +7533,7 @@ both ``Canvas`` signals report the
         self.strips.rackRemoved.connect(lambda _title, message: self._notify(message, "status"))
         descriptors = [{"device": n, "params": dict(p), "bypassed": b, "rack": r}
                        for n, p, b, r in zip(self._names, self._params, self._bypassed, self._rack)]
-        self.strips.set_steps(descriptors, field=self.field)
+        self.strips.set_steps(descriptors, field=_workflow_reading_field(self.layer, self.field))
         self._strip_layout.addWidget(self.strips)
         self.strips.select(0)
         self._update_source_box()
@@ -7863,7 +7874,7 @@ both ``Canvas`` signals report the
                 descriptors = kept
                 QtCore.QTimer.singleShot(
                     0, lambda ds=[dict(d) for d in descriptors]:
-                    self.strips.set_steps(ds, field=self.field))
+                    self.strips.set_steps(ds, field=_workflow_reading_field(self.layer, self.field)))
         names = [d["device"] for d in descriptors]
         params = [dict(d.get("params", {})) for d in descriptors]
         bypassed = [bool(d.get("bypassed", False)) for d in descriptors]
@@ -7878,7 +7889,7 @@ both ``Canvas`` signals report the
                 and not any(ref.device == "wtmm2d_roi" for ref in self.layer.chain.steps)):
             revert = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
                       for n, pp, b, r in zip(self._names, self._params, self._bypassed, self._rack)]
-            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=self.field))
+            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field)))
             d = defaults_for(get_device("wtmm2d_roi"))
             values = getattr(self.field, "values", self.field)
             dims = native_shape(self.field) if hasattr(values, "shape") else None
@@ -7915,7 +7926,7 @@ both ``Canvas`` signals report the
             revert = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
                       for n, pp, b, r in zip(self._names, self._params, self._bypassed,
                                              self._rack)]
-            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=self.field))
+            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field)))
             self._notify("noise is a field stage — drop it together with an analyzer (e.g. as a "
                          "preset) and it runs on the active ROI and its margin", "status")
             return
@@ -7953,7 +7964,7 @@ both ``Canvas`` signals report the
                     chain = Chain(tuple(DeviceRef(d["device"], dict(d.get("params", {})))
                                         for d in transforms + filters)).materialized()
                 except Exception as exc:                        # noqa: BLE001
-                    self.strips.set_steps(revert, field=self.field)
+                    self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field))
                     self.strips._show_warning(f"could not fork the new analysis: {exc}")
                     return
                 if shipped_idx:

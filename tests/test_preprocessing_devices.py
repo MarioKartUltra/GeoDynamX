@@ -77,3 +77,32 @@ def test_daf_smoothing_preserves_dc_and_matches_analytic_periodic_gain():
     p = {**defaults_for(dev), "edge": "periodic", "sigma": 4.}
     out = dev.compute(field, p)
     np.testing.assert_allclose(out.values, 3+daf_gain(2*np.pi/8, 4., 12)*x, atol=2e-13)
+
+
+@pytest.mark.parametrize("edge", ["reflect", "periodic"])
+def test_one_dd_refinement_of_512_is_1023_with_half_spacing(edge):
+    field = make_field(shape=(512, 512))
+    dev = DyadicInterpolation()
+    p = {**defaults_for(dev), "edge": edge}
+    out = dev.compute(field, p)
+    assert out.values.shape == (1023, 1023)
+    np.testing.assert_array_equal(out.values[::2, ::2], field.values)
+    np.testing.assert_allclose(out.x_axis[::2], field.x_axis)
+    assert out.x_axis[1] - out.x_axis[0] == pytest.approx((field.x_axis[1] - field.x_axis[0])/2)
+    assert dev.derived_reading("levels", 1, field, p).startswith("1023 × 1023")
+
+
+@pytest.mark.parametrize("edge", ["reflect", "periodic"])
+def test_dd_on_saved_roi_uses_region_pixels_and_axes(clean_registry, edge):
+    from conftest import make_layer
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.resolve import resolve
+    from dynamix.engine.cache import Cache
+
+    register_builtin_devices()
+    field = make_field(shape=(40, 50))
+    layer = make_layer(("dyadic_interpolation", {"edge": edge}), window="3,4,12,15")
+    out = resolve(layer, field, Cache()).result
+    assert out.values.shape == (23, 29)
+    np.testing.assert_array_equal(out.values[::2, ::2], field.values[3:15, 4:19])
+    np.testing.assert_allclose(out.x_axis[::2], field.x_axis[4:19])

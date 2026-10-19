@@ -81,8 +81,10 @@ class DyadicInterpolation(_Key):
         if name != "levels" or getattr(field, "values", None) is None:
             return None
         factor = 2 ** int(value)
-        ny, nx = field.values.shape[:2]
-        return f"{(ny-1)*factor+1} × {(nx-1)*factor+1} · original nodes retained; fork derivative dataset for analysis"
+        ny, nx = field.provenance.get("_reading_shape", field.values.shape[:2])
+        return (f"{(ny-1)*factor+1} × {(nx-1)*factor+1} · input {ny} × {nx}; "
+                f"{int(value)} refinement(s), spacing ÷{factor}; endpoints and original nodes retained; "
+                "fork derivative dataset for analysis")
 
 
 class DAFSmoothing(_Key):

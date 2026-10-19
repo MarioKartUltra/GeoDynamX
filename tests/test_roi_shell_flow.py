@@ -1382,3 +1382,28 @@ def test_a_refined_fork_sits_where_its_region_was_at_half_a_pixel_per_sample(pla
     fork.provenance["derived"] = {"from_dataset": "/nonexistent/plain.npz"}
     assert win._display_origin(fork) == (4, 5)
     assert win._display_pitch(fork) == (0.5, 0.5)
+
+
+def test_dd_workflow_reading_uses_native_roi_shape_without_reading_pixels(qtbot, registered_builtins):
+    from dynamix.devices.interpolation import DyadicInterpolation
+    from dynamix.model.chain import Chain
+    from dynamix.model.layer import Layer
+    from dynamix.shell.main_window import _workflow_reading_field
+    from dynamix.shell.workflow_zone import WorkflowZone
+
+    field = _picture(full=(4096, 4096), s=8)
+    layer = Layer(layer_id=1, name="ROI", source_id="s", chain=Chain(()),
+                  tags={"roi.window": "20,30,512,512"})
+    view = _workflow_reading_field(layer, field)
+    assert view.values is field.values
+    assert "_reading_shape" not in field.provenance
+    zone = WorkflowZone()
+    qtbot.addWidget(zone)
+    zone.set_steps([{"device": "dyadic_interpolation", "params": {"levels": 1}}], field=view)
+    box = zone._boxes[0]
+    assert box._derived_labels["levels"].text().startswith("1023 × 1023")
+    box._on_control_changed("levels", 2)
+    assert box._derived_labels["levels"].text().startswith("2045 × 2045")
+    box._on_control_changed("levels", 1)
+    box._on_control_changed("edge", "periodic")
+    assert box._derived_labels["levels"].text().startswith("1023 × 1023")
