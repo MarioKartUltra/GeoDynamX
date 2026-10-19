@@ -52,6 +52,9 @@ from dynamix.shell.multifractal_window import (Q_COLD, Q_WARM, TABLE_CHOICES, Wh
                                                 add_zero_lines)
 from dynamix.shell.theme import current
 
+#: The large-deviation bin rules: the adaptive (Barral–Gonçalves) bins, or a fixed-ε sweep.
+LD_RULES = ("adaptive ε", "fixed ε sweep")
+
 __all__ = ["SpectrumWindow"]
 
 #: Human labels for the membership rules, in ``chain_groups.MODES`` order (cell 52's dropdown).
@@ -71,8 +74,13 @@ class SpectrumWindow(QtWidgets.QDialog):
                  forward_note: str = "", min_chain_len: int = 2,
                  log2_L: "float | None" = None, parent=None, all_tables=None,
                  filter_note: str = "", dh_curves=None, gh_field=None,
-                 source: str = "canonical (Arneodo direct)", kind: str = "partition"):
+                 source: str = "canonical (Arneodo direct)", kind: str = "partition",
+                 per_scale: "dict | None" = None):
         super().__init__(parent, QtCore.Qt.Window)
+        #: Per-scale sets of moduli for the large-deviation route and the Gaussian ensemble:
+        #: name -> {"mods": [per scale], "scales": px, "weights": per-scale count factors or None}.
+        self._per_scale = {k: v for k, v in (per_scale or {}).items()
+                           if v.get("mods") and v.get("scales") is not None}
         #: What the canonical points are: the WTMM's direct construction, or the moment route.
         self._source = str(source)
         self._kind = str(kind or "partition")
@@ -345,6 +353,55 @@ class SpectrumWindow(QtWidgets.QDialog):
             self.select_views_check.toggled.connect(lambda _c: self.broadcast_grouping())
             self._group_controls = [self._gscale_spin]
 
+        # Beyond the hull (spec 15): the large-deviation spectrum counted on a per-scale set,
+        # the Gaussian ensemble's points with their γ, and the kink shading of τ(q).
+        self.ld_check = self.ld_source_combo = self.ld_rule_combo = None
+        self.gaussian_check = self.gamma_max_spin = self.gamma_steps_spin = None
+        self.kink_check = None
+        self._ld_label = QtWidgets.QLabel("")
+        self._ld_label.setStyleSheet(f"color: {current().ink_muted};")
+        self._gamma_readout = QtWidgets.QLabel("")
+        self._gamma_readout.setStyleSheet(f"color: {current().ink_muted};")
+        if self._per_scale or has_hd:
+            beyond = QtWidgets.QHBoxLayout()
+            if self._per_scale:
+                self.ld_check = QtWidgets.QCheckBox("large deviations")
+                self.ld_check.toggled.connect(lambda _c: self._recompute())
+                beyond.addWidget(self.ld_check)
+                self.ld_source_combo = QtWidgets.QComboBox()
+                self.ld_source_combo.addItems(list(self._per_scale))
+                self.ld_source_combo.currentTextChanged.connect(lambda _t: self._recompute())
+                beyond.addWidget(self.ld_source_combo)
+                self.ld_rule_combo = QtWidgets.QComboBox()
+                self.ld_rule_combo.addItems(list(LD_RULES))
+                self.ld_rule_combo.currentTextChanged.connect(lambda _t: self._recompute())
+                beyond.addWidget(self.ld_rule_combo)
+                beyond.addWidget(self._ld_label)
+                self.gaussian_check = QtWidgets.QCheckBox("Gaussian γ")
+                self.gaussian_check.setEnabled(has_hd)
+                self.gaussian_check.toggled.connect(lambda _c: self._recompute())
+                beyond.addWidget(self.gaussian_check)
+                beyond.addWidget(QtWidgets.QLabel("γ max"))
+                self.gamma_max_spin = QtWidgets.QDoubleSpinBox()
+                self.gamma_max_spin.setRange(0.25, 64.0)
+                self.gamma_max_spin.setValue(8.0)
+                self.gamma_max_spin.setSingleStep(1.0)
+                self.gamma_max_spin.valueChanged.connect(lambda _v: self._recompute())
+                beyond.addWidget(self.gamma_max_spin)
+                beyond.addWidget(QtWidgets.QLabel("steps"))
+                self.gamma_steps_spin = QtWidgets.QSpinBox()
+                self.gamma_steps_spin.setRange(1, 12)
+                self.gamma_steps_spin.setValue(5)
+                self.gamma_steps_spin.valueChanged.connect(lambda _v: self._recompute())
+                beyond.addWidget(self.gamma_steps_spin)
+                beyond.addWidget(self._gamma_readout)
+            if has_hd:
+                self.kink_check = QtWidgets.QCheckBox("kinks")
+                self.kink_check.toggled.connect(lambda _c: self._recompute())
+                beyond.addWidget(self.kink_check)
+            beyond.addStretch(1)
+            layout.addLayout(beyond)
+
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
@@ -401,12 +458,31 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._non_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.2), connect="finite")
         self._plot.addItem(self._dom_curve)
         self._plot.addItem(self._non_curve)
+        # The large-deviation curve (one per ε of the fixed sweep, the finest ε darkest), the
+        # Gaussian ensemble's points carrying (q, γ), and the kink bands.
+        self._ld_curves = []
+        for i in range(3):
+            colour = pg.mkColor(current().amber)
+            colour.setAlpha(90 + 80 * i)
+            curve = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.4), symbol="t", symbolSize=5,
+                                    symbolPen=None, symbolBrush=colour, connect="finite")
+            self._plot.addItem(curve)
+            self._ld_curves.append(curve)
+        self._ld_name = ""
+        self._gaussian_points = pg.ScatterPlotItem(size=5, pen=None, hoverable=True)
+        self._gaussian_points.sigClicked.connect(self._on_gaussian_point)
+        self._gaussian_points.sigHovered.connect(self._on_gaussian_point)
+        self._plot.addItem(self._gaussian_points)
+        self._gaussian_name = ""
+        self._kink_bands: list = []
         self._legend_entries = [
             (self._canon_curve, lambda n=self._source: n),           # no self: no cycle
             (self._hull_curve, lambda: "Legendre hull of fitted τ(q)"),
             (self._hist_curve, weak_method(self._hist_curve_name)),
             (self._gh_curve, lambda: "gradient histogram (GH)"),
             (self._box_curve, lambda: "box-counting across r (eq. 20)"),
+            (self._ld_curves[0], weak_method(self._ld_curve_name)),
+            (self._gaussian_points, weak_method(self._gaussian_curve_name)),
             (self._dom_curve, lambda: "dominant chains"),
             (self._non_curve, lambda: "non-dominant chains")]
         self._update_hist_items()
@@ -469,6 +545,8 @@ class SpectrumWindow(QtWidgets.QDialog):
 
     @staticmethod
     def _drawn(item) -> bool:
+        if isinstance(item, pg.ScatterPlotItem):
+            return item.isVisible() and len(item.data) > 0
         x = getattr(item, "xData", None)
         return item.isVisible() and x is not None and len(x) > 0
 
@@ -584,7 +662,163 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._update_tangent()
         self._update_grouping()
         self._update_hist_items()
+        self._update_ld()
+        self._update_ensemble()
+        self._update_kinks()
         self._sync_legend()
+
+    # -- beyond the hull: large deviations, the Gaussian ensemble, the kinks ------------------
+    def _scale_window(self) -> tuple:
+        return float(self._lo_spin.value()), float(self._hi_spin.value())
+
+    def _length_px(self, scales) -> float:
+        """The integral scale the per-scale exponents are measured against: the field's extent,
+        else four times the largest scale (the Gaussian ensemble's own fallback)."""
+        return 2.0 ** self._log2_L if self._log2_L is not None else 4.0 * float(np.max(scales))
+
+    def _ld_curve_name(self) -> str:
+        return self._ld_name
+
+    def _gaussian_curve_name(self) -> str:
+        return self._gaussian_name
+
+    def _update_ld(self) -> None:
+        """The large-deviation spectrum of the chosen per-scale set over the fit window: the
+        adaptive (h(q), D(q)) curve, or the fixed-ε sweep's three curves with their spread."""
+        from dynamix.core import large_deviation as ld
+
+        on = self.ld_check is not None and self.ld_check.isChecked()
+        for curve in self._ld_curves:
+            curve.setVisible(on)
+            if not on:
+                curve.setData([], [])
+        if not on:
+            self._ld_label.setText("")
+            return
+        name = self.ld_source_combo.currentText()
+        entry = self._per_scale[name]
+        scales = np.asarray(entry["scales"], dtype=np.float64)
+        lo, hi = self._scale_window()
+        rule = self.ld_rule_combo.currentText()
+        common = dict(log2_a_min=lo, log2_a_max=hi, length_px=self._length_px(scales),
+                      scale_weight=entry.get("weights"))
+        try:
+            if rule == LD_RULES[0]:
+                q = (np.asarray(self._fit["q_list"], dtype=np.float64) if self._fit is not None
+                     else np.arange(-3.0, 6.01, 0.5))
+                a = ld.adaptive(entry["mods"], scales, q_list=q, **common)
+                ok = np.isfinite(a["h"]) & np.isfinite(a["D"])
+                self._ld_curves[0].setData(a["h"][ok], a["D"][ok])
+                for curve in self._ld_curves[1:]:
+                    curve.setData([], [])
+                note = f"{int(ok.sum())} of {q.size} q"
+                excess = self._ld_excess(a["h"][ok], a["D"][ok])
+            else:
+                grid = np.linspace(-1.5, 2.5, 161)
+                f = ld.fixed(entry["mods"], scales, h_grid=grid, **common)
+                for curve, D in zip(self._ld_curves, f["D"]):            # finest ε last: on top
+                    finite = np.flatnonzero(np.isfinite(D))
+                    if finite.size:                       # trimmed to its span: the empty bins
+                        span = slice(finite[0], finite[-1] + 1)    # outside would widen the view
+                        curve.setData(grid[span], D[span])
+                    else:
+                        curve.setData([], [])
+                spread = f["spread"][np.isfinite(f["spread"])]
+                note = (f"ε {', '.join(f'{e:g}' for e in f['eps'])} · spread ≤ {spread.max():.2f}"
+                        if spread.size else "no bin holds every scale")
+                excess = self._ld_excess(grid, f["D"][-1])
+        except ValueError as exc:
+            for curve in self._ld_curves:
+                curve.setData([], [])
+            self._ld_name = f"large deviations ({name})"
+            self._ld_label.setText(str(exc))
+            return
+        self._ld_name = f"large deviations ({name}, {rule})"
+        bound = ("" if excess is None else
+                 " · D ≤ L holds" if excess <= 0.05 else f" · above the hull by {excess:.2f}")
+        self._ld_label.setText(note + bound)
+
+    def _ld_excess(self, h, D) -> "float | None":
+        """The largest excess of the curve over the Legendre spectrum of the current fit."""
+        from dynamix.core import large_deviation as ld
+
+        if self._fit is None or len(h) == 0:
+            return None
+        excess = ld.hull_excess(h, D, self._fit["q_list"], self._fit["tau"])
+        return float(np.nanmax(excess)) if np.isfinite(excess).any() else None
+
+    def _gammas(self) -> np.ndarray:
+        """γ max and the steps below it by halving: 8 and 5 steps give ½, 1, 2, 4, 8."""
+        top, n = float(self.gamma_max_spin.value()), int(self.gamma_steps_spin.value())
+        return top / 2.0 ** np.arange(n - 1, -1, -1)
+
+    def _update_ensemble(self) -> None:
+        """The Gaussian ensemble's D(h) points over the fit window from the chosen per-scale
+        set (spec 15), the q grid widened with γ so the saddles reach inside a dip; each point
+        carries its (q, γ) for the readout, and its brush darkens with γ."""
+        on = (self.gaussian_check is not None and self.gaussian_check.isChecked()
+              and self._fit is not None)
+        self._gaussian_points.setVisible(on)
+        if not on:
+            self._gaussian_points.setData([], [])
+            self._gamma_readout.setText("")
+            return
+        from dynamix.core.nonconcave import gaussian_ensemble
+
+        name = self.ld_source_combo.currentText()
+        entry = self._per_scale[name]
+        scales = np.asarray(entry["scales"], dtype=np.float64)
+        gammas = self._gammas()
+        q = np.asarray(self._fit["q_list"], dtype=np.float64)
+        grid = np.linspace(q.min() - 2.0 * gammas.max(), q.max() + 2.0 * gammas.max(), 81)
+        lo, hi = self._scale_window()
+        try:
+            g = gaussian_ensemble(entry["mods"], scales, grid, gammas, lo, hi,
+                                  length_px=self._length_px(scales))
+        except ValueError as exc:
+            self._gaussian_points.setData([], [])
+            self._gamma_readout.setText(str(exc))
+            return
+        keep = np.isfinite(g["h"]) & np.isfinite(g["D"]) & (g["D"] >= 0.0)     # a dimension
+        qi, gi = np.nonzero(keep)
+        spots = []
+        for i, j in zip(qi, gi):
+            colour = pg.mkColor(*Q_WARM)
+            colour.setAlpha(int(90 + 160 * (j + 1) / gammas.size))
+            spots.append({"pos": (float(g["h"][i, j]), float(g["D"][i, j])),
+                          "brush": pg.mkBrush(colour), "data": (float(grid[i]), float(gammas[j]))})
+        self._gaussian_points.setData(spots)
+        self._gaussian_name = f"Gaussian ensemble ({name}, γ ≤ {gammas.max():g})"
+        self._gamma_readout.setText(f"{len(spots)} points · click or hover one for its γ")
+
+    def _on_gaussian_point(self, _item, points, *_rest) -> None:
+        """The per-point readout: the (q, γ) a clicked or hovered ensemble point came from."""
+        if len(points) == 0:
+            return
+        pt = points[0]
+        q, gamma = pt.data()
+        pos = pt.pos()
+        self._gamma_readout.setText(f"γ = {gamma:g}, q = {q:.2f}: h = {pos.x():.3f}, D = {pos.y():.3f}")
+
+    def _update_kinks(self) -> None:
+        """The kink check on τ(q) (spec 15): the h interval the Legendre spectrum bridges at
+        each kink shaded on D(h); cleared when off or when τ is smooth."""
+        for band in self._kink_bands:
+            self._plot.removeItem(band)
+        self._kink_bands = []
+        if self.kink_check is None or not self.kink_check.isChecked() or self._fit is None:
+            return
+        from dynamix.core.nonconcave import kink_flags
+
+        warm = pg.mkColor(*Q_WARM)
+        fill = pg.mkColor(*Q_WARM)
+        fill.setAlpha(40)
+        for k in kink_flags(self._fit["q_list"], self._fit["tau"]):
+            band = pg.LinearRegionItem(values=(k["h_lo"], k["h_hi"]), orientation="vertical",
+                                       brush=pg.mkBrush(fill), pen=pg.mkPen(warm), movable=False)
+            band.setToolTip(f"kink at q* = {k['q']:.2f}: h jumps {k['h_lo']:.2f} → {k['h_hi']:.2f}")
+            self._plot.addItem(band)
+            self._kink_bands.append(band)
 
     def _update_tangent(self) -> None:
         """The tangent at the phase transition off the current fit, drawn across the view."""

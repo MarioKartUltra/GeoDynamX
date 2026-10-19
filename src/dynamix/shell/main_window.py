@@ -389,13 +389,51 @@ def _eta_note_of(result: dict) -> tuple:
     """``(eta_seed, forward_note)`` derived HONESTLY from the result's own resolved params (the
     ``_skeleton_px_size`` pattern -- the spectrum windows stay dumb): both WTMM paths apply the
     ``a^fracint_alpha`` lift forward, so the seed is the resolved
-    ``fracint_alpha`` whenever non-zero, and the note names what was lifted."""
+    ``fracint_alpha`` whenever non-zero, and the note names what was lifted; the wavelet
+    leaders' γ lifts the DWT coefficients by 2^{γj} the same way."""
     params = result.get("params") or {}
     alpha = float(params.get("fracint_alpha", 0.0))
     if alpha != 0.0:
         where = "WT derivs (tensor)" if params.get("mode") == "tensor" else "|∇W| (scalar)"
         return alpha, f"forward lift: a^{alpha:g} on {where}"
+    gamma = float(params.get("gamma", 0.0)) if "_h_cells" in result else 0.0
+    if gamma != 0.0:
+        return gamma, f"forward lift: 2^(γj) on the DWT coefficients, γ = {gamma:g}"
     return 0.0, "forward lift: none (η = 0)"
+
+
+def _per_scale_sets(result: dict) -> dict:
+    """The per-scale sets of moduli a result carries, for the construction window's
+    large-deviation route and Gaussian ensemble: the WTMM's maxima lines (one modulus per
+    chain per scale, what the partition tables count) and every maximum; the wavelet leaders'
+    three quantities over their valid cells, with the count factor that stands for the cells
+    the border took."""
+    out = {}
+    scales = result.get("scales")
+    if scales is None:
+        return out
+    n_sc = len(scales)
+    chains = result.get("chains") or []
+    if chains:
+        from dynamix.core.partition_tables import _modulus_matrix
+
+        M = _modulus_matrix(chains, n_sc)
+        out["maxima lines"] = {"mods": [M[np.isfinite(M[:, k]), k] for k in range(n_sc)],
+                               "scales": scales, "weights": None}
+    extrema = result.get("extrema") or []
+    mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
+    if mods and len(mods) == len(extrema) == n_sc:
+        out["every maximum"] = {"mods": mods, "scales": scales, "weights": None}
+    quantity, valid, shape = result.get("_quantity"), result.get("_valid"), result.get("_shape")
+    if quantity and valid and shape is not None:
+        for key, label in (("leaders", "leaders"), ("p-leaders", "p-leaders"), ("wse", "WSE leaders")):
+            if key not in quantity:
+                continue
+            sets = [np.asarray(m)[v] for m, v in zip(quantity[key], valid[key])]
+            weights = [float(np.prod([int(n) // 2 ** j for n in shape[:2]])) / max(int(v.sum()), 1)
+                       for j, v in enumerate(valid[key], start=1)]
+            out[label] = {"mods": sets, "scales": scales, "weights": weights}
+    return out
 
 
 def _band_step_for(names) -> "str | None":
@@ -3492,7 +3530,7 @@ both ``Canvas`` signals report the
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
             dh_curves=result.get("dh_curves"), gh_field=gh_field,
             source=result.get("hd_source") or "canonical (Arneodo direct)",
-            kind=result.get("hd_kind", "partition"))
+            kind=result.get("hd_kind", "partition"), per_scale=_per_scale_sets(result))
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)

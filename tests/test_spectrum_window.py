@@ -319,3 +319,137 @@ def test_the_construction_window_hides_the_table_choice_for_one_table(qtbot):
     two = SpectrumWindow(hd_std, hd_cmax)
     qtbot.addWidget(two)
     assert not two._table_combo.isHidden()
+
+
+# ------------------------------------------------- beyond the hull: large deviations, γ, kinks
+
+def _per_scale_set(L=128.0, scales=(2.0, 4.0, 8.0, 16.0, 32.0)):
+    """An exact per-scale set: at each scale, cells of exponent h on a grid, as many as
+    (a/L)^{-D(h)} with D(h) = 2 - 5 (h - ½)², each modulus (a/L)^h."""
+    h = np.linspace(0.3, 0.7, 41)
+    D = 2.0 - 5.0 * (h - 0.5) ** 2
+    mods = []
+    for a in scales:
+        n = np.maximum(np.round((a / L) ** (-D)), 1).astype(int)
+        mods.append(np.repeat((a / L) ** h, n))
+    return {"synthetic": {"mods": mods, "scales": np.asarray(scales), "weights": None}}, h, D
+
+
+def test_large_deviations_draw_from_the_per_scale_set_under_both_rules(qtbot):
+    from dynamix.core import large_deviation as ld
+    from dynamix.shell.spectrum_window import LD_RULES
+
+    sets, h, D = _per_scale_set()
+    hd_std, hd_cmax = _pair()
+    window = SpectrumWindow(hd_std, hd_cmax, log2_L=7.0, per_scale=sets)
+    qtbot.addWidget(window)
+    assert window.ld_check is not None and not window.ld_check.isChecked()
+    assert [window.ld_source_combo.itemText(i) for i in range(window.ld_source_combo.count())] == ["synthetic"]
+    assert "large deviations (synthetic, adaptive ε)" not in _legend_names(window._plot)
+    window.ld_check.setChecked(True)
+    curve = window._ld_curves[0]
+    assert len(curve.xData) > 0 and "large deviations (synthetic, adaptive ε)" in _legend_names(window._plot)
+    lo, hi = window._scale_window()
+    truth = ld.adaptive(sets["synthetic"]["mods"], sets["synthetic"]["scales"],
+                        q_list=hd_std["q_list"], log2_a_min=lo, log2_a_max=hi, length_px=128.0)
+    ok = np.isfinite(truth["h"]) & np.isfinite(truth["D"])
+    assert np.allclose(curve.xData, truth["h"][ok]) and np.allclose(curve.yData, truth["D"][ok])
+    assert np.allclose(curve.yData, 2.0 - 5.0 * (curve.xData - 0.5) ** 2, atol=0.15)
+    assert window._ld_label.text().startswith(f"{int(ok.sum())} of {hd_std['q_list'].size} q")
+    window.ld_rule_combo.setCurrentText(LD_RULES[1])
+    grid = np.linspace(-1.5, 2.5, 161)
+    fixed = ld.fixed(sets["synthetic"]["mods"], sets["synthetic"]["scales"], h_grid=grid,
+                     log2_a_min=lo, log2_a_max=hi, length_px=128.0)
+    for curve, D in zip(window._ld_curves, fixed["D"]):          # each trimmed to its finite span
+        span = np.flatnonzero(np.isfinite(D))
+        assert np.allclose(curve.xData, grid[span[0]:span[-1] + 1])
+        assert np.allclose(np.nan_to_num(curve.yData), np.nan_to_num(D[span[0]:span[-1] + 1]))
+    finest = window._ld_curves[-1]
+    assert 0.25 < finest.xData.min() and finest.xData.max() < 0.75          # the set's own span
+    inside = np.isfinite(finest.yData)
+    assert np.allclose(finest.yData[inside], 2.0 - 5.0 * (finest.xData[inside] - 0.5) ** 2, atol=0.1)
+    assert window._ld_label.text().startswith("ε 0.1, 0.05, 0.025 · spread ≤ ")
+    assert "large deviations (synthetic, fixed ε sweep)" in _legend_names(window._plot)
+    window.ld_check.setChecked(False)
+    assert not curve.xData and window._ld_label.text() == ""              # emptied: None or []
+    assert "large deviations (synthetic, fixed ε sweep)" not in _legend_names(window._plot)
+
+
+def test_the_gaussian_ensemble_has_a_gamma_knob_and_a_per_point_readout(qtbot):
+    from dynamix.core.nonconcave import gaussian_ensemble
+
+    sets, _h, _D = _per_scale_set()
+    hd_std, hd_cmax = _pair()
+    window = SpectrumWindow(hd_std, hd_cmax, log2_L=7.0, per_scale=sets)
+    qtbot.addWidget(window)
+    assert window.gaussian_check.isEnabled() and not window.gaussian_check.isChecked()
+    assert window.gamma_max_spin.value() == 8.0 and window.gamma_steps_spin.value() == 5
+    assert list(window._gammas()) == [0.5, 1.0, 2.0, 4.0, 8.0]
+    window.gaussian_check.setChecked(True)
+    pts = window._gaussian_points
+    assert len(pts.data) > 0 and "Gaussian ensemble (synthetic, γ ≤ 8)" in _legend_names(window._plot)
+    assert window._gamma_readout.text() == f"{len(pts.data)} points · click or hover one for its γ"
+    q = hd_std["q_list"]
+    lo, hi = window._scale_window()
+    grid = np.linspace(q.min() - 16.0, q.max() + 16.0, 81)
+    g = gaussian_ensemble(sets["synthetic"]["mods"], sets["synthetic"]["scales"], grid,
+                          window._gammas(), lo, hi, length_px=128.0)
+    keep = np.isfinite(g["h"]) & np.isfinite(g["D"]) & (g["D"] >= 0.0)
+    assert len(pts.data) == int(keep.sum())
+    assert all(isinstance(spot.data(), tuple) and len(spot.data()) == 2 for spot in pts.points()[:5])
+    window.gamma_max_spin.setValue(4.0)
+    window.gamma_steps_spin.setValue(3)
+    assert list(window._gammas()) == [1.0, 2.0, 4.0]
+    assert "Gaussian ensemble (synthetic, γ ≤ 4)" in _legend_names(window._plot)
+    point = pts.points()[0]
+    window._on_gaussian_point(pts, [point])
+    q0, gamma0 = point.data()
+    assert window._gamma_readout.text().startswith(f"γ = {gamma0:g}, q = {q0:.2f}: h = ")
+    window.gaussian_check.setChecked(False)
+    assert len(pts.data) == 0 and window._gamma_readout.text() == ""
+
+
+def test_kink_bands_shade_the_jump_in_h_and_clear(qtbot):
+    from dynamix.core.nonconcave import kink_flags
+
+    hd_std, hd_cmax = _pair()
+    window = SpectrumWindow(hd_std, hd_cmax)
+    qtbot.addWidget(window)
+    assert window.kink_check is not None and window._kink_bands == []
+    window.kink_check.setChecked(True)
+    flags = kink_flags(window._fit["q_list"], window._fit["tau"])
+    assert len(window._kink_bands) == len(flags)
+    for band, k in zip(window._kink_bands, flags):
+        assert band.getRegion() == pytest.approx((k["h_lo"], k["h_hi"]))
+    window.kink_check.setChecked(False)
+    assert window._kink_bands == []
+    bare = SpectrumWindow(h_map=_h_map())                   # no tables: no kinks, no ensemble
+    qtbot.addWidget(bare)
+    assert bare.kink_check is None and bare.ld_check is None
+
+
+def test_the_main_window_builds_the_per_scale_sets_and_seeds_gamma_from_a_leaders_result():
+    from dynamix.shell.main_window import _eta_note_of, _per_scale_sets
+
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    chains = _chains(scales)
+    extrema = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]
+    wtmm = {"scales": scales, "chains": chains, "extrema": extrema, "params": {"fracint_alpha": 0.0}}
+    sets = _per_scale_sets(wtmm)
+    assert list(sets) == ["maxima lines", "every maximum"]
+    assert [len(m) for m in sets["maxima lines"]["mods"]] == [4, 4, 3, 3]       # chains alive per scale
+    assert sets["maxima lines"]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
+    assert [len(m) for m in sets["every maximum"]["mods"]] == [3, 3, 3, 3]
+    quantity = {"leaders": [np.full((8, 8), 2.0), np.full((4, 4), 4.0)], "wse": [np.ones((8, 8)), np.ones((4, 4))]}
+    valid = {"leaders": [np.ones((8, 8), bool), np.ones((4, 4), bool)],
+             "wse": [np.zeros((8, 8), bool), np.ones((4, 4), bool)]}
+    valid["leaders"][1][0, 0] = False
+    leaders = {"scales": np.array([2.0, 4.0]), "_quantity": quantity, "_valid": valid, "_shape": (16, 16),
+               "_h_cells": {}, "params": {"gamma": 1.0}}
+    sets = _per_scale_sets(leaders)
+    assert list(sets) == ["leaders", "WSE leaders"]
+    assert [len(m) for m in sets["leaders"]["mods"]] == [64, 15]
+    assert sets["leaders"]["weights"] == pytest.approx([1.0, 16 / 15])
+    assert _eta_note_of(leaders) == (1.0, "forward lift: 2^(γj) on the DWT coefficients, γ = 1")
+    assert _eta_note_of(wtmm) == (0.0, "forward lift: none (η = 0)")
+    assert _per_scale_sets({"params": {}}) == {}
