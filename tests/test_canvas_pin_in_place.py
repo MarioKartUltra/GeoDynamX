@@ -165,3 +165,30 @@ def test_saved_rois_are_outlined_at_their_file_pixels(qtbot):
     canvas.set_saved_rois([])
     x, _ = canvas.saved_roi_item.getData()
     assert x is None or len(x) == 0
+
+
+def _refined_child(n=16, row_off=5, col_off=7):
+    """One dyadic refinement of a 16 x 16 window at (5, 7): 31 samples per axis, half a file pixel
+    apart, sample 0 on file pixel (5, 7)."""
+    m = 2 * n - 1
+    f = RasterField(name="refined", values=np.zeros((m, m)), frame=LocalFrame(),
+                    x_axis=col_off + 0.5 * np.arange(m, dtype=np.float64),
+                    y_axis=row_off + 0.5 * np.arange(m, dtype=np.float64))
+    f.provenance["window"] = {"row_off": row_off, "col_off": col_off}
+    return f
+
+
+def test_a_refined_field_draws_over_its_file_pixels_not_its_sample_count(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(_refined_child(), display_pitch=(0.5, 0.5))
+    rect = canvas.image_item.mapRectToView(canvas.image_item.boundingRect())
+    # sample 0 is centred on file pixel (5, 7); 31 samples half a pixel apart span 15.5 pixels
+    assert (rect.x(), rect.y()) == (6.75, 4.75)
+    assert (rect.width(), rect.height()) == (15.5, 15.5)
+    # the saved ROI the field came from still outlines its own file cells, enclosing the image
+    canvas.set_saved_rois([{"label": "A", "row": 5, "col": 7, "h": 16, "w": 16, "active": True}])
+    xs, ys = (np.asarray(a, dtype=float) for a in canvas.active_roi_item.getData())
+    assert (np.nanmin(xs), np.nanmax(xs), np.nanmin(ys), np.nanmax(ys)) == (6.5, 22.5, 4.5, 20.5)
+    # the ROI gesture clamps to the field's extent in file pixels, not to 31
+    assert canvas._field_shape() == (16, 16)

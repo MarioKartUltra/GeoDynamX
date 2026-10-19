@@ -804,6 +804,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         # A dataset with no file window placed inside another's file pixels (a fork shown where
         # its georeference puts it): added to the base, and to everything drawn in file pixels.
         self._display_shift = (0, 0)
+        self._display_pitch = (1.0, 1.0)   # file pixels per stored sample (rows, cols)
         self._draw_off = (0.0, 0.0)
         self._press_pos = None
         self._press_shift = False
@@ -1168,8 +1169,11 @@ class Canvas(pg.GraphicsLayoutWidget):
         return point.x(), point.y()
 
     def _field_shape(self) -> tuple[int, int]:
-        # FILE pixels: a display picture reports its file's dims.
-        return native_shape(self._field)
+        # FILE pixels: a display picture reports its file's dims; a field finer or coarser than
+        # the file's grid, its extent at its pitch.
+        rows, cols = native_shape(self._field)
+        py, px = self._display_pitch
+        return int(np.ceil(rows * py)), int(np.ceil(cols * px))
 
     def _pick_radius_data(self, screen_px: float) -> float:
         """SCREEN pixels -> DATA units, through the ViewBox's OWN current scale.
@@ -2214,10 +2218,17 @@ a bounded gather of at most :attr:`draw_cap` chains per
                                                      max_dist), shift)
         super().mouseReleaseEvent(event)
 
-    def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM, display_origin=None) -> None:
+    def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM, display_origin=None,
+                  display_pitch=(1.0, 1.0)) -> None:
         """Raster display: an ``ImageItem`` in the ``viridis`` colormap, decimated for on-screen
         size via :func:`lod_stride`. ``field`` may be a ``RasterField`` or a bare ``(ny, nx)``
         array.
+
+        ``display_pitch`` = (rows, cols) FILE pixels per stored sample (``bus.grid_pitch``): a
+        field finer or coarser than the file's grid draws each sample over that much of a file
+        pixel, centred on the sample, so a dyadic refinement's retained nodes stay on the file
+        pixels they came from and every file-pixel overlay (ROI outlines, bands, footprints) is
+        untouched. (1, 1), the default, is the file's own grid.
 
         The explicit ``setRect`` is the registration, and it is not optional. ``setImage`` alone
         gives an ``ImageItem`` one data unit per STORED sample, so a stride-4 display of a
@@ -2238,6 +2249,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._field = field
         self._display_shift = (tuple(int(v) for v in display_origin) if display_origin is not None
                                else (0, 0))
+        self._display_pitch = (float(display_pitch[0]), float(display_pitch[1]))
         wr, wc = window_offset(field)
         self._base_off = (wr + self._display_shift[0], wc + self._display_shift[1])
         # North-up for GEOGRAPHIC fields only: this view is image-convention (row 0 at top,
@@ -2284,20 +2296,24 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # system -- the box, the ROI result and the image all speak file pixels), and for the
         # canvas's own LOD it removes the far-edge squeeze (n/m < s per sample). An ordinary
         # field at full resolution has S = 1 and m = n: exactly the old shape rect.
-        S = display_stride(field) * lod
+        py, px = self._display_pitch
+        S_x = display_stride(field) * lod * px
+        S_y = display_stride(field) * lod * py
         m_y = -(-shape[0] // lod)
         m_x = -(-shape[1] // lod)
         # A strided field whose samples sit AT file pixels k*S (``display_anchor`` "sample")
         # centres block k on its sample, spanning [k*S - S/2, k*S + S/2), like the LastWave
-        # M-Z thumbnail's; a picture's sample, like the printed M-Z thumbnail's, already
-        # describes its block's centre pixel.
+        # M-Z thumbnail's; so does a field at a pitch other than 1 (its samples are nodes, not
+        # blocks); a picture's sample, like the printed M-Z thumbnail's, already describes its
+        # block's centre pixel.
         prov = getattr(field, "provenance", None) or {}
-        half = S / 2 if prov.get("display_anchor") == "sample" else 0.5
+        centred = prov.get("display_anchor") == "sample" or (py, px) != (1.0, 1.0)
+        half_x, half_y = (S_x / 2, S_y / 2) if centred else (0.5, 0.5)
         # A raster whose samples register off their pixel index (``display_offset`` = (dx, dy)
         # pixels, x then y, like the LastWave M-Z coarse channel) draws that far off the grid.
         reg_dx, reg_dy = prov.get("display_offset") or (0, 0)
-        return QtCore.QRectF(base_off[1] - half + reg_dx, base_off[0] - half + reg_dy,
-                             m_x * S, m_y * S)
+        return QtCore.QRectF(base_off[1] - half_x + reg_dx, base_off[0] - half_y + reg_dy,
+                             m_x * S_x, m_y * S_y)
 
     def set_product(self, field, max_dim: int = _DEFAULT_MAX_DIM) -> None:
         """A result's own raster (an h-map, a reconstruction, a filtered field, a live band
