@@ -1371,3 +1371,14 @@ def test_a_refined_field_at_an_roi_draws_over_the_rois_file_pixels(plain_window,
     rect = win.canvas.image_item.mapRectToView(win.canvas.image_item.boundingRect())
     assert (rect.x(), rect.y()) == (4.75, 3.75)                 # (col - 1/4, row - 1/4)
     assert (rect.width(), rect.height()) == (19.5, 15.5)        # 39 and 31 samples at 1/2
+
+
+def test_a_refined_fork_sits_where_its_region_was_at_half_a_pixel_per_sample(plain_window):
+    """A fork of the dyadic refinement of ROI (4, 5, 16, 20) carries axes half a pixel apart from
+    (4, 5): its origin on the source's grid is (4, 5) and its pitch 1/2, not "off the grid"."""
+    win = plain_window
+    fork = RasterField(name="refined", values=np.zeros((31, 39)), frame=LocalFrame(),
+                       x_axis=5 + 0.5 * np.arange(39.0), y_axis=4 + 0.5 * np.arange(31.0))
+    fork.provenance["derived"] = {"from_dataset": "/nonexistent/plain.npz"}
+    assert win._display_origin(fork) == (4, 5)
+    assert win._display_pitch(fork) == (0.5, 0.5)

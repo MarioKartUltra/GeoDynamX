@@ -2280,7 +2280,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.layer_list.select_layer(self.layer.layer_id)
         self.setWindowTitle(f"{TITLE} — {self.layer.name}")
         self._build_strips()
-        self.canvas.set_field(field, display_origin=self._display_origin(field))
+        self.canvas.set_field(field, display_origin=self._display_origin(field),
+                              display_pitch=self._display_pitch(field))
         self._apply_raster_visibility()
         self._displayed_layer_name = self.layer.name
         self._holder_raster_ref = None       # raw field is up -- holder display re-syncs on land
@@ -4537,7 +4538,8 @@ both ``Canvas`` signals report the
                                  "status")
         elif self._holder_raster_ref is not None:
             if self.field is not None:
-                self.canvas.set_field(self.field, display_origin=self._display_origin(self.field))
+                self.canvas.set_field(self.field, display_origin=self._display_origin(self.field),
+                                      display_pitch=self._display_pitch(self.field))
                 self._apply_raster_visibility(showing_product=False)
             if self.layer is not None:
                 self.layer_list.set_layer_name(self.layer.layer_id, self.layer.name)
@@ -5155,7 +5157,8 @@ both ``Canvas`` signals report the
         # a PointSet is not array-like (TypeError). Drawing points on the canvas is a separate step; until then the canvas simply keeps showing whatever it last had (the previous
         # raster, or nothing) -- never a crash for selecting a point layer.
         if not self._is_point_layer(layer):
-            self.canvas.set_field(self.field, display_origin=self._display_origin(self.field))
+            self.canvas.set_field(self.field, display_origin=self._display_origin(self.field),
+                                  display_pitch=self._display_pitch(self.field))
             self._apply_raster_visibility()
             self._refresh_saved_rois()
             self._displayed_layer_name = layer.name
@@ -5174,14 +5177,9 @@ both ``Canvas`` signals report the
         # A no-op while nothing is open.
         self._refresh_inspector_statuses()
 
-    def _display_origin(self, field):
-        """Where a forked dataset sits in the file pixels of the dataset it was forked from,
-        computed from the fork's OWN georeference against that dataset's grid -- so the Raster
-        tab shows whether the fork is georeferenced where its region was. ``None`` for any other
-        field, and for a fork whose source is not open or whose CRS or pixel size differs. A fork
-        off that grid by a fraction of a pixel is said on the status line."""
-        from dynamix.core.bus import native_grid
-
+    def _fork_base(self, field):
+        """The master's field of the dataset ``field`` was forked from, when that dataset is open
+        and the fork's CRS matches its own; ``None`` for any other field."""
         prov = getattr(field, "provenance", None) or {}
         origin_path = (prov.get("derived") or {}).get("from_dataset")
         if not origin_path or prov.get("window") or np.ndim(getattr(field, "values", ())) < 2:
@@ -5191,20 +5189,36 @@ both ``Canvas`` signals report the
             (l for l in self.project.layers if l.source_id == src.source_id and l.parent_id is None),
             None)
         base = self._fields.get(master.layer_id) if master is not None else None
+        if base is None or str((getattr(base, "provenance", None) or {}).get("crs")) != str(prov.get("crs")):
+            return None
+        return base
+
+    def _display_pitch(self, field) -> tuple[float, float]:
+        """File pixels of the dataset ``field`` was forked from per sample of ``field``, (rows,
+        cols); (1, 1) for any other field."""
+        from dynamix.core.bus import grid_pitch
+
+        base = self._fork_base(field)
+        return (1.0, 1.0) if base is None else grid_pitch(field, base)
+
+    def _display_origin(self, field):
+        """Where a forked dataset sits in the file pixels of the dataset it was forked from,
+        computed from the fork's OWN georeference against that dataset's grid -- so the Raster
+        tab shows whether the fork is georeferenced where its region was, at its own pitch
+        (:meth:`_display_pitch`). ``None`` for any other field and for a fork whose source is
+        not open or whose CRS differs. A fork off that grid by a fraction of a pixel is said on
+        the status line."""
+        from dynamix.core.bus import native_grid
+
+        base = self._fork_base(field)
         if base is None:
             return None
-        _ny, _nx, x0, dx, y0, dy, crs = native_grid(base)
+        _ny, _nx, x0, dx, y0, dy, _crs = native_grid(base)
         if file_pixel_grid(base) is None:            # an ordinary field: its axes start at its window
             wr, wc = window_offset(base)
             x0, y0 = x0 - wc * dx, y0 - wr * dy
-        if crs != str(prov.get("crs")):
-            return None
         fx = np.asarray(field.x_axis, dtype=np.float64)
         fy = np.asarray(field.y_axis, dtype=np.float64)
-        fdx = fx[1] - fx[0] if fx.size > 1 else dx
-        fdy = fy[1] - fy[0] if fy.size > 1 else dy
-        if not (np.isclose(fdx, dx, rtol=1e-6) and np.isclose(fdy, dy, rtol=1e-6)):
-            return None
         row, col = (fy[0] - y0) / dy, (fx[0] - x0) / dx
         r, c = int(round(row)), int(round(col))
         if abs(row - r) > 1e-3 or abs(col - c) > 1e-3:
