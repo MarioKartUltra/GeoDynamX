@@ -507,13 +507,12 @@ def test_the_structure_fit_reads_fbm_with_either_weighting_and_shifts_frames():
     assert np.all(np.isnan(narrow["tau"]))                                 # two levels fit nothing
 
 
-def test_the_log_cumulants_are_the_ln_moments_of_each_set_and_regress_per_order():
+def test_each_log_cumulant_regresses_on_its_own_range_with_the_cascade_sign():
     from dynamix.core.spectra import cumulant_regression, ln_moments
 
     r = L.run_leaders(fbm2d(512, 0.5, seed=6), scale_min=4, scale_max=32, wse_rule="fixed")
-    C = L.log_cumulants(r["samples"], "leaders")
-    flat = [m[v] for m, v in zip(r["quantity"]["leaders"], r["valid"]["leaders"])]
-    assert C.shape == (4, 5) and np.allclose(C, ln_moments(flat), equal_nan=True)
+    C = ln_moments([m[v] for m, v in zip(r["quantity"]["leaders"], r["valid"]["leaders"])])
+    assert C.shape == (4, 5)
     c1 = cumulant_regression(C, r["scales"], 2, 5, 1)
     assert abs(c1["c"] - 0.5) < 0.05 and c1["n"] == 4 and 0 < c1["sigma"] < 0.05 and c1["r2"] > 0.99
     c2 = cumulant_regression(C, r["scales"], 2, 5, 2)

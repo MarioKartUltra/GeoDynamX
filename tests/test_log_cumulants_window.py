@@ -7,7 +7,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dynamix.core import leaders, spectra
+from dynamix.core import spectra
+from dynamix.model.samples import sample_sets
 from dynamix.shell.log_cumulants_window import LogCumulantsWindow
 
 
@@ -23,8 +24,9 @@ def _samples(c1=0.5, c2=0.05, J=5, n=1024, seed=0):
         valid.append(np.ones((side, side), bool))
     sets = {"leaders": {"values": values, "valid": valid},
             "wse": {"values": [v * 2.0 for v in values], "valid": valid}}
-    return {"scales": 2.0 ** np.arange(1, J + 1), "cells": [(n // 2 ** j) ** 2 for j in range(1, J + 1)],
-            "d": 2, "sets": sets}
+    samples = {"scales": 2.0 ** np.arange(1, J + 1), "cells": [(n // 2 ** j) ** 2 for j in range(1, J + 1)],
+               "d": 2, "sets": sets}
+    return sample_sets({"samples": samples, "scales": samples["scales"]})
 
 
 def test_four_panels_each_regress_their_cumulant_over_the_seeded_range(qtbot):
@@ -34,9 +36,9 @@ def test_four_panels_each_regress_their_cumulant_over_the_seeded_range(qtbot):
     assert window.windowTitle() == "Log-cumulants — L1 · sym4" and window.sync_check.isChecked()
     assert window.ranges() == [(1.0, 5.0)] * 4
     fit = window.current_fit()
-    C = leaders.log_cumulants(s, "leaders")
+    C = spectra.ln_moments(s["leaders"]["mods"])
     for m in (1, 2, 3, 4):
-        reg = spectra.cumulant_regression(C, s["scales"], 1, 5, m)
+        reg = spectra.cumulant_regression(C, s["leaders"]["scales"], 1, 5, m)
         assert fit["cumulants"][f"c{m}"] == pytest.approx(reg["c"])
         assert fit["cumulants"]["n"][m] == 5 and fit["cumulants"]["r2"][m] == pytest.approx(reg["r2"])
         text = window.labels[m].text
@@ -86,3 +88,15 @@ def test_the_original_frame_takes_gamma_out_of_c1_only(qtbot):
     integrated = window.current_fit()["cumulants"]
     assert integrated["c1"] == pytest.approx(original["c1"] + 1.0) and integrated["c2"] == original["c2"]
     assert "γ = 1, integrated frame" in window.readout.text()
+
+
+def test_the_wtmm_s_maxima_lines_feed_the_same_tool(qtbot):
+    from test_spectrum_window import _per_scale_set
+
+    sets, _h, _D = _per_scale_set()
+    window = LogCumulantsWindow(sets, source="L1")
+    qtbot.addWidget(window)
+    assert window.ranges() == [(1.0, 5.0)] * 4 and window.current_fit()["name"] == "L1 · synthetic, log-cumulants"
+    assert not window.frame_combo.isEnabled()
+    with pytest.raises(ValueError):
+        LogCumulantsWindow({"empty": {"mods": [], "scales": None}})

@@ -3521,18 +3521,21 @@ both ``Canvas`` signals report the
             return
         result = self._active_result
         ok = bool(result) and isinstance(result.get("samples"), dict)
-        for button, what in ((self._structure_button, "ζ(q), τ(q), h(q) and D(h) by weighted least squares "
-                              "over log₂ S(q, a)"),
-                             (self._cumulants_button, "c₁..c₄: one regression per cumulant of ln ℓ, each on its own range")):
-            button.setEnabled(ok)
-            button.setToolTip(f"{what} on the active result's sample sets (leaders, p-leaders, WSE leaders, "
-                              "coefficients)" if ok else "Needs a Wavelet leaders result on the active layer")
+        self._structure_button.setEnabled(ok)
+        self._structure_button.setToolTip(
+            "ζ(q), τ(q), h(q) and D(h) by weighted least squares over log₂ S(q, a) of the active result's sample "
+            "sets (leaders, p-leaders, WSE leaders, coefficients)" if ok else
+            "Needs a Wavelet leaders result on the active layer")
         sets = bool(result) and bool(sample_sets(result))
+        needs = "Needs a result with per-level sample sets: a WTMM's maxima or a Wavelet leaders result"
+        self._cumulants_button.setEnabled(sets)
+        self._cumulants_button.setToolTip(
+            "c₁..c₄: one regression per cumulant of ln ℓ, each on its own range, over a per-level sample set"
+            if sets else needs)
         self._ld_button.setEnabled(sets)
         self._ld_button.setToolTip(
             "The large-deviation spectrum counted on a per-level sample set: the local exponents' histograms "
-            "per scale, the adaptive bins or a fixed-ε sweep" if sets else
-            "Needs a result with per-level sample sets: a WTMM's maxima or a Wavelet leaders result")
+            "per scale, the adaptive bins or a fixed-ε sweep" if sets else needs)
 
     def _samples_source(self) -> str:
         """What a fitting window is named for: the layer and the bank."""
@@ -3565,27 +3568,36 @@ both ``Canvas`` signals report the
     def _on_cumulants_button_clicked(self) -> None:
         from dynamix.shell.log_cumulants_window import LogCumulantsWindow
 
-        self._open_fitting_window("_cumulants_window", LogCumulantsWindow)
+        params = (self._active_result or {}).get("params") or {}
+        gamma = float(params.get("gamma", 0.0)) if isinstance((self._active_result or {}).get("samples"), dict) else 0.0
+        self._open_sets_window("_cumulants_window", LogCumulantsWindow, gamma=gamma)
 
-    def _on_ld_button_clicked(self) -> None:
-        from dynamix.shell.large_deviations_window import LargeDeviationsWindow
-
+    def _open_sets_window(self, attr: str, cls, **extra) -> None:
+        """A tool over the active result's per-level sample sets (any result that has them)."""
         result = self._active_result
         sets = sample_sets(result) if result else {}
         if not sets:
             return
-        if self._ld_window is not None:
-            self._ld_window.close()
+        previous = getattr(self, attr)
+        if previous is not None:
+            previous.close()
         levels = (result.get("record") or {}).get("levels") or {}
-        window = LargeDeviationsWindow(
-            sets, log2_L=self._log2_extent(result), levels=(levels.get("j_min"), levels.get("J")) if levels else None,
-            source=self.layer.name if self.layer is not None else "layer", parent=self,
-            physical_of_log2a=self._physical_of_log2a())
+        source = self.layer.name if self.layer is not None else "layer"
+        if isinstance(result.get("samples"), dict):
+            source = self._samples_source()
+        window = cls(sets, levels=(levels.get("j_min"), levels.get("J")) if levels else None, source=source,
+                     parent=self, physical_of_log2a=self._physical_of_log2a(), **extra)
         window.fitChanged.connect(self._on_fit_published)
-        self._ld_window = window
+        setattr(self, attr, window)
         self._on_fit_published(window.current_fit())
         window.show()
         window.raise_()
+
+    def _on_ld_button_clicked(self) -> None:
+        from dynamix.shell.large_deviations_window import LargeDeviationsWindow
+
+        result = self._active_result or {}
+        self._open_sets_window("_ld_window", LargeDeviationsWindow, log2_L=self._log2_extent(result))
 
     def _on_fit_published(self, fit) -> None:
         """A fitting window's fit, kept by name (the latest of each) and handed to an open

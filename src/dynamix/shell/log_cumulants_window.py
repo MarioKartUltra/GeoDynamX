@@ -2,7 +2,8 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The Log-cumulants window: the cumulants of ln ℓ against log₂ a, one regression each.
 
-One set of the ``Samples`` contract at a time. Four panels, C₁(a) to C₄(a) (the mean, variance,
+One per-level sample set at a time (:mod:`dynamix.model.samples`: the wavelet leaders' sets, the
+WTMM's maxima lines or every maximum). Four panels, C₁(a) to C₄(a) (the mean, variance,
 third and fourth cumulant of ln ℓ per level), each with its own draggable fit range and its own
 regression against ln a: c_m is the slope with the cascade sign (c₁ = +slope, c₂ = −slope, c₃ =
 +slope, c₄ = −slope, so c₂ > 0 for a cascade), shown with its standard error, R² and the number
@@ -18,8 +19,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
-from dynamix.core import leaders, spectra
-from dynamix.model.samples import LABELS
+from dynamix.core import spectra
 from dynamix.shell.multifractal_window import PhysicalAxis, WheelAxisViewBox
 from dynamix.shell.theme import current
 
@@ -40,11 +40,14 @@ class LogCumulantsWindow(QtWidgets.QDialog):
     #: (``c1``..``c4`` and per order ``sigma``, ``r2``, ``n``), ``q``, ``tau``, ``h``, ``D``, ``cq``.
     fitChanged = QtCore.Signal(object)
 
-    def __init__(self, samples: dict, *, gamma: float = 0.0, levels=None, source: str = "",
+    def __init__(self, sets: dict, *, gamma: float = 0.0, levels=None, source: str = "", d: float = 2.0,
                  parent=None, physical_of_log2a=None):
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
-        self._samples = samples
+        self._sets = {k: v for k, v in sets.items() if v.get("mods") and v.get("scales") is not None}
+        if not self._sets:
+            raise ValueError("LogCumulantsWindow needs at least one per-level sample set")
+        self._d = float(d)
         self._gamma = float(gamma)
         self._source = source
         self._physical = physical_of_log2a
@@ -52,9 +55,9 @@ class LogCumulantsWindow(QtWidgets.QDialog):
         self._fit: dict | None = None
         self._syncing = False
         self.setWindowTitle(f"Log-cumulants — {source}" if source else "Log-cumulants")
-        J = len(samples["scales"])
-        self._span = (1.0, float(J))
-        lo, hi = levels if levels is not None else (1, J)
+        log2_s = np.log2(np.asarray(next(iter(self._sets.values()))["scales"], dtype=np.float64))
+        self._span = (float(log2_s.min()), float(log2_s.max()))
+        lo, hi = levels if levels is not None and None not in levels else self._span
         self._build_ui(float(lo), float(hi))
         self._refit()
 
@@ -74,8 +77,7 @@ class LogCumulantsWindow(QtWidgets.QDialog):
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(QtWidgets.QLabel("Set"))
         self.set_combo = QtWidgets.QComboBox()
-        for name in self._samples["sets"]:
-            self.set_combo.addItem(LABELS.get(name, name), name)
+        self.set_combo.addItems(list(self._sets))
         self.set_combo.currentIndexChanged.connect(lambda _i: self._refit())
         controls.addWidget(self.set_combo)
         controls.addWidget(QtWidgets.QLabel("Frame"))
@@ -136,9 +138,10 @@ class LogCumulantsWindow(QtWidgets.QDialog):
 
     # -- the fit ----------------------------------------------------------------------------
     def _rows(self) -> np.ndarray:
-        name = self.set_combo.currentData()
+        """``(4, n_scales)``: the cumulants of ln ℓ per scale of the chosen set."""
+        name = self.set_combo.currentText()
         if name not in self._moments:
-            self._moments[name] = leaders.log_cumulants(self._samples, name)
+            self._moments[name] = spectra.ln_moments(self._sets[name]["mods"])
         return self._moments[name]
 
     def _on_sync_toggled(self, on: bool) -> None:
@@ -158,7 +161,7 @@ class LogCumulantsWindow(QtWidgets.QDialog):
         self._refit()
 
     def _refit(self) -> None:
-        C, scales = self._rows(), np.asarray(self._samples["scales"], dtype=np.float64)
+        C, scales = self._rows(), np.asarray(self._sets[self.set_combo.currentText()]["scales"], dtype=np.float64)
         log2_s = np.log2(scales)
         frame = self.frame_combo.currentText()
         cums: dict = {"sigma": {}, "r2": {}, "n": {}, "range": {}}
@@ -178,7 +181,7 @@ class LogCumulantsWindow(QtWidgets.QDialog):
             self.labels[m].setText(self._label(m, c, reg))
         label = self.set_combo.currentText()
         q = Q_GRID
-        tau = spectra.cumulant_tau(cums, q, c0=float(self._samples.get("d", 2)))
+        tau = spectra.cumulant_tau(cums, q, c0=self._d)
         c1, c2, c3, c4 = (cums[f"c{m}"] for m in ORDERS)          # an order without a fit: no expansion
         h = c1 - c2 * q + c3 * q ** 2 / 2.0 - c4 * q ** 3 / 6.0
         name = f"{self._source} · {label}, log-cumulants" if self._source else f"{label}, log-cumulants"

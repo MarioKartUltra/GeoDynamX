@@ -3,7 +3,8 @@
 """Wavelet leaders, p-leaders and (θ, ω)-leaders on the critically sampled dyadic pyramid of
 :mod:`dynamix.core.dwt`, with what the regularity tool publishes: the quantities as per-level
 sample sets, admissibility and a local exponent per cell. The structure functions
-(:func:`tables`) and log-cumulants (:func:`cumulants`) are read from the sample sets by the
+(:func:`tables`, :func:`structure_fit`) and the log-cumulants (:func:`cumulants`;
+:func:`dynamix.core.spectra.cumulant_regression` per order) are read from the sample sets by the
 fitting tools, with their own moment orders and scale ranges.
 
 Level j = 1 is the finest; a level-j cell λ has side 2^j px and, once every band is rolled onto
@@ -37,8 +38,7 @@ from dynamix.core import dwt
 
 __all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
            "local_exponent", "oscillation", "paint", "partition_table", "pleaders", "run_leaders",
-           "log_cumulants", "sample_sets", "structure_fit", "tables", "valid_cells", "wse",
-           "wse_schedule"]
+           "sample_sets", "structure_fit", "tables", "valid_cells", "wse", "wse_schedule"]
 
 BANDS = ("horizontal", "vertical", "diagonal")
 METHODS = ("leaders", "p-leaders", "wse")
@@ -374,16 +374,6 @@ def _weighted_slopes(x, w, Y, S) -> tuple:
         err = np.sqrt((W * W * dx * dx * S0 * S0).sum(axis=1)) / denom
     ok = (n >= 3) & (denom > 0)
     return np.where(ok, slope, np.nan), np.where(ok, err, np.nan), np.where(ok, ybar - slope * xbar, np.nan)
-
-
-def log_cumulants(samples: dict, name: str) -> np.ndarray:
-    """``(4, J)``: the mean, variance, third and fourth cumulant of ln ℓ per level of the set
-    ``name`` of the ``Samples`` contract, over its valid positive values -- what a log-cumulant
-    regresses against ln a (:func:`dynamix.core.spectra.cumulant_regression`)."""
-    from dynamix.core.spectra import ln_moments
-
-    s = samples["sets"][name]
-    return ln_moments(_flatten(s["values"], s["valid"]))
 
 
 def cumulants(table: dict, j_min: int, j_max: int, gamma: float) -> dict:
