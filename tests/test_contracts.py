@@ -14,7 +14,7 @@ from dynamix.core.pointset import PointSet
 from dynamix.core.rasterfield import RasterField
 from dynamix.model.chain import DeviceRef
 from dynamix.model.contracts import (ALL_CONTRACTS, ALPHA, COMPONENTS, CONTRACT_KEYS, CONTRACTS, CURVE,
-                                     EXTREMA, FIELD, HMAP, POINTS, RECEIVED, STACK, TOPOLOGY,
+                                     EXTREMA, FIELD, HMAP, POINTS, RECEIVED, SAMPLES, STACK, TOPOLOGY,
                                      VCHAINS, StepState, consumes_of, input_contract,
                                      next_step_state, produces_of, producers_of, step_states)
 from dynamix.model.device import register_device
@@ -190,14 +190,15 @@ def _raster(shape):
                        x_axis=np.arange(float(nx)), y_axis=np.arange(float(ny)))
 
 
-def test_the_ten_contracts_have_a_meaning_and_their_result_keys():
+def test_the_eleven_contracts_have_a_meaning_and_their_result_keys():
     assert set(CONTRACTS) == {FIELD, STACK, POINTS, EXTREMA, ALPHA, VCHAINS, TOPOLOGY, HMAP,
-                              COMPONENTS, CURVE}
+                              COMPONENTS, CURVE, SAMPLES}
     assert set(CONTRACT_KEYS) == set(CONTRACTS)
     assert CONTRACT_KEYS[EXTREMA] == ("extrema", "scales", "_shape")
     assert CONTRACT_KEYS[VCHAINS] == ("chains",)
     assert CONTRACT_KEYS[TOPOLOGY] == ("topology", "_topology_vids")
     assert CONTRACT_KEYS[HMAP] == ("h_map", "r2_map")
+    assert CONTRACT_KEYS[SAMPLES] == ("samples",)
     assert CONTRACT_KEYS[COMPONENTS] == ("raster_out",)
     assert CONTRACT_KEYS[ALPHA] == CONTRACT_KEYS[FIELD] == CONTRACT_KEYS[STACK] == ()
     assert CONTRACT_KEYS[POINTS] == ()
@@ -403,7 +404,7 @@ DECLARATIONS = {
     "disorder_function": (((FIELD,),), {FIELD}, {CURVE}),
     "hessian_measure": (((FIELD,),), {FIELD}, {CURVE}),
     "wavelet_ridge": (((FIELD,),), {FIELD}, {COMPONENTS}),
-    "wavelet_leaders": (((FIELD,),), {FIELD}, {HMAP}),
+    "wavelet_leaders": (((FIELD,),), {FIELD}, {HMAP, SAMPLES}),
 }
 
 

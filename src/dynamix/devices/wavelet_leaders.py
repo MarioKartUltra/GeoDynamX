@@ -4,12 +4,13 @@
 
 The leaders, p-leaders and (θ, ω)-leaders of :mod:`dynamix.core.leaders` on the critically
 sampled pyramid of :mod:`dynamix.core.dwt` (each level half the resolution of the last), in one
-pass: for each the structure-function tables the fitter reads (τ(q) = ζ(q) − 2, h(q), D(q)), the
-log-cumulants, a local exponent per cell painted on the native grid as the h-map, and the
-per-level quantities on the Scale slider. Each method's admissibility on the data at hand is
-stamped (h_min > 0 for the leaders, η(p) > 0 for the p-leaders, nothing for the (θ, ω)-leaders)
-with the pseudo-fractional integration γ that would clear it. ``method`` chooses which of the
-three the h-map and the fitter show; switching it recomputes nothing.
+pass: a local exponent per cell painted on the native grid as the h-map, the per-level quantities
+on the Scale slider, and the quantities over their valid cells as per-level sample sets (the
+``Samples`` contract) for the tools that fit them with their own moment orders and scale ranges.
+Nothing is fitted here. Each method's admissibility on the data at hand is stamped (h_min > 0 for
+the leaders, η(p) > 0 for the p-leaders, nothing for the (θ, ω)-leaders) with the
+pseudo-fractional integration γ that would clear it. ``method`` chooses which of the three the
+h-map shows; switching it recomputes nothing.
 """
 from __future__ import annotations
 
@@ -19,8 +20,8 @@ import numpy as np
 
 from dynamix.core import dwt, leaders
 from dynamix.devices.holder_map import field_values_2d
-from dynamix.devices.wtmm import MOMENT_PARAMS, filled_block, filled_origin, q_list
-from dynamix.model.contracts import FIELD, HMAP
+from dynamix.devices.wtmm import filled_block, filled_origin
+from dynamix.model.contracts import FIELD, HMAP, SAMPLES
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 
@@ -32,14 +33,14 @@ _METHOD_LABEL = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE lea
 
 
 class WaveletLeaders:
-    """Leaders, p-leaders and (θ, ω)-leaders of a band, with their readouts."""
+    """Leaders, p-leaders and (θ, ω)-leaders of a band, with the h-map and the sample sets."""
 
     name = "wavelet_leaders"
     label = "Wavelet leaders"
     families = ("Regularity",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
-    produces = frozenset({HMAP})
+    produces = (HMAP, SAMPLES)
     capabilities = frozenset({"SelfReporting", "RegionAware", "Viewable", "OutputProducer",
                               "StripExtras"})
     params = (
@@ -67,10 +68,7 @@ class WaveletLeaders:
               active_when=("wse_rule", ("fixed",))),
         Param("wse_width", ParamKind.FLOAT, default=1.0, min=0.0, max=8.0, soft_min=0.0, soft_max=3.0,
               label="Half-width (cells)", active_when=("wse_rule", ("fixed",))),
-        *MOMENT_PARAMS,
-        # The directional formalism on the hyperbolic coefficients: a second transform.
-        Param("directional", ParamKind.BOOL, default=False, label="Directional"),
-        # View-only: what the h-map and the fitter show first, and the raster drawn.
+        # View-only: what the h-map shows, and the raster drawn.
         Param("method", ParamKind.CHOICE, default="leaders", choices=tuple(leaders.METHODS),
               choice_labels=tuple(_METHOD_LABEL[m] for m in leaders.METHODS), label="Method", view=True),
         Param("show", ParamKind.CHOICE, default="h_map",
@@ -89,8 +87,6 @@ class WaveletLeaders:
         "PYRAMID": ("wavelet", "edge", "scale_min", "scale_max", "gamma", "dither"),
         "P-LEADERS": ("p",),
         "WSE": ("wse_rule", "wse_beta", "wse_depth", "wse_width"),
-        "MOMENTS": ("q_min", "q_max", "q_step"),
-        "DIRECTIONAL": ("directional",),
     }
 
     # ------------------------------------------------------------------------------ the knobs
@@ -120,7 +116,6 @@ class WaveletLeaders:
         if J - j_min < 2:
             raise ValueError(f"wavelet_leaders: at least three fitted levels: scale_min {params['scale_min']} "
                              f"px to scale_max {params['scale_max']} px spans {J - j_min + 1}")
-        q_list(params)
 
     def roi_margin(self, params: dict) -> int:
         """What an ROI must read beyond its window: the bank's border in cells of the coarsest level."""
@@ -195,7 +190,7 @@ class WaveletLeaders:
             scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
             wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
             wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
-            q_list=q_list(params), edge=edge, origin=origin, block=block, progress=tick)
+            edge=edge, origin=origin, block=block, progress=tick)
         j_min, J = run["j_min"], run["levels"]
         warnings = []
         adm = run["admissibility"]
@@ -213,20 +208,11 @@ class WaveletLeaders:
                 warnings.append(f"level {j} ({2 ** j} px): {run['zero_cells'][j - 1]} leaders are exactly zero "
                                 "(quantised data); the dither knob perturbs by half a least significant bit")
                 break
-        directional = None
-        if params["directional"]:
-            from dynamix.core import directional as dr
-
-            q = q_list(params)
-            directional = dr.analyse(vals, params["wavelet"], J, j_min=j_min, p_list=q[q > 0],
-                                     gamma=float(params["gamma"]))
-            if not np.isfinite(directional["eta_alpha"]).any():
-                warnings.append("directional: no anisotropy keeps three unclipped levels between "
-                                f"{params['scale_min']} and {params['scale_max']} px; deepen scale_max")
         h_cells = {m: (h.astype(np.float32), r2.astype(np.float32)) for m, (h, r2) in run["local"].items()}
         quantity = {m: [np.asarray(a, dtype=np.float32) for a in run["quantity"][m]] for m in leaders.METHODS}
         quantity["oscillation"] = [np.asarray(a, dtype=np.float32) for a in run["oscillation"]]
-        valid = {m: list(run["valid"][m]) for m in leaders.METHODS}
+        mods = [np.asarray(a, dtype=np.float32) for a in run["coefficients"]]
+        valid = {m: list(run["valid"][m]) for m in leaders.METHODS + ("coefficients",)}
         valid["oscillation"] = [a & b for a, b in zip(valid["leaders"], valid["wse"])]
         method = params["method"]
         h_map, r2_map = self._paint(h_cells[method], j_min, vals.shape)
@@ -242,32 +228,18 @@ class WaveletLeaders:
                               "residual_px": list(v[2:]) if band != "detail" else [v[1]]}
                              for (j, band), v in run["registration"].items()],
             "valid_cells": run["valid_cells"], "zero_cells": run["zero_cells"],
-            "admissibility": adm, "cumulants": run["cumulants"], "warnings": warnings,
+            "admissibility": adm, "warnings": warnings,
         }
-        if directional is not None:
-            record["directional"] = {
-                "alpha_step": dr.ALPHA_STEP, "p": [float(v) for v in directional["p"]],
-                "levels_per_alpha": [int(v) for v in directional["n_levels"]],
-                "eta_e1": [float(v) for v in directional["eta_e1"]],
-                "eta_e2": [float(v) for v in directional["eta_e2"]],
-                "alpha_star_e1": [float(v) for v in directional["alpha_star_e1"]],
-            }
         return {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
-            "hd_std": run["tables"][method], "hd_cmax": run["tables"][method],
-            "hd_tables": run["tables"], "hd_source": self._source(method, params), "hd_kind": "structure",
-            "_h_cells": h_cells, "_quantity": quantity, "_valid": valid,
-            "_cumulants": run["cumulants"], "_admissibility": adm,
+            "samples": leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"]),
+            "_h_cells": h_cells, "_quantity": quantity, "_valid": valid, "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
-            "_dyadic_origin": (0, 0), "_directional": directional,
+            "_dyadic_origin": (0, 0),
             "_frame": getattr(field, "frame", None), "_shape": tuple(vals.shape),
             "record": record, "warnings": warnings,
         }
-
-    @staticmethod
-    def _source(method: str, params: dict) -> str:
-        return f"wavelet {_METHOD_LABEL[method]} (DWT, {params['wavelet']})"
 
     @staticmethod
     def _paint(cells, j_min: int, shape) -> tuple:
@@ -276,9 +248,9 @@ class WaveletLeaders:
                 leaders.paint(r2, j_min, shape).astype(np.float32))
 
     def view(self, result: dict, params: dict) -> dict:
-        """The h-map and the fitter's table of ``method``: the cached result itself for the method
-        it was computed with, else a view built once per method and kept with the result, so the
-        shell sees the same object for the same choice (the 3-D scene rebuilds on a new one)."""
+        """The h-map of ``method``: the cached result itself for the method it was computed
+        with, else a view built once per method and kept with the result, so the shell sees the
+        same object for the same choice (the 3-D scene rebuilds on a new one)."""
         if "_h_cells" not in result:
             return result
         method = params.get("method", result["params"].get("method"))
@@ -289,8 +261,6 @@ class WaveletLeaders:
             j_min = int(result["record"]["levels"]["j_min"])
             h_map, r2_map = self._paint(result["_h_cells"][method], j_min, result["_shape"])
             views[method] = {**result, "h_map": h_map, "r2_map": r2_map,
-                             "hd_std": result["hd_tables"][method], "hd_cmax": result["hd_tables"][method],
-                             "hd_source": self._source(method, result["params"]),
                              "params": {**result["params"], "method": method}}
         return views[method]
 
@@ -314,44 +284,7 @@ class WaveletLeaders:
         return {"raster": raster, "diag": {"level": idx, "scale_px": 2.0 ** (idx + 1),
                                            "valid_cells": int(np.sum(valid))}}
 
-    # ------------------------------------------------------------------------------ readouts
-
-    def curves(self, result, field, params: dict) -> list:
-        """For the Curve window: the first two cumulants of ln ℓ per level for each method, and
-        the two regularity lines the verdicts come from, log₂ max |d| and log₂ mean |d|^p; the
-        fitted range marked."""
-        from dynamix.model.curves import Curve
-
-        if not isinstance(result, dict) or "hd_tables" not in result:
-            return []
-        lev = result["record"]["levels"]
-        marks = ((2.0 ** lev["j_min"], "finest fitted"), (2.0 ** lev["J"], "coarsest fitted"))
-        out = []
-        for m in leaders.METHODS:
-            t = result["hd_tables"][m]
-            mom = np.asarray(t["lnT_moments"])
-            label = _METHOD_LABEL[m]
-            c = result["_cumulants"][m]["original"]
-            out.append(Curve(f"C₁(a) of ln {label}", np.asarray(t["scales"]), mom[0], "a (px)",
-                             "mean ln ℓ", logx=True, marks=marks, note=f"slope c1 = {c['c1']:.3f}"))
-            out.append(Curve(f"C₂(a) of ln {label}", np.asarray(t["scales"]), mom[1], "a (px)",
-                             "variance of ln ℓ", logx=True, marks=marks,
-                             note=f"c2 = {c['c2']:+.4f} (the app's cascade sign)"))
-        d = result.get("_directional")
-        if d is not None:
-            p = np.asarray(d["p"])
-            fitted = int(np.sum(d["n_levels"] >= 3))
-            note = f"{fitted} of {d['alpha'].size} anisotropies keep three unclipped levels"
-            for key, name in (("eta_e1", "η(p, e₁), along x"), ("eta_e2", "η(p, e₂), along y"),
-                              ("eta_iso", "η(p), the diagonal α = (1, 1)")):
-                out.append(Curve(name, p, np.asarray(d[key]), "p", "η", note=note))
-            out.append(Curve("α₁*(p), the anisotropy profile of e₁", p, np.asarray(d["alpha_star_e1"]),
-                             "p", "α₁*", note="the largest maximiser of η_α(p)/α₁; 1 is isotropic"))
-            for key, name in (("L_e1", "L(H, e₁), the directional Legendre bound"),
-                              ("L_e2", "L(H, e₂), the directional Legendre bound")):
-                out.append(Curve(name, np.asarray(d[key]["h"]), np.asarray(d[key]["L"]), "H", "L",
-                                 note="Theorem 6's upper bound over p ≥ p_α, capped at d = 2"))
-        return out
+    # ------------------------------------------------------------------------------- reading
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
@@ -359,19 +292,22 @@ class WaveletLeaders:
         return _k(self.name, source_id, keyed_params(self, params))
 
     def reading(self, result: dict, params: dict) -> str:
+        """The fitted range, the two regularity verdicts and which methods they admit; the
+        frame when γ lifted the coefficients. No exponent: the fitting tools read those."""
         if "_admissibility" not in result:
             return "no leaders — run the transform"
-        adm, cums, p = result["_admissibility"], result["_cumulants"], float(result["params"]["p"])
-        parts = []
-        for m, label in (("leaders", "leaders"), ("p-leaders", f"p = {p:g}"), ("wse", "WSE")):
-            c = cums[m]["original"]
-            text = f"{label} c1 {c['c1']:.2f} c2 {c['c2']:+.3f}"
-            if not adm[m]["admissible"]:
-                text += f" (inadmissible, γ ≥ {adm[m]['suggested_gamma']:g})"
-            parts.append(text)
+        adm, p = result["_admissibility"], float(result["params"]["p"])
         lev = result["record"]["levels"]
-        parts.append(f"{2 ** lev['j_min']}–{2 ** lev['J']} px · h_min {adm['h_min']['original']:.2f} · "
-                     f"η({p:g}) {adm['eta']['original']:.2f}")
+        parts = [f"{2 ** lev['j_min']}–{2 ** lev['J']} px", f"h_min {adm['h_min']['original']:.2f}",
+                 f"η({p:g}) {adm['eta']['original']:.2f}"]
+        bad = [(label, adm[m]["suggested_gamma"])
+               for m, label in (("leaders", "leaders"), ("p-leaders", f"p = {p:g}")) if not adm[m]["admissible"]]
+        if not bad:
+            parts.append(f"leaders, p = {p:g} and WSE admissible")
+        elif len(bad) == 1:
+            parts.append(f"{bad[0][0]} inadmissible, γ ≥ {bad[0][1]:g} would clear it")
+        else:
+            parts.append(f"{bad[0][0]} and {bad[1][0]} inadmissible, γ ≥ {max(g for _, g in bad):g} would clear them")
         if adm["gamma"]:
             parts.append(f"γ = {adm['gamma']:g}, original frame")
         return " · ".join(parts)

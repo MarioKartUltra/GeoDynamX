@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The Wavelet leaders tool: three regularity readings on the dyadic pyramid in one pass, the
-h-map and the fitter's table following ``method`` without a recompute, the per-level quantities
-on the Scale slider, the refusals and the reading."""
+h-map following ``method`` without a recompute, the per-level quantities on the Scale slider,
+the sample sets it publishes for the fitting tools (nothing is fitted here), the refusals and the
+reading."""
 from __future__ import annotations
 
 import sys
@@ -12,8 +13,8 @@ import pytest
 
 pytest.importorskip("pywt")
 
-from dynamix.core import dwt                                                    # noqa: E402
-from dynamix.model.contracts import FIELD, HMAP                                # noqa: E402
+from dynamix.core import dwt, leaders                                           # noqa: E402
+from dynamix.model.contracts import FIELD, HMAP, SAMPLES                       # noqa: E402
 from dynamix.model.device import get_device, keyed_params, validate_params     # noqa: E402
 
 sys.path.insert(0, "tests")
@@ -34,47 +35,63 @@ def field():
 
 
 SMALL = {"scale_min": 4, "scale_max": 32}
+Q = np.arange(-2.0, 4.01, 1.0)
+
+
+def _c1(res, method="leaders"):
+    """What a fitting tool reads off the published sample sets: c1 over the fitted levels."""
+    lev = res["record"]["levels"]
+    table = leaders.tables(res["samples"], Q)[method]
+    return leaders.cumulants(table, lev["j_min"], lev["J"], res["params"]["gamma"])["original"]["c1"]
 
 
 def test_the_tool_sits_in_regularity_and_produces_an_h_map(dev):
     assert dev.label == "Wavelet leaders" and dev.families == ("Regularity",)
-    assert dev.consumes == ((FIELD,),) and HMAP in dev.produces
+    assert dev.consumes == ((FIELD,),) and dev.produces == (HMAP, SAMPLES)
     assert [(o.name, o.lazy, o.per_level) for o in dev.outputs] == [
         ("leader", True, True), ("p_leader", True, True), ("wse", True, True), ("oscillation", True, True)]
     p = validate_params(dev, {})
     assert (p["wavelet"], p["scale_min"], p["scale_max"], p["gamma"], p["p"]) == ("sym4", 4, 64, 0.0, 2.0)
     assert (p["wse_rule"], p["wse_beta"], p["wse_depth"], p["wse_width"]) == ("dumeur", 0.25, 1, 1.0)
-    assert (p["q_min"], p["q_max"], p["q_step"], p["method"], p["show"]) == (-3.0, 6.0, 0.5, "leaders", "h_map")
+    assert (p["method"], p["show"]) == ("leaders", "h_map")
+    assert "q_min" not in p and "directional" not in p                 # the fitting tools own the moments
     keyed = keyed_params(dev, p)
-    assert "method" not in keyed and "show" not in keyed and "q_min" not in keyed      # view / at default
+    assert "method" not in keyed and "show" not in keyed                              # view-only
     assert {"wavelet", "scale_min", "scale_max", "gamma", "p", "wse_rule"} <= set(keyed)
     assert dev.roi_margin(p) == dwt.border_cells("sym4") * 64
     assert dev.wavelet_profile(p, 16.0, 3).family == "sym4 ψ, level 4"
     assert dev.derived_reading("scale_min", 4, make_field(np.zeros((16, 16)))) is None
 
 
-def test_the_run_carries_the_three_readings_their_tables_and_the_h_map(dev, field):
+def test_the_run_carries_the_three_readings_their_sample_sets_and_the_h_map(dev, field):
     p = validate_params(dev, dict(SMALL, wse_rule="fixed"))
     res = dev.compute(field, p)
     assert res["h_map"].shape == (512, 512) and res["r2_map"].shape == (512, 512)
     e = dwt.border_cells("sym4")
     assert np.isnan(res["h_map"][: e * 4]).all() and np.isfinite(res["h_map"][192:320, 192:320]).all()
     assert np.allclose(res["h_map"][192:320, 192:320].mean(), 0.5, atol=0.1)
-    assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"] is res["hd_tables"]["leaders"]
-    assert set(res["hd_tables"]) == {"leaders", "p-leaders", "wse", "coefficients"}
     assert list(res["scales"]) == [2.0, 4.0, 8.0, 16.0, 32.0] and res["chains"] == [] and res["extrema"] == []
-    assert res["hd_source"] == "wavelet leaders (DWT, sym4)"
+    samples = res["samples"]
+    assert set(samples["sets"]) == {"leaders", "p-leaders", "wse", "coefficients"}
+    assert list(samples["scales"]) == [2.0, 4.0, 8.0, 16.0, 32.0]
+    assert samples["cells"] == [(512 // 2 ** j) ** 2 for j in range(1, 6)]
     for m in ("leaders", "p-leaders", "wse"):
-        assert abs(res["_cumulants"][m]["original"]["c1"] - 0.5) < 0.1, m
+        assert samples["sets"][m]["values"] is res["_quantity"][m]                 # the float32 grids, no copy
+        assert samples["sets"][m]["valid"] is res["_valid"][m]
+        assert abs(_c1(res, m) - 0.5) < 0.1, m
         assert res["_admissibility"][m]["admissible"]
+    coef = samples["sets"]["coefficients"]
+    assert coef["positive_only"] and coef["values"][0].dtype == np.float32
+    assert coef["values"][0].shape == (3,) + coef["valid"][0].shape == (3, 512, 512)    # the mirrored working image
+    assert not any(k.startswith("hd_") for k in res) and "_cumulants" not in res and "_directional" not in res
     rec = res["record"]
     assert rec["levels"] == {"j_min": 2, "J": 5} and rec["border_cells"] == e and rec["wse"]["rule"] == "fixed"
     assert rec["wse"]["schedule"][0] == [[0, 1.0], [1, 1.0]]
     assert any(r["band"] == "horizontal" and r["level"] == 4 and r["shift"] == [0, 1] for r in rec["registration"])
-    assert res["warnings"] == []
+    assert "cumulants" not in rec and res["warnings"] == []
     text = dev.reading(res, p)
-    assert text.startswith("leaders c1 0.") and "p = 2 c1" in text and "WSE c1" in text and "4–32 px" in text
-    assert "inadmissible" not in text and "γ" not in text
+    assert text.startswith("4–32 px · h_min 0.") and "η(2) " in text and text.endswith("leaders, p = 2 and WSE admissible")
+    assert "c1" not in text and "γ" not in text
 
 
 def test_switching_the_method_repaints_without_a_recompute_and_keeps_one_object_per_choice(dev, field):
@@ -83,8 +100,7 @@ def test_switching_the_method_repaints_without_a_recompute_and_keeps_one_object_
     assert dev.view(res, {"method": "leaders"}) is res
     v = dev.view(res, {"method": "p-leaders"})
     assert v is not res and v is dev.view(res, {"method": "p-leaders"})
-    assert v["hd_std"] is res["hd_tables"]["p-leaders"] and v["hd_source"] == "wavelet p-leaders (DWT, sym4)"
-    assert v["params"]["method"] == "p-leaders" and v["_quantity"] is res["_quantity"]
+    assert v["params"]["method"] == "p-leaders" and v["_quantity"] is res["_quantity"] and v["samples"] is res["samples"]
     assert not np.array_equal(np.nan_to_num(v["h_map"]), np.nan_to_num(res["h_map"]))
     assert np.isfinite(v["h_map"][192:320, 192:320]).all()
     assert dev.view({"values": 1}, {"method": "wse"}) == {"values": 1}
@@ -119,7 +135,7 @@ def test_the_engine_resolves_the_tool_and_its_levels(dev, field):
     cache = Cache()
     layer = make_layer(("wavelet_leaders", dict(SMALL, wse_rule="fixed")))
     res = resolve(layer, field, cache).result
-    assert res["h_map"].shape == (512, 512) and res["hd_kind"] == "structure"
+    assert res["h_map"].shape == (512, 512) and set(res["samples"]["sets"]) == {"leaders", "p-leaders", "wse", "coefficients"}
     a = resolve_output(layer, field, cache, "leader", level=1)
     b = resolve_output(layer, field, cache, "leader", level=3)
     assert a["diag"]["scale_px"] == 4.0 and b["diag"]["scale_px"] == 16.0
@@ -136,10 +152,11 @@ def test_an_inadmissible_field_is_named_in_the_reading_and_the_warnings(dev):
     res = dev.compute(dxf, p)
     assert len(res["warnings"]) == 2 and all("inadmissible" in w for w in res["warnings"])
     text = dev.reading(res, p)
-    assert "leaders c1" in text and "(inadmissible, γ ≥ 1)" in text and "WSE c1 -0." in text
+    assert text.endswith("leaders and p = 2 inadmissible, γ ≥ 1 would clear them") and "h_min -0." in text
+    assert abs(_c1(res, "wse") + 0.5) < 0.12                      # the one method that reads it unlifted
     lifted = dev.compute(dxf, validate_params(dev, dict(SMALL, wse_rule="fixed", gamma=1.0)))
-    assert lifted["warnings"] == [] and "γ = 1, original frame" in dev.reading(lifted, p)
-    assert abs(lifted["_cumulants"]["leaders"]["original"]["c1"] + 0.5) < 0.12
+    assert lifted["warnings"] == [] and dev.reading(lifted, p).endswith("admissible · γ = 1, original frame")
+    assert abs(_c1(lifted) + 0.5) < 0.12
 
 
 def test_refusals_name_the_field_the_border_and_the_scale_that_fits(dev):
@@ -147,8 +164,6 @@ def test_refusals_name_the_field_the_border_and_the_scale_that_fits(dev):
         dev.check(validate_params(dev, {"scale_min": 6, "scale_max": 32}))
     with pytest.raises(ValueError, match="at least three fitted levels"):
         dev.check(validate_params(dev, {"scale_min": 16, "scale_max": 32}))
-    with pytest.raises(ValueError, match="q max"):
-        dev.check(validate_params(dev, {"q_min": 2.0, "q_max": 1.0}))
     small = make_field(fbm2d(128, 0.5, seed=1))
     with pytest.raises(ValueError, match="128 × 128 px field .* fits three levels is 8 px"):
         dev.compute(small, validate_params(dev, {"scale_min": 4, "scale_max": 32}))
@@ -170,16 +185,15 @@ def test_non_finite_pixels_blank_their_cells_and_a_hole_is_counted(dev):
     assert res["warnings"] == []
 
 
-def test_curves_offer_the_cumulant_lines_per_method(dev, field):
+def test_the_tool_fits_nothing_itself(dev, field):
+    """No tables, no cumulants, no curves: the Structure functions and Log-cumulants tools read
+    the sample sets with their own moments and ranges."""
     from dynamix.model.curves import curves_of
 
     p = validate_params(dev, dict(SMALL, wse_rule="fixed"))
     res = dev.compute(field, p)
-    curves = curves_of(dev, res, field, p)
-    assert [c.name for c in curves][:2] == ["C₁(a) of ln leaders", "C₂(a) of ln leaders"] and len(curves) == 6
-    assert curves[0].logx and list(curves[0].x) == [2.0, 4.0, 8.0, 16.0, 32.0]
-    assert curves[0].marks == ((4.0, "finest fitted"), (32.0, "coarsest fitted"))
-    assert curves_of(dev, {"values": 1}, field, p) == []
+    assert curves_of(dev, res, field, p) == [] and not hasattr(dev, "curves")
+    assert "tables" not in res and "cumulants" not in res["record"]
 
 
 def test_dither_perturbs_quantised_data_and_is_keyed(dev):
@@ -190,29 +204,6 @@ def test_dither_perturbs_quantised_data_and_is_keyed(dev):
     a, b = dev.compute(make_field(f), p0), dev.compute(make_field(f), p1)
     assert not np.array_equal(np.nan_to_num(a["h_map"]), np.nan_to_num(b["h_map"]))
     assert b["record"]["dither"] is True
-
-
-def test_the_directional_formalism_is_off_by_default_and_adds_its_curves_when_on(dev, field):
-    p0 = validate_params(dev, dict(SMALL, wse_rule="fixed"))
-    assert p0["directional"] is False and keyed_params(dev, p0)["directional"] is False
-    res0 = dev.compute(field, p0)
-    assert res0["_directional"] is None and "directional" not in res0["record"]
-    p1 = validate_params(dev, dict(SMALL, wse_rule="fixed", directional=True, scale_max=64))
-    assert keyed_params(dev, p1)["directional"] is True
-    res = dev.compute(make_field(fbm2d(1024, 0.5, seed=6)), p1)
-    d = res["_directional"]
-    assert d is not None and d["eta_alpha"].shape == (int(np.sum(np.arange(-3, 6.01, 0.5) > 0)), 15)
-    assert list(d["p"]) == list(np.arange(0.5, 6.01, 0.5))
-    assert res["record"]["directional"]["alpha_step"] == 1 / 8 and len(res["record"]["directional"]["levels_per_alpha"]) == 15
-    at_p1 = list(d["p"]).index(1.0)
-    assert abs(d["eta_e1"][at_p1] - 0.5) < 0.15 and abs(d["eta_e2"][at_p1] - 0.5) < 0.15
-    from dynamix.model.curves import curves_of
-
-    names = [c.name for c in curves_of(dev, res, field, p1)]
-    assert names[6:] == ["η(p, e₁), along x", "η(p, e₂), along y", "η(p), the diagonal α = (1, 1)",
-                         "α₁*(p), the anisotropy profile of e₁",
-                         "L(H, e₁), the directional Legendre bound", "L(H, e₂), the directional Legendre bound"]
-    assert res["warnings"] == []
 
 
 def test_auto_edge_runs_periodic_on_an_extension_output_and_mirrors_otherwise(dev, field):
@@ -237,7 +228,7 @@ def test_auto_edge_runs_periodic_on_an_extension_output_and_mirrors_otherwise(de
     # no border: every cell of the block counts, so more cells than the mirrored run kept
     assert all(a > b for a, b in zip(res["_valid_cells"]["leaders"], plain["_valid_cells"]["leaders"]))
     assert res["h_map"].shape == ext.values.shape
-    assert abs(res["_cumulants"]["leaders"]["original"]["c1"] - plain["_cumulants"]["leaders"]["original"]["c1"]) < 0.05
+    assert abs(_c1(res) - _c1(plain)) < 0.05
     forced = dev.compute(ext, validate_params(dev, dict(SMALL, wse_rule="fixed", edge="mirror")))
     assert forced["record"]["edge"]["used"] == "mirror" and forced["record"]["edge"]["block"] == [512, 512]
     assert dev.derived_reading("edge", "mirror", ext) is None

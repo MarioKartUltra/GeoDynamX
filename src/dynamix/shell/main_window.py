@@ -402,18 +402,6 @@ def _eta_note_of(result: dict) -> tuple:
     return 0.0, "forward lift: none (η = 0)"
 
 
-def _named_tables(result: dict) -> "dict | None":
-    """A result's named structure-function tables (the wavelet leaders' methods and the bare
-    coefficients) for the windows' Table choice, the method on show first; None for a result
-    without them (the WTMM's two modes stand on their own)."""
-    tables = result.get("hd_tables")
-    if not isinstance(tables, dict) or not tables:
-        return None
-    first = (result.get("params") or {}).get("method")
-    order = ([first] if first in tables else []) + [k for k in tables if k != first]
-    return {k: tables[k] for k in order if tables[k] is not None}
-
-
 def _per_scale_sets(result: dict) -> dict:
     """The per-scale sets of moduli a result carries, for the construction window's
     large-deviation route and Gaussian ensemble: the WTMM's maxima lines (one modulus per
@@ -3339,8 +3327,7 @@ both ``Canvas`` signals report the
                                     dh_hist=dh_hist, h_map=result.get("h_map"),
                                     source=result.get("hd_source") or "canonical (Arneodo WTMM)",
                                     sources=self._spectrum_sources(result),
-                                    kind=result.get("hd_kind", "partition"),
-                                    tables=_named_tables(result))
+                                    kind=result.get("hd_kind", "partition"))
         self._multifractal_window = window
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
@@ -3474,27 +3461,7 @@ both ``Canvas`` signals report the
         fit_window = (tuple(float(v) for v in fitter._region.getRegion())
                       if fitter is not None and fitter.isVisible() else None)
         win.set_result(result, self.field, offset=offset,
-                       scale_idx=int(self.transport.slider.value()), fit_window=fit_window,
-                       directional=self._directional_readings())
-
-    def _directional_readings(self) -> list:
-        """``[(layer name, η(2, e₁)/2, η(2, e₂)/2)]`` from every landed wavelet-leaders result
-        run with its directional option: the DWT's reading of the two directional exponents,
-        shown beside the WTMMM's H_x and H_y."""
-        out = []
-        for lid, res in self._landed_results.items():
-            d = res.get("_directional") if isinstance(res, dict) else None
-            layer = self._layer_by_id.get(lid)
-            if not d or layer is None:
-                continue
-            p = np.asarray(d["p"], dtype=np.float64)
-            at = np.flatnonzero(np.isclose(p, 2.0))
-            if at.size == 0:
-                continue
-            e1, e2 = float(d["eta_e1"][at[0]]) / 2.0, float(d["eta_e2"][at[0]]) / 2.0
-            if np.isfinite(e1) and np.isfinite(e2):
-                out.append((layer.name, e1, e2))
-        return out
+                       scale_idx=int(self.transport.slider.value()), fit_window=fit_window)
 
     def _stack_result(self) -> "dict | None":
         """The active layer's result over every level its chain keeps -- resolved with no shown
@@ -3574,8 +3541,7 @@ both ``Canvas`` signals report the
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
             dh_curves=result.get("dh_curves"), gh_field=gh_field,
             source=result.get("hd_source") or "canonical (Arneodo direct)",
-            kind=result.get("hd_kind", "partition"), per_scale=_per_scale_sets(result),
-            tables=_named_tables(result))
+            kind=result.get("hd_kind", "partition"), per_scale=_per_scale_sets(result))
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)

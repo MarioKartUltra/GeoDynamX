@@ -52,6 +52,7 @@ import or validate is a greyed browser row with its error; discovery runs once p
 | `HMap` | an h-map |
 | `Components` | decomposition components |
 | `Curve` | a curve (r, L(r)) |
+| `Samples` | per-level sample sets |
 
 ## Families
 

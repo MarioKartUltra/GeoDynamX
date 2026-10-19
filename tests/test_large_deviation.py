@@ -78,12 +78,12 @@ def test_the_adaptive_route_on_leaders_matches_the_tables_h_and_the_legendre_d()
     from dynamix.core import leaders as LE
 
     mu = _cascade(10, np.array([0.1, 0.2, 0.3, 0.4]))
-    r = LE.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed", q_list=Q)
+    r = LE.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed")
     samples = [m[v] for m, v in zip(r["quantity"]["leaders"], r["valid"]["leaders"])]
     weight = [(1024 // 2 ** j) ** 2 / max(v.sum(), 1) for j, v in enumerate(r["valid"]["leaders"], start=1)]
     a = ld.adaptive(samples, r["scales"], q_list=Q, log2_a_min=2, log2_a_max=5, length_px=1024.0,
                     scale_weight=weight)
-    fit = fit_spectra(r["tables"]["leaders"], 2, 5)
+    fit = fit_spectra(LE.tables(r["samples"], Q)["leaders"], 2, 5)
     assert np.allclose(a["h"], fit["h"], atol=1e-9)                   # the same tilted means
     from dynamix.core.spectra import legendre_dh
 

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Wavelet leaders, p-leaders and (θ, ω)-leaders on the critically sampled dyadic pyramid of
-:mod:`dynamix.core.dwt`, with the readouts the regularity tool publishes: structure-function
-tables in the partition schema, log-cumulants, admissibility and a local exponent per cell.
+:mod:`dynamix.core.dwt`, with what the regularity tool publishes: the quantities as per-level
+sample sets, admissibility and a local exponent per cell. The structure functions
+(:func:`tables`) and log-cumulants (:func:`cumulants`) are read from the sample sets by the
+fitting tools, with their own moment orders and scale ranges.
 
 Level j = 1 is the finest; a level-j cell λ has side 2^j px and, once every band is rolled onto
 the field's dyadic grid by :func:`dwt.registration`, owns the 2^d cells of level j − 1 under it.
@@ -35,7 +37,7 @@ from dynamix.core import dwt
 
 __all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
            "local_exponent", "oscillation", "paint", "partition_table", "pleaders", "run_leaders",
-           "valid_cells", "wse", "wse_schedule"]
+           "sample_sets", "tables", "valid_cells", "wse", "wse_schedule"]
 
 BANDS = ("horizontal", "vertical", "diagonal")
 METHODS = ("leaders", "p-leaders", "wse")
@@ -287,15 +289,15 @@ def admissibility(coef: dict, valid: list, j_min: int, p: float) -> dict:
             "wse": {"admissible": True, "suggested_gamma": gamma}}
 
 
-def partition_table(per_level: list, valid: list, q_list, shape, *,
+def partition_table(per_level: list, valid: list, q_list, cells, *,
                     positive_only: bool = False) -> dict:
     """The structure functions of one quantity in the partition schema the fitter reads:
     ``tau_qa`` = log2 of the mean of M^q over the valid cells of each level times the field's
-    cell count there, Π_i n_i / 2^j, so that the count scales exactly as 2^{−dj} whatever the
-    border takes and τ(q) = ζ(q) − d (the critically sampled cells standing where the WTMM's
-    maxima count stands); ``h_qa``, ``D_qa``, their σ's, ``N_a`` (the valid cells) and
-    ``lnT_moments``; rows with q ≤ 0 NaN when ``positive_only`` (the bare coefficients, whose
-    zeros make negative moments meaningless)."""
+    cell count there (``cells``, Π_i n_i / 2^j per level), so that the count scales exactly as
+    2^{−dj} whatever the border takes and τ(q) = ζ(q) − d (the critically sampled cells standing
+    where the WTMM's maxima count stands); ``h_qa``, ``D_qa``, their σ's, ``N_a`` (the valid
+    cells) and ``lnT_moments``; rows with q ≤ 0 NaN when ``positive_only`` (the bare
+    coefficients, whose zeros make negative moments meaningless)."""
     from dynamix.core.microcanonical import partition_tables
 
     samples = [np.asarray(m)[..., v].ravel() if np.asarray(m).ndim > v.ndim else np.asarray(m)[v]
@@ -303,8 +305,7 @@ def partition_table(per_level: list, valid: list, q_list, shape, *,
     scales = 2.0 ** np.arange(1, len(per_level) + 1)
     table = partition_tables(samples, scales, np.asarray(q_list, dtype=np.float64), d=0.0)
     with np.errstate(divide="ignore"):
-        shift = np.array([np.log2(np.prod([int(n) // 2 ** j for n in shape]) / max(x.size, 1))
-                          for j, x in enumerate(samples, start=1)])
+        shift = np.array([np.log2(int(n) / max(x.size, 1)) for n, x in zip(cells, samples)])
     table["tau_qa"] += shift[None, :]
     table["D_qa"] -= shift[None, :]
     if positive_only:
@@ -312,6 +313,14 @@ def partition_table(per_level: list, valid: list, q_list, shape, *,
         for k in ("tau_qa", "h_qa", "D_qa", "sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
             table[k][rows] = np.nan
     return table
+
+
+def tables(samples: dict, q_list) -> dict:
+    """One structure-function table (:func:`partition_table`) per set of the ``Samples`` contract
+    (:mod:`dynamix.model.contracts`), at the moment orders ``q_list``."""
+    return {name: partition_table(s["values"], s["valid"], q_list, samples["cells"],
+                                  positive_only=bool(s.get("positive_only", False)))
+            for name, s in samples["sets"].items()}
 
 
 def cumulants(table: dict, j_min: int, j_max: int, gamma: float) -> dict:
@@ -362,15 +371,14 @@ def paint(cells, level: int, shape) -> np.ndarray:
 
 def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max: int = 64,
                 gamma: float = 0.0, p: float = 2.0, wse_rule: str = "dumeur", wse_depth: int = 1,
-                wse_width: float = 1.0, wse_beta: float = 0.25, q_list=None, edge: str = "mirror",
+                wse_width: float = 1.0, wse_beta: float = 0.25, edge: str = "mirror",
                 origin=(0, 0), block=None, progress=None) -> dict:
-    """The three quantities and every readout on one band (or 1-D signal): the pyramid to
-    J = log2 ``scale_max``, the fit over the levels from log2 ``scale_min``; the tables keyed
-    by method plus ``coefficients``; the cumulants and the local exponent per method. ``edge``
-    continues the field (:data:`EDGE_MODES`); under ``periodic`` no border is lost. ``origin``
-    and ``block`` name the data's real block inside the field (a Periodic extension's output)."""
-    from dynamix.core.partition_tables import DEFAULT_Q_LIST
-
+    """The three quantities on one band (or 1-D signal): the pyramid to J = log2 ``scale_max``,
+    the local exponent over the levels from log2 ``scale_min``, the admissibility, and the
+    quantities and bare coefficients over their valid cells as ``samples`` (the ``Samples``
+    contract, what :func:`tables` and the fitting tools read). ``edge`` continues the field
+    (:data:`EDGE_MODES`); under ``periodic`` no border is lost. ``origin`` and ``block`` name
+    the data's real block inside the field (a Periodic extension's output)."""
     J, j_min = _level_of(scale_max, "scale_max"), _level_of(scale_min, "scale_min")
     if j_min >= J:
         raise ValueError(f"leaders: scale_min {scale_min} px must be below scale_max {scale_max} px")
@@ -380,7 +388,6 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     if min(x.shape) < 2 ** J:
         raise ValueError(f"leaders: the field's smaller side {min(x.shape)} px is below scale_max "
                          f"{2 ** J} px")
-    q = np.asarray(DEFAULT_Q_LIST if q_list is None else q_list, dtype=np.float64)
     tick = progress or (lambda frac: None)
 
     coef = coefficients(x, wavelet, J, gamma=gamma, edge=edge, origin=origin, block=block)
@@ -406,22 +413,29 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     tick(0.6)
     for m, v in zip(quantity["leaders"], valid["leaders"]):
         v &= np.isfinite(m)
-    tables = {k: partition_table(quantity[k], valid[k], q, coef["data_shape"]) for k in METHODS}
-    tables["coefficients"] = partition_table(coef["mods"], valid["coefficients"], q, coef["data_shape"],
-                                             positive_only=True)
-    cums = {k: cumulants(tables[k], j_min, J, gamma) for k in METHODS}
     local = {k: local_exponent(quantity[k], valid[k], j_min) for k in METHODS}
     tick(1.0)
-    return {"levels": J, "j_min": j_min, "scales": 2.0 ** np.arange(1, J + 1), "ndim": x.ndim,
+    scales = 2.0 ** np.arange(1, J + 1)
+    return {"levels": J, "j_min": j_min, "scales": scales, "ndim": x.ndim,
             "shape": coef["shape"], "edge": edge, "seam": coef["seam"], "origin": coef["origin"],
             "data_shape": coef["data_shape"],
             "wavelet": wavelet, "gamma": float(gamma), "p": float(p),
             "coefficients": coef["mods"], "quantity": quantity, "oscillation": osc, "valid": valid,
-            "tables": tables, "cumulants": cums, "admissibility": adm, "local": local,
+            "samples": sample_sets(quantity, coef["mods"], valid, scales, coef["data_shape"]),
+            "admissibility": adm, "local": local,
             "registration": coef["registration"], "border_cells": e, "wse_schedule": schedule,
             "valid_cells": {k: [int(v.sum()) for v in vs] for k, vs in valid.items()},
             "zero_cells": [int(((m == 0) & v).sum())
                            for m, v in zip(quantity["leaders"], valid["leaders"])]}
+
+
+def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape) -> dict:
+    """The ``Samples`` contract over the three quantities and the bare coefficients: references
+    to the per-level grids and masks (no copy), the field's cell count per level."""
+    sets = {k: {"values": quantity[k], "valid": valid[k]} for k in METHODS}
+    sets["coefficients"] = {"values": mods, "valid": valid["coefficients"], "positive_only": True}
+    cells = [int(np.prod([int(n) // 2 ** j for n in data_shape])) for j in range(1, len(scales) + 1)]
+    return {"scales": scales, "cells": cells, "sets": sets}
 
 
 def _level_of(scale_px, name: str) -> int:

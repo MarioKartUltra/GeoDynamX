@@ -29,6 +29,7 @@ FIELD, STACK, POINTS = "Field", "Stack", "Points"
 EXTREMA, ALPHA, VCHAINS, TOPOLOGY, HMAP, COMPONENTS = (
     "ExtremaStack", "PointAlpha", "VChains", "Topology", "HMap", "Components")
 CURVE = "Curve"
+SAMPLES = "Samples"
 #: In a ``produces`` declaration: every contract the step received passes through.
 RECEIVED = "<received>"
 
@@ -44,6 +45,7 @@ CONTRACTS: dict[str, str] = {
     HMAP: "an h-map",
     COMPONENTS: "decomposition components",
     CURVE: "a curve (r, L(r))",
+    SAMPLES: "per-level sample sets",
 }
 
 #: Every contract: what a Transform that declares no ``produces`` counts as producing.
@@ -54,7 +56,10 @@ SCALE_BY_TRANSPORT = "the scale is set by the Transport"
 
 #: Contract -> the result keys it covers. ``PointAlpha`` lives inside each extrema level
 #: (``extrema[i]["alpha"]``), so it is checked per level; the raster and point contracts are the
-#: field or point set itself.
+#: field or point set itself. ``Samples`` is a multiresolution quantity over its valid cells, one
+#: set per level, for the tools that fit structure functions, log-cumulants or a large-deviation
+#: spectrum to it: ``{"scales": px per level, "cells": the field's cell count per level, "sets":
+#: {name: {"values": per-level arrays, "valid": per-level masks, "positive_only"?: True}}}``.
 CONTRACT_KEYS: dict[str, tuple[str, ...]] = {
     FIELD: (),
     STACK: (),
@@ -66,6 +71,7 @@ CONTRACT_KEYS: dict[str, tuple[str, ...]] = {
     HMAP: ("h_map", "r2_map"),
     COMPONENTS: ("raster_out",),
     CURVE: ("r", "L"),
+    SAMPLES: ("samples",),
 }
 
 

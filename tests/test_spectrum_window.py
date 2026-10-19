@@ -455,9 +455,7 @@ def test_the_main_window_builds_the_per_scale_sets_and_seeds_gamma_from_a_leader
     assert _per_scale_sets({"params": {}}) == {}
 
 
-def test_named_tables_fill_the_construction_windows_choice_and_the_main_window_orders_them(qtbot):
-    from dynamix.shell.main_window import _named_tables
-
+def test_named_tables_fill_the_construction_windows_choice(qtbot):
     hd_std, hd_cmax = _pair()
     window = SpectrumWindow(hd_std, hd_std, tables={"wse": hd_cmax, "leaders": hd_std})
     qtbot.addWidget(window)
@@ -466,7 +464,3 @@ def test_named_tables_fill_the_construction_windows_choice_and_the_main_window_o
     lone = SpectrumWindow(hd_std, hd_std, tables={"leaders": hd_std})
     qtbot.addWidget(lone)
     assert lone._one_table
-    result = {"hd_tables": {"leaders": hd_std, "p-leaders": hd_cmax, "wse": hd_std, "coefficients": None},
-              "params": {"method": "p-leaders"}}
-    assert list(_named_tables(result)) == ["p-leaders", "leaders", "wse"]
-    assert _named_tables({"hd_std": hd_std}) is None

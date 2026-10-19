@@ -21,6 +21,15 @@ from conftest import fbm2d                                              # noqa: 
 Q = np.array([-2.0, -1.0, 0.0, 0.5, 1.0, 2.0, 3.0, 4.0])
 
 
+def _tables(r):
+    return L.tables(r["samples"], Q)
+
+
+def _c(r, method, gamma=0.0):
+    """The method's log-cumulants over the fitted levels, original frame."""
+    return L.cumulants(_tables(r)[method], r["j_min"], r["levels"], gamma)["original"]
+
+
 def _qi(table, q):
     return int(np.argmin(np.abs(table["q_list"] - q)))
 
@@ -233,19 +242,27 @@ def test_local_exponent_reads_an_exact_pyramid_and_paint_tiles_the_cells():
 def test_the_structure_functions_count_cells_as_the_dyadic_grid_does_whatever_the_border_takes():
     """τ(0) = −d exactly: the table's count is the field's cell count per level, not the valid
     count the border thins faster at coarse levels."""
-    r = L.run_leaders(fbm2d(512, 0.5, seed=6), scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q)
+    r = L.run_leaders(fbm2d(512, 0.5, seed=6), scale_min=4, scale_max=32, wse_rule="fixed")
+    samples = r["samples"]
+    assert set(samples["sets"]) == {"leaders", "p-leaders", "wse", "coefficients"}
+    assert list(samples["scales"]) == [2.0, 4.0, 8.0, 16.0, 32.0]
+    assert samples["cells"] == [(512 // 2 ** j) ** 2 for j in range(1, 6)]
+    assert samples["sets"]["leaders"]["values"] is r["quantity"]["leaders"]          # no copy
+    assert samples["sets"]["coefficients"]["positive_only"] and "positive_only" not in samples["sets"]["wse"]
+    tables = _tables(r)
     for k in L.METHODS:
-        t = r["tables"][k]
+        t = tables[k]
         assert np.allclose(t["tau_qa"][_qi(t, 0.0)], 2 * np.log2(512) - 2 * np.arange(1, 6))
         assert np.allclose(fit_spectra(t, 2, 5)["tau"][_qi(t, 0.0)], -2.0)
-    for k in L.METHODS:
-        assert np.all(r["tables"][k]["N_a"] == r["valid_cells"][k])
-    assert np.all(r["tables"]["coefficients"]["N_a"] == 3 * np.asarray(r["valid_cells"]["coefficients"]))
-    assert np.all(np.isnan(r["tables"]["coefficients"]["tau_qa"][Q < 0]))
-    assert np.all(np.isfinite(r["tables"]["leaders"]["tau_qa"][Q < 0]))
+        assert np.all(t["N_a"] == r["valid_cells"][k])
+    assert np.all(tables["coefficients"]["N_a"] == 3 * np.asarray(r["valid_cells"]["coefficients"]))
+    assert np.all(np.isnan(tables["coefficients"]["tau_qa"][Q < 0]))
+    assert np.all(np.isfinite(tables["leaders"]["tau_qa"][Q < 0]))
+    assert "tables" not in r and "cumulants" not in r                              # nothing fitted here
     one = L.run_leaders(np.cumsum(np.random.default_rng(0).standard_normal(4096)), scale_min=4,
-                        scale_max=64, wse_rule="fixed", q_list=Q)
-    assert np.allclose(fit_spectra(one["tables"]["leaders"], 2, 6)["tau"][_qi(one["tables"]["leaders"], 0.0)], -1.0)
+                        scale_max=64, wse_rule="fixed")
+    t1 = _tables(one)["leaders"]
+    assert np.allclose(fit_spectra(t1, 2, 6)["tau"][_qi(t1, 0.0)], -1.0)
 
 
 @pytest.mark.parametrize("H", [0.3, 0.5, 0.8])
@@ -253,13 +270,13 @@ def test_fbm_reads_its_hurst_exponent_on_every_method(H):
     """1024², sym4, 4–64 px: c1 within 0.03 of H and |c2| below 0.01 for leaders, p = 2 and the
     fixed-window WSE; the coefficients' ζ(2)/2 and h_min, η(2) where fBm puts them."""
     r = L.run_leaders(fbm2d(1024, H, seed=int(10 * H)), wavelet="sym4", scale_min=4, scale_max=64,
-                      wse_rule="fixed", q_list=Q)
+                      wse_rule="fixed")
     for k in L.METHODS:
-        c = r["cumulants"][k]["original"]
+        c = _c(r, k)
         assert abs(c["c1"] - H) < 0.03, (k, c)
         assert abs(c["c2"]) < 0.01, (k, c)
         assert r["admissibility"][k]["admissible"]
-    t = r["tables"]["coefficients"]
+    t = _tables(r)["coefficients"]
     assert abs((fit_spectra(t, 2, 6)["tau"][_qi(t, 2.0)] + 2) / 2 - H) < 0.05
     adm = r["admissibility"]
     assert 0 < adm["h_min"]["original"] < H and abs(adm["eta"]["original"] - 2 * H) < 0.1
@@ -267,10 +284,10 @@ def test_fbm_reads_its_hurst_exponent_on_every_method(H):
 
 
 def test_the_dumeur_window_runs_wider_and_reads_fbm_within_a_tenth():
-    r = L.run_leaders(fbm2d(1024, 0.5, seed=5), scale_min=4, scale_max=64, wse_rule="dumeur", q_list=Q)
+    r = L.run_leaders(fbm2d(1024, 0.5, seed=5), scale_min=4, scale_max=64, wse_rule="dumeur")
     assert r["wse_schedule"][1] == [(0, 8.0), (1, 9.0), (2, 10.0)]
     assert r["valid_cells"]["wse"][1] < r["valid_cells"]["leaders"][1]
-    assert abs(r["cumulants"]["wse"]["original"]["c1"] - 0.5) < 0.1
+    assert abs(_c(r, "wse")["c1"] - 0.5) < 0.1
 
 
 def _cascade(n_levels, w, seed=0):
@@ -292,39 +309,39 @@ def test_binomial_cascade_density_needs_gamma_and_then_reads_its_closed_form():
     mu = _cascade(10, w)
     theory = -np.log2((w[None, :] ** Q[:, None]).sum(1)) - 2 * Q
     c2_theory = np.log(2.0) * ((np.log2(w) ** 2).mean() - np.log2(w).mean() ** 2)
-    r0 = L.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q)
+    r0 = L.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, wse_rule="fixed")
     adm = r0["admissibility"]
     assert not adm["leaders"]["admissible"] and not adm["p-leaders"]["admissible"]
     assert adm["h_min"]["original"] < 0 and adm["leaders"]["suggested_gamma"] >= 1.0
-    bad = fit_spectra(r0["tables"]["leaders"], 2, 5)["tau"]
+    bad = fit_spectra(_tables(r0)["leaders"], 2, 5)["tau"]
     assert np.abs(bad - theory).max() > 0.5
-    r1 = L.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed",
-                       q_list=Q)
+    r1 = L.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed")
     assert r1["admissibility"]["leaders"]["admissible"] and r1["admissibility"]["p-leaders"]["admissible"]
+    t1 = _tables(r1)
     for k in L.METHODS:
-        fit = fit_spectra(r1["tables"][k], 2, 5, eta=1.0, frame="original")
+        fit = fit_spectra(t1[k], 2, 5, eta=1.0, frame="original")
         assert np.abs(fit["tau"] - theory).max() < 0.1, (k, fit["tau"] - theory)
-        assert abs(r1["cumulants"][k]["original"]["c2"] - c2_theory) < 0.02, k
-        assert fit_spectra(r1["tables"][k], 2, 5, eta=1.0, frame="integrated")["tau"][_qi(r1["tables"][k], 1.0)] \
-            == pytest.approx(fit["tau"][_qi(r1["tables"][k], 1.0)] + 1.0)
+        assert abs(_c(r1, k, gamma=1.0)["c2"] - c2_theory) < 0.02, k
+        assert fit_spectra(t1[k], 2, 5, eta=1.0, frame="integrated")["tau"][_qi(t1[k], 1.0)] \
+            == pytest.approx(fit["tau"][_qi(t1[k], 1.0)] + 1.0)
 
 
 def test_the_derivative_of_fbm_is_inadmissible_until_integrated_once():
     f = fbm2d(512, 0.5, seed=2)
     dxf = np.roll(f, -1, axis=1) - f
-    r0 = L.run_leaders(dxf, scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q)
+    r0 = L.run_leaders(dxf, scale_min=4, scale_max=32, wse_rule="fixed")
     a0 = r0["admissibility"]
     assert not a0["leaders"]["admissible"] and not a0["p-leaders"]["admissible"] and a0["wse"]["admissible"]
     assert a0["leaders"]["suggested_gamma"] == 1.0 and a0["p-leaders"]["suggested_gamma"] == 1.0
-    assert abs(r0["cumulants"]["wse"]["original"]["c1"] + 0.5) < 0.1
-    assert r0["cumulants"]["leaders"]["original"]["c1"] > 0                  # the wrong answer
-    r1 = L.run_leaders(dxf, scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed", q_list=Q)
+    assert abs(_c(r0, "wse")["c1"] + 0.5) < 0.1
+    assert _c(r0, "leaders")["c1"] > 0                                       # the wrong answer
+    r1 = L.run_leaders(dxf, scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed")
     a1 = r1["admissibility"]
     assert a1["leaders"]["admissible"] and a1["p-leaders"]["admissible"]
     assert a1["h_min"]["integrated"] == pytest.approx(a0["h_min"]["original"] + 1.0)
     assert a1["eta"]["integrated"] == pytest.approx(a0["eta"]["original"] + 2.0)
     for k in L.METHODS:
-        assert abs(r1["cumulants"][k]["original"]["c1"] + 0.5) < 0.1, k
+        assert abs(_c(r1, k, gamma=1.0)["c1"] + 0.5) < 0.1, k
 
 
 # ------------------------------------------------------------------- cusps and chirps, 1-D
@@ -351,7 +368,7 @@ def _local(r, method):
 
 def _run(f, gamma=0.0):
     return L.run_leaders(f, wavelet="sym4", scale_min=256, scale_max=8192, gamma=gamma,
-                         wse_rule="fixed", q_list=np.array([0.0, 1.0, 2.0]))
+                         wse_rule="fixed")
 
 
 @pytest.mark.parametrize("h", [0.3, 0.5])
@@ -391,7 +408,7 @@ def test_the_two_dimensional_cusp_has_no_oscillation_and_reads_near_its_exponent
     yy, xx = np.indices((n * s, n * s))
     rr = np.hypot((yy + 0.5) / s - n / 2, (xx + 0.5) / s - n / 2) / n
     cusp = (rr ** 0.5).reshape(n, s, n, s).mean(axis=(1, 3))
-    r = L.run_leaders(cusp, scale_min=4, scale_max=64, wse_rule="fixed", q_list=Q)
+    r = L.run_leaders(cusp, scale_min=4, scale_max=64, wse_rule="fixed")
     for j in range(r["j_min"], r["levels"] + 1):
         k = (n // 2) // 2 ** j
         assert np.nanmax(np.abs(r["oscillation"][j - 1][k - 1:k + 1, k - 1:k + 1])) < 1e-9
@@ -443,22 +460,23 @@ def test_the_real_block_bounds_the_valid_cells_and_a_wrap_of_another_period_is_a
     border); wrapped to another size, the wrap is a seam the border rule treats as an edge."""
     f = fbm2d(256, 0.5, seed=8)
     big = np.pad(f, ((32, 32), (32, 32)), mode="wrap")                   # 320 = 10 · 32, period 256
-    r = L.run_leaders(big, scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q, edge="periodic",
+    r = L.run_leaders(big, scale_min=4, scale_max=32, wse_rule="fixed", edge="periodic",
                       origin=(32, 32), block=(256, 256))
     assert r["data_shape"] == (256, 256) and r["origin"] == (32, 32) and r["seam"] is False
     for j in range(1, 6):
         v = r["valid"]["leaders"][j - 1]
         lo, hi = 32 // 2 ** j, (32 + 256) // 2 ** j
         assert v[lo:hi, lo:hi].all() and not v[:lo].any() and not v[hi:].any()
-    t = r["tables"]["leaders"]
+    assert r["samples"]["cells"] == [(256 // 2 ** j) ** 2 for j in range(1, 6)]
+    t = _tables(r)["leaders"]
     assert np.allclose(t["tau_qa"][_qi(t, 0.0)], 2 * np.log2(256) - 2 * np.arange(1, 6))
     odd = L.run_leaders(np.pad(f, ((0, 8), (0, 8)), mode="wrap"), scale_min=4, scale_max=32,
-                        wse_rule="fixed", q_list=Q, edge="periodic", block=(256, 256))
+                        wse_rule="fixed", edge="periodic", block=(256, 256))
     assert odd["seam"] is True                                            # 264 wraps to 288: a seam
     e = dwt.border_cells("sym4")
     for j in range(1, 6):
         v = odd["valid"]["leaders"][j - 1]
         n = 288 // 2 ** j
         assert not v[:e].any() and not v[n - e:].any()                    # the seam's border
-    plain = L.run_leaders(f, scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q, edge="periodic")
+    plain = L.run_leaders(f, scale_min=4, scale_max=32, wse_rule="fixed", edge="periodic")
     assert plain["seam"] is False and all(v.all() for v in plain["valid"]["leaders"])
