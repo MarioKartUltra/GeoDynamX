@@ -76,7 +76,8 @@ gui = ["PySide6>=6.5", "pyqtgraph>=0.13", "matplotlib>=3.8"]
 
 # pytest-qt for the shell test suite; ipython for `python -m dynamix.devloop --ipython`
 # (%gui qt + %autoreload 2, guarded — devloop.py prints a clear message and exits if it's absent).
-dev = ["pytest>=8", "pytest-qt", "ipython", "import-linter>=2.0", "jsonschema>=4", "ruff>=0.6"]
+dev = ["pytest>=8", "pytest-qt", "pytest-testmon>=2.2", "pytest-xdist>=3.8", "ipython",
+       "import-linter>=2.0", "jsonschema>=4", "ruff>=0.6"]
 
 # No [cuda] extra: CUDA is deferred, and declaring one that installs nothing would be a lie in the
 # packaging metadata.
