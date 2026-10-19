@@ -22,6 +22,16 @@ from test_nonconcave import L as L_FAR, SCALES, _f_dip, _sample, _upper_hull    
 Q = np.arange(-2.0, 4.01, 0.5)
 
 
+def test_one_estimable_epsilon_is_not_zero_spread_convergence():
+    scales = np.array([2., 4., 8., 16.])
+    mods = [np.full(int(128 / a), (a / 128) ** .56) for a in scales]
+    result = ld.fixed(mods, scales, h_grid=[.5], log2_a_min=1, log2_a_max=4,
+                      length_px=128)
+    assert result["epsilon_count"].tolist() == [1]
+    assert np.isnan(result["spread"][0])
+    assert result["D"][0, 0] == pytest.approx(1.)
+
+
 def test_counts_window_each_bin_and_local_exponents_read_the_fixture_exactly():
     mods, counts, h = _sample(_f_dip)
     assert np.allclose(ld.local_exponents(mods[2], SCALES[2], L_FAR), h)

@@ -35,6 +35,15 @@ _METHOD_LABEL = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE lea
 class WaveletLeaders:
     """Leaders, p-leaders and (θ, ω)-leaders of a band, with the h-map and the sample sets."""
 
+    provenance_precision = "float64"
+
+    @staticmethod
+    def provenance_outcome(result, params):
+        from dynamix.engine.execution import resolved_outcome
+        return resolved_outcome(result, params)
+
+    provenance_libraries = (('pywt', 'PyWavelets'),)
+
     name = "wavelet_leaders"
     label = "Wavelet leaders"
     families = ("Regularity",)
@@ -63,7 +72,7 @@ class WaveletLeaders:
         Param("wse_rule", ParamKind.CHOICE, default="dumeur", choices=("dumeur", "fixed"),
               choice_labels=("resolution-indexed (Dumeur)", "fixed depth and width"), label="Window"),
         Param("wse_beta", ParamKind.FLOAT, default=0.25, min=0.05, max=0.95, soft_min=0.1, soft_max=0.5,
-              label="β", active_when=("wse_rule", ("dumeur",))),
+              label="θ exponent β", active_when=("wse_rule", ("dumeur",))),
         Param("wse_depth", ParamKind.INT, default=1, min=0, max=4, label="Depth (octaves)",
               active_when=("wse_rule", ("fixed",))),
         Param("wse_width", ParamKind.FLOAT, default=1.0, min=0.0, max=8.0, soft_min=0.0, soft_max=3.0,
@@ -124,6 +133,8 @@ class WaveletLeaders:
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """The fitted cells in the field's units beside ``scale_min`` and ``scale_max``; what
         ``auto`` resolves to beside ``edge``."""
+        if name == "wse_beta":
+            return f"θ(j) = j + j^{float(value):g}; ω(j′) = j′ · resolution index j"
         if name == "edge":
             if field is None:
                 return None
@@ -193,6 +204,9 @@ class WaveletLeaders:
             edge=edge, origin=origin, block=block, progress=tick)
         j_min, J = run["j_min"], run["levels"]
         warnings = []
+        truncated = [j for j, flag in enumerate(run["wse_truncated"], 1) if flag and j >= j_min]
+        if truncated:
+            warnings.append(f"WSE finer-scale neighborhoods truncated at levels {truncated}; compare a coarser fit range")
         adm = run["admissibility"]
         for m in leaders.METHODS:
             if not adm[m]["admissible"]:
@@ -222,7 +236,11 @@ class WaveletLeaders:
                      "block": list(block) if block else None, "origin": list(origin)},
             "seam": bool(run["seam"]),
             "gamma": float(params["gamma"]), "p": float(params["p"]), "dither": bool(params["dither"]),
-            "wse": {"rule": params["wse_rule"], "schedule": [[list(pair) for pair in lev] for lev in run["wse_schedule"]]},
+            "wse": {"rule": params["wse_rule"], "beta": float(params["wse_beta"]),
+                    "schedule": [[list(pair) for pair in lev] for lev in run["wse_schedule"]],
+                    "truncated_levels": truncated,
+                    "decimation": run["samples"]["sets"]["wse"].get("decimation", []),
+                    "normalization": run["samples"]["sets"]["wse"].get("normalization", "dense fixed window")},
             "border_cells": run["border_cells"],
             "registration": [{"level": j, "band": band, "shift": list(v[:2]) if band != "detail" else [v[0]],
                               "residual_px": list(v[2:]) if band != "detail" else [v[1]]}
@@ -233,7 +251,8 @@ class WaveletLeaders:
         return {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
-            "samples": leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"]),
+            "samples": leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"],
+                                            wse_schedule=run["wse_schedule"] if params["wse_rule"] == "dumeur" else None),
             "_h_cells": h_cells, "_quantity": quantity, "_valid": valid, "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
             "_dyadic_origin": (0, 0),

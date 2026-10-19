@@ -288,7 +288,7 @@ class MultifractalWindow(QtWidgets.QDialog):
 
         controls.addWidget(QtWidgets.QLabel("η"))
         self._eta_spin = QtWidgets.QDoubleSpinBox()
-        self._eta_spin.setRange(-5.0, 5.0)
+        self._eta_spin.setRange(-100.0, 100.0)
         self._eta_spin.setSingleStep(0.1)
         self._eta_spin.setDecimals(2)
         self._eta_spin.setValue(eta_seed)
@@ -351,7 +351,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         controls.addWidget(self.boxcount_check)
         # tau, h and D(h) from the cascade's cumulants, over the fitted ones.
         self.cumulant_check = QtWidgets.QCheckBox("cumulant spectrum")
-        self.cumulant_check.toggled.connect(lambda _c: self._update_cumulant_overlay())
+        self.cumulant_check.toggled.connect(self._on_cumulant_requested)
         controls.addWidget(self.cumulant_check)
         # The cumulants' own scale range: a second window on the log2 a panels, in the
         # cumulant curve's colour; off, they read the fit window.
@@ -364,7 +364,8 @@ class MultifractalWindow(QtWidgets.QDialog):
         # the Gaussian ensemble's D(h) points from the maxima moduli.
         self.kink_check = QtWidgets.QCheckBox("kinks")
         self.kink_check.toggled.connect(lambda _c: self._update_kinks())
-        self.gaussian_check = QtWidgets.QCheckBox("Gaussian γ")
+        self.gaussian_check = QtWidgets.QCheckBox("Ensemble candidates γ")
+        self.gaussian_check.setToolTip("Weighted-mean candidates can mix populations. Use Generalized spectrum for the generalized Legendre inversion.")
         self.gaussian_check.setEnabled(self._extrema_mods is not None and self._scales_px is not None)
         self.gaussian_check.toggled.connect(lambda _c: self._update_gaussian())
         self._kink_label = QtWidgets.QLabel("")
@@ -1197,6 +1198,12 @@ class MultifractalWindow(QtWidgets.QDialog):
         mask = self._q_mask(q)
         heat = spectra.specific_heat(q, fit["tau"])
         self._cq_curve.setData(q[mask], heat[mask])
+        if not (self.cumulant_check.isChecked() or self.cumulant_range_check.isChecked()):
+            self._cumulants = None
+            self._cq_cum_curve.setData([], [])
+            self._cq_ln_curve.setData([], [])
+            self._cq_label.setText("Cumulant fitting is opt-in; use Log-cumulants for independent ranges.")
+            return
         hd = self._current_hd()
         own = self.cumulant_range_check.isChecked()
         lo, hi = (self._cum_regions[0] if own else self._region).getRegion()
@@ -1217,6 +1224,10 @@ class MultifractalWindow(QtWidgets.QDialog):
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
             f"  ·  R²min={c['r2']:.2f}"
             + (f"  ·  log₂ a {lo:.2f}–{hi:.2f}" if own else ""))
+
+    def _on_cumulant_requested(self, _checked):
+        self._update_specific_heat()
+        self._update_cumulant_overlay()
 
     def _update_kinks(self) -> None:
         """The kink check (spec 15): a dashed line at each q* on tau(q) and the h interval the

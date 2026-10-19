@@ -25,6 +25,7 @@ pyfftw and mlx are imported lazily, inside the backends.
 from __future__ import annotations
 
 import contextlib
+import functools
 import os
 import threading
 
@@ -32,10 +33,55 @@ import numpy as np
 
 __all__ = ["ENGINES", "PRECISIONS", "active", "bits", "configure", "configured_precision",
            "context", "double", "make", "note", "precision_note", "reset", "resolve", "scope_for",
-           "using"]
+           "using", "observing", "observed", "include_observed"]
 
 ENGINES = ("auto", "mlx", "fftw")
 PRECISIONS = (32, 64)
+
+
+_OBSERVERS = threading.local()
+
+
+@contextlib.contextmanager
+def observing():
+    """Collect contexts of FFT calls, including the work represented by reused stages."""
+    calls = []
+    stack = getattr(_OBSERVERS, "stack", ())
+    _OBSERVERS.stack = (*stack, calls)
+    try:
+        yield calls
+    finally:
+        _OBSERVERS.stack = stack
+
+
+def observed():
+    stack = getattr(_OBSERVERS, "stack", ())
+    return list(stack[-1]) if stack else []
+
+
+def include_observed(contexts):
+    for calls in getattr(_OBSERVERS, "stack", ()):
+        for ctx in contexts:
+            if ctx not in calls:
+                calls.append(ctx)
+
+
+def _observed_fft(method):
+    @functools.wraps(method)
+    def call(self, *args, **kwargs):
+        if getattr(_OBSERVERS, "stack", ()):
+            if self.name == "pyfftw":
+                import pyfftw
+                import pyfftw.config
+                backend = {"name": "fftw", "version": str(pyfftw.fftw_version),
+                           "planner": str(pyfftw.config.PLANNER_EFFORT),
+                           "binding": f"pyfftw {pyfftw.__version__}"}
+            else:
+                backend = {"name": "mlx", "version": str(self._mx.__version__),
+                           "planner": None, "binding": None}
+            include_observed([{"precision": f"float{self.precision}", "backend": backend}])
+        return method(self, *args, **kwargs)
+    return call
 
 
 def _cast(a, precision, real=False):
@@ -58,27 +104,35 @@ class _PyFFTW:
         self._t = threads or os.cpu_count() or 1
         self.precision = int(precision)
 
+    @_observed_fft
     def fft(self, a, axis=-1):
         return self._m.fft(_cast(a, self.precision), axis=axis, threads=self._t)
 
+    @_observed_fft
     def ifft(self, a, axis=-1):
         return self._m.ifft(_cast(a, self.precision), axis=axis, threads=self._t)
 
+    @_observed_fft
     def fft2(self, a, axes=(-2, -1)):
         return self._m.fft2(_cast(a, self.precision), axes=axes, threads=self._t)
 
+    @_observed_fft
     def ifft2(self, a, axes=(-2, -1)):
         return self._m.ifft2(_cast(a, self.precision), axes=axes, threads=self._t)
 
+    @_observed_fft
     def rfft(self, a, axis=-1):
         return self._m.rfft(_cast(a, self.precision, real=True), axis=axis, threads=self._t)
 
+    @_observed_fft
     def irfft(self, a, n=None, axis=-1):
         return self._m.irfft(_cast(a, self.precision), n=n, axis=axis, threads=self._t)
 
+    @_observed_fft
     def rfft2(self, a, axes=(-2, -1)):
         return self._m.rfft2(_cast(a, self.precision, real=True), axes=axes, threads=self._t)
 
+    @_observed_fft
     def irfft2(self, a, s=None, axes=(-2, -1)):
         return self._m.irfft2(_cast(a, self.precision), s=s, axes=axes, threads=self._t)
 
@@ -109,27 +163,35 @@ class _MLX:
         self._mx.eval(x)
         return np.array(x)
 
+    @_observed_fft
     def fft(self, a, axis=-1):
         return self._np(self._mx.fft.fft(self._c(a), axis=axis))
 
+    @_observed_fft
     def ifft(self, a, axis=-1):
         return self._np(self._mx.fft.ifft(self._c(a), axis=axis))
 
+    @_observed_fft
     def fft2(self, a, axes=(-2, -1)):
         return self._np(self._mx.fft.fft2(self._c(a), axes=list(axes)))
 
+    @_observed_fft
     def ifft2(self, a, axes=(-2, -1)):
         return self._np(self._mx.fft.ifft2(self._c(a), axes=list(axes)))
 
+    @_observed_fft
     def rfft(self, a, axis=-1):
         return self._np(self._mx.fft.rfft(self._r(a), axis=axis))
 
+    @_observed_fft
     def irfft(self, a, n=None, axis=-1):
         return self._np(self._mx.fft.irfft(self._c(a), n=n, axis=axis))
 
+    @_observed_fft
     def rfft2(self, a, axes=(-2, -1)):
         return self._np(self._mx.fft.rfft2(self._r(a), axes=list(axes)))
 
+    @_observed_fft
     def irfft2(self, a, s=None, axes=(-2, -1)):
         return self._np(self._mx.fft.irfft2(self._c(a), s=None if s is None else list(s),
                                             axes=list(axes)))

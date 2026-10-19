@@ -110,9 +110,12 @@ def fixed(mods_per_scale, scales_px, *, h_grid, log2_a_min: float, log2_a_max: f
     a, L, keep = _scales(scales_px, length_px, log2_a_min, log2_a_max)
     h_grid = np.asarray(h_grid, dtype=np.float64)
     eps_list = tuple(float(e) for e in eps_list)
+    if not eps_list or not all(np.isfinite(e) and e > 0 for e in eps_list):
+        raise ValueError("epsilon half-widths must be finite and positive")
     nan = np.full((len(eps_list), h_grid.size), np.nan)
     if len(keep) < 2:
         return {"h": h_grid, "D": nan, "eps": eps_list, "spread": np.full(h_grid.size, np.nan),
+                "epsilon_count": np.zeros(h_grid.size, dtype=int),
                 "log2_counts": np.full((len(eps_list), len(keep), h_grid.size), np.nan),
                 "scales": a[keep]}
     x = np.log2(a[keep] / L)
@@ -126,17 +129,20 @@ def fixed(mods_per_scale, scales_px, *, h_grid, log2_a_min: float, log2_a_max: f
         with np.errstate(divide="ignore"):
             log2_n[i] = np.where(n > 0, np.log2(np.where(n > 0, n, 1.0)), np.nan)
     D = _minus_slopes(x, np.swapaxes(log2_n, 1, 2))          # (n_eps, n_h) rows over the scales
-    with np.errstate(invalid="ignore"):
-        spread = np.nanmax(D, axis=0) - np.nanmin(D, axis=0) if np.isfinite(D).any() else np.full(h_grid.size, np.nan)
+    epsilon_count = np.isfinite(D).sum(axis=0)
+    common = (epsilon_count == len(eps_list)) & (len(eps_list) >= 2)
+    spread = np.full(h_grid.size, np.nan)
+    spread[common] = np.ptp(D[:, common], axis=0)
     return {"h": h_grid, "D": D, "eps": eps_list, "spread": spread, "log2_counts": log2_n,
-            "scales": a[keep]}
+            "epsilon_count": epsilon_count, "scales": a[keep]}
 
 
 def adaptive(mods_per_scale, scales_px, *, q_list, log2_a_min: float, log2_a_max: float,
              length_px: float, counts_per_scale=None, scale_weight=None) -> dict:
     """The (h(q), D(q)) curve of the adaptive bins: per kept scale and q the centre is the
     q-tilted mean of h_λ and the half-width (ln 2)^{1/2} times its q-tilted standard deviation
-    (the paper's ε_j = (|Λ_j″| / j)^{1/2}); ``D`` is minus the
+    (a finite-scale variance-bandwidth adaptation, not a verified implementation of the
+    original Barral–Gonçalves estimator); ``D`` is minus the
     count's slope against log2(a/L), ``h`` the slope of the tilted mean of log2 M against the
     same (the partition tables' h(q)); ``centres`` and ``eps`` are ``(n_kept, n_q)``."""
     a, L, keep = _scales(scales_px, length_px, log2_a_min, log2_a_max)

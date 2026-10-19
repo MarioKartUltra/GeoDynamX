@@ -18,8 +18,9 @@ import numpy as np
 from dynamix.core import fft_policy
 from dynamix.core.chain_product import materialize_selection
 from dynamix.engine.cache import Cache, cache_key
+from dynamix.engine import execution
 from dynamix.model import capabilities
-from dynamix.model.contracts import input_contract, stamp_fill, step_states
+from dynamix.model.contracts import FIELD, input_contract, produces_of, stamp_fill, step_states
 from dynamix.model.device import (Output, apply_view, declared_outputs, get_device,
                                   is_transform, keyed_params, validate_params)
 from dynamix.model.plugins import origin_of
@@ -335,7 +336,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             upstream = step_key(device, sid, params, upstream)
 
         def _region(run=roi_steps, r=rect):
-            return run_on_region(run, field, r, progress=progress, cancel=cancel)
+            value = run_on_region(run, field, r, progress=progress, cancel=cancel, stage_cache=cache.stages)
+            return execution.attach(value, _landed={"analysis_key": upstream, "filters": [], "level": None})
 
         result = cache.get_or_compute(upstream, _region)
         analyzer, analyzer_params = roi_steps[-1]
@@ -356,13 +358,19 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             src = field if upstream is None else result
 
             def _compute(d=device, p=params, s=src):
+                if (getattr(s, "provenance", {}).get("grid.requires_fork") and
+                        FIELD not in produces_of(d, p, frozenset({FIELD}))):
+                    raise ValueError("The interpolated grid has new pixel spacing. Fork derivative dataset "
+                                     "from the preparation output before analysing it on its own grid.")
                 kw = {}
                 if capabilities.has(d, "Cancellable"):
                     kw["cancel"] = cancel
                 if getattr(d, "uses_stage_cache", False):
                     kw["stage_cache"] = cache.stages
-                with fft_policy.scope_for(d, p):         # the tool's FFT precision
-                    return stamp_fill(d.compute(s, p, progress=progress, **kw), s)
+                value = execution.run(d, p,
+                    lambda: stamp_fill(d.compute(s, p, progress=progress, **kw), s),
+                    s if upstream is not None else None)
+                return execution.attach(value, _landed={"analysis_key": key, "filters": [], "level": None})
 
             result = apply_view(device, cache.get_or_compute(key, _compute), params)
             if (roi_steps and isinstance(result, dict) and not result.get("_roi")
@@ -409,6 +417,9 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     if (isinstance(result, dict) and isinstance(analysis_raw, dict)
             and result is not analysis_raw and analysis_raw.get("chains") is not None):
         result = {**result, "_chains_total": len(analysis_raw["chains"])}
+    if analysis[2] is not None:
+        result = cache.landed_result(analysis[2], result, execution.recipe_identity(
+            layer, layer_input, level=level, source=source_id))
     return Renderable(
         layer_id=layer.layer_id,
         result=result,
@@ -564,11 +575,11 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
         window, _info = read_processing_window(field, (row, col, h, w), m)
         for d, p in roi_steps[:-1]:
             kw = {"cancel": cancel} if capabilities.has(d, "Cancellable") else {}
-            with fft_policy.scope_for(d, p):
-                window = d.compute(window, p, progress=progress, **kw)
+            previous = window
+            window = execution.run(d, p, lambda: d.compute(previous, p, progress=progress, **kw), previous)
         kw = {"cancel": cancel} if capabilities.has(analyzer, "Cancellable") else {}
-        with fft_policy.scope_for(analyzer, aparams):
-            raw = analyzer.compute(window, aparams, progress=progress, **kw)
+        raw = execution.run(analyzer, aparams,
+            lambda: analyzer.compute(window, aparams, progress=progress, **kw), window)
         return {"window": window, "raw": raw}
 
     window_key = f"{r.analysis_key}|window"
@@ -590,10 +601,10 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
                                   for l in range(1, len(raw.get("extrema") or ()) + 1)]
             if out.per_level:
                 extra["level"] = lvl
-            with fft_policy.scope_for(device, r.analysis_params):
-                return device.compute_output(other, np.asarray(win["window"].values), raw,
-                                             r.analysis_params, fetch=window_output,
-                                             progress=progress, cancel=cancel, **extra)
+            return execution.run(device, r.analysis_params,
+                lambda: device.compute_output(other, np.asarray(win["window"].values), raw,
+                                               r.analysis_params, fetch=window_output,
+                                               progress=progress, cancel=cancel, **extra))
 
         return cache.get_or_compute(key, _compute)
 
@@ -609,6 +620,8 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
         cut["raster"] = np.asarray(value["raster"])[m:m + h, m:m + w]
         cut["roi_axes"] = (np.asarray(window.x_axis)[m:m + w].copy(),
                            np.asarray(window.y_axis)[m:m + h].copy())
+        cut["_output_identity"] = {"key": key, "name": name, "level": lvl,
+            "params": {k: r.analysis_params[k] for k in output.params}}
         return cut
 
     return cache.get_or_compute(key, _cut)
@@ -664,8 +677,10 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
                               for l in range(1, len(raw.get("extrema") or ()) + 1)]
         if output.per_level:
             extra["level"] = lvl
-        with fft_policy.scope_for(device, r.analysis_params):
-            return device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
-                                         progress=progress, cancel=cancel, **extra)
+        value = execution.run(device, r.analysis_params,
+            lambda: device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
+                                           progress=progress, cancel=cancel, **extra))
+        return execution.attach(value, _output_identity={"key": key, "name": name, "level": lvl,
+            "params": {k: r.analysis_params[k] for k in output.params}})
 
     return cache.get_or_compute(key, _compute)

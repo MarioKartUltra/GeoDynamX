@@ -156,6 +156,9 @@
     1735.1408313810825
    ]
   },
+  "daf_smoothing": {
+   "field": -94127.6921793688
+  },
   "directional_scaling": {
    "chains": 0,
    "levels": [],
@@ -173,7 +176,13 @@
    "mod": [],
    "raster_out": -60056.62890625
   },
+  "dyadic_interpolation": {
+   "field": -372452.64198836416
+  },
   "fill": {
+   "field": -94318.44675307727
+  },
+  "fractional_integration": {
    "field": -94318.44675307727
   },
   "group_filter": {
@@ -320,6 +329,15 @@
    "levels": [],
    "mod": [],
    "raster_out": -94318.4453125
+  },
+  "interpolating_wavelet_filter": {
+   "field": -94318.44675307727
+  },
+  "interpolating_wavelets": {
+   "chains": 0,
+   "levels": [],
+   "mod": [],
+   "raster_out": -94677.640625
   },
   "lineal_path": {
    "chains": 0,

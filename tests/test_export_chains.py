@@ -88,7 +88,10 @@ def test_an_export_writes_its_record_beside_it_and_the_command_writes_it_again(
     win.load_field(RasterField(name="f", values=values, frame=LocalFrame(units="px"),
                                x_axis=np.arange(48.0), y_axis=np.arange(48.0)),
                    str(tmp_path / "field.npz"), inert=True)
-    win._active_result = _prod_result()
+    from dynamix.engine.resolve import resolve, shown_level
+    from dynamix.model.chain import Chain, DeviceRef
+    win.layer.chain = Chain((DeviceRef("wtmm2d", {"n_oct": 1, "n_voice": 2, "precision": "f64"}),))
+    win._active_result = resolve(win.layer, win.field, win.cache, level=shown_level(win.layer)).result
     msg = win._export_chain_product(str(path))
     assert "provenance chains.npz.gprv" in msg
     record = json.loads((tmp_path / "chains.npz.gprv").read_text(encoding="utf-8"))

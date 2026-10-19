@@ -73,5 +73,8 @@ def sample_sets(result: dict) -> dict:
             flat = _flat(s["values"], s["valid"])
             out[LABELS.get(name, name)] = {
                 "mods": flat, "scales": samples["scales"],
-                "weights": [float(n) / max(x.size, 1) for n, x in zip(cells, flat)]}
+                "target": ("coefficient large deviations; wavelet-dependent, not a pointwise spectrum"
+                           if name == "coefficients" else "weak-scaling leader large deviations"
+                           if name == "wse" else "leader large deviations"),
+                "weights": [float(n) / max(x.size, 1) for n, x in zip(s.get("cells", cells), flat)]}
     return out

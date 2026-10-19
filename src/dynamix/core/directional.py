@@ -4,6 +4,11 @@
 (Symmetry 11:825, 2019) on the hyperbolic (fully separable) wavelet coefficients of
 :func:`dynamix.core.dwt.hyperbolic`.
 
+The default device estimator constructs Γ in increasing-resolution coordinates
+from the complete separable basis, then fits the union envelope over resolved
+levels. The legacy API estimator described below remains selectable. Finite
+regressions do not establish the asymptotic bounds.
+
 For an anisotropy α = (α₁, α₂), α_i > 0, α₁ + α₂ = 2, the anisotropic scaling function
 η_α(p) is read along the index sets Γ_j(α) of pairs (j₁, j₂) of detail levels around
 ([jα₁], [jα₂]) together with the two families where one level runs from its own up to the
@@ -41,7 +46,8 @@ def alpha_grid(step: float = ALPHA_STEP) -> np.ndarray:
     return np.arange(1, n) * step
 
 
-def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str = "mirror") -> dict:
+def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str = "mirror",
+                 origin=(0, 0), block=None, complete=False) -> dict:
     """The hyperbolic detail moduli of the field continued by ``edge``
     (:data:`dynamix.core.leaders.EDGE_MODES`): ``mods[(j1, j2)]`` is |c| at the pair (j₁ along
     x, j₂ along y), L¹, each axis rolled by its own wavelet atom's shift and integrated by
@@ -55,26 +61,36 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str
     J = int(level)
     finite = np.isfinite(x)
     filled = np.where(finite, x, float(x[finite].mean()) if finite.any() else 0.0)
-    W = dwt.working_shape(x.shape, J)
+    W = (tuple(int(math.ceil(n/2**J))*2**J for n in x.shape) if edge == "periodic"
+         else dwt.working_shape(x.shape, J))
     work = _extend(filled, W, edge)
     bad = _extend((~finite).astype(np.float64), W, edge) > 0.5
     reg = dwt.registration(name, J)
-    e = 0 if edge == "periodic" else dwt.border_cells(name) - 1      # the coefficients' own border
-    hyp = dwt.hyperbolic(work, name, J)
+    seam = edge == "periodic" and W != x.shape
+    e = 0 if edge == "periodic" and not seam else dwt.border_cells(name) - 1
+    hyp = dwt.hyperbolic_complete(work, name, J) if complete else dwt.hyperbolic(work, name, J)
+    size = x.shape if block is None else tuple(int(n) for n in block)
     mods, valid = {}, {}
     for (j1, j2), c in hyp.items():
-        rolled = np.roll(c, (reg[(j2, "detail")][0], reg[(j1, "detail")][0]), axis=(0, 1))
-        mods[(j1, j2)] = np.abs(rolled) * 2.0 ** (gamma * (j1 + j2) / 2.0)
-        q_rows, q_cols = x.shape[0] // 2 ** j2, x.shape[1] // 2 ** j1
+        l1, l2 = j1 or J, j2 or J
+        # Approximation atoms use their coarsest cell frame; details retain the
+        # measured wavelet registration used by the ordinary hyperbolic path.
+        shifts = (reg[(l2, "detail")][0] if j2 else 0,
+                  reg[(l1, "detail")][0] if j1 else 0)
+        rolled = np.roll(c, shifts, axis=(0, 1))
+        mods[(j1, j2)] = np.abs(rolled) * 2.0 ** (gamma * (l1 + l2) / 2.0)
+        rlo, clo = math.ceil(origin[0]/2**l2), math.ceil(origin[1]/2**l1)
+        q_rows, q_cols = (origin[0]+size[0])//2**l2, (origin[1]+size[1])//2**l1
         v = np.zeros(c.shape, dtype=bool)
-        if q_rows - 2 * e > 0 and q_cols - 2 * e > 0:
-            v[e:q_rows - e, e:q_cols - e] = True
-        b = bad.reshape(W[0] // 2 ** j2, 2 ** j2, W[1] // 2 ** j1, 2 ** j1).any(axis=(1, 3))
+        if q_rows-rlo-2*e > 0 and q_cols-clo-2*e > 0:
+            v[rlo+e:q_rows-e, clo+e:q_cols-e] = True
+        b = bad.reshape(W[0] // 2 ** l2, 2 ** l2, W[1] // 2 ** l1, 2 ** l1).any(axis=(1, 3))
         if b.any():
             v &= ~_box(b, e, np.logical_or) if e else ~b
         valid[(j1, j2)] = v
     return {"mods": mods, "valid": valid, "levels": J, "shape": tuple(x.shape), "wavelet": name,
-            "gamma": float(gamma), "border_cells": e, "edge": edge}
+            "gamma": float(gamma), "border_cells": e, "edge": edge,
+            "origin": tuple(origin), "data_shape": tuple(size), "seam": seam, "complete": complete}
 
 
 def structure_functions(coef: dict, p_list) -> np.ndarray:
@@ -167,6 +183,77 @@ def scaling_functions(log2_S, j_min: int, j_max: int, *, step: float = ALPHA_STE
     return {"alpha": alphas, "eta_alpha": eta, "n_levels": n_levels}
 
 
+def resolution_families(j: int, alpha1: float) -> tuple:
+    """Literal resolution-index Γ families of (44–47), including index -1.
+
+    These indices increase toward finer resolution; they are not the DWT's
+    finest-first level numbers. Index -1 is the scaling branch.
+    """
+    bounds = [(math.floor((j-1)*a)-1, math.floor(j*a)+1) for a in (alpha1, 2-alpha1)]
+    (lo1, hi1), (lo2, hi2) = bounds
+    high1, high2 = range(lo1, hi1+1), range(lo2, hi2+1)
+    return ([(x, y) for x in high1 for y in high2],
+            [(x, y) for x in high1 for y in range(0, lo2)],
+            [(x, y) for x in range(0, lo1) for y in high2])
+
+
+def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
+    """Finite Γ-union envelope regression using the complete hyperbolic basis.
+
+    Resolution index r=J-level anchors the coarsest details at r=0; the
+    scaling branch is r=-1. No family is clipped to available fine levels.
+    The envelope is fitted against -r, the logarithm of relative scale.
+    """
+    J = coef["levels"]
+    p = np.asarray(p_list, float)
+    tables = {}
+    for pair, m in coef["mods"].items():
+        sample = m[coef["valid"][pair]]
+        if not sample.size:
+            tables[pair] = np.full(p.size, np.nan)
+            continue
+        vals = []
+        for order in p:
+            # For positive moments zeros contribute zero, but remain in the
+            # normalization count. Removing them changes sparse-field exponents.
+            positive = sample[sample > 0]
+            if not positive.size:
+                vals.append(-np.inf)
+                continue
+            z = order*np.log(positive)
+            top = z.max()
+            vals.append((top+np.log(np.exp(z-top).sum())-np.log(sample.size))/np.log(2))
+        tables[pair] = np.array(vals)
+    alphas = alpha_grid(step)
+    eta = np.full((p.size, alphas.size), np.nan)
+    n_levels = np.zeros(alphas.size, int)
+    def key(pair):
+        return tuple(0 if r == -1 else J-r for r in pair)
+    for a, alpha in enumerate(alphas):
+        js, envelopes = [], []
+        for r in range(1, J-int(j_min)+1):
+            if any(math.floor((r-1)*axis)-1 < 0 for axis in (alpha, 2-alpha)):
+                continue   # coarse scaling crossover is not an asymptotic fit level
+            pairs = set(pair for fam in resolution_families(r, float(alpha)) for pair in fam)
+            if any(min(pair) < -1 or max(pair) >= J or key(pair) not in tables for pair in pairs):
+                continue
+            values = np.stack([tables[key(pair)] for pair in sorted(pairs)])
+            if not np.isfinite(values).all():
+                continue
+            js.append(r)
+            envelopes.append(values.max(axis=0))
+        n_levels[a] = len(js)
+        resolved = all(len({math.floor(r*axis) for r in js}) >= 3 for axis in (alpha, 2-alpha))
+        if not resolved:
+            n_levels[a] = 0
+        if len(js) >= 3 and resolved:
+            for i in range(p.size):
+                eta[i, a] = _slope(-np.asarray(js), np.asarray(envelopes)[:, i])
+    return {"alpha": alphas, "eta_alpha": eta, "n_levels": n_levels,
+            "estimator": "resolution-index Gamma union envelope regression",
+            "resolution_origin": J}
+
+
 def directional_scaling(scaling: dict) -> dict:
     """η(p, e₁) = max_α η_α(p)/α₁ with the largest maximising α₁ as α₁*(p); η(p, e₂) by
     symmetry (α₂ = 2 − α₁); η(p) the diagonal α₁ = 1."""
@@ -183,7 +270,7 @@ def directional_scaling(scaling: dict) -> dict:
                 continue
             top = np.nanmax(row)
             hits = np.flatnonzero(np.isfinite(row) & (row >= top - 1e-9))
-            out_eta[i], out_alpha[i] = top, axis_alpha[hits.max()]
+            out_eta[i], out_alpha[i] = top, np.max(axis_alpha[hits])
         return out_eta, out_alpha
 
     eta_e1, alpha_star_e1 = best(r1, alphas)
@@ -216,25 +303,36 @@ def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float 
         k = above[0]
         p_alpha = pp[k] if k == 0 else pp[k - 1] + (d - ee[k - 1]) * (pp[k] - pp[k - 1]) / (ee[k] - ee[k - 1])
         keep = pp >= p_alpha - 1e-12
+        # Include the interpolated admissibility endpoint, rather than starting at
+        # the next sampled moment and making the bound depend on that grid gap.
+        pp = np.r_[p_alpha, pp[keep]]
+        ee = np.r_[np.interp(p_alpha, p[ok][order], row[ok][order]), ee[keep]]
         alpha_e = alpha1 if direction == 1 else alpha2
-        legendre = (alpha_e * h[:, None] * pp[keep][None, :] - ee[keep][None, :] + d).min(axis=1)
+        legendre = (alpha_e * h[:, None] * pp[None, :] - ee[None, :] + d).min(axis=1)
         L = np.minimum(L, legendre / min(alpha1, alpha2))
     L[~np.isfinite(L)] = np.nan
     return {"h": h, "L": np.minimum(L, d)}
 
 
 def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float = 0.0,
-            step: float = ALPHA_STEP, edge: str = "mirror") -> dict:
+            step: float = ALPHA_STEP, edge: str = "mirror", estimator="legacy", origin=(0, 0), block=None,
+            coefficient_cache=None) -> dict:
     """Everything the directional formalism reads off one band: the structure functions, η_α
     on the grid, η(p, e₁), η(p, e₂), η(p), α₁*(p) and L(H, e₁), L(H, e₂)."""
     p = np.asarray(p_list, dtype=np.float64)
-    coef = coefficients(values, name, level, gamma=gamma, edge=edge)
-    log2_S = structure_functions(coef, p)
-    scaling = scaling_functions(log2_S, j_min, coef["levels"], step=step)
+    if estimator not in ("legacy", "gamma"):
+        raise ValueError("directional estimator must be legacy or gamma")
+    coef = coefficient_cache if coefficient_cache is not None else coefficients(
+        values, name, level, gamma=gamma, edge=edge, origin=origin, block=block, complete=estimator == "gamma")
+    log2_S = structure_functions({**coef, "mods": {k: v for k, v in coef["mods"].items() if min(k) > 0}}, p)
+    scaling = (gamma_scaling(coef, p, j_min, step=step) if estimator == "gamma" else
+               scaling_functions(log2_S, j_min, coef["levels"], step=step))
     out = {"p": p, "levels": coef["levels"], "j_min": int(j_min), "log2_S": log2_S,
            "valid_cells": np.array([[int(coef["valid"][(j1, j2)].sum()) for j2 in range(1, coef["levels"] + 1)]
                                     for j1 in range(1, coef["levels"] + 1)]),
-           "border_cells": coef["border_cells"], **scaling, **directional_scaling(scaling)}
+           "border_cells": coef["border_cells"], "estimator": estimator,
+           "complete_basis": coef["complete"], "seam": coef["seam"],
+           "origin": coef["origin"], "data_shape": coef["data_shape"], **scaling, **directional_scaling(scaling)}
     for direction in (1, 2):
         leg = directional_legendre(scaling, p, direction=direction)
         out[f"L_e{direction}"] = leg

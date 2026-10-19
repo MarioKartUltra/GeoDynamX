@@ -79,6 +79,7 @@ class StageStore:
         self.maxsize = int(maxsize)
         self.max_bytes = None if max_bytes is None else int(max_bytes)
         self._store: dict[str, Any] = {}
+        self._fft_contexts: dict[str, list] = {}
         self.hits = 0
         self.misses = 0
 
@@ -94,6 +95,8 @@ class StageStore:
             raise KeyError(key)
         self.hits += 1
         self._store[key] = self._store.pop(key)
+        from dynamix.core.fft_policy import include_observed
+        include_observed(self._fft_contexts.get(key, ()))
         return self._store[key]
 
     def get(self, key, default=None):
@@ -103,10 +106,14 @@ class StageStore:
             return default
 
     def __setitem__(self, key, value) -> None:
+        from dynamix.core.fft_policy import observed
+        self._fft_contexts[key] = observed()
         self._store.pop(key, None)
         self._store[key] = value
         while len(self._store) > self.maxsize:
-            del self._store[next(iter(self._store))]
+            victim = next(iter(self._store))
+            del self._store[victim]
+            self._fft_contexts.pop(victim, None)
         if self.max_bytes is not None:
             sizes = [(k, stage_nbytes(v)) for k, v in self._store.items()]
             total = sum(n for _k, n in sizes)
@@ -114,13 +121,20 @@ class StageStore:
                 if total <= self.max_bytes or k == key:
                     continue
                 del self._store[k]
+                self._fft_contexts.pop(k, None)
                 total -= n
 
     def put(self, key, value) -> None:
         self[key] = value
 
+    def set_context(self, key, contexts) -> None:
+        """Narrow a stage's context to its own compute scope."""
+        if key in self._store:
+            self._fft_contexts[key] = list(contexts)
+
     def clear(self) -> None:
         self._store.clear()
+        self._fft_contexts.clear()
 
 
 class Cache:
@@ -150,16 +164,19 @@ class Cache:
         self.misses = 0
         #: Intermediate stages of transforms that declare ``uses_stage_cache``.
         self.stages = StageStore(8, self.max_bytes)
+        self._landed_views: dict = {}
 
     def _touch(self, key: str) -> None:
         self._store[key] = self._store.pop(key)   # move to the recent end
 
     def _evict_over_capacity(self) -> None:
+        self._landed_views = {k: v for k, v in self._landed_views.items() if k in self._store}
         while len(self._store) - len(self._pinned & self._store.keys()) > self.maxsize:
             victim = next((k for k in self._store if k not in self._pinned), None)
             if victim is None:
                 return
             del self._store[victim]
+            self._landed_views.pop(victim, None)
 
     def _evict_over_bytes(self, newest: str) -> None:
         """Drop the least-recent unpinned raster outputs while their bytes exceed ``max_bytes``,
@@ -174,6 +191,7 @@ class Cache:
                 return
             if n and k != newest:
                 del self._store[k]
+                self._landed_views.pop(k, None)
                 total -= n
 
     def get_or_compute(self, key: str, compute: Callable[[], Any]) -> Any:
@@ -194,10 +212,23 @@ class Cache:
         return self._store.get(key, default)
 
     def put(self, key: str, value: Any) -> None:
+        self._landed_views.pop(key, None)
         self._store.pop(key, None)
         self._store[key] = value
         self._evict_over_capacity()
         self._evict_over_bytes(key)
+
+    def landed_result(self, key, value, identity):
+        """Keep a stable view identity while its underlying cached result is unchanged."""
+        from dynamix.engine.execution import attach
+        prior = self._landed_views.get(key)
+        if prior is not None and prior[0] is value and prior[1] == identity:
+            return prior[2]
+        result = attach(value, _landed=identity)
+        if result is not value and key in self._store:
+            self._landed_views[key] = (value, identity, result)
+        self._landed_views = {k: v for k, v in self._landed_views.items() if k in self._store}
+        return result
 
     def invalidate(self, key: str) -> bool:
         """Drop one entry. Returns whether it was present.
@@ -207,10 +238,12 @@ class Cache:
         """
         present = key in self._store
         self._store.pop(key, None)
+        self._landed_views.pop(key, None)
         return present
 
     def clear(self) -> None:
         self._store.clear()
+        self._landed_views.clear()
         self.stages.clear()
 
     def __contains__(self, key: str) -> bool:

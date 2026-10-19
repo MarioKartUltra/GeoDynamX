@@ -16,13 +16,14 @@ finest levels [jα] cannot resolve a fractional α.
 from __future__ import annotations
 
 import math
+import dataclasses
 
 import numpy as np
 
 from dynamix.core import directional as dr
 from dynamix.core import dwt
 from dynamix.devices.holder_map import field_values_2d
-from dynamix.devices.wtmm import filled_block
+from dynamix.devices.wtmm import filled_block, filled_origin
 from dynamix.model.contracts import CURVE, FIELD
 from dynamix.model.device import keyed_params
 from dynamix.model.param import Param, ParamKind
@@ -33,6 +34,15 @@ __all__ = ["DirectionalScaling"]
 class DirectionalScaling:
     """η_α(p), η(p, e₁), η(p, e₂), α₁*(p) and the directional Legendre bounds of a band."""
 
+    provenance_precision = "float64"
+
+    @staticmethod
+    def provenance_outcome(result, params):
+        from dynamix.engine.execution import resolved_outcome
+        return resolved_outcome(result, params)
+
+    provenance_libraries = (('pywt', 'PyWavelets'),)
+
     name = "directional_scaling"
     label = "Directional scaling functions"
     families = ("Regularity",)
@@ -40,6 +50,7 @@ class DirectionalScaling:
     consumes = ((FIELD,),)
     produces = frozenset({CURVE})
     capabilities = frozenset({"SelfReporting", "RegionAware", "StripExtras"})
+    uses_stage_cache = True
     params = (
         Param("wavelet", ParamKind.CHOICE, default="sym4", choices=dwt.BANKS, label="Wavelet"),
         Param("edge", ParamKind.CHOICE, default="auto",
@@ -52,10 +63,18 @@ class DirectionalScaling:
               units="px", label="Coarsest cell"),
         Param("gamma", ParamKind.FLOAT, default=0.0, min=-2.0, max=4.0, soft_min=0.0, soft_max=2.0,
               label="γ"),
+        Param("estimator", ParamKind.CHOICE, default="gamma", choices=("gamma", "legacy"),
+              choice_labels=("resolution-index Γ union", "legacy level-family approximation"), label="Estimator"),
+        Param("alpha_step", ParamKind.CHOICE, default="0.125", choices=("0.25", "0.125", "0.0625"),
+              label="α₁ increment"),
         Param("p_min", ParamKind.FLOAT, default=0.5, min=0.05, max=20.0, soft_min=0.5, soft_max=4.0, label="p min"),
         Param("p_max", ParamKind.FLOAT, default=6.0, min=0.05, max=20.0, soft_min=2.0, soft_max=10.0, label="p max"),
         Param("p_step", ParamKind.FLOAT, default=0.5, min=0.05, max=5.0, soft_min=0.25, soft_max=1.0, label="p step"),
     )
+    inspector_actions = dict.fromkeys(("p_min", "p_max", "p_step", "alpha_step", "scale_min"),
+                                      "Refit cached hyperbolic coefficients")
+    params = tuple(dataclasses.replace(p, level="advanced") if p.name in
+                   ("p_min", "p_max", "p_step", "alpha_step", "scale_min") else p for p in params)
     param_groups = {"PYRAMID": ("wavelet", "edge", "scale_min", "scale_max", "gamma"),
                     "MOMENTS": ("p_min", "p_max", "p_step")}
 
@@ -74,7 +93,9 @@ class DirectionalScaling:
         lo, hi, step = float(params["p_min"]), float(params["p_max"]), float(params["p_step"])
         if hi < lo:
             raise ValueError(f"directional_scaling: p max {hi:g} below p min {lo:g}")
-        return np.round(np.arange(lo, hi + step / 2, step), 6)
+        from dynamix.core.partition_tables import moment_grid
+
+        return moment_grid(lo, hi, step)
 
     @staticmethod
     def _edge(field, params: dict) -> str:
@@ -99,7 +120,7 @@ class DirectionalScaling:
             return f"→ {used}" + (" (Periodic extension output)" if used == "periodic" else "")
         return None
 
-    def compute(self, field, params: dict, *, progress=None) -> dict:
+    def compute(self, field, params: dict, *, progress=None, stage_cache=None) -> dict:
         vals = field_values_2d(field, self.name)
         self.check(params)
         j_min, J = self._levels(params)
@@ -108,7 +129,23 @@ class DirectionalScaling:
                              f"scale_max {2 ** J} px")
         edge = self._edge(field, params)
         p = self.p_list(params)
-        d = dr.analyse(vals, params["wavelet"], J, j_min=j_min, p_list=p, gamma=float(params["gamma"]), edge=edge)
+        from dynamix.core.wtmm_backend import _field_data_hash
+        from dynamix.engine.cache import cache_key
+
+        origin, block = filled_origin(field), filled_block(field)
+        key = cache_key("directional-coefficients", _field_data_hash(field),
+                        {"wavelet": params["wavelet"], "J": J, "gamma": params["gamma"], "edge": edge,
+                         "origin": origin, "block": block, "estimator": params["estimator"]})
+        if stage_cache is not None and key in stage_cache:
+            coef = stage_cache[key]
+        else:
+            coef = dr.coefficients(vals, params["wavelet"], J, gamma=float(params["gamma"]), edge=edge,
+                                   origin=origin, block=block, complete=params["estimator"] == "gamma")
+            if stage_cache is not None:
+                stage_cache[key] = coef
+        d = dr.analyse(vals, params["wavelet"], J, j_min=j_min, p_list=p, gamma=float(params["gamma"]),
+                       edge=edge, estimator=params["estimator"], step=float(params["alpha_step"]),
+                       origin=origin, block=block, coefficient_cache=coef)
         warnings = []
         fitted = int(np.sum(d["n_levels"] >= 3))
         if fitted == 0:
@@ -116,7 +153,10 @@ class DirectionalScaling:
                             f"{params['scale_max']} px; deepen scale_max")
         record = {
             "method": self.name, "wavelet": params["wavelet"], "edge": {"asked": params["edge"], "used": edge},
-            "levels": {"j_min": j_min, "J": J}, "gamma": float(params["gamma"]), "alpha_step": dr.ALPHA_STEP,
+            "levels": {"j_min": j_min, "J": J}, "gamma": float(params["gamma"]), "alpha_step": float(params["alpha_step"]),
+            "estimator": params["estimator"], "complete_basis": d["complete_basis"],
+            "resolution_origin": J, "origin": list(origin), "block": list(block) if block else None,
+            "seam": d["seam"], "finite_scale_estimate": True,
             "p": [float(v) for v in p], "levels_per_alpha": [int(v) for v in d["n_levels"]],
             "eta_e1": [float(v) for v in d["eta_e1"]], "eta_e2": [float(v) for v in d["eta_e2"]],
             "alpha_star_e1": [float(v) for v in d["alpha_star_e1"]], "warnings": warnings,

@@ -186,8 +186,12 @@ def test_a_layer_send_on_an_inpaint_step_gets_the_prelude_and_resolves(win, qtbo
     pick = _Pick(lambda cands: [dict(s, role="value") for c in cands
                                 if c["label"] == "prior (layer)" for s in c["sends"]])
     monkeypatch.setattr(mw, "SendsDialog", pick)
-    with qtbot.waitSignal(win.resolved, timeout=60000):
-        win._on_sends_edit_requested(child.layer_id)
+    errors, landed = [], []
+    win.errored.connect(errors.append)
+    win.resolved.connect(landed.append)
+    win._on_sends_edit_requested(child.layer_id)
+    qtbot.waitUntil(lambda: bool(errors or landed), timeout=60000)
+    assert not errors, errors
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     sends = json.loads(child.chain.steps[0].params["_sends"])
     assert sends[0]["layer"] == prior_layer.layer_id and sends[0]["stamp"]
@@ -574,8 +578,12 @@ def test_switching_from_an_empty_chain_to_an_inpaint_layer_send_restamps_it(win,
     pick = _Pick(lambda cands: [dict(s, role="value") for c in cands
                                 if c["label"] == "prior (layer)" for s in c["sends"]])
     monkeypatch.setattr(mw, "SendsDialog", pick)
-    with qtbot.waitSignal(win.resolved, timeout=60000):
-        win._on_sends_edit_requested(child.layer_id)
+    errors, landed = [], []
+    win.errored.connect(errors.append)
+    win.resolved.connect(landed.append)
+    win._on_sends_edit_requested(child.layer_id)
+    qtbot.waitUntil(lambda: bool(errors or landed), timeout=60000)
+    assert not errors, errors
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     before = json.loads(child.chain.steps[0].params["_sends"])[0]["stamp"]
     prior_layer.chain = Chain((DeviceRef("noise", {"amplitude": 0.5, "seed": 3}),)).materialized()

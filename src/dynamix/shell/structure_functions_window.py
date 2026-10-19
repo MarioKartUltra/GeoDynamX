@@ -84,6 +84,7 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
             spin.setDecimals(2)
             spin.setSingleStep(step)
             spin.setValue(value)
+            spin.setKeyboardTracking(False)
             spin.valueChanged.connect(lambda _v: self._refit(rebuild=True))
             controls.addWidget(spin)
         controls.addWidget(QtWidgets.QLabel("Weights"))
@@ -166,7 +167,9 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
         lo, hi, step = self.qmin_spin.value(), self.qmax_spin.value(), self.qstep_spin.value()
         if hi < lo:
             lo, hi = hi, lo
-        return np.round(np.arange(lo, hi + step / 2, step), 6)
+        from dynamix.core.partition_tables import moment_grid
+
+        return moment_grid(lo, hi, step)
 
     def _table(self) -> dict:
         name = self.set_combo.currentData()

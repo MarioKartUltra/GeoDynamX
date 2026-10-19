@@ -863,6 +863,15 @@ def get_default_engine() -> "str | None":
     return _DEFAULT_ENGINE
 
 
+def _observed_mlx_cwt(function, *args, **kwargs):
+    """Record the explicit MLX call without changing the vendored implementation."""
+    import mlx.core as mx
+    from dynamix.core import fft_policy
+    fft_policy.include_observed([{"precision": "float32", "backend": {
+        "name": "mlx", "version": str(mx.__version__), "planner": None, "binding": None}}])
+    return function(*args, **kwargs)
+
+
 def _resolve_cwt2d_engine():
     """Lazily resolve the CWT operator injected as ``cwt_2d_f32``.
 
@@ -881,8 +890,10 @@ def _resolve_cwt2d_engine():
             import mlx.core  # noqa: F401
             if USE_VENDORED:
                 from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
-                return cwt_2d_f32
-            return _cwt2d_mlx
+                from functools import partial
+                return partial(_observed_mlx_cwt, cwt_2d_f32)
+            from functools import partial
+            return partial(_observed_mlx_cwt, _cwt2d_mlx)
         except ImportError:
             pass
     # The transcription on the policy backend: FFTW3 at the policy precision, or mlx's FFT
@@ -1050,10 +1061,10 @@ class PythonWTMMBackend:
             import mlx.core  # noqa: F401  (raises ImportError if unavailable)
             if USE_VENDORED and not registry and pad_mode == "reflect":
                 from dynamix._vendor.wtmm_ebsd.cwt2d import cwt_2d_f32
-                raw = cwt_2d_f32(field, scales, pad=pad, derivs=derivs,
+                raw = _observed_mlx_cwt(cwt_2d_f32, field, scales, pad=pad, derivs=derivs,
                                   wavelet=wavelet, verbose=False)
             else:
-                raw = _cwt2d_mlx(field, scales, pad=pad, derivs=derivs,
+                raw = _observed_mlx_cwt(_cwt2d_mlx, field, scales, pad=pad, derivs=derivs,
                                  wavelet=wavelet, verbose=False, params=smoother_params,
                                  pad_mode=pad_mode)
         elif engine == "fftw":
@@ -2415,7 +2426,7 @@ def _apply_fracint2d(cwt: dict, scales, fracint_alpha: float) -> dict:
 
 
 def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
-                       cancel=None) -> dict:
+                       cancel=None, stage_cache=None) -> dict:
     backend = backend if backend is not None else get_backend("python")
     field_hash = _field_data_hash(field)
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
@@ -2426,6 +2437,46 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         # compute+save, so a set flag raises before any work or any cache write for that stage.
         if cancel is not None and cancel():
             raise ComputeCancelled()
+
+    def run_stage(stage, key_dict, out_dir, field_name, compute_fn,
+                  save_fn, load_fn, cache_hits, progress):
+        # The engine owns the store. The backend/precision are part of this in-memory
+        # identity even though the historical on-disk format predates those settings.
+        import copy
+
+        memory_key = None
+        if stage_cache is not None:
+            from dynamix.core import fft_policy
+
+            policy = fft_policy.active()
+            memory_key = "wtmm2d:" + stage + ":" + _hash_key_dict({
+                **key_dict, "engine": policy.name, "precision": policy.precision,
+                "backend": type(backend).__module__ + "." + type(backend).__qualname__,
+            })
+            if memory_key in stage_cache:
+                result = stage_cache[memory_key]
+                cache_hits.add(stage)
+                if progress is not None:
+                    progress(stage, 1.0)
+                # Line ordering and output annotations can mutate maxima/chains. Keep
+                # their saved stages isolated; the large CWT arrays are only read.
+                return result if stage == "cwt" else copy.deepcopy(result)
+
+        def checked_compute():
+            result = compute_fn()
+            _ck()
+            return result
+
+        from dynamix.core import fft_policy
+        with fft_policy.observing() as stage_context:
+            result = _run_stage(stage, key_dict, out_dir, field_name, checked_compute,
+                                save_fn, load_fn, cache_hits, progress)
+        _ck()
+        if memory_key is not None:
+            stage_cache[memory_key] = result if stage == "cwt" else copy.deepcopy(result)
+            if hasattr(stage_cache, "set_context"):
+                stage_cache.set_context(memory_key, stage_context)
+        return result
 
     follow = resolved["detector"] == "follow"
     cwt_key = {
@@ -2472,7 +2523,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         return {"mod": mod, "arg": arg, "kapa": kapa, "kapap": kapap}
 
     _ck()
-    cwt = _run_stage("cwt", cwt_key, out_dir, field.name, compute_cwt,
+    cwt = run_stage("cwt", cwt_key, out_dir, field.name, compute_cwt,
                      _save_cwt, _load_cwt, cache_hits, progress)
 
     # Applied AFTER the cached cwt stage, so the expensive transform stays reusable across
@@ -2538,7 +2589,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         return ext
 
     _ck()
-    extrema = _run_stage("extrema", extrema_key, out_dir, field.name, compute_extrema,
+    extrema = run_stage("extrema", extrema_key, out_dir, field.name, compute_extrema,
                         _save_extrema, _load_extrema, cache_hits, progress)
 
     # The Border cut (spec 25 §3.3), in xsmurf's order: each scale's maxima inside its border go
@@ -2579,7 +2630,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                              shape=tuple(field.values.shape)[:2])
 
     _ck()
-    chains = _run_stage("chains", chains_key, out_dir, field.name, compute_chains,
+    chains = run_stage("chains", chains_key, out_dir, field.name, compute_chains,
                         _save_chains, lambda p: _load_chains(p, scales),
                         cache_hits, progress)
 
@@ -2590,7 +2641,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                                    min_chain_len=resolved["min_chain_len"])
 
     _ck()
-    hd_std, hd_cmax = _run_stage(
+    hd_std, hd_cmax = run_stage(
         "partition", partition_key, out_dir, field.name, compute_partition,
         _save_partition, _load_partition, cache_hits, progress)
 
@@ -2686,7 +2737,7 @@ def _json_safe_params(resolved: dict) -> dict:
 
 
 def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None,
-               cancel=None) -> dict:
+               cancel=None, stage_cache=None) -> dict:
     """Staged pipeline orchestrator (pure, headless): cwt -> extrema -> chains -> partition.
 
     Resolves ``params`` against the contract defaults (see
@@ -2715,8 +2766,10 @@ def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None
     Cache-key chain: ``cwt`` <- (field data hash, wavelet, a_min, n_oct,
     n_voice, pad); ``extrema`` <- cwt key + thresh; ``chains`` <- extrema key +
     similitude, box_ratio, dist2_max, smooth, min_chain_len; ``partition`` <-
-    chains key + q_list. With ``out_dir=None`` nothing is cached or exported
-    and ``"npz_path"`` comes back ``None``.
+    chains key + q_list. An engine-owned ``stage_cache`` also retains the scalar
+    stages in memory, independently of disk export. Its keys include the active
+    FFT engine and precision. With ``out_dir=None`` nothing is exported and
+    ``"npz_path"`` comes back ``None``.
 
     Whenever ``out_dir`` is given, :func:`export_chains_npz` also always writes
     (or overwrites) ``out_dir/wtmm/<field.name>.npz`` with the resolved,
@@ -2769,7 +2822,7 @@ def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None
             f"got {field.n_components} (field {field.name!r})"
         )
     return _run_wtmm2d_scalar(field, resolved, out_dir=out_dir, backend=backend,
-                              progress=progress, cancel=cancel)
+                              progress=progress, cancel=cancel, stage_cache=stage_cache)
 
 
 def run_wtmm2d_preview(field, params: dict, *, backend=None) -> dict:

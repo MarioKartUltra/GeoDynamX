@@ -328,6 +328,8 @@ def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot
     qtbot.addWidget(window)
     x, y = window._cq_curve.getData()
     np.testing.assert_allclose(y, 0.3 * x ** 2, atol=1e-6)
+    assert window.current_cumulants() is None
+    window.cumulant_check.setChecked(True)
     c = window.current_cumulants()
     np.testing.assert_allclose(c["c1"], 0.7, atol=0.03)
     np.testing.assert_allclose(c["c2"], 0.3, atol=0.03)
@@ -612,6 +614,8 @@ def test_the_cumulant_spectrum_overlay_follows_the_fitted_cumulants(qtbot):
     hd2 = dict(hd); hd2["lnT_moments"] = spectra.ln_moments(mods)
     table_window = MultifractalWindow(hd2, hd2, scales=scales)
     qtbot.addWidget(table_window)
+    assert table_window.current_cumulants() is None
+    table_window.cumulant_check.setChecked(True)
     assert table_window.current_cumulants()["c2"] == pytest.approx(c["c2"], rel=1e-9)
 
 
@@ -694,6 +698,8 @@ def test_the_cumulants_can_take_their_own_scale_range(qtbot):
     assert "log₂ a" in window._cq_label.text()
     window.cumulant_range_check.setChecked(False)
     assert not any(r.isVisible() for r in window._cum_regions)
+    assert window.current_cumulants() is None
+    window.cumulant_check.setChecked(True)
     np.testing.assert_allclose(window.current_cumulants()["c2"], 0.3, atol=0.03)
 
 

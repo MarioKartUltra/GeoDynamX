@@ -39,6 +39,9 @@ from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
 from dynamix.devices.band_select import BandSelect
 from dynamix.devices.bus import Bus
 from dynamix.devices.noise import Noise
+from dynamix.devices.fractional_integration import FractionalIntegration
+from dynamix.devices.interpolation import (DyadicInterpolation, DAFSmoothing,
+                                           InterpolatingWavelets, InterpolatingWaveletFilter)
 from dynamix.devices.periodic_extension import PeriodicExtension
 from dynamix.devices.mz_edges import MZEdges
 from dynamix.devices.pm_edges import PMEdges
@@ -84,6 +87,11 @@ BUILTIN_DEVICES = (
     Noise,
     Fill,
     PeriodicExtension,
+    FractionalIntegration,
+    DyadicInterpolation,
+    DAFSmoothing,
+    InterpolatingWavelets,
+    InterpolatingWaveletFilter,
     BandSelect,
     Bus,
     WTMM2D,

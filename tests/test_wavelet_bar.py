@@ -253,3 +253,23 @@ def test_a_bar_wider_than_the_view_drags_without_flipping(qtbot):
     inside = w.getViewBox().boundingRect()
     centre = bar.mapRectToParent(bar.boundingRect()).center().x()
     assert inside.left() <= centre <= inside.right()
+
+
+def test_morlet_bar_draws_its_envelope_and_follows_q_width(qtbot):
+    from dynamix.devices.wavelet_ridge import WaveletRidge
+    from dynamix.model.device import defaults_for
+
+    dev = WaveletRidge()
+    params = defaults_for(dev)
+    w = _view(qtbot)
+    bar = WaveletBar()
+    bar.setParentItem(w.getViewBox())
+    profile = dev.wavelet_profile(params, 4., 0)
+    np.testing.assert_allclose(profile.envelope, np.exp(-.5*(profile.x_px/4.)**2))
+    bar.set_profile(profile, 'Morlet')
+    assert not bar._envelope.isEmpty() and 'Gaussian at q = 1' in bar.toolTip()
+    before = bar._envelope.boundingRect().width()
+    profile = dev.wavelet_profile({**params, 'q_beta': 2.}, 4., 0)
+    bar.set_profile(profile, 'Morlet')
+    assert bar._envelope.boundingRect().width() < before
+    assert bar.bracket_px() > 0

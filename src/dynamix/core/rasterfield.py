@@ -191,7 +191,8 @@ class RasterField:
             y_axis=self.y_axis,
             units=self.units,
             frame_meta=json.dumps(frame_to_meta(self.frame)),
-            provenance=json.dumps(self.provenance),
+            provenance=json.dumps({k: v for k, v in self.provenance.items()
+                                   if k not in {"_execution", "_landed", "_output_identity", "_output_execution"}}),
         )
 
     @classmethod

@@ -105,7 +105,7 @@ def _assert_racks_contiguous(descriptors) -> None:
 # --------------------------------------------------------------------------- DeviceBox
 
 
-def test_device_box_exposes_one_control_per_param_including_the_five_new_ones(
+def test_device_box_exposes_basic_controls_and_leaves_downstream_controls_to_the_inspector(
         qtbot, registered_builtins):
     from dynamix.shell.workflow_zone import DeviceBox
 
@@ -118,10 +118,11 @@ def test_device_box_exposes_one_control_per_param_including_the_five_new_ones(
     assert set(box.controls) == {p.name for p in dev.params if p.level == "basic"}
     assert "angle_test" in {p.name for p in dev.params} and "angle_test" not in box.controls
     for new_param in ("smooth", "thresh", "dist2_max", "box_ratio", "similitude"):
-        assert new_param in box.controls
+        assert new_param not in box.controls
+        assert next(p for p in dev.params if p.name == new_param).level == "advanced"
 
 
-def test_device_box_groups_wtmm2d_params_into_pre_and_chaining(qtbot, registered_builtins):
+def test_device_box_keeps_pre_and_omits_the_relocated_chaining_group(qtbot, registered_builtins):
     from dynamix.shell.workflow_zone import DeviceBox
 
     dev = get_device("wtmm2d")
@@ -130,7 +131,7 @@ def test_device_box_groups_wtmm2d_params_into_pre_and_chaining(qtbot, registered
 
     labels = {lbl.text() for lbl in box.findChildren(QtWidgets.QLabel)}
     assert "PRE" in labels
-    assert "CHAINING" in labels
+    assert "CHAINING" not in labels
 
 
 def test_device_box_hides_underscore_prefixed_params(qtbot, registered_builtins):
@@ -1207,7 +1208,8 @@ def test_wtmm2d_threads_smooth_and_thresh_into_the_backend_call(monkeypatch, reg
 
     captured = {}
 
-    def fake_run_wtmm2d(field, params, *, out_dir=None, backend=None, progress=None, cancel=None):
+    def fake_run_wtmm2d(field, params, *, out_dir=None, backend=None, progress=None, cancel=None,
+                        stage_cache=None):
         captured.update(params)
         return {"chains": [], "extrema": [], "scales": [], "hd_std": None, "hd_cmax": None,
                "npz_path": None, "params": params, "cache_hits": set()}
@@ -1238,7 +1240,7 @@ def test_wtmm2d_roi_threads_the_same_five_params_into_its_backend_call(
     captured = {}
 
     def fake_run_wtmm2d_roi(source, full_dims, roi, params, *, boundary="auto", nodata=None,
-                            progress=None):
+                            progress=None, stage_cache=None, cancel=None):
         captured.update(params)
         return {"chains": [], "extrema": [], "scales": [], "hd_std": None, "hd_cmax": None,
                "npz_path": None, "params": params, "cache_hits": set(), "_shape": (1, 1),

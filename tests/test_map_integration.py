@@ -696,7 +696,9 @@ def test_a_microcanonical_result_opens_the_fitter_on_its_moment_tables(geo_windo
     fitter = win._multifractal_window
     assert "moments" in fitter.windowTitle()
     assert fitter._dh_hist_curve.getData()[0].size > 0            # the histogram beside the points
-    assert fitter.current_cumulants() is not None                 # from the table's moments
+    assert fitter.current_cumulants() is None
+    fitter.cumulant_check.setChecked(True)
+    assert fitter.current_cumulants() is not None                 # explicit opt-in
     win._on_dh_button_clicked()
     construction = win._spectrum_construction_window
     assert construction.per_scale_check is not None and construction.gh_check is not None
@@ -778,3 +780,25 @@ def test_r_frames_the_view_in_front(geo_window, qtbot):
     action.trigger()
     (x0, x1), (y0, y1) = win.map_view.view.viewRange()
     assert x0 <= rect.left() and x1 >= rect.right() and y0 <= rect.top() and y1 >= rect.bottom()
+
+
+def test_ridge_wavelet_bar_previews_current_q_without_running(geo_window, qtbot, monkeypatch):
+    import dynamix.shell.main_window as mw
+    from test_roi_shell_flow import _drop
+
+    win = geo_window
+    monkeypatch.setattr(mw, '_AUTO_RUN_MAX_PX', 10)
+    _drop(win, qtbot, 'wavelet_ridge')
+    assert not win.is_computing
+    # A pending ridge has no landed coefficients; the bar needs only its knobs.
+    win._feed_live_ridge_bar()
+    initial = win._wavelet_bar_state[0]
+    index = win._names.index('wavelet_ridge')
+    win._on_param_changed(index, 'ridge_q', 1.4)
+    current = win._wavelet_bar_state[0]
+    assert current.extra['q'] == 1.4 and not win.is_computing
+    assert not np.allclose(current.psi, initial.psi)
+    win._on_param_changed(index, 'q_beta', 2.)
+    assert win._wavelet_bar_state[0].extra['q_beta'] == 2.
+    assert not win.canvas.wavelet_bar._envelope.isEmpty()
+    assert not win.is_computing

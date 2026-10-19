@@ -268,11 +268,15 @@ def stamp_fill(result, source):
     if not isinstance(result, dict):
         return result
     fill, stage = fill_of(source), stage_of(source)
-    if fill is None and stage is None:
+    history = (getattr(source, "provenance", None) or {}).get("fractional_integration", [])
+    if fill is None and stage is None and not history:
         return result
     out = dict(result)
     if fill is not None:
         out["_fill"] = fill
     if stage is not None:
         out["_stage"] = stage
+    if history and "_integration_order" not in out:
+        out["_integration_order"] = sum(float(item["order"]) for item in history)
+        out["_integration_history"] = list(history)
     return out

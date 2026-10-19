@@ -493,14 +493,15 @@ def _crop_to_roi(extrema: dict, oy: int, ox: int, h: int, w: int) -> dict:
 
 
 def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "auto",
-                   nodata=None, progress=None) -> dict:
+                   nodata=None, progress=None, stage_cache=None, cancel=None) -> dict:
     """Scalar 2D WTMM over ``roi`` of ``source``, one real-data halo per scale.
 
     Mirrors :func:`~dynamix.core.wtmm_backend._run_wtmm2d_scalar`'s stage composition and result
     keys, with the CWT and extrema stages run per scale on that scale's own window instead of once
-    on a whole field. Nothing is cached: the windows differ per scale, so the backend's staged
+    on a whole field. No disk stages are cached: the windows differ per scale, so the backend's staged
     cache (keyed on one field hash) has nothing to key on -- ``cache_hits`` comes back empty and
-    ``npz_path`` ``None``. The device above this owns the run-level cache.
+    ``npz_path`` ``None``. An optional engine-owned stage store retains per-window CWTs by
+    data content and FFT policy; extrema, chains and partitions are rebuilt.
 
     Parameters
     ----------
@@ -579,7 +580,8 @@ def run_wtmm2d_roi(source, full_dims, roi, params: dict, *, boundary: str = "aut
     cut = _cut_of(plan, params, (r0 - parent_rect[0], c0 - parent_rect[1]), parent_rect[2:],
                   fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut,
+                                  stage_cache=stage_cache, cancel=cancel)
 
     out = {
         "chains": chains, "extrema": extrema, "scales": scales,
@@ -672,7 +674,8 @@ def _real_thresh(mod, info: dict, thresh: float, radius: int) -> float:
     return float(thresh) * float(sel.max()) / top
 
 
-def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
+def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
+                      stage_cache=None, cancel=None):
     """The per-scale halo loop shared by :func:`run_wtmm2d_roi` (halos read off the FILE) and
     :func:`run_wtmm2d_roi_on_window` (halos sliced from an in-memory window): for each scale of
     ``plan`` (:func:`halo_plan`), ``window_for(scale_halo) -> (window, info)`` supplies ROI + that
@@ -691,12 +694,24 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
     from dynamix.core.wtmm_backend import _apply_fracint2d, get_backend
 
     backend = get_backend("python")
+    from dynamix.core import fft_policy
+    from dynamix.engine.cache import cache_key
+
+    policy = fft_policy.active()
+    group_key = cache_key("roi-cwt-levels", "", {
+        "shape": (h, w), "scales": [float(sh.a) for sh in plan], "wavelet": resolved["wavelet"],
+        "smoother": resolved["smoother_params"], "detector": resolved["detector"],
+        "backend": type(backend).__module__+"."+type(backend).__qualname__,
+        "fft": policy.name, "precision": policy.precision})
 
     scales = np.asarray([sh.a for sh in plan])
     n_scales = len(plan)
     extrema, roi_margins, coi_radii = [], [], []
     missing_mask = None
     for i, sh in enumerate(plan):
+        if cancel is not None and cancel():
+            from dynamix.core.wtmm_backend import ComputeCancelled
+            raise ComputeCancelled()
         a = sh.a
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 0.0)
@@ -708,9 +723,25 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
             missing_mask = info["missing"][oy:oy + h, ox:ox + w].copy()
         follow = resolved["detector"] == "follow"
         pad = resolved["pad"] if info.get("pad") is None else info["pad"]
-        cwt = backend.cwt2d(window, [a], wavelet=resolved["wavelet"], pad=pad,
-                            derivs="all" if follow else "first",
-                            smoother_params=resolved["smoother_params"])
+        import hashlib
+
+        # Each index retains only the latest window. A bundle avoids thrashing
+        # the bounded stage store when a pyramid has more than eight voices.
+        data_key = (window.shape, window.dtype.str, pad,
+                    hashlib.sha256(np.ascontiguousarray(window).view(np.uint8)).hexdigest())
+        saved = stage_cache.get(group_key, {}) if stage_cache is not None else {}
+        entry = saved.get(i)
+        if entry is not None and entry[0] == data_key:
+            cwt = entry[1]
+        else:
+            cwt = backend.cwt2d(window, [a], wavelet=resolved["wavelet"], pad=pad,
+                                derivs="all" if follow else "first",
+                                smoother_params=resolved["smoother_params"])
+            if cancel is not None and cancel():
+                from dynamix.core.wtmm_backend import ComputeCancelled
+                raise ComputeCancelled()
+            if stage_cache is not None:
+                stage_cache[group_key] = {**saved, i: (data_key, cwt)}
         if follow:
             from dynamix.core.follow2d import kapa_fields
             kapa, kapap = kapa_fields(cwt, 0)
@@ -771,7 +802,8 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None):
 
 
 def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, params: dict,
-                             *, progress=None, parent_shape=None, roi_origin=None) -> dict:
+                             *, progress=None, parent_shape=None, roi_origin=None, stage_cache=None,
+                             cancel=None) -> dict:
     """:func:`run_wtmm2d_roi` over an IN-MEMORY processing window.
 
     ``window_values`` is ROI + ``offset`` px on every side, already read by
@@ -891,7 +923,8 @@ def run_wtmm2d_roi_on_window(window_values, real, offset: int, h: int, w: int, p
 
     cut = _cut_of(plan, params, origin, pshape, fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, missing_mask,
-     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut)
+     coi_radii) = _wtmm2d_roi_core(_window_for, h, w, resolved, plan, progress, cut,
+                                  stage_cache=stage_cache, cancel=cancel)
     out = {
         "chains": chains, "extrema": extrema, "scales": scales,
         "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None,
@@ -927,7 +960,7 @@ def _whole_run_grid(resolved: dict, shape) -> int:
     return int(max(int(shape[0]), int(shape[1])) + 2 * int(resolved["pad"]))
 
 
-def run_whole_through_core(values, params: dict, *, progress=None):
+def run_whole_through_core(values, params: dict, *, progress=None, stage_cache=None, cancel=None):
     """``wtmm2d`` over a whole raster under an edge mode that changes its data or its boundary
     (the Gaussian taper, the DAF periodic extension): the raster is its own ROI, every scale reads
     it whole, the mode fills it, and the maxima on the raster outside any band the mode made are
@@ -948,7 +981,8 @@ def run_whole_through_core(values, params: dict, *, progress=None):
         return None, extras
     cut = _cut_of(plan, params, (0, 0), (H, W), fill)
     (extrema, chains, hd_std, hd_cmax, roi_margins, _missing,
-     _radii) = _wtmm2d_roi_core(lambda _sh: (window, info), H, W, resolved, plan, progress, cut)
+     _radii) = _wtmm2d_roi_core(lambda _sh: (window, info), H, W, resolved, plan, progress, cut,
+                               stage_cache=stage_cache, cancel=cancel)
     return {"chains": chains, "extrema": extrema, "scales": np.asarray([sh.a for sh in plan]),
             "hd_std": hd_std, "hd_cmax": hd_cmax, "npz_path": None, "params": resolved,
             "cache_hits": set(),

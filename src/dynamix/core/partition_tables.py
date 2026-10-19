@@ -22,6 +22,17 @@ _LOG2 = np.log(2.0)
 _KERNELS = None
 
 
+def moment_grid(lo: float, hi: float, step: float, *, max_points: int = 10000) -> np.ndarray:
+    """A bounded ascending moment grid; include hi only when the increment reaches it."""
+    lo, hi, step = float(lo), float(hi), float(step)
+    if not all(np.isfinite(v) for v in (lo, hi, step)) or step <= 0 or hi < lo:
+        raise ValueError("moment bounds must be finite and ascending, with a positive increment")
+    count = int(np.floor((hi - lo) / step + 1e-10)) + 1
+    if count > max_points:
+        raise ValueError(f"moment grid exceeds {max_points} points")
+    return np.minimum(np.round(lo + step * np.arange(count), 10), hi)
+
+
 def _kernels():
     """The accumulation kernel, compiled on first use (``cache=True``)."""
     global _KERNELS

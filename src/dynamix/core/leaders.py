@@ -142,11 +142,11 @@ def _box(a, radius: int, op):
     return out
 
 
-def _window_max(fine, depth: int, width: float):
+def _window_max(fine, depth: int, width: float, *, anchor="centre"):
     """The sup over the fine cells (``depth`` levels below) whose centre lies within ``width``
     coarse cells of each coarse cell's centre, on the coarse grid."""
     f = 2 ** int(depth)
-    o = (f - 1) / 2.0                      # the coarse centre, in fine cells from fine cell f k
+    o = (f - 1) / 2.0 if anchor == "centre" else 0.0
     lo, hi = math.ceil(o - width * f - 1e-9), math.floor(o + width * f + 1e-9)
     out = fine
     for ax in range(fine.ndim):
@@ -208,7 +208,7 @@ def wse_schedule(levels: int, *, rule: str = "dumeur", depth: int = 1, width: fl
     """Per level j = 1..``levels``, the ``(depth, half-width)`` pairs of the (θ, ω) window, the
     half-width in coarse cells. ``fixed``: depths 0..``depth`` at ``width``. ``dumeur``: the
     paper's θ(j) = j + j^β and ω(j') = j' in the resolution index j_r = ``log2_n`` − j (the
-    field's log2 side less the level), i.e. the depth round(j_r^β) and the half-width j_r + D at
+    field's log2 side less the level), i.e. the depth floor(j_r^β) and the half-width j_r + D at
     depth D (Dumeur et al. 2025, Figures 4 and 5: β = 1/4)."""
     out = []
     for j in range(1, int(levels) + 1):
@@ -216,13 +216,13 @@ def wse_schedule(levels: int, *, rule: str = "dumeur", depth: int = 1, width: fl
             out.append([(D, float(width)) for D in range(int(depth) + 1)])
         elif rule == "dumeur":
             jr = max(1.0, float(log2_n) - j)
-            out.append([(D, jr + D) for D in range(int(round(jr ** beta)) + 1)])
+            out.append([(D, jr + D) for D in range(int(math.floor(jr ** beta)) + 1)])
         else:
             raise ValueError(f"wse rule {rule!r}: 'dumeur' or 'fixed'")
     return out
 
 
-def wse(coef: dict, schedule: list) -> list:
+def wse(coef: dict, schedule: list, *, anchor="centre") -> list:
     """ℓ^w_j per level: the sup of |d| over the window ``schedule[j-1]`` lists as (depth,
     half-width) pairs, each depth taken at the level that many steps finer."""
     mods, out = coef["mods"], []
@@ -231,7 +231,7 @@ def wse(coef: dict, schedule: list) -> list:
         for D, w in schedule[j - 1]:
             if j - int(D) < 1:
                 continue
-            win = _window_max(mods[j - int(D) - 1].max(axis=0), int(D), float(w))
+            win = _window_max(mods[j - int(D) - 1].max(axis=0), int(D), float(w), anchor=anchor)
             acc = win if acc is None else np.maximum(acc, win)
         out.append(acc)
     return out
@@ -311,7 +311,7 @@ def partition_table(per_level: list, valid: list, q_list, cells, *,
     scales = 2.0 ** np.arange(1, len(per_level) + 1)
     table = partition_tables(samples, scales, np.asarray(q_list, dtype=np.float64), d=0.0)
     with np.errstate(divide="ignore"):
-        shift = np.array([np.log2(int(n) / max(x.size, 1)) for n, x in zip(cells, samples)])
+        shift = np.array([np.log2(float(n) / max(x.size, 1)) for n, x in zip(cells, samples)])
     table["tau_qa"] += shift[None, :]
     table["D_qa"] -= shift[None, :]
     if positive_only:
@@ -324,7 +324,7 @@ def partition_table(per_level: list, valid: list, q_list, cells, *,
 def tables(samples: dict, q_list) -> dict:
     """One structure-function table (:func:`partition_table`) per set of the ``Samples`` contract
     (:mod:`dynamix.model.contracts`), at the moment orders ``q_list``."""
-    return {name: partition_table(s["values"], s["valid"], q_list, samples["cells"],
+    return {name: partition_table(s["values"], s["valid"], q_list, s.get("cells", samples["cells"]),
                                   positive_only=bool(s.get("positive_only", False)))
             for name, s in samples["sets"].items()}
 
@@ -461,7 +461,7 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     eta = adm["eta"]["integrated"]
     quantity = {"leaders": leaders(coef),
                 "p-leaders": pleaders(coef, p, eta=eta if np.isfinite(eta) else None),
-                "wse": wse(coef, schedule)}
+                "wse": wse(coef, schedule, anchor="origin" if wse_rule == "dumeur" else "centre")}
     osc = oscillation(quantity["leaders"], quantity["wse"])
     tick(0.6)
     for m, v in zip(quantity["leaders"], valid["leaders"]):
@@ -474,21 +474,39 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
             "data_shape": coef["data_shape"],
             "wavelet": wavelet, "gamma": float(gamma), "p": float(p),
             "coefficients": coef["mods"], "quantity": quantity, "oscillation": osc, "valid": valid,
-            "samples": sample_sets(quantity, coef["mods"], valid, scales, coef["data_shape"]),
+            "samples": sample_sets(quantity, coef["mods"], valid, scales, coef["data_shape"],
+                                   wse_schedule=schedule if wse_rule == "dumeur" else None),
             "admissibility": adm, "local": local,
             "registration": coef["registration"], "border_cells": e, "wse_schedule": schedule,
+            "wse_truncated": [any(D >= j for D, _ in lev) for j, lev in enumerate(schedule, 1)],
             "valid_cells": {k: [int(v.sum()) for v in vs] for k, vs in valid.items()},
             "zero_cells": [int(((m == 0) & v).sum())
                            for m, v in zip(quantity["leaders"], valid["leaders"])]}
 
 
-def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape) -> dict:
+def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape, *, wse_schedule=None) -> dict:
     """The ``Samples`` contract over the three quantities and the bare coefficients: references
     to the per-level grids and masks (no copy), the field's cell count per level and its
     dimension ``d``."""
     sets = {k: {"values": quantity[k], "valid": valid[k]} for k in METHODS}
     sets["coefficients"] = {"values": mods, "valid": valid["coefficients"], "positive_only": True}
     cells = [int(np.prod([int(n) // 2 ** j for n in data_shape])) for j in range(1, len(scales) + 1)]
+    if wse_schedule is not None:
+        masks, effective, strides = [], [], []
+        for j, (v, schedule) in enumerate(zip(valid["wse"], wse_schedule), 1):
+            omega = schedule[0][1]
+            stride = max(1, int(math.floor(2*omega)))
+            mask = np.zeros_like(v)
+            slices = tuple(slice(0, None, stride) for _ in v.shape)
+            mask[slices] = v[slices]
+            masks.append(mask)
+            # omega^d times the decimated sum, with the same border correction as
+            # other sets. Tensor-product normalization extends definition 2.4 to 2D.
+            n = np.prod([len(range(0, int(size)//2**j, stride)) for size in data_shape])
+            effective.append(float(omega**len(data_shape)*n))
+            strides.append(stride)
+        sets["wse"].update(valid=masks, cells=effective, decimation=strides,
+                           normalization="omega^d times decimated sum (Dumeur 2.4)")
     return {"scales": scales, "cells": cells, "d": len(data_shape), "sets": sets}
 
 

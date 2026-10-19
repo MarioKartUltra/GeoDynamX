@@ -29,12 +29,14 @@ import types
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dynamix.code_identity import checked_identity, code_identity
 from dynamix.core import fft_policy
 from dynamix.engine.cache import cache_key
-from dynamix.engine.resolve import _roi_prefix, source_identity
+from dynamix.engine.resolve import _roi_prefix, source_identity, step_key
+from dynamix.engine.execution import metadata, recipe_identity
 from dynamix.model.chain import DeviceRef
 from dynamix.model.contracts import FIELD, step_states
-from dynamix.model.device import get_device, is_transform, keyed_params, validate_params
+from dynamix.model.device import declared_outputs, get_device, is_transform, keyed_params, validate_params
 from dynamix.model.origin import REPOSITORY, origin_of_device
 
 __all__ = ["CODE_SPACE", "EXPORTS", "bundle_path", "code_identity", "record_beside",
@@ -81,78 +83,6 @@ def _sha256_file(path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
-
-def _git_dirs(root: Path) -> tuple[Path, Path] | None:
-    """``(gitdir, commondir)`` of the checkout at ``root`` (a worktree's ``.git`` is a file)."""
-    dot = root / ".git"
-    if dot.is_dir():
-        return dot, dot
-    if dot.is_file():
-        text = dot.read_text(encoding="utf-8").strip()
-        if text.startswith("gitdir:"):
-            gitdir = (root / text.split(":", 1)[1].strip()).resolve()
-            common = gitdir
-            if (gitdir / "commondir").is_file():
-                common = (gitdir / (gitdir / "commondir").read_text(encoding="utf-8").strip()).resolve()
-            return gitdir, common
-    return None
-
-
-def _head_commit(gitdir: Path, common: Path) -> str | None:
-    """The commit at HEAD, read from the files (no git process)."""
-    head = (gitdir / "HEAD").read_text(encoding="utf-8").strip()
-    if not head.startswith("ref:"):
-        return head or None
-    ref = head.split(":", 1)[1].strip()
-    for base in (gitdir, common):
-        if (base / ref).is_file():
-            return (base / ref).read_text(encoding="utf-8").strip()
-    packed = common / "packed-refs"
-    if packed.is_file():
-        for line in packed.read_text(encoding="utf-8").splitlines():
-            if line.endswith(" " + ref):
-                return line.split(" ", 1)[0]
-    return None
-
-
-def _git(root: Path, *args) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, timeout=30)
-
-
-def code_identity(root=None) -> dict:
-    """The code that runs: ``{"commit", "version", "patch", "checked"}``.
-
-    ``root`` defaults to the checkout this module runs from. ``commit`` is read from the git files;
-    ``None`` for an install without a checkout, where ``version`` (the distribution's) names the
-    code. ``patch``: the bytes that ``git apply`` turns the commit into the source that ran
-    (``src/``, untracked files included), or ``None`` when it matches the commit. ``checked`` is
-    False when git could not be asked (not installed, timed out), so the record says the working
-    tree was not checked."""
-    root = Path(root) if root is not None else Path(__file__).resolve().parents[3]
-    try:
-        version = importlib.metadata.version(DISTRIBUTION)
-    except importlib.metadata.PackageNotFoundError:
-        version = None
-    dirs = _git_dirs(root)
-    if dirs is None:
-        return {"commit": None, "version": version, "patch": None, "checked": False}
-    commit = _head_commit(*dirs)
-    try:
-        status = _git(root, "status", "--porcelain", "--untracked-files=all", "--", "src")
-        if status.returncode != 0:
-            raise OSError(status.stderr.decode(errors="replace"))
-        lines = status.stdout.decode().splitlines()
-        if not lines:
-            return {"commit": commit, "version": version, "patch": None, "checked": True}
-        patch = _git(root, "diff", "--binary", "HEAD", "--", "src").stdout
-        for line in lines:
-            if line.startswith("?? "):
-                path = line[3:].strip().strip('"')
-                patch += _git(root, "diff", "--binary", "--no-index", "--", "/dev/null",
-                              path).stdout
-        return {"commit": commit, "version": version, "patch": patch or None, "checked": True}
-    except (OSError, subprocess.SubprocessError):
-        return {"commit": commit, "version": version, "patch": None, "checked": False}
 
 
 def _libraries() -> dict:
@@ -259,16 +189,17 @@ def _dataset(project, layer) -> dict:
     out["sourceCitation"] = citation
     parent = record_beside(path) if path else None
     if parent is not None and sha:
-        data = parent.read_bytes()
         try:
+            data = parent.read_bytes()
             printed = json.loads(data)["processStep"][-1]["output"][0]["sourceCitation"]["sha256"]
-        except (ValueError, KeyError, IndexError, TypeError):
-            printed = None
-        if printed == sha:
-            out["sourceMetadata"] = [{"title": parent.name,
-                                      "sha256": hashlib.sha256(data).hexdigest()}]
+        except (OSError, ValueError, KeyError, IndexError, TypeError):
+            out["description"] += f" Its record {parent.name} is unreadable; it was not cited."
         else:
-            out["description"] += f" Its record {parent.name} describes other bytes."
+            if printed == sha:
+                out["sourceMetadata"] = [{"title": parent.name,
+                                          "sha256": hashlib.sha256(data).hexdigest()}]
+            else:
+                out["description"] += f" Its record {parent.name} describes other bytes."
     return out
 
 
@@ -314,10 +245,25 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
     description, output = EXPORTS[export]
     export_path = Path(export_path)
     code = code if code is not None else code_identity()
+    captured = metadata(result).get("_execution")
+    if captured is None:
+        # A recipe-only draft has no computation stamps. Load its declared
+        # backend metadata before listing libraries so the draft is stable.
+        for ref in layer.chain.steps:
+            p = validate_params(get_device(ref.device), ref.params)
+            if "precision" in p:
+                fft_policy.context(p["precision"])
     libraries, plat = _libraries(), _platform()
+    if captured:
+        libraries = {key: value for entry in captured
+                     for key, value in entry["context"]["libraries"].items()}
+        plat = captured[0]["context"]["platform"]
     steps = list(layer.chain.steps)
     racks = list(racks) if racks is not None else [None] * len(steps)
-    states = step_states(steps, layer_input)
+    if len(racks) != len(steps):
+        raise ValueError("one rack entry per recipe step is required")
+    landed = metadata(result).get("_landed", {})
+    states = step_states(steps, layer_input, level_view=landed.get("level") is not None)
     applying = [(ref, racks[i]) for i, (ref, st) in enumerate(zip(steps, states)) if st.applies]
     region = _roi_prefix(layer, [ref for ref, _rack in applying])
     sid = source_identity(layer)
@@ -340,28 +286,37 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
                 or "unknown", "onlineResource": [{"linkage": REPOSITORY}],
                 "otherCitationDetails": details}
 
+    evidence = iter(metadata(result).get("_execution", []))
     record_steps, defined, upstream = [], set(), None
     for k, (ref, rack) in enumerate(applying, start=1):
         device = get_device(ref.device)
         params = validate_params(device, ref.params)
         run = _recorded_params(device, params)
-        algorithm, context = [], {"libraries": libraries, "platform": plat}
-        if "precision" in params:
-            ctx = fft_policy.context(params["precision"])
-            context.update({key: ctx[key] for key in ("precision", "backend", "fallback")
-                            if key in ctx})
-            cid = f"fft_{ctx['backend']['name']}"
+        own = next(evidence, None) if is_transform(device) else None
+        if own is not None and own["device"] != device.name:
+            raise ValueError("landed execution steps differ from the export recipe")
+        algorithm = []
+        context = dict(own["context"]) if own else {"libraries": libraries, "platform": plat}
+        fft_runs = own["fft"] if own else ([fft_policy.context(params["precision"])]
+                                           if "precision" in params else [])
+        if own is None and fft_runs:
+            context.update(fft_runs[0])
+        for ctx in fft_runs:
+            suffix = f"_{ctx['precision']}" if len(fft_runs) > 1 else ""
+            cid = f"fft_{ctx['backend']['name']}{suffix}"
             algorithm.append(cid if cid in defined else _fft_component(ctx, cid))
             defined.add(cid)
             run[cid] = {"precision": ctx["precision"], "planner": ctx["backend"]["planner"]}
-        if origin_of_device(device).kind != "first_party":
+        origin = origin_of_device(device)
+        if origin.kind != "first_party" or origin.citation:
             cid = f"code_{device.name}"
             algorithm.append(cid if cid in defined else _origin_component(device, code, cid))
             defined.add(cid)
-            context["thirdParty"] = [{"component": cid}]
+            if origin.kind != "first_party":
+                context["thirdParty"] = [{"component": cid}]
         outcome = {}
         if is_transform(device):
-            upstream = cache_key(device.name, sid, keyed_params(device, params), upstream=upstream)
+            upstream = step_key(device, sid, params, upstream)
             outcome["cache_key"] = upstream
         if region and k == len(region):
             r, c, h, w = (int(v) for v in layer.tags["roi.window"].split(","))
@@ -384,6 +339,8 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
                 "processingInformation": processing, "executionContext": context,
                 "output": [{"id": f"d{k}"}]}
         reports = [{"name": "outcome", "description": outcome}] if outcome else []
+        if own and own.get("outcome"):
+            reports.append({"name": "method", "description": own["outcome"]})
         edge = (result or {}).get("_edge") if isinstance(result, dict) else None
         if not (isinstance(edge, dict) and edge.get("device") == device.name):
             edge = None
@@ -404,13 +361,36 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
 
     printing = {"identifier": {"code": f"export/{export}", "codeSpace": CODE_SPACE},
                 "softwareReference": software if not record_steps else "gdx"}
+    print_params = dict(print_params or {})
+    product = metadata(result).get("_output_identity")
+    if product:
+        owner = metadata(result)["_execution"][-1]["device"]
+        print_params.setdefault("output", f"{owner}/{product['name']}")
+        if product["level"] is not None:
+            print_params.setdefault("level", product["level"])
+        print_params.update(product.get("params", {}))
+    if landed.get("level") is not None:
+        print_params["shown_level"] = landed["level"]
     if print_params:
         printing["runTimeParameters"] = {key: _value(v) for key, v in print_params.items()}
+    print_context = {"libraries": libraries, "platform": plat}
+    output_runs = metadata(result).get("_output_execution") or []
+    if output_runs:
+        own = output_runs[-1]
+        print_context = dict(own["context"])
+        algorithm = []
+        values = printing.setdefault("runTimeParameters", {})
+        for ctx in own["fft"]:
+            cid = f"output_fft_{ctx['backend']['name']}_{ctx['precision']}"
+            algorithm.append(_fft_component(ctx, cid))
+            values[cid] = {"precision": ctx["precision"], "planner": ctx["backend"]["planner"]}
+        if algorithm:
+            printing["algorithm"] = algorithm
     record_steps.append({
         "id": "print", "description": description,
         "stepDateTime": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "source": reads, "processingInformation": printing,
-        "executionContext": {"libraries": libraries, "platform": plat},
+        "executionContext": print_context,
         "output": [{"id": "o1", "sourceCitation": {"title": export_path.name,
                                                    "sha256": _sha256_file(export_path)}}]})
     dataset = sources[0]["sourceCitation"]["title"]
@@ -427,7 +407,46 @@ def write_record(project, layer, export_path, **kw) -> Path:
     import gprv
 
     export_path = Path(export_path)
-    code = kw.pop("code", None) or code_identity()
+    result = kw.get("result")
+    proof = metadata(result).get("_landed")
+    if proof is None:
+        raise ValueError("no landed computation identity; run this recipe before writing provenance")
+    level = kw.pop("level", proof.get("level"))
+    expected = recipe_identity(layer, kw.get("layer_input", FIELD), level=level)
+    if proof != expected:
+        raise ValueError("current recipe differs from the landed computation; run it before writing provenance")
+    if expected["analysis_key"] is not None and not metadata(result).get("_execution"):
+        raise ValueError("no compute-time execution context; run this recipe before writing provenance")
+    if isinstance(result, dict) and result.get("_preview"):
+        raise ValueError("the landed result is a preview; wait for the full computation")
+    product = metadata(result).get("_output_identity")
+    if product:
+        from dynamix.engine.resolve import output_key, selection_recipe
+        states = step_states(layer.chain.steps, kw.get("layer_input", FIELD), level_view=level is not None)
+        refs = [ref for ref, state in zip(layer.chain.steps, states)
+                if state.applies and is_transform(get_device(ref.device))]
+        ref = refs[-1]
+        device = get_device(ref.device)
+        params = validate_params(device, ref.params)
+        output = next((o for o in declared_outputs(device) if o.name == product["name"] and o.lazy), None)
+        if output is None:
+            raise ValueError("landed lazy output is not declared by the current analysis")
+        selection = selection_recipe(layer, kw.get("layer_input", FIELD)) if output.selects else None
+        actual_key = output_key(device.name, output, params, expected["analysis_key"], selection,
+                                level=product["level"])
+        if (product["key"] != actual_key or (output.per_level and level is not None
+                                             and product["level"] != level)):
+            raise ValueError("selected output differs from the landed raster; compute it before export")
+        declared_level = (kw.get("print_params") or {}).get("level", product["level"])
+        if declared_level != product["level"]:
+            raise ValueError("export level differs from the landed output")
+        declared_product = (kw.get("print_params") or {}).get("output")
+        if declared_product and declared_product != f"{device.name}/{output.name}":
+            raise ValueError("export label differs from the landed output")
+    actual_code = checked_identity()
+    code = kw.pop("code", None) or actual_code
+    if code != actual_code:
+        raise ValueError("supplied code identity differs from process startup")
     patch_name = None
     if code["patch"] is not None:
         patch_name = f"geodynamix-{hashlib.sha256(code['patch']).hexdigest()[:12]}.patch"

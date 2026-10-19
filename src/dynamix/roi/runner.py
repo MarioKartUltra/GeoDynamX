@@ -25,6 +25,7 @@ import inspect
 import numpy as np
 
 from dynamix.core import fft_policy
+from dynamix.engine import execution
 from dynamix.model import capabilities
 from dynamix.model.contracts import stamp_fill
 
@@ -340,7 +341,7 @@ def roi_margin_of(device, params) -> tuple[int, bool]:
     return max(0, int(fn(params))), True
 
 
-def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
+def run_on_region(steps, field, rect, *, progress=None, cancel=None, stage_cache=None) -> dict:
     """Run ``steps`` -- the leading field-stage transforms and then the analyzer, as
     ``[(device, validated_params), ...]`` -- on ROI ``rect`` = ``(row, col, h, w)`` (FILE
     pixels) of ``field``'s dataset.
@@ -362,7 +363,11 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
     if not steps:
         raise ValueError("run_on_region needs at least the analyzer")
     r, c, h, w = (int(v) for v in rect)
-    margins = [roi_margin_of(d, p) for d, p in steps]
+    margins, planning = [], []
+    for d, p in steps:
+        with fft_policy.observing() as calls:
+            margins.append(roi_margin_of(d, p))
+        planning.append(calls)
     m = sum(mm for mm, _ok in margins)
     if any(getattr(d, "roi_whole_parent", lambda _p: False)(p) for d, p in steps):
         # A step whose finest scales have no finite reach reads the whole parent when it fits
@@ -379,27 +384,36 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None) -> dict:
     # The ROI's own NATIVE values (raw, before any field stage): what a view drapes when it
     # shows this result on the region's own grid (the Vector scene).
     roi_values = np.asarray(window.values)[m:m + h, m:m + w].copy()
-    for device, params in steps[:-1]:                        # the field stage (noise, fill, ...)
+    for index, (device, params) in enumerate(steps[:-1]):     # field stages
         kw = {"cancel": cancel} if capabilities.has(device, "Cancellable") else {}
-        with fft_policy.scope_for(device, params):
-            window = device.compute(window, params, progress=progress, **kw)
+        if getattr(device, "uses_stage_cache", False):
+            kw["stage_cache"] = stage_cache
+        source = window
+        window = execution.run(device, params,
+            lambda: device.compute(source, params, progress=progress, **kw), source,
+            represented=planning[index])
     analyzer, aparams = steps[-1]
     if _makes_a_field(analyzer):
         # A tool that makes a field on the region (Periodic extension): it reads the ROI's own
         # pixels, and its field, placed at the ROI, is the result.
         kw = {"cancel": cancel} if capabilities.has(analyzer, "Cancellable") else {}
-        with fft_policy.scope_for(analyzer, aparams):
-            return analyzer.compute(_roi_crop(window, m, h, w), aparams, progress=progress, **kw)
+        return execution.run(analyzer, aparams,
+            lambda: analyzer.compute(_roi_crop(window, m, h, w), aparams, progress=progress, **kw), window,
+            represented=planning[-1])
     compute_roi = getattr(analyzer, "compute_roi", None)
     if compute_roi is not None:
         rkw = {"cancel": cancel} if "cancel" in inspect.signature(compute_roi).parameters else {}
-        with fft_policy.scope_for(analyzer, aparams):
-            res = dict(compute_roi(window, (m, m, h, w), aparams, info=info, progress=progress,
-                                   **rkw))
+        if "stage_cache" in inspect.signature(compute_roi).parameters:
+            rkw["stage_cache"] = stage_cache
+        res = execution.run(analyzer, aparams,
+            lambda: dict(compute_roi(window, (m, m, h, w), aparams, info=info,
+                                     progress=progress, **rkw)), window, represented=planning[-1])
     else:
         kw = {"cancel": cancel} if capabilities.has(analyzer, "Cancellable") else {}
-        with fft_policy.scope_for(analyzer, aparams):
-            full = analyzer.compute(window, aparams, progress=progress, **kw)
+        if getattr(analyzer, "uses_stage_cache", False):
+            kw["stage_cache"] = stage_cache
+        full = execution.run(analyzer, aparams,
+            lambda: analyzer.compute(window, aparams, progress=progress, **kw), window, represented=planning[-1])
         had_product = "chain_product" in full
         res = crop_result_to_roi(full, m, h, w, np.asarray(window.values).shape[:2])
         for level in res.get("extrema") or []:

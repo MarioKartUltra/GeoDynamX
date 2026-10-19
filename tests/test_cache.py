@@ -73,3 +73,19 @@ def test_pinned_entries_survive_eviction_even_when_oldest():
 def test_default_capacity_is_finite_but_generous():
     c = Cache()
     assert 32 <= c.maxsize < 10_000
+
+
+def test_replacing_a_cached_result_releases_its_landed_view_arrays():
+    import weakref
+    import numpy as np
+
+    cache = Cache()
+    values = np.ones((8, 8))
+    tracked = weakref.ref(values)
+    raw = {'h_map': values}
+    cache.put('analysis', raw)
+    view = cache.landed_result('analysis', raw,
+                               {'analysis_key': 'analysis', 'filters': [], 'level': 0})
+    del values, raw, view
+    cache.put('analysis', {'h_map': None})
+    assert tracked() is None

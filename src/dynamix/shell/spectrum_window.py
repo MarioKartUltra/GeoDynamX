@@ -417,7 +417,8 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self.ld_source_combo = QtWidgets.QComboBox()         # the ensemble's set
                 self.ld_source_combo.addItems(list(self._per_scale))
                 self.ld_source_combo.currentTextChanged.connect(lambda _t: self._recompute())
-                self.gaussian_check = QtWidgets.QCheckBox("Gaussian γ")
+                self.gaussian_check = QtWidgets.QCheckBox("Ensemble candidates γ")
+                self.gaussian_check.setToolTip("Weighted-mean candidates can include mixed populations. Use the separate Generalized spectrum tool for Touchette–Beck inversion.")
                 self.gaussian_check.setEnabled(has_hd)
                 self.gaussian_check.toggled.connect(lambda _c: self._recompute())
                 beyond.addWidget(self.gaussian_check)
@@ -760,7 +761,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             spots.append({"pos": (float(g["h"][i, j]), float(g["D"][i, j])),
                           "brush": pg.mkBrush(colour), "data": (float(grid[i]), float(gammas[j]))})
         self._gaussian_points.setData(spots)
-        self._gaussian_name = f"Gaussian ensemble ({name}, γ ≤ {gammas.max():g})"
+        self._gaussian_name = f"Ensemble candidates ({name}, γ ≤ {gammas.max():g})"
         self._gamma_readout.setText(f"{len(spots)} points · click or hover one for its γ")
 
     def _on_gaussian_point(self, _item, points, *_rest) -> None:

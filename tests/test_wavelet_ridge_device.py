@@ -114,7 +114,7 @@ def test_the_profile_is_the_q_morlets_section_and_lambda_star_is_the_carriers_wa
     assert lambda_px("wavelet_ridge", p, 10.0, 2) == pytest.approx(prof.lambda_px)
 
 
-def test_a_periodic_extension_stamp_counts_as_periodic(dev):
+def test_a_periodic_extension_stamp_counts_as_periodic(dev, monkeypatch):
     n = 96
     k = _wave(n, 6, 0)
     field = RasterField(name="f", values=_stripes(n, k), frame=LocalFrame(units="px"),
@@ -122,3 +122,13 @@ def test_a_periodic_extension_stamp_counts_as_periodic(dev):
                         provenance={"edges.filled": {"rows": n, "cols": n}})
     res = dev.compute(field, validate_params(dev, {"k0": "manual", "lambda0": 16.0}))
     assert res["record"]["reach_px"] == 0                              # no reflection: periodic
+    seen = []
+
+    def transformed(values, kappa, *, periodic=False, **wavelet):
+        seen.append(periodic)
+        return np.ones(values.shape, dtype=complex)
+
+    monkeypatch.setattr(acwt, "transform", transformed)
+    p = validate_params(dev, {"k0": "manual", "lambda0": 16.0})
+    dev.compute_output("modulus", field.values, res, p, fetch=None, level=0)
+    assert seen and all(seen)

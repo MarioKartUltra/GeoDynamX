@@ -146,3 +146,15 @@ def test_a_wave_outside_the_bank_is_not_converged_and_the_record_says_what_ran()
     assert r.record["bank"] == {"bracket": [0.5, 2.0], "voices": 4, "orientations": 12, "nodes": 108}
     assert r.record["omega"] == acwt.OMEGA and r.record["q"] == 1.0 and r.record["q_beta"] == 0.5
     assert r.record["n_unconverged"] == n * n
+
+
+@pytest.mark.parametrize("beta", [.125, .5, 2.])
+def test_a_gaussian_chirp_keeps_unit_amplitude_across_envelope_widths(beta):
+    # The interior of a quadratic-phase signal has an independently known
+    # constant amplitude. A plane wave cannot exercise its curvature correction.
+    x = np.arange(256) - 128
+    u = np.broadcast_to(np.cos(.8 * x + .5 * .003 * x * x), (24, 256)).copy()
+    result = ridge.extract_ridge(u, (.8, 0.), omega=6., q_beta=beta, periodic=True)
+    interior = np.s_[:, 112:144]
+    assert result.converged[interior].all()
+    np.testing.assert_allclose(result.amplitude[interior], 1., atol=.011)

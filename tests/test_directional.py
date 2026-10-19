@@ -17,6 +17,13 @@ from dynamix.core import dwt                                                # no
 P = np.array([0.5, 1.0, 2.0, 3.0])
 
 
+def test_the_anisotropy_tie_break_is_symmetric_between_axes():
+    a = np.array([.5, 1., 1.5])
+    result = dr.directional_scaling({"alpha": a, "eta_alpha": np.array([a, 2 - a])})
+    assert result["alpha_star_e1"][0] == 1.5
+    assert result["alpha_star_e2"][1] == 1.5
+
+
 def fbm_sheet(n, h1, h2, seed=0):
     """Fourier synthesis of a fractional Brownian sheet: the spectral density is the product
     of the two 1-D fBm densities, |k_x|^{−(2H₁+1)} |k_y|^{−(2H₂+1)}, so increments along x

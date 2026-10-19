@@ -104,7 +104,7 @@ def test_a_chain_export_writes_a_checked_record_beside_it(builtin, tmp_path):
     record = json.loads(data)
     jsonschema = pytest.importorskip("jsonschema")
 
-    jsonschema.validate(record, gprv.schema())
+    jsonschema.validate(record, gprv.schema(record["gprv"]))
     assert record["gprv"] == "0.2"
     source = next(s for s in record["source"] if s["id"] == "s1")
     assert source["sourceCitation"] == {"title": "dem.tif", "sha256": _sha(tmp_path / "dem.tif")}
@@ -216,10 +216,11 @@ def test_a_second_export_is_a_new_record_and_the_first_moves_aside(builtin, tmp_
     project, layer, field = _project(tmp_path, [_WTMM])
     out = tmp_path / "chains.npz"
     out.write_bytes(b"first export")
-    first = write_record(project, layer, out, export="chains_npz")
+    result = resolve(layer, field, Cache()).result
+    first = write_record(project, layer, out, export="chains_npz", result=result)
     first_bytes = first.read_bytes()
     out.write_bytes(b"second export")
-    second = write_record(project, layer, out, export="chains_npz")
+    second = write_record(project, layer, out, export="chains_npz", result=result)
     assert second == first and gprv.check(second.read_bytes()) == []
     aside = tmp_path / f"chains.npz.{gprv.sha256(first_bytes)[:12]}.gprv"
     assert aside.read_bytes() == first_bytes                    # kept, never rewritten
@@ -233,7 +234,8 @@ def test_a_dataset_with_a_record_is_cited_as_the_parent(builtin, tmp_path):
     project, layer, field = _project(tmp_path, [_WTMM])
     out = tmp_path / "chains.npz"
     out.write_bytes(b"an export")
-    write_record(project, layer, out, export="chains_npz")          # chains.npz.gprv
+    write_record(project, layer, out, export="chains_npz",
+                 result=resolve(layer, field, Cache()).result)      # chains.npz.gprv
     child = project.add_source(str(out), sha256=_sha(out))
     child_layer = project.add_layer("child", child.source_id, Chain((DeviceRef(*_WTMM),)))
     out2 = tmp_path / "child.npz"

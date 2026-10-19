@@ -347,7 +347,7 @@ def test_the_gaussian_ensemble_has_a_gamma_knob_and_a_per_point_readout(qtbot):
     assert list(window._gammas()) == [0.5, 1.0, 2.0, 4.0, 8.0]
     window.gaussian_check.setChecked(True)
     pts = window._gaussian_points
-    assert len(pts.data) > 0 and "Gaussian ensemble (synthetic, γ ≤ 8)" in _legend_names(window._plot)
+    assert len(pts.data) > 0 and "Ensemble candidates (synthetic, γ ≤ 8)" in _legend_names(window._plot)
     assert window._gamma_readout.text() == f"{len(pts.data)} points · click or hover one for its γ"
     q = hd_std["q_list"]
     lo, hi = window._scale_window()
@@ -360,7 +360,7 @@ def test_the_gaussian_ensemble_has_a_gamma_knob_and_a_per_point_readout(qtbot):
     window.gamma_max_spin.setValue(4.0)
     window.gamma_steps_spin.setValue(3)
     assert list(window._gammas()) == [1.0, 2.0, 4.0]
-    assert "Gaussian ensemble (synthetic, γ ≤ 4)" in _legend_names(window._plot)
+    assert "Ensemble candidates (synthetic, γ ≤ 4)" in _legend_names(window._plot)
     point = pts.points()[0]
     window._on_gaussian_point(pts, [point])
     q0, gamma0 = point.data()

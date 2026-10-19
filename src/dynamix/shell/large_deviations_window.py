@@ -7,7 +7,8 @@ every maximum, the wavelet leaders' sets): every sample's local exponent h_λ = 
 per scale (the left panel, their histograms), and the large-deviation spectrum counted on them
 over the chosen scales (:mod:`dynamix.core.large_deviation`): the adaptive bins' (h(q), D(q))
 curve, or the fixed-ε sweep's three curves whose spread is the convergence check. No Legendre
-transform is taken: a non-concave spectrum shows as it is. Every change publishes the curve
+transform is taken. Fixed bins can reveal nonconcavity; adaptive q-tilted bins can skip it.
+Every change publishes the curve
 (``fitChanged``) for the construction window, where it is read against the other methods'.
 """
 from __future__ import annotations
@@ -22,7 +23,7 @@ from dynamix.shell.theme import current
 
 __all__ = ["LD_RULES", "LargeDeviationsWindow"]
 
-#: The bin rules: the adaptive (Barral–Gonçalves) bins, or a fixed-ε sweep.
+#: The bin rules: adaptive tilted bins (a finite-scale heuristic), or a fixed-ε sweep.
 LD_RULES = ("adaptive ε", "fixed ε sweep")
 H_GRID = np.linspace(-1.5, 2.5, 161)
 
@@ -100,6 +101,29 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
         controls.addStretch(1)
         layout.addLayout(controls)
 
+        grids = QtWidgets.QHBoxLayout()
+        self.hmin_spin, self.hmax_spin, self.hstep_spin = (QtWidgets.QDoubleSpinBox() for _ in range(3))
+        self.eps_spins = [QtWidgets.QDoubleSpinBox() for _ in range(3)]
+        for label, spin, value, bounds in (
+                ("h min", self.hmin_spin, -1.5, (-100., 100.)),
+                ("h max", self.hmax_spin, 2.5, (-100., 100.)),
+                ("Δh", self.hstep_spin, .025, (.001, 10.)),
+                *((f"ε {i + 1}", spin, e, (.001, 10.))
+                  for i, (spin, e) in enumerate(zip(self.eps_spins, ld.EPS_SWEEP)))):
+            grids.addWidget(QtWidgets.QLabel(label))
+            spin.setDecimals(3)
+            spin.setRange(*bounds)
+            spin.setValue(value)
+            spin.setKeyboardTracking(False)
+            grids.addWidget(spin)
+        self.apply_grid_button = QtWidgets.QPushButton("Apply grid")
+        self.apply_grid_button.clicked.connect(self._recompute)
+        grids.addWidget(self.apply_grid_button)
+        layout.addLayout(grids)
+        self.target_label = QtWidgets.QLabel("")
+        self.target_label.setWordWrap(True)
+        layout.addWidget(self.target_label)
+
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
@@ -142,7 +166,9 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
         lo, hi, step = self.qmin_spin.value(), self.qmax_spin.value(), self.qstep_spin.value()
         if hi < lo:
             lo, hi = hi, lo
-        return np.round(np.arange(lo, hi + step / 2, step), 6)
+        from dynamix.core.partition_tables import moment_grid
+
+        return moment_grid(lo, hi, step)
 
     def _on_source_changed(self) -> None:
         log2_s = np.log2(np.asarray(self._entry()["scales"], dtype=np.float64))
@@ -158,9 +184,22 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
         L = self._length_px(scales)
         lo, hi = sorted((float(self.lo_spin.value()), float(self.hi_spin.value())))
         rule = self.rule_combo.currentText()
+        adaptive = rule == LD_RULES[0]
+        for spin in (self.qmin_spin, self.qmax_spin, self.qstep_spin):
+            spin.setEnabled(adaptive)
+            spin.setKeyboardTracking(False)
+        for spin in (self.hmin_spin, self.hmax_spin, self.hstep_spin, *self.eps_spins):
+            spin.setEnabled(not adaptive)
+        self.apply_grid_button.setEnabled(not adaptive)
+        self.target_label.setText(entry.get("target", "Sample large deviations") +
+                                  (" · adaptive heuristic; q tilts may skip nonconcave regions" if adaptive else
+                                   " · finite-bin estimates; compare bin widths and resolutions"))
         name = f"{self._source} · {self.source_combo.currentText()}, large deviations" if self._source \
             else f"{self.source_combo.currentText()}, large deviations"
-        self._draw_histograms(entry["mods"], scales, L, lo, hi)
+        histogram_key = (self.source_combo.currentText(), L, lo, hi)
+        if histogram_key != getattr(self, "_histogram_key", None):
+            self._draw_histograms(entry["mods"], scales, L, lo, hi)
+            self._histogram_key = histogram_key
         common = dict(log2_a_min=lo, log2_a_max=hi, length_px=L, scale_weight=entry.get("weights"))
         for curve in self.curves:
             curve.setData([], [])
@@ -174,26 +213,44 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
                 note = f"{int(ok.sum())} of {q.size} q · adaptive half-widths (ln 2)^½ × the tilted sd"
                 extra = {"q": q[ok], "eps": a["eps"]}
             else:
-                f = ld.fixed(entry["mods"], scales, h_grid=H_GRID, **common)
+                h_lo, h_hi, dh = self.hmin_spin.value(), self.hmax_spin.value(), self.hstep_spin.value()
+                if h_hi <= h_lo:
+                    raise ValueError("h max must exceed h min")
+                if (h_hi - h_lo) / dh > 10000:
+                    raise ValueError("h grid exceeds 10000 bins; increase Δh or narrow its range")
+                from dynamix.core.partition_tables import moment_grid
+
+                grid = moment_grid(h_lo, h_hi, dh)
+                eps = tuple(spin.value() for spin in self.eps_spins)
+                if len(set(eps)) != len(eps):
+                    raise ValueError("epsilon widths must be distinct for a bin-width comparison")
+                f = ld.fixed(entry["mods"], scales, h_grid=grid, eps_list=eps, **common)
                 for curve, D in zip(self.curves, f["D"]):
                     finite = np.flatnonzero(np.isfinite(D))
                     if finite.size:
                         span = slice(finite[0], finite[-1] + 1)
-                        curve.setData(H_GRID[span], D[span])
-                finite = np.isfinite(f["D"][-1])
-                h, D = H_GRID[finite], f["D"][-1][finite]
+                        curve.setData(grid[span], D[span])
+                narrowest = int(np.argmin(eps))
+                finite = np.isfinite(f["D"][narrowest])
+                h, D = grid[finite], f["D"][narrowest][finite]
                 spread = f["spread"][np.isfinite(f["spread"])]
                 note = (f"ε {', '.join(f'{e:g}' for e in f['eps'])} · spread across ε ≤ {spread.max():.2f}"
-                        if spread.size else "no bin holds every scale in the window")
-                extra = {"eps": f["eps"], "D_by_eps": f["D"]}
+                        if spread.size else "insufficient common ε support; spread unavailable")
+                extra = {"eps": f["eps"], "D_by_eps": f["D"], "h_grid": grid,
+                         "epsilon_count": f["epsilon_count"]}
         except ValueError as exc:
             self._fit = None
+            for curve in self.curves:
+                curve.setData([], [])
             self.readout.setText(str(exc))
             self._sync_legend(rule)
+            self.fitChanged.emit({"name": name, "valid": False})
             return
         kept = int(np.sum((np.log2(scales) >= lo - 1e-9) & (np.log2(scales) <= hi + 1e-9)))
         self._fit = {"name": name, "kind": "large deviations", "rule": rule, "set": self.source_combo.currentText(),
                      "h": h, "D": D, "window": (lo, hi), "length_px": L, **extra}
+        self._fit["target"] = entry.get("target", "sample large deviations")
+        self._fit["valid"] = bool(D.size)
         peak = f" · peak D {np.nanmax(D):.2f} at h {h[np.nanargmax(D)]:.3f}" if D.size else ""
         self.readout.setText(f"{self.source_combo.currentText()} · log₂a {lo:g}–{hi:g} ({kept} scales), "
                              f"L = {L:g} px · {note}{peak}")
@@ -205,7 +262,7 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
         if rule == LD_RULES[0]:
             self._legend.addItem(self.curves[-1], "adaptive bins: (h(q), D(q))")
         else:
-            for curve, eps in zip(self.curves, ld.EPS_SWEEP):
+            for curve, eps in zip(self.curves, (s.value() for s in self.eps_spins)):
                 self._legend.addItem(curve, f"ε = {eps:g}")
 
     def _draw_histograms(self, mods, scales, L, lo, hi) -> None:

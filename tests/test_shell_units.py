@@ -203,16 +203,17 @@ def test_a_bare_array_field_is_handled_like_the_old_getattr_fallback():
 # --------------------------------------------------------------------------- WTMM2D.derived_reading
 
 
-def test_derived_reading_is_none_for_every_param_but_a_min_similitude_and_q_width():
-    """Three knobs carry a reading: a_min (sigma and lambda), similitude (the chainable h and
-    the h the wavelet resolves, ``tests/test_chain_band.py``) and the q width (what it holds,
+def test_derived_readings_are_limited_to_scale_chain_width_and_integration_controls():
+    """Readings describe scale, chaining, q width and the two integration operations.
+    a_min gives sigma and lambda; similitude gives the chainable h and
+    the h the wavelet resolves (``tests/test_chain_band.py``); q width shows what it holds,
     ``tests/test_q_wavelet_widths.py``; empty until a q smoother is chosen)."""
     from dynamix.devices.wtmm import WTMM2D
 
     dev = WTMM2D()
     field = _field(1.0, units="px")
     for p in dev.params:
-        if p.name in ("a_min", "similitude", "q_pairing"):
+        if p.name in ("a_min", "similitude", "q_pairing", "fracint_alpha", "integration_order"):
             continue
         assert dev.derived_reading(p.name, p.default, field) is None
 

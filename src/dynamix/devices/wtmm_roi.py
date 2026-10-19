@@ -28,7 +28,7 @@ from dynamix.model.contracts import EXTREMA, FIELD, STACK, VCHAINS
 from dynamix.model.origin import XSMURF_DERIVED
 from dynamix.model.device import Output, keyed_params
 from dynamix.devices.wtmm import (BAND_PER_PARAM, CHAINING_OPTION_PARAMS, EDGE_PARAMS, MOMENT_PARAMS, q_list,
-                                  TIE_RULE_PARAM,
+                                  TIE_RULE_PARAM, WTMM2D, _inspector_params,
                                   SMOOTHER_PARAMS, chaining_reading, eta_warning,
                                   smoother_params, width_reading)
 from dynamix.devices.precision import PRECISION_PARAM
@@ -129,8 +129,15 @@ class WTMM2DROI:
     device: there is nothing on disk to halo against.
     """
 
+    @staticmethod
+    def provenance_outcome(result, params):
+        from dynamix.engine.execution import resolved_outcome
+        return resolved_outcome(result, params)
+
+    provenance_libraries = (('scipy', 'scipy'), ('numba', 'numba'))
+
     name = "wtmm2d_roi"
-    capabilities = frozenset({"OutputProducer", "SourceReader", "StripExtras", "Viewable"})
+    capabilities = frozenset({"OutputProducer", "SourceReader", "StripExtras", "Viewable", "Cancellable"})
     chain_producer = True
     label = "WTMM 2D, ROI"
     origin = XSMURF_DERIVED
@@ -221,13 +228,19 @@ class WTMM2DROI:
     outputs = (Output("modulus", "raster", lazy=True, label="modulus", per_level=True),
                Output("argument", "raster", lazy=True, label="argument", per_level=True))
 
+    uses_stage_cache = True
+    wants_cancel = True
+    inspector_actions = dict.fromkeys(WTMM2D.inspector_actions,
+                                      "Reuse ROI CWT; rebuild maxima and chains")
+    params = _inspector_params(params, inspector_actions)
+
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
         """The analysing wavelet's section and λ* at ``scale_px`` (the wavelet scale bar)."""
         from dynamix.core.wavelet_profiles import wtmm_profile
 
         return wtmm_profile(params["wavelet"], scale_px, smoother_params(params))
 
-    def compute(self, field, params: dict, *, progress=None) -> dict:
+    def compute(self, field, params: dict, *, progress=None, stage_cache=None, cancel=None) -> dict:
         from dynamix.core.rasterfield import geotiff_info
         from dynamix.roi.halo import run_wtmm2d_roi
 
@@ -272,7 +285,7 @@ class WTMM2DROI:
             **{p.name: params[p.name] for p in EDGE_PARAMS},
         }
         res = run_wtmm2d_roi(source, full_dims, roi, wtmm_params,
-                             boundary=params["boundary"], progress=progress)
+                             boundary=params["boundary"], progress=progress, stage_cache=stage_cache, cancel=cancel)
         # Carry the field's own frame through, same as wtmm2d.compute -- filters and views convert
         # pixels to physical units without reaching back to the source. Unlike wtmm2d, _shape is
         # NOT reset here: run_wtmm2d_roi already set it to the ROI's own (h, w), and the parent

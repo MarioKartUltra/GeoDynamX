@@ -21,7 +21,8 @@ _NOT_FIELD_READERS = {"chain_topology", "backproject", "stub_wavelet", "wtmm2d_r
                       "derived_vectors"}
 #: Tools that run on whole rasters only, never over an ROI's processing window, so no margin applies:
 #: Periodic extension's gap would change the window's size (spec 25 §3.1).
-_WHOLE_RASTER_ONLY = {"periodic_extension"}
+_WHOLE_RASTER_ONLY = {"periodic_extension", "dyadic_interpolation", "interpolating_wavelets",
+                      "interpolating_wavelet_filter", "fractional_integration"}
 
 
 @pytest.fixture

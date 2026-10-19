@@ -77,10 +77,11 @@ def wavelet_hat(kx, ky, kappa, *, omega: float = OMEGA, alpha=(1.0, 1.0), q: flo
     return hat / math.sqrt(a1 * a2)
 
 
-def reach(k_min: float, omega: float = OMEGA, alpha=(1.0, 1.0)) -> int:
+def reach(k_min: float, omega: float = OMEGA, alpha=(1.0, 1.0), q_beta: float = 0.5) -> int:
     """How far the widest wavelet of a bank down to |κ| = ``k_min`` reaches, in px: four envelope
     widths, a = |ω|/k_min stretched by the softer anisotropy axis."""
-    return int(math.ceil(4.0 * float(omega) / float(k_min) / math.sqrt(min(alpha))))
+    return int(math.ceil(4.0 * float(omega) / float(k_min) /
+                         math.sqrt(2.0 * float(q_beta) * min(alpha))))
 
 
 def transform(u, kappa, *, periodic: bool = False, derivatives: bool = False, **wavelet):
@@ -90,7 +91,7 @@ def transform(u, kappa, *, periodic: bool = False, derivatives: bool = False, **
     u = np.asarray(u, dtype=np.float64)
     ny, nx = u.shape
     pad = 0 if periodic else reach(math.hypot(*kappa), wavelet.get("omega", OMEGA),
-                                   wavelet.get("alpha", (1.0, 1.0)))
+                                   wavelet.get("alpha", (1.0, 1.0)), wavelet.get("q_beta", .5))
     up = np.pad(u, pad, mode="reflect") if pad else u
     kx, ky = grid(up.shape)
     fft = fft_policy.double()

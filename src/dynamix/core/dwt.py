@@ -190,6 +190,27 @@ def hyperbolic(x, name: str, level: int) -> dict:
     return out
 
 
+def hyperbolic_complete(x, name: str, level: int) -> dict:
+    """Hyperbolic L1 coefficients including the mixed scaling/detail branches.
+
+    Index 0 denotes the coarsest scaling function; detail indices 1..J keep
+    the ordinary finest-first convention. Its scaling factor uses level J.
+    """
+    pywt = require_pywt()
+    J, w = int(level), wavelet(name)
+    out = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        rows = pywt.wavedec(np.asarray(x, dtype=float), w, mode="periodization", level=J, axis=1)
+        for i1, band in enumerate(rows):
+            j1 = 0 if i1 == 0 else J+1-i1
+            cols = pywt.wavedec(band, w, mode="periodization", level=J, axis=0)
+            for i2, c in enumerate(cols):
+                j2 = 0 if i2 == 0 else J+1-i2
+                out[(j1, j2)] = c * 2.**(-((j1 or J)+(j2 or J))/2)
+    return out
+
+
 def approximations(x, name: str, levels: int) -> list:
     """The approximation at every level 1..``levels`` of the periodized pyramid."""
     pywt = require_pywt()

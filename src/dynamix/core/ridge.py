@@ -95,7 +95,7 @@ def extract_ridge(u, k0_vec, *, omega: float = OMEGA, alpha=(1.0, 1.0), q: float
     a1, a2 = (float(v) for v in alpha)
     wavelet = dict(omega=omega, alpha=(a1, a2), q=q, q_beta=q_beta, zero_mean=zero_mean)
 
-    pad = 0 if periodic else reach(k0 * lo, omega, alpha)
+    pad = 0 if periodic else reach(k0 * lo, omega, alpha, q_beta)
     up = np.pad(u, pad, mode="reflect") if pad else u
     kx, ky = grid(up.shape)
     fft = fft_policy.double()
@@ -255,18 +255,13 @@ def extract_ridge(u, k0_vec, *, omega: float = OMEGA, alpha=(1.0, 1.0), q: float
         u2 = (float(omega) / mod) ** 2
     # The Gaussian window about the ridge, N = R diag(α) Rᵀ − i a²H in the lab frame (first wavelet
     # axis along K): T at a node misfit by d = κ* − κ_node is (A/2) e^{iφ} e^{−½ a² dᵀN⁻¹d} / √det N.
-    n11, n22, n12 = a1 * c * c + a2 * s * s, a1 * s * s + a2 * c * c, (a1 - a2) * c * s
+    # e^{-beta r²} has precision 2 beta, not one. The Gaussian stationary-phase
+    # correction must use the same width as the actual transform.
+    b1, b2 = 2.0 * q_beta * a1, 2.0 * q_beta * a2
+    n11, n22, n12 = b1 * c * c + b2 * s * s, b1 * s * s + b2 * c * c, (b1 - b2) * c * s
     det = (n11 - 1j * u2 * hxx) * (n22 - 1j * u2 * hyy) - (n12 - 1j * u2 * hxy) ** 2
-    curvature = np.sqrt(np.abs(det)) / math.sqrt(a1 * a2)
+    curvature = np.sqrt(np.abs(det)) / math.sqrt(b1 * b2)
     chi = 0.5 * np.angle(det)
-
-    def quadratic(dx, dy):
-        """a² dᵀN⁻¹d, and its flat-window value a²(d∥²/α₁ + d⊥²/α₂)."""
-        with np.errstate(invalid="ignore", divide="ignore"):
-            q_full = u2 * ((n22 - 1j * u2 * hyy) * dx * dx - 2 * (n12 - 1j * u2 * hxy) * dx * dy
-                           + (n11 - 1j * u2 * hxx) * dy * dy) / det
-        along, across = dx * c + dy * s, dy * c - dx * s
-        return q_full, u2 * (along * along / a1 + across * across / a2)
 
     # Pass 2: the ridge value read between its four nodes. Each node's modulus is read as the
     # amplitude it implies — the flat misfit undone by the q-envelope itself, the curvature and
@@ -289,11 +284,24 @@ def extract_ridge(u, k0_vec, *, omega: float = OMEGA, alpha=(1.0, 1.0), q: float
             t = transform(kappa, (1.0,))[0][crop]
             both = direct + conj
             sign = np.where(conj > 0, -1.0, 1.0)             # the conjugate node reads −κ*
-            q_full, q_flat = quadratic(sign * vx - kappa[0], sign * vy - kappa[1])
+            # Each transform was evaluated with its node's scale and orientation.
+            # Correcting all four with the ridge's window introduces an avoidable
+            # interpolation error, especially for broad Gaussian envelopes.
+            nk = math.hypot(*kappa)
+            nc, ns = kappa[0] / nk, kappa[1] / nk
+            na2 = (float(omega) / nk) ** 2
+            m11 = b1 * nc * nc + b2 * ns * ns - 1j * na2 * sign * hxx
+            m22 = b1 * ns * ns + b2 * nc * nc - 1j * na2 * sign * hyy
+            m12 = (b1 - b2) * nc * ns - 1j * na2 * sign * hxy
+            node_det = m11 * m22 - m12 * m12
+            dx, dy = sign * vx - kappa[0], sign * vy - kappa[1]
+            q_full = na2 * (m22 * dx * dx - 2 * m12 * dx * dy + m11 * dy * dy) / node_det
+            q_flat = na2 * ((dx * nc + dy * ns) ** 2 / b1 + (dy * nc - dx * ns) ** 2 / b2)
+            node_curvature = np.sqrt(np.abs(node_det)) / math.sqrt(b1 * b2)
             amp = (2.0 * np.abs(t) / wavelet_hat(sign * vx, sign * vy, kappa, **wavelet)
-                   * curvature * np.exp(0.5 * np.real(q_full - q_flat)))
+                   * node_curvature * np.exp(0.5 * np.real(q_full - q_flat)))
             amplitude += np.where(both > 0, both * amp, 0.0)
-            ph = t / np.abs(t) * np.exp(0.5j * sign * np.imag(q_full))
+            ph = t / np.abs(t) * np.exp(0.5j * (np.imag(q_full) + np.angle(node_det)))
             phasor += direct * ph + conj * np.conj(ph)
     chi_x, chi_y = odd_gradient(chi, 1), odd_gradient(chi, 0)
     div_k = hxx + hyy + odd_gradient(chi_x, 1) + odd_gradient(chi_y, 0)
@@ -311,7 +319,7 @@ def extract_ridge(u, k0_vec, *, omega: float = OMEGA, alpha=(1.0, 1.0), q: float
         "stationary_phase": "Gaussian (A.8, A.19)" + ("" if q == 1.0 else "; exact at q = 1 only"),
         "wavevector_smoothing_px": sigma_s, "reach_px": pad,
     }
-    return Ridge(amplitude=amplitude, phase=np.angle(phasor * np.exp(1j * chi)),
+    return Ridge(amplitude=amplitude, phase=np.angle(phasor),
                  kx=vx + chi_x, ky=vy + chi_y, div_k=div_k, scale=float(omega) / mod,
                  curvature=curvature, converged=converged, boundary=boundary, iterations=int(steps),
                  record=record)

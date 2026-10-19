@@ -37,6 +37,13 @@ def _e_q(u, q: float):
 class WaveletRidge:
     """The ridge's rasters, and the directional transform under the Scale slider."""
 
+    @staticmethod
+    def provenance_outcome(result, params):
+        from dynamix.engine.execution import resolved_outcome
+        return resolved_outcome(result, params)
+
+    provenance_libraries = (('scipy', 'scipy'),)
+
     name = "wavelet_ridge"
     label = "Wavelet ridge (Passot–Newell)"
     families = ("Patterns",)
@@ -128,7 +135,9 @@ class WaveletRidge:
     def roi_margin(self, params: dict) -> int:
         """What an ROI must read beyond its window: the coarsest wavelet's reach."""
         a_max = float(params["a_min"]) * 2.0 ** int(params["n_oct"])
-        return int(math.ceil(4.0 * a_max / math.sqrt(min(1.0, float(params["anisotropy"])))))
+        wavelet = self._wavelet(params)
+        return int(math.ceil(4.0 * a_max / math.sqrt(2.0 * wavelet["q_beta"] *
+                                                   min(wavelet["alpha"]))))
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
         values = np.asarray(field.values, dtype=np.float64)
@@ -160,7 +169,7 @@ class WaveletRidge:
                             f"(defect cores, or a local wavenumber outside "
                             f"{ridge.BRACKET[0]:g}–{ridge.BRACKET[1]:g} k₀); they are blank")
         scales = self._scales(params)
-        record = {**r.record, "k0": k0_record,
+        record = {**r.record, "k0": k0_record, "periodized": periodic,
                   "direction_deg": math.degrees(math.atan2(kvec[1], kvec[0])),
                   "ladder": {"n_oct": int(params["n_oct"]), "n_voice": int(params["n_voice"]),
                              "a_min": float(params["a_min"]), "n_scales": int(scales.size),
@@ -220,10 +229,12 @@ class WaveletRidge:
         span = 4.0 * a / math.sqrt(2.0 * w["q_beta"])
         x = np.linspace(-span, span, 513)
         u = x / a
-        psi = _e_q(-w["q_beta"] * u * u, w["q"]) * np.cos(w["omega"] * u)
+        envelope = _e_q(-w["q_beta"] * u * u, w["q"])
+        psi = envelope * np.cos(w["omega"] * u)
         return Profile(x, psi / np.max(np.abs(psi)), a, 2.0 * math.pi * a / w["omega"],
                        f"q-Morlet (ω = {w['omega']:g}, q = {w['q']:g})",
-                       extra={"a": a, "omega": w["omega"], "q": w["q"], "q_beta": w["q_beta"]})
+                       extra={"a": a, "omega": w["omega"], "q": w["q"], "q_beta": w["q_beta"]},
+                       envelope=envelope)
 
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k

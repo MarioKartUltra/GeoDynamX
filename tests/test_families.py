@@ -61,6 +61,11 @@ LABELS = {
     "band_select": "Band select",
     "noise": "Noise / dither",
     "periodic_extension": "Periodic extension (DAF)",
+    "dyadic_interpolation": "Dyadic interpolation (DD4)",
+    "daf_smoothing": "DAF low-pass",
+    "fractional_integration": "Fractional integration (Fourier)",
+    "interpolating_wavelets": "Interpolating wavelets (DD / DAF)",
+    "interpolating_wavelet_filter": "Interpolating wavelet filter (DD / DAF)",
     "wtmm2d": "WTMM 2D",
     "wtmm2d_roi": "WTMM 2D, ROI",
     "mz_edges": "Mallat–Zhong edges",
@@ -101,12 +106,13 @@ LABELS = {
 
 #: family -> the ids listed under it.
 FAMILY_TREE = {
-    "Data preparation": {"band_select", "noise", "fill", "periodic_extension"},
+    "Data preparation": {"band_select", "noise", "fill", "periodic_extension", "dyadic_interpolation",
+                         "daf_smoothing", "interpolating_wavelet_filter", "fractional_integration"},
     "Edge detection": {"wtmm2d", "wtmm2d_roi", "mz_edges", "cdf_edges", "pm_edges"},
     "Regularity": {"wtmm2d", "wtmm2d_roi", "mz_edges", "holder_measure", "holder_multiaffine",
                    "wavelet_leaders", "directional_scaling"},
     "Skeletons": {"wavelet_skeleton"},
-    "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d", "dwt2d"},
+    "Decomposition": {"pca", "tucker_HOOI_HOSVD", "ssa2d", "dwt2d", "interpolating_wavelets"},
     "Reconstruction": {"mz_edges", "holder_measure", "holder_multiaffine", "ssa2d",
                        "tucker_HOOI_HOSVD", "inpaint"},
     "Topology": {"chain_topology"},

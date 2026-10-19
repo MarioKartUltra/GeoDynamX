@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dynamix.core.nonconcave import gaussian_ensemble, kink_flags
+from dynamix.core.nonconcave import gaussian_ensemble, generalized_legendre, kink_flags
 
 SCALES = 2.0 ** np.arange(3, 9)                        # 8 .. 256 px
 #: Far out, so ln(a/L) ≈ -50: the canonical fit's finite-size term, about 1/(2 ln(a/L)) on the
@@ -111,3 +111,27 @@ def test_the_nonconcave_fixture_shows_its_kink_at_gamma_zero():
     g = gaussian_ensemble(mods, SCALES, q, [0.0], 3.0, 8.0, counts_per_scale=counts, length_px=L)
     flags = kink_flags(q, g["tau"][:, 0])
     assert flags and abs(flags[0]["q"]) < 0.3 and flags[0]["h_hi"] - flags[0]["h_lo"] > 0.15
+
+
+def test_paper_two_point_support_is_not_a_continuous_spectrum():
+    q = np.linspace(-500, 500, 2001)
+    g = np.linspace(0, 256, 65)
+    # Touchette–Beck (30), exact free energy for f(1/2)=0 and f(1)=1.
+    tau = np.minimum(q[:, None]/2 + g[None, :]/4, q[:, None]+g[None, :]-1)
+    fit = generalized_legendre(tau, q, g, [.5, .75, 1.])
+    np.testing.assert_allclose(fit["D"][[0, 2]], [0., 1.], atol=1e-12)
+    assert fit["D"][1] < -10   # mixed weighted means must not fabricate support here
+    canonical = generalized_legendre(tau[:, :1], q, [0.], [.75])
+    assert canonical["D"][0] == pytest.approx(.5)
+
+
+def test_empty_levels_and_amplitude_units_have_explicit_consistent_behavior():
+    scales = np.array([2., 4., 8., 16.])
+    mods = [np.array([s**.4, 2*s**.7]) for s in scales]
+    mods[1] = np.array([])
+    a = gaussian_ensemble(mods, scales, [-1, 0, 1], [0, 2], 1, 4, length_px=64.)
+    b = gaussian_ensemble([1000*m for m in mods], scales, [-1, 0, 1], [0, 2], 1, 4,
+                          length_px=64., reference_amplitude=1000)
+    assert a["n_scales"] == 3
+    np.testing.assert_allclose(a["tau"], b["tau"], atol=1e-12)
+    assert np.isfinite(a["tau"]).all()

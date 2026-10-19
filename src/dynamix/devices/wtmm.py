@@ -6,6 +6,7 @@ Runs the whole scale stack once and caches it. Every filter after this point is 
 predicate over the result, which is what makes the scale slider feel instant.
 """
 from __future__ import annotations
+from dynamix.devices.fractional_integration import INTEGRATION_PARAMS, applied_order, integrated_field
 
 import dataclasses
 import math
@@ -391,7 +392,9 @@ def q_list(params: dict) -> np.ndarray:
     lo, hi, step = (float(params[k]) for k in ("q_min", "q_max", "q_step"))
     if hi <= lo:
         raise ValueError(f"q max ({hi:g}) must exceed q min ({lo:g})")
-    return np.round(np.arange(lo, hi + 0.5 * step, step), 10)
+    from dynamix.core.partition_tables import moment_grid
+
+    return moment_grid(lo, hi, step)
 
 
 TIE_RULE_PARAM = Param("tie_rule", ParamKind.CHOICE, default="asymmetric",
@@ -422,6 +425,12 @@ def chaining_reading(similitude: float, params: dict) -> str:
     return f"chains h<{span[1]:.2f}\n{resolves}"
 
 
+def _inspector_params(params, actions):
+    """Relocate downstream controls without changing their values or cache identity."""
+    return tuple(dataclasses.replace(p, level="advanced")
+                 if p.name in actions and p.level != "hidden" else p for p in params)
+
+
 class WTMM2D:
     """Wavelet Transform Modulus Maxima over a 2-D field.
 
@@ -429,6 +438,13 @@ class WTMM2D:
     The scale stack it produces is ``n_oct * n_voice`` layers of extrema, each carrying ``x``,
     ``y``, ``mod`` and ``arg`` -- the argument being the orientation the wedge filter acts on.
     """
+
+    @staticmethod
+    def provenance_outcome(result, params):
+        from dynamix.engine.execution import resolved_outcome
+        return resolved_outcome(result, params)
+
+    provenance_libraries = (('scipy', 'scipy'), ('numba', 'numba'))
 
     name = "wtmm2d"
     capabilities = frozenset({"Cancellable", "OutputProducer", "Previewable", "RegionAware", "StripExtras", "Viewable"})
@@ -443,6 +459,7 @@ class WTMM2D:
     #: ``compute`` because it opts in here. Reaches ``run_wtmm2d``'s per-stage check so a
     #: superseding edit kills the in-flight stack instead of waiting it out.
     wants_cancel = True
+    uses_stage_cache = True
     #: PRE is everything that shapes the wavelet transform and its extrema
     #: (run once, expensive); CHAINING is everything that decides how extrema link into maxima
     #: lines ACROSS scales (cheap by comparison, but still part of this Transform -- xsmurf's own
@@ -456,7 +473,7 @@ class WTMM2D:
     #: group named CHAINING that omitted it was incomplete, not merely conservative.
     param_groups = {
         "PRE": ("wavelet", "a_min", "alpha", "q_tsallis", "q_pairing", "q_beta", "n_oct",
-                "n_voice", "smooth", "dither", "fracint_alpha", "interpolate", "detector"),
+                "n_voice", "smooth", "dither", "fracint_alpha", "integration_order", "interpolate", "detector"),
         "CHAINING": ("min_chain_len", "thresh", "dist2_max", "box_ratio", "similitude",
                      "band_per"),
         "EDGES": ("edge", "pad_width", "border_cut"),
@@ -482,7 +499,8 @@ class WTMM2D:
         # value. The spectrum window seeds its η shift-back from this value, so what is lifted
         # forward is undone at the fit; the chain-Hölder filter reads the lifted slope (h + η).
         Param("fracint_alpha", ParamKind.FLOAT, default=0.0, min=-6.0, max=6.0,
-              soft_min=0.0, soft_max=2.0, units="", label="Frac. int. η"),
+              soft_min=0.0, soft_max=2.0, units="", label="Coefficient lift η"),
+        *INTEGRATION_PARAMS,
         # Parabolic refinement of each NMS maximum along its gradient direction, for xsmurf
         # parity (dynamix.core.subpixel) -- the refined MODULUS replaces mod (the xsmurf
         # follow / LastWave-1D value channel, feeding chaining and Z(q,a)); float x_sub/y_sub
@@ -539,6 +557,14 @@ class WTMM2D:
         PRECISION_PARAM,
     )
 
+    inspector_actions = {
+        **dict.fromkeys(("q_min", "q_max", "q_step"), "Repartition"),
+        **dict.fromkeys(("min_chain_len", "dist2_max", "box_ratio", "similitude", "band_per", "smooth",
+                         "chainer", *(p.name for p in WTMM2D_CHAINING_OPTION_PARAMS)), "Rechain"),
+        **dict.fromkeys(("thresh", "tie_rule", "interpolate"), "Rebuild maxima / chains"),
+    }
+    params = _inspector_params(params, inspector_actions)
+
     #: The layer panel's output rows, a radio over ``show``, off by default: the lifted
     #: wavelet-gradient modulus the extrema are detected on, and its argument, one cache entry
     #: per level, computed on request.
@@ -551,8 +577,12 @@ class WTMM2D:
 
         return wtmm_profile(params["wavelet"], scale_px, smoother_params(params))
 
-    def compute(self, field, params: dict, *, progress=None, cancel=None) -> dict:
+    def compute(self, field, params: dict, *, progress=None, cancel=None, stage_cache=None) -> dict:
         from dynamix.core.wtmm_backend import run_wtmm2d
+
+        used_edge = resolved_boundary(params, field)[0]
+        field = integrated_field(field, params, edge="periodic" if used_edge == "periodic" else "mirror",
+                                  stage_cache=stage_cache)
 
         if params.get("dither"):
             # Deterministic (fixed-seed) half-LSB uniform dither, the same helpers the M-Z
@@ -601,12 +631,15 @@ class WTMM2D:
 
             res, fell_back = run_whole_through_core(
                 field.values, dict(backend_params, **{p.name: params[p.name] for p in EDGE_PARAMS}),
-                progress=progress)
+                progress=progress, stage_cache=stage_cache, cancel=cancel)
         if res is None:
-            res = run_wtmm2d(field, backend_params, progress=progress, cancel=cancel)
+            res = run_wtmm2d(field, backend_params, progress=progress, cancel=cancel,
+                             stage_cache=stage_cache)
         # Carry the field's own axes through so filters and views can convert pixels to physical
         # units without reaching back to the source.
         res = dict(res)
+        res["_integration_order"] = applied_order(field)
+        res["_integration_history"] = list(field.provenance.get("fractional_integration", [])) if hasattr(field, "provenance") else []
         if fell_back and "_edge" not in res:
             from dynamix.roi.halo import whole_fallback_stamp
 
@@ -808,6 +841,15 @@ class WTMM2D:
         if cancel is not None and cancel():
             raise ComputeCancelled()
         values = np.asarray(values)
+        if params.get("integration_order", 0.):
+            from dynamix.core.fractional import integrate
+
+            history = (result or {}).get("_integration_history", [])
+            used = history[-1] if history else {}
+            values = integrate(values, params["integration_order"],
+                               operator=params.get("integration_operator", "bessel"),
+                               length_px=used.get("length_px", params.get("integration_length", 0.)),
+                               edge=used.get("edge", "mirror"))
         if params.get("dither"):
             from dynamix.core.mz_edges import _dithered, measure_lsb
 
@@ -866,11 +908,16 @@ class WTMM2D:
         return any(not sh.reach.converged for sh in self._halo_plan(params))
 
     def compute_roi(self, window_field, core, params: dict, *, info=None,
-                    progress=None) -> dict:
+                    progress=None, stage_cache=None, cancel=None) -> dict:
         """wtmm on a region: each scale's halo sliced from the runner's window, extrema
         cropped to the ROI, THEN chained and partitioned inside it -- ``run_wtmm2d_roi``'s proven loop."""
         from dynamix.core.chain_product import attach_chain_product
         from dynamix.roi.halo import run_wtmm2d_roi_on_window
+
+        if params.get("integration_order", 0.):
+            raise ValueError("Input fractional integration is global. Integrate the full parent with the "
+                             "Fractional integration tool and fork its derivative before running an ROI; "
+                             "coefficient lift η remains available directly on an ROI.")
 
         r0, _c0, h, w = core
         values = np.asarray(window_field.values)
@@ -900,7 +947,7 @@ class WTMM2D:
                                             smoother_params=smoother_params(params),
                                             q_list=q_list(params), **edge),
                                        progress=progress, parent_shape=full,
-                                       roi_origin=origin)
+                                       roi_origin=origin, stage_cache=stage_cache, cancel=cancel)
         res = dict(res)
         if asked not in ("auto", edge["edge"]):
             res["_warnings"] = list(res.get("_warnings", [])) + [
@@ -920,6 +967,9 @@ class WTMM2D:
         provisional frame, not the analysed answer) and all chaining. ``engine.resolve.
         preview_resolve`` calls this then applies the chain's cheap filter steps on top."""
         from dynamix.core.wtmm_backend import run_wtmm2d_preview
+
+        edge = resolved_boundary(params, field)[0]
+        field = integrated_field(field, params, edge="periodic" if edge == "periodic" else "mirror")
 
         return run_wtmm2d_preview(field, {
             "n_oct": params["n_oct"], "n_voice": params["n_voice"], "a_min": params["a_min"],
@@ -945,6 +995,10 @@ class WTMM2D:
         backwards (see ``scale_units``' docstring). ``None`` for every other param: a derived
         reading explains a knob whose face value is not itself physical, not a general per-param
         annotation mechanism."""
+        if name == "fracint_alpha":
+            return "multiplies each scale's modulus by a^η; input field unchanged"
+        if name == "integration_order":
+            return "global Fourier integration of input; fitter shift includes s + η"
         if name in ("edge", "border_cut"):
             return boundary_reading(name, params or {}, field)
         if name == "similitude":

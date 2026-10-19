@@ -30,7 +30,7 @@ __all__ = ["CARRIED", "carried_from", "raster_choices", "read_vectors", "result_
 
 #: Provenance a forked field keeps: it describes the field's own pixels, which the fork writes on
 #: the same grid. ``edges.filled`` is a Periodic extension's real block, which WTMM's ``auto`` reads.
-CARRIED = ("edges.filled",)
+CARRIED = ("edges.filled", "preprocessing", "fractional_integration")
 
 #: Single rasters a result may carry, in the order a fork offers them.
 _SINGLES = (("ssa_recon", "recon"), ("ssa_residual", "residual"),

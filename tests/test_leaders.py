@@ -169,11 +169,32 @@ def test_the_fixed_window_lies_inside_three_lambda_so_the_oscillation_ratio_is_n
 
 def test_the_dumeur_schedule_grows_with_the_resolution_index():
     sched = L.wse_schedule(6, rule="dumeur", log2_n=10.0)
-    assert sched[1] == [(0, 8.0), (1, 9.0), (2, 10.0)]          # j = 2: j_r = 8, depth round(8^¼) = 2
+    assert sched[1] == [(0, 8.0), (1, 9.0)]                    # floor(8^¼) = 1
     assert sched[5] == [(0, 4.0), (1, 5.0)]                      # j = 6: j_r = 4, depth 1
     assert L.wse_schedule(2, rule="fixed", depth=2, width=1.5) == [[(0, 1.5), (1, 1.5), (2, 1.5)]] * 2
     with pytest.raises(ValueError):
         L.wse_schedule(2, rule="other")
+
+
+def test_dumeur_origin_neighborhood_matches_definition_2_2():
+    fine = np.arange(32.)
+    actual = L._window_max(fine, 1, 1., anchor="origin")
+    for k, value in enumerate(actual):
+        assert value == max(fine[(2*k+t) % 32] for t in range(-2, 3))
+
+
+def test_wse_fitting_samples_use_spatial_decimation_and_omega_normalization():
+    values = [np.arange(64.).reshape(8, 8)+1, np.ones((4, 4))]
+    valid = {name: [np.ones_like(x, bool) for x in values] for name in L.METHODS+("coefficients",)}
+    quantity = dict.fromkeys(L.METHODS, values)
+    samples = L.sample_sets(quantity, values, valid, [2., 4.], (16, 16),
+                            wse_schedule=[[(0, 2.)], [(0, 1.)]])
+    s = samples["sets"]["wse"]
+    assert s["decimation"] == [4, 2]
+    assert s["valid"][0].sum() == 4
+    t = L.tables(samples, [1.])["wse"]
+    # omega^d times the selected sum, without border loss.
+    assert 2**t["tau_qa"][0, 0] == pytest.approx(4*values[0][::4, ::4].sum())
 
 
 def test_an_impulse_coefficient_enters_exactly_the_leaders_whose_block_contains_it():
@@ -285,7 +306,7 @@ def test_fbm_reads_its_hurst_exponent_on_every_method(H):
 
 def test_the_dumeur_window_runs_wider_and_reads_fbm_within_a_tenth():
     r = L.run_leaders(fbm2d(1024, 0.5, seed=5), scale_min=4, scale_max=64, wse_rule="dumeur")
-    assert r["wse_schedule"][1] == [(0, 8.0), (1, 9.0), (2, 10.0)]
+    assert r["wse_schedule"][1] == [(0, 8.0), (1, 9.0)]
     assert r["valid_cells"]["wse"][1] < r["valid_cells"]["leaders"][1]
     assert abs(_c(r, "wse")["c1"] - 0.5) < 0.1
 

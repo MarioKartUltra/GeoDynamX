@@ -211,6 +211,7 @@ class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         self._dx_data = 1.0
         self.label = ""
         self._curve = QtGui.QPainterPath()
+        self._envelope = QtGui.QPainterPath()
         self._text = QtGui.QPainterPath()
         self._bracket = QtCore.QLineF()
         self._rect = QtCore.QRectF()
@@ -242,6 +243,8 @@ class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
                 parts.append(f"{text} {float(p.extra[key]):.3g} px")
         if np.isfinite(p.lambda_px):
             parts.append(f"λ* {p.lambda_px:.3g} px")
+        if p.envelope is not None:
+            parts.append("solid: Morlet section; dashed: ± envelope (Gaussian at q = 1)")
         if p.broad:
             parts.append("broad band")
         if p.off_ladder:
@@ -277,8 +280,17 @@ class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
             self._curve.moveTo(xs[0], ys[0])
             for xi, yi in zip(xs[1:], ys[1:]):
                 self._curve.lineTo(xi, yi)
+        self._envelope = QtGui.QPainterPath()
+        if p.envelope is not None and xs.size:
+            envelope = np.interp(self._curve_x_px, p.x_px, p.envelope)
+            for sign in (-1., 1.):
+                ey = sign * .5 * self._amplitude * envelope
+                self._envelope.moveTo(xs[0], ey[0])
+                for xi, yi in zip(xs[1:], ey[1:]):
+                    self._envelope.lineTo(xi, yi)
+        bounds = self._curve.boundingRect().united(self._envelope.boundingRect())
         # The bracket hangs under the curve's lowest point (a Gaussian never dips below its base).
-        y_bracket = (self._curve.boundingRect().bottom() if xs.size else 0.0) + BRACKET_GAP_PX
+        y_bracket = (bounds.bottom() if xs.size else 0.0) + BRACKET_GAP_PX
         half = 0.5 * p.lambda_px * k if np.isfinite(p.lambda_px) else 0.0
         self._bracket = QtCore.QLineF(-half, y_bracket, half, y_bracket)
         self._text = QtGui.QPainterPath()
@@ -286,7 +298,7 @@ class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         width = metrics.horizontalAdvance(self.label)
         self._text.addText(-0.5 * width, y_bracket + TICK_PX + metrics.ascent() + 2.0,
                            self._font, self.label)
-        rect = self._curve.boundingRect().united(self._text.boundingRect())
+        rect = bounds.united(self._text.boundingRect())
         rect = rect.united(QtCore.QRectF(-half, y_bracket - TICK_PX, 2 * half, 2 * TICK_PX))
         self._rect = rect.adjusted(-3.0, -3.0, 3.0, 3.0)
         self.update()
@@ -316,8 +328,13 @@ class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         for pen in _stroke_pens(self._style):
             pen.setCapStyle(QtCore.Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(QtCore.Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
             painter.setBrush(QtCore.Qt.BrushStyle.NoBrush)
+            if not self._envelope.isEmpty():
+                dashed = QtGui.QPen(pen)
+                dashed.setStyle(QtCore.Qt.PenStyle.DashLine)
+                painter.setPen(dashed)
+                painter.drawPath(self._envelope)
+            painter.setPen(pen)
             painter.drawPath(self._curve)
             if self._bracket.length() > 0:
                 painter.drawLine(self._bracket)
@@ -393,7 +410,8 @@ def _section(profile, k: float):
     the section's width on screen, never below CURVE_HEIGHT_PX."""
     x, psi = np.asarray(profile.x_px, dtype=np.float64), np.asarray(profile.psi, dtype=np.float64)
     peak = float(np.max(np.abs(psi))) if psi.size else 0.0
-    keep = np.abs(psi) >= TAIL_FRACTION * peak if peak > 0 else np.zeros(psi.shape, bool)
+    support = np.asarray(profile.envelope) if profile.envelope is not None else np.abs(psi)
+    keep = support >= TAIL_FRACTION * peak if peak > 0 else np.zeros(psi.shape, bool)
     if np.isfinite(profile.lambda_px):
         keep &= np.abs(x) <= CAP_LAMBDAS * profile.lambda_px
     xs = x[keep] * k

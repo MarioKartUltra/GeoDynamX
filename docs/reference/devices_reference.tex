@@ -1730,4 +1730,50 @@ wavelet or the sinc function.''
         \texttt{vec\_scales}. A vector-only derivative's raster is all-NaN on the same grid.
 \end{itemize}
 
+
+The wavelet ridge scalebar previews current q and width controls without running
+the analysis. Its solid curve is the real Morlet section; dashed curves bound its
+window (Gaussian at q=1, the corresponding q-envelope otherwise). The bracket
+continues to mark the carrier wavelength.
+
+Export provenance uses the landed computation identity and its captured numerical
+context. A changed recipe or source tree must be reconciled before a record can be
+written; a provenance refusal is reported alongside the data export. Derived raster
+records use the computed output and level. Marked levels remain export annotations.
+Cache hit/miss counters stay outside the scientific record.
+
+\section{Independent preparation and fitting controls}
+The \dev{dyadic\_interpolation} tool uses the four-point Deslauriers--Dubuc
+predictor, retains original nodes and refines their spacing. Fork its derivative
+before analysis on the new grid. The independent interpolating wavelet tools
+use either that predictor or a normalized GLDAF shell with a half-transpose
+lifting update; this local construction is biorthogonal, not an orthogonal DWT
+bank. Their reconstruction and thresholding do not feed leaders automatically.
+
+\dev{fractional\_integration} and WTMM's \texttt{integration\_order} apply a
+Fourier operator to the input field before analysis. Positive order smooths;
+negative order differentiates. \texttt{integration\_operator} selects Bessel
+(default) or Riesz; \texttt{integration\_length} sets the reference length in
+pixels (zero selects domain size divided by $2\pi$). Both preserve the mean.
+WTMM's \texttt{fracint\_alpha}, labelled coefficient lift $\eta$, instead
+multiplies wavelet coefficients by $a^\eta$. The fitter is seeded with the sum
+of input integration and coefficient lift, and subtracts that order when
+reporting exponents in the original frame. Bessel's low-frequency crossover
+and lacunary signals require care: a shift is not a universal inverse theorem.
+A global input integration precedes a fork before ROI analysis.
+
+Directional scaling's \texttt{alpha\_step} sets the anisotropy grid resolution.
+The Gamma estimator uses increasing-resolution indices and excludes unresolved
+coarse scaling crossovers; its finite fit remains an estimate. The legacy
+estimator remains selectable. Large deviations expose \texttt{h\_min} and
+\texttt{h\_max} for the histogram grid; adaptive tilted bins are labelled a
+heuristic and can miss nonconcave regions. Fixed epsilon sweeps are independent.
+The generalized Gaussian tool exposes its two moment grids and takes their
+finite-grid Legendre infimum rather than treating tilted means as a spectrum.
+
+The prototype transform's \texttt{normalise} and \texttt{n\_octaves} remain
+prototype controls, not scientific DAF settings. Preparation controls belong
+to their own tools. Inspector Apply actions reuse cached
+upstream coefficients when only moments, chaining or fit controls change.
+
 \end{document}

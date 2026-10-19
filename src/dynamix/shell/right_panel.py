@@ -710,6 +710,7 @@ class DevicePanel(QtWidgets.QWidget):
     knobs; an edit leaves as ``paramChanged`` and the window writes it through the step's own
     path, so this widget holds no param state of its own."""
     paramChanged = QtCore.Signal(str, object)
+    applyRequested = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -732,9 +733,33 @@ class DevicePanel(QtWidgets.QWidget):
         self._advanced.setHorizontalSpacing(10)
         self._advanced_host.setVisible(False)
         outer.addWidget(self._advanced_host)
+        self.work_label = QtWidgets.QLabel("")
+        self.work_label.setWordWrap(True)
+        self.work_label.setProperty("reading", "true")
+        outer.addWidget(self.work_label)
+        self.apply_button = QtWidgets.QPushButton("Apply analysis changes")
+        self.apply_button.clicked.connect(self.applyRequested.emit)
+        outer.addWidget(self.apply_button)
         self.controls: dict[str, QtWidgets.QWidget] = {}
         self._cells: dict[str, QtWidgets.QWidget] = {}
         self._names: tuple = ()
+        self._schema = {}
+        self._values = {}
+        self.set_actions({})
+        self.set_pending(False)
+
+    def set_actions(self, actions: dict) -> None:
+        """Explain downstream work without making a computing parameter view-only."""
+        self.work_label.setVisible(bool(actions))
+        self.apply_button.setVisible(bool(actions))
+        self.work_label.setText(" · ".join(dict.fromkeys(actions.values())) +
+                                ". Cached upstream stages are reused when available; "
+                                "other pending edits are applied together." if actions else "")
+        for name, control in self.controls.items():
+            control.setToolTip(actions.get(name, "Recompute analysis"))
+
+    def set_pending(self, pending: bool) -> None:
+        self.apply_button.setEnabled(pending)
 
     def _toggle_advanced(self, checked: bool) -> None:
         self._advanced_host.setVisible(checked)
@@ -743,6 +768,8 @@ class DevicePanel(QtWidgets.QWidget):
     def set_device(self, params, values: dict) -> bool:
         """Show ``params`` at ``values``, non-emitting. Returns True when the knobs were rebuilt
         (a new set of params), so the caller can protect the new widgets from the wheel."""
+        self._schema = {p.name: p for p in params}
+        self._values = dict(values)
         names = tuple(p.name for p in params)
         # A superseded (hidden) knob is drawn only while a recipe holds it, so which of them are
         # drawn is part of what the panel shows.
@@ -756,9 +783,11 @@ class DevicePanel(QtWidgets.QWidget):
         return rebuilt
 
     def set_values(self, values: dict) -> None:
+        self._values.update(values)
         for name, control in self.controls.items():
             if name in values:
                 control.set_value(values[name])
+            control.setEnabled(_applies(self._schema[name], self._values))
 
     def _build(self, params, values: dict) -> None:
         for cell in self._cells.values():

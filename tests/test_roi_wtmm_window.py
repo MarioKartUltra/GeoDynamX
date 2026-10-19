@@ -83,6 +83,33 @@ def test_wtmm2d_declares_its_coarsest_scales_halo_as_its_margin():
     assert WTMM2D().roi_margin(params) == want
 
 
+def test_region_q_and_chain_edits_reuse_cwt_even_with_more_voices_than_store_entries(source, monkeypatch):
+    from dynamix.devices.wtmm import WTMM2D
+    from dynamix.core.wtmm_backend import get_backend
+    from dynamix.engine.cache import StageStore
+    from dynamix.roi.runner import run_on_region
+
+    backend = get_backend("python")
+    original = type(backend).cwt2d
+    calls = []
+    def counted(self, *args, **kwargs):
+        calls.append(1)
+        return original(self, *args, **kwargs)
+    monkeypatch.setattr(type(backend), "cwt2d", counted)
+    p = {**_params(), "n_voice": 6}
+    store = StageStore(maxsize=8)
+    roi = (30, 34, 24, 28)
+    field, dev = _picture(source), WTMM2D()
+    run_on_region([(dev, p)], field, roi, stage_cache=store)
+    first = len(calls)
+    assert first > 8
+    edited = {**p, "q_step": 1., "box_ratio": 1.5}
+    got = run_on_region([(dev, edited)], field, roi, stage_cache=store)
+    assert len(calls) == first
+    fresh = run_on_region([(dev, edited)], field, roi)
+    np.testing.assert_allclose(got["hd_std"]["tau_qa"], fresh["hd_std"]["tau_qa"], equal_nan=True)
+
+
 def test_dither_is_honoured_on_an_roi_run(source):
     """Final review: wtmm2d's dither knob was silently ignored on ROI runs -- a
     retune that recomputes and changes nothing. The window is dithered like a whole field."""

@@ -395,6 +395,10 @@ def _eta_note_of(result: dict) -> tuple:
     leaders' γ lifts the DWT coefficients by 2^{γj} the same way."""
     params = result.get("params") or {}
     alpha = float(params.get("fracint_alpha", 0.0))
+    integrated = float(result.get("_integration_order", 0.0))
+    if integrated:
+        lift = alpha or (float(params.get("gamma", 0.0)) if isinstance(result.get("samples"), dict) else 0.)
+        return integrated+lift, f"input Fourier integration s = {integrated:g}; coefficient lift = {lift:g}; total shift {integrated+lift:g}"
     if alpha != 0.0:
         where = "WT derivs (tensor)" if params.get("mode") == "tensor" else "|∇W| (scalar)"
         return alpha, f"forward lift: a^{alpha:g} on {where}"
@@ -1440,6 +1444,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # is selected, routed through the same param path the box's own knobs take.
         self._device_panel = DevicePanel()
         self._device_panel.paramChanged.connect(self._on_inspector_param_changed)
+        self._device_panel.applyRequested.connect(self._run_transforms)
         self.right_panel.add_section("Device", self._device_panel, first=True).setVisible(False)
         self._inspected_step: int | None = None
         self.right_panel.apply_relevance({_RECON_TITLE: False})
@@ -1572,12 +1577,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # lines and every maximum, the leaders' sets).
         self._ld_button = QtWidgets.QPushButton("Large deviations…")
         self._ld_button.clicked.connect(self._on_ld_button_clicked)
+        self._generalized_button = QtWidgets.QPushButton("Generalized spectrum…")
+        self._generalized_button.clicked.connect(self._on_generalized_button_clicked)
+        self._generalized_window = None
         self._structure_window = self._cumulants_window = self._ld_window = None
         #: The latest fit each fitting window published, by its name.
         self._published_fits: dict = {}
         spectrum_lay.addWidget(self._structure_button)
         spectrum_lay.addWidget(self._cumulants_button)
         spectrum_lay.addWidget(self._ld_button)
+        spectrum_lay.addWidget(self._generalized_button)
         # WTMMM angle statistics (Arneodo, Decoster & Roux 2000): P_a(A) across scales, the
         # gradient plane, M per angle sector -- pixel frame or bearings.
         self._anisotropy_button = QtWidgets.QPushButton("Directional roughness (WTMMM)…")
@@ -3534,6 +3543,7 @@ both ``Canvas`` signals report the
             "c₁..c₄: one regression per cumulant of ln ℓ, each on its own range, over a per-level sample set"
             if sets else needs)
         self._ld_button.setEnabled(sets)
+        self._generalized_button.setEnabled(sets)
         self._ld_button.setToolTip(
             "The large-deviation spectrum counted on a per-level sample set: the local exponents' histograms "
             "per scale, the adaptive bins or a fixed-ε sweep" if sets else needs)
@@ -3552,7 +3562,7 @@ both ``Canvas`` signals report the
         if previous is not None:
             previous.close()
         levels = (result.get("record") or {}).get("levels") or {}
-        window = cls(result["samples"], gamma=float((result.get("params") or {}).get("gamma", 0.0)),
+        window = cls(result["samples"], gamma=_eta_note_of(result)[0],
                      levels=(levels.get("j_min"), levels.get("J")) if levels else None,
                      source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a())
         window.fitChanged.connect(self._on_fit_published)
@@ -3570,7 +3580,7 @@ both ``Canvas`` signals report the
         from dynamix.shell.log_cumulants_window import LogCumulantsWindow
 
         params = (self._active_result or {}).get("params") or {}
-        gamma = float(params.get("gamma", 0.0)) if isinstance((self._active_result or {}).get("samples"), dict) else 0.0
+        gamma = _eta_note_of(self._active_result or {})[0]
         self._open_sets_window("_cumulants_window", LogCumulantsWindow, gamma=gamma)
 
     def _open_sets_window(self, attr: str, cls, **extra) -> None:
@@ -3600,12 +3610,21 @@ both ``Canvas`` signals report the
         result = self._active_result or {}
         self._open_sets_window("_ld_window", LargeDeviationsWindow, log2_L=self._log2_extent(result))
 
+    def _on_generalized_button_clicked(self) -> None:
+        from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
+
+        result = self._active_result or {}
+        self._open_sets_window("_generalized_window", GeneralizedSpectrumWindow, log2_L=self._log2_extent(result))
+
     def _on_fit_published(self, fit) -> None:
         """A fitting window's fit, kept by name (the latest of each) and handed to an open
         construction window, where the methods' spectra are compared."""
         if not fit:
             return
-        self._published_fits[fit["name"]] = fit
+        if fit.get("valid") is False:
+            self._published_fits.pop(fit["name"], None)
+        else:
+            self._published_fits[fit["name"]] = fit
         win = self._spectrum_construction_window
         if win is not None and win.isVisible():
             win.set_fits(list(self._published_fits.values()))
@@ -4426,6 +4445,16 @@ both ``Canvas`` signals report the
         # layer.name untouched; restored with the raw field below.
         if h_map is not None and self.field is not None and self.layer is not None \
                 and self.layer.visible and not self._is_point_layer(self.layer):
+            if self._holder_raster_ref is not None and self._holder_raster_ref[0] == id(h_map):
+                # The same pixels can land again with a new applied selection. Keep
+                # their runtime identity current without rebuilding the displayed raster.
+                held = self._derived_fields.get(self.layer.layer_id)
+                if held is not None:
+                    from dynamix.engine.execution import attach
+                    self._derived_fields[self.layer.layer_id] = attach(held,
+                        _landed=result.get("_landed"), _execution=result.get("_execution", []),
+                        _output_identity=result.get("_output_identity"),
+                        _output_execution=result.get("_output_execution", []))
             if self._holder_raster_ref is None or self._holder_raster_ref[0] != id(h_map):
                 derived = self._strided_display_field(result, h_map)
                 if derived is None:
@@ -4447,6 +4476,9 @@ both ``Canvas`` signals report the
                             derived,
                             x_axis=axis_at(derived.x_axis, np.arange(len(derived.x_axis)) + dx),
                             y_axis=axis_at(derived.y_axis, np.arange(len(derived.y_axis)) + dy))
+                    from dynamix.engine.execution import attach
+                    derived = attach(derived, **{key: result[key] for key in
+                        ("_landed", "_execution", "_output_identity", "_output_execution") if key in result})
                     self._derived_fields[self.layer.layer_id] = derived
                 if offset is not None:
                     # The canvas places a raster by pixel index, so the copy it draws carries
@@ -4985,6 +5017,13 @@ both ``Canvas`` signals report the
         self._inspected_step = i
         if self._device_panel.set_device(params, values):
             self.right_panel.protect_from_wheel(self._device_panel)
+        actions = getattr(device, "inspector_actions", {})
+        if actions and (self.layer.tags.get("roi.window") or
+                        values.get("edge") in ("gaussian_taper", "daf_periodic")):
+            actions = dict.fromkeys(actions, "Reuse ROI / boundary CWT; rebuild maxima and chains")
+        self._device_panel.set_actions(actions)
+        self._device_panel.set_pending(self.layer is not None and
+                                       self.layer.layer_id in self._pending_layers)
         self.right_panel.set_section_title("Device", f"Device: {label_of(device)}")
         self.right_panel.apply_relevance({"Device": bool(shown)})
 
@@ -5836,7 +5875,9 @@ both ``Canvas`` signals report the
             note = output.label or output.name
             if output.per_level and "scale_px" in (value.get("diag") or {}):
                 note = f"{note} · {float(value['diag']['scale_px']):g} px"
-            out = {**result, "raster_out": value["raster"], "_view_note": note}
+            out = {**result, "raster_out": value["raster"], "_view_note": note,
+                   "_output_identity": value.get("_output_identity"),
+                   "_output_execution": value.get("_execution", [])}
             if output.grid == "stride":
                 out["_display_stride"] = int(value["display_stride"])
                 out["_full_dims"] = tuple(value["full_dims"])
@@ -7256,15 +7297,25 @@ both ``Canvas`` signals report the
         show its provenance also names the step's output (``<device>/<output>``), the level
         shown and the levels marked for figures (0-based, the ``ui.scale_idx`` numbering)."""
         dfield = self._derived_fields.get(layer.layer_id)
+        active = self._active_field
+        if active is not None and active[0] == layer.layer_id and not self._active_result:
+            dfield = active[1]
         if dfield is None:
             return None
         step, outputs = layer_outputs(layer, self._layer_input(layer))
         name = shown_output(step, outputs)
-        if not any(o.name == name and o.per_level for o in outputs):
-            return dfield
-        return dataclasses.replace(dfield, provenance={
-            **(dfield.provenance or {}), "output": f"{step.device}/{name}",
-            "level": row_level(layer), "marked_levels": list(marked_levels(layer, name))})
+        identity = dfield.provenance.get("_output_identity")
+        lazy = any(o.name == name and o.lazy for o in outputs)
+        if lazy:
+            if not identity or identity["key"] != self._displayed_output_key(layer):
+                return None
+            return dataclasses.replace(dfield, provenance={
+                **dfield.provenance, "output": f"{step.device}/{identity['name']}",
+                **({"level": identity["level"], "marked_levels": list(marked_levels(layer, name))}
+                   if identity["level"] is not None else {})})
+        if identity:
+            return None  # the selected native product has not replaced the lazy raster yet
+        return dfield
 
     def _chain_export_blocker(self) -> str | None:
         """Why the export cannot run right now, or None -- split from the click handler so the
@@ -7305,7 +7356,7 @@ both ``Canvas`` signals report the
             racks = [d.get("rack") for d in recipe if not d.get("bypassed")]
         return racks if len(racks) == len(layer.chain.steps) else None
 
-    def _write_provenance(self, path, export: str, print_params=None) -> str:
+    def _write_provenance(self, path, export: str, print_params=None, *, repeat=False) -> str:
         """Write the .gprv record of the active layer's export at ``path`` beside it
         (:mod:`dynamix.engine.gprv_export`); returns the status-line tail. A record that cannot be
         written never fails the export: the tail says why."""
@@ -7316,16 +7367,29 @@ both ``Canvas`` signals report the
         try:
             from dynamix.engine.gprv_export import write_record
 
+            from dynamix.engine.execution import metadata
+            from dynamix.engine.gprv_export import _sha256_file
+            product = (self._derived_export_field(self.layer) if export == "derived_npz"
+                       else self._active_result)
+            proof = metadata(product)
+            guard = {"sha256": _sha256_file(path), "landed": proof.get("_landed"),
+                     "output": proof.get("_output_identity"), "print": print_params}
+            previous = getattr(self, "_last_export_guards", {}).get(self.layer.layer_id)
+            if repeat and (previous is None or previous != (str(path), export, guard)):
+                raise ValueError("the earlier exported file or its computation has changed; export again")
             record = write_record(self.project, self.layer, path, export=export,
                                   layer_input=self._layer_input(self.layer),
-                                  racks=self._racks_of(self.layer), result=self._active_result,
-                                  print_params=print_params)
+                                  racks=self._racks_of(self.layer), result=product,
+                                  level=shown_level(self.layer), print_params=print_params)
         except ImportError:
             return (" · no provenance record: the gprv library is not installed "
                     "(pip install '.[provenance]')")
         except Exception as exc:                                  # noqa: BLE001
             return f" · no provenance record: {exc}"
         self._last_export[self.layer.layer_id] = (str(path), export, print_params)
+        if not hasattr(self, "_last_export_guards"):
+            self._last_export_guards = {}
+        self._last_export_guards[self.layer.layer_id] = (str(path), export, copy.deepcopy(guard))
         return f" · provenance {Path(record).name}"
 
     def _on_write_provenance(self) -> None:
@@ -7337,7 +7401,7 @@ both ``Canvas`` signals report the
                          "status")
             return
         path, export, print_params = last
-        self._notify(f"{Path(path).name}{self._write_provenance(path, export, print_params)}",
+        self._notify(f"{Path(path).name}{self._write_provenance(path, export, print_params, repeat=True)}",
                      "status")
 
     def _notify(self, msg: str, tier: str = "status") -> None:
@@ -7557,6 +7621,7 @@ both ``Canvas`` signals report the
     def _apply_pending_ui(self) -> None:
         pending = self.layer is not None and self.layer.layer_id in self._pending_layers
         self.run_button.setEnabled(pending)
+        self._device_panel.set_pending(pending)
         if pending:
             self._set_transform_states("pending")
 
@@ -7938,6 +8003,7 @@ both ``Canvas`` signals report the
         self._names, self._params, self._bypassed, self._rack = names, params, bypassed, rack
         self.layer.chain = chain
         self._snapshot_recipe()
+        self._feed_live_ridge_bar()
         # Master-row collapse follows the chain: a first step on a lone master un-hides its
         # row; emptying it back re-collapses.
         self.layer_list.refresh_master_rows()
@@ -8185,6 +8251,7 @@ both ``Canvas`` signals report the
         # cached one rides a copy of the result as its raster_out, so the display, the fork and
         # the row name all read it; a missing one is requested as a job.
         result = self._show_lazy_output(renderable, result)
+        self._active_field = None
         self._active_result = result
         self._active_result_owner = self.layer.layer_id if self.layer is not None else None
         if self.layer is not None:
@@ -9676,9 +9743,31 @@ both ``Canvas`` signals report the
         shown = int(np.clip(shown, 0, len(profiles) - 1))
         return profiles, (label(profiles[0]), label(profiles[-1])), shown
 
+    def _feed_live_ridge_bar(self) -> None:
+        """Preview the ridge wavelet from current knobs without rerunning the ridge search."""
+        if self.layer is None:
+            return
+        for i, name in enumerate(self._names):
+            if name == "wavelet_ridge" and not self._bypassed[i]:
+                break
+        else:
+            return
+        device = get_device(name)
+        params = validate_params(device, dict(self._params[i]))
+        ladder = device._scales(params)
+        level = shown_level(self.layer)
+        idx = int(np.clip(level if level is not None else 0, 0, len(ladder)-1))
+        profile = device.wavelet_profile(params, float(ladder[idx]), idx)
+        self._bar_device = (name, params)
+        self._wavelet_bar_state = (profile, self._bar_label(profile))
+        self.canvas.set_wavelet_profile(*self._canvas_bar_state())
+        self._feed_map_bar()
+        self.transport.sync_to(self.transport.clock.index)
+
     def _feed_cascade(self) -> None:
         """The Raster canvas's wavelet cascade follows the active layer's rack and its Display
         toggle."""
+        self._feed_live_ridge_bar()
         if self.layer is None or not _display_style_of(self.layer).get("wavelet_cascade", True):
             self.canvas.set_wavelet_cascade([], ("", ""), 0)
             return

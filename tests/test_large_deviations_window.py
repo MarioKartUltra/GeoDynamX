@@ -57,3 +57,30 @@ def test_a_set_whose_scales_reach_the_extent_is_refused_in_the_readout_not_a_cra
     assert window.current_fit() is None and "below the field extent" in window.readout.text()
     with pytest.raises(ValueError):
         LargeDeviationsWindow({"empty": {"mods": [], "scales": None}})
+
+
+def test_fixed_grid_controls_apply_and_invalid_settings_retract_the_fit(qtbot):
+    sets, _, _ = _per_scale_set()
+    window = LargeDeviationsWindow(sets, log2_L=7.)
+    qtbot.addWidget(window)
+    assert not window.hstep_spin.isEnabled() and window.qstep_spin.isEnabled()
+    window.rule_combo.setCurrentText(LD_RULES[1])
+    assert window.hstep_spin.isEnabled() and not window.qstep_spin.isEnabled()
+    published = []
+    window.fitChanged.connect(published.append)
+    window.hmin_spin.setValue(.2)
+    window.hmax_spin.setValue(.8)
+    window.hstep_spin.setValue(.05)
+    window.apply_grid_button.click()
+    np.testing.assert_allclose(window.current_fit()["h_grid"], np.arange(.2, .801, .05))
+    original = window.current_fit()["D"].copy()
+    for spin, eps in zip(window.eps_spins, (.025, .1, .05)):
+        spin.setValue(eps)
+    window.apply_grid_button.click()
+    np.testing.assert_allclose(window.current_fit()["D"], original)
+    window.eps_spins[1].setValue(window.eps_spins[0].value())
+    window.apply_grid_button.click()
+    assert window.current_fit() is None
+    assert published[-1]["valid"] is False
+    assert "distinct" in window.readout.text()
+    assert all(curve.xData is None or len(curve.xData) == 0 for curve in window.curves)

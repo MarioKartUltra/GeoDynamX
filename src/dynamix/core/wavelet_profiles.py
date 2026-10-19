@@ -33,6 +33,7 @@ class Profile:
     off_ladder: bool = False  # a fine dyadic level whose own constant is off the asymptotic one
     broad: bool = False       # half-max band wider than 4 octaves
     extra: dict = dataclasses.field(default_factory=dict)
+    envelope: np.ndarray | None = None  # optional positive window on the same x grid
 
 
 def format_length(value: float, unit: str) -> str:

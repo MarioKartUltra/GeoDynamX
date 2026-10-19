@@ -194,7 +194,7 @@ def test_derived_primaries_are_the_table_plus_the_decompositions(builtins):
 
     derived = {n for n in DEVICES if is_primary(get_device(n))}
     assert derived == set(_PRIMARY_ANALYZERS) | {"pca", "tucker_HOOI_HOSVD", "tucker_havok",
-                                                  "ssa2d", "dwt2d", "inpaint"}
+                                                  "ssa2d", "dwt2d", "inpaint", "interpolating_wavelets"}
 
 
 def test_derived_shipping_is_the_table_apart_from_the_readers_of_chains_and_alpha(builtins):
