@@ -821,3 +821,20 @@ def test_named_tables_fill_the_table_choice_in_their_order(qtbot):
     lone = MultifractalWindow(hd_std, hd_std, kind="structure", tables={"leaders": hd_std})
     qtbot.addWidget(lone)
     assert lone._one_table and lone._current_hd() is hd_std
+
+
+def test_the_fitter_publishes_its_fit_in_the_shared_schema_on_every_refit(qtbot):
+    hd_std, hd_cmax = _pair()
+    window = MultifractalWindow(hd_std, hd_cmax, source="canonical (Arneodo WTMM) · L1")
+    qtbot.addWidget(window)
+    published = []
+    window.fitChanged.connect(published.append)
+    window._region.setRegion((1.0, 5.0))
+    fit = published[-1]
+    assert fit["name"] == "canonical (Arneodo WTMM) · L1 · no-sup (std)" and fit["kind"] == "partition functions"
+    expect = spectra.fit_spectra(hd_std, 1.0, 5.0)
+    np.testing.assert_allclose(fit["tau"], expect["tau"])
+    np.testing.assert_allclose(fit["h"], expect["h"]) and np.testing.assert_allclose(fit["D"], expect["D"])
+    np.testing.assert_allclose(fit["hull"]["D"], spectra.legendre_dh(fit["q"], expect["tau"])["D"], equal_nan=True)
+    np.testing.assert_allclose(fit["cq"], spectra.specific_heat(fit["q"], expect["tau"]), equal_nan=True)
+    assert window.published_fit()["name"] == fit["name"]

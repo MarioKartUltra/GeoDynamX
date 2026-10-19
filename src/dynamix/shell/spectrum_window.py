@@ -37,6 +37,12 @@ at construction. The scale window can also be DRIVEN by an open MultifractalWind
 (``set_scale_window`` -- main_window connects the fitter's ``scaleWindowChanged``), the
 workbook's cell-49-inherits-cell-47 coupling.
 
+**The methods compared.** Under D(h), three panels, τ(q), h(q) and c(q): every fit a method's
+fitting tool publishes (the WTMM fitter's partition functions, the wavelet leaders' structure
+functions, their log-cumulant expansion) is drawn on all four panels in its own hue, named in the
+legend, so the spectra of different methods are read against each other here and fitted each in
+its own tool (``set_fits``).
+
 **Lifecycle** is main_window's, the SkeletonDialog pattern: fresh window per click, previous
 one closed first, parented to the main window.
 """
@@ -48,8 +54,8 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import chain_groups, spectra
 from dynamix.shell.gc_guard import weak_method
-from dynamix.shell.multifractal_window import (Q_COLD, Q_WARM, TABLE_CHOICES, WheelAxisViewBox,
-                                                add_zero_lines)
+from dynamix.shell.multifractal_window import (_SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
+                                                WheelAxisViewBox, add_zero_lines)
 from dynamix.shell.theme import current
 
 #: The large-deviation bin rules: the adaptive (Barral–Gonçalves) bins, or a fixed-ε sweep.
@@ -75,8 +81,11 @@ class SpectrumWindow(QtWidgets.QDialog):
                  log2_L: "float | None" = None, parent=None, all_tables=None,
                  filter_note: str = "", dh_curves=None, gh_field=None,
                  source: str = "canonical (Arneodo direct)", kind: str = "partition",
-                 per_scale: "dict | None" = None, tables: "dict | None" = None):
+                 per_scale: "dict | None" = None, tables: "dict | None" = None, fits=None):
         super().__init__(parent, QtCore.Qt.Window)
+        #: The published fits of the methods' fitting tools, by name; their items by name.
+        self._fits: dict = {}
+        self._fit_items: dict = {}
         #: Per-scale sets of moduli for the large-deviation route and the Gaussian ensemble:
         #: name -> {"mods": [per scale], "scales": px, "weights": per-scale count factors or None}.
         self._per_scale = {k: v for k, v in (per_scale or {}).items()
@@ -140,12 +149,53 @@ class SpectrumWindow(QtWidgets.QDialog):
 
         self._build_ui(eta_seed, forward_note)
         self._recompute()
+        self.set_fits(fits or [])
 
     # -- public -----------------------------------------------------------------------------
     def current_fit(self) -> dict | None:
         """The latest full-q :func:`~dynamix.core.spectra.fit_spectra` result (None when the
         window is histogram-only)."""
         return self._fit
+
+    def set_fits(self, fits) -> None:
+        """The methods' published fits to draw on the four panels: each ``{"name", "q", "tau",
+        "h", "D", "cq", "hull"?}``; a name already drawn is redrawn, one no longer listed is
+        removed."""
+        wanted = {f["name"]: f for f in fits}
+        for name in [n for n in self._fit_items if n not in wanted]:
+            gone = self._fit_items.pop(name).values()
+            for item in gone:
+                self._plot.removeItem(item)
+                for plot in self.method_plots.values():
+                    plot.removeItem(item)
+            self._legend_entries = [(it, n) for it, n in self._legend_entries if it not in gone]
+        for i, (name, fit) in enumerate(wanted.items()):
+            if name not in self._fit_items:
+                hue = _SOURCE_HUES[len(self._fit_items) % len(_SOURCE_HUES)]
+                pen = pg.mkPen(hue, width=1.4)
+                items = {k: pg.PlotDataItem(pen=pen, connect="finite", symbol="o", symbolSize=3,
+                                            symbolPen=None, symbolBrush=hue) for k in ("tau", "h", "cq")}
+                items["D"] = pg.PlotDataItem(pen=pen, connect="finite", symbol="o", symbolSize=3,
+                                             symbolPen=None, symbolBrush=hue)
+                items["hull"] = pg.PlotDataItem(pen=pg.mkPen(hue, width=1.0, style=QtCore.Qt.DashLine),
+                                                connect="finite")
+                for k in ("tau", "h", "cq"):
+                    self.method_plots[k].addItem(items[k])
+                self._plot.addItem(items["D"])
+                self._plot.addItem(items["hull"])
+                self._fit_items[name] = items
+                self._legend_entries.append((items["D"], lambda n=name: n))
+                self._legend_entries.append((items["hull"], lambda n=name: f"{n} (Legendre of τ)"))
+            items = self._fit_items[name]
+            q = np.asarray(fit["q"], dtype=np.float64)
+            items["tau"].setData(q, np.asarray(fit["tau"], dtype=np.float64))
+            items["h"].setData(q, np.asarray(fit["h"], dtype=np.float64))
+            items["cq"].setData(q, np.asarray(fit["cq"], dtype=np.float64))
+            items["D"].setData(np.asarray(fit["h"], dtype=np.float64), np.asarray(fit["D"], dtype=np.float64))
+            hull = fit.get("hull")
+            items["hull"].setData(np.asarray(hull["h"]) if hull else [], np.asarray(hull["D"]) if hull else [])
+        self._fits = wanted
+        self._sync_legend()
 
     def current_grouping(self) -> "np.ndarray | None":
         """The latest dominant/non-dominant membership, or None without chains."""
@@ -408,9 +458,21 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
-        self._plot = self._glw.addPlot(viewBox=WheelAxisViewBox())   # wheel: x; Shift: y
+        self._plot = self._glw.addPlot(row=0, col=0, colspan=3, viewBox=WheelAxisViewBox())   # wheel: x; Shift: y
         self._plot.setLabel("bottom", "h")
         self._plot.setLabel("left", "D(h)")
+        # The methods compared: their published τ(q), h(q) and c(q) under D(h) (set_fits).
+        self.method_plots = {}
+        for col, (name, ylabel) in enumerate((("tau", "τ(q)"), ("h", "h(q)"), ("cq", "c(q) = −q² τ″"))):
+            plot = self._glw.addPlot(row=1, col=col, viewBox=WheelAxisViewBox())
+            plot.setLabel("bottom", "q")
+            plot.setLabel("left", ylabel)
+            plot.getAxis("left").enableAutoSIPrefix(False)
+            add_zero_lines(plot)
+            self.method_plots[name] = plot
+        self._plot.getAxis("bottom").enableAutoSIPrefix(False)
+        self._glw.ci.layout.setRowStretchFactor(0, 3)
+        self._glw.ci.layout.setRowStretchFactor(1, 2)
         self._legend = self._plot.addLegend(offset=(10, 10))
         add_zero_lines(self._plot)
         # The D(h) tangent at the phase transition off the current fit (the automatic q_c of

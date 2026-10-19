@@ -661,6 +661,32 @@ def cumulants_from_moments(moments, scales_px, log2_a_min: float, log2_a_max: fl
     return out
 
 
+def cumulant_regression(moments, scales_px, log2_a_min: float, log2_a_max: float, order: int) -> dict:
+    """One log-cumulant on its own range: C_order(a) regressed on ln a over the scales inside the
+    window, with the cascade sign of :func:`cumulants_from_moments` (c₁ = +slope, c₂ = −slope,
+    c₃ = +slope, c₄ = −slope): ``c``, its standard error ``sigma`` from the residuals (n − 2
+    degrees of freedom; NaN below three scales), ``r2``, ``n`` (the scales fitted) and the raw
+    ``slope`` and ``intercept`` of the line against ln a. NaN throughout below two scales."""
+    C = np.asarray(moments, dtype=np.float64)[order - 1]
+    ln_a = np.log(np.asarray(scales_px, dtype=np.float64))
+    ln2 = np.log(2.0)
+    lo, hi = sorted((float(log2_a_min) * ln2, float(log2_a_max) * ln2))
+    valid = np.isfinite(C) & (ln_a >= lo) & (ln_a <= hi)
+    n = int(valid.sum())
+    out = {"c": np.nan, "sigma": np.nan, "r2": np.nan, "n": n, "slope": np.nan, "intercept": np.nan}
+    if n < 2:
+        return out
+    x, y = ln_a[valid], C[valid]
+    slope, intercept = np.polyfit(x, y, 1)
+    res = y - (slope * x + intercept)
+    ss_tot = float(((y - y.mean()) ** 2).sum())
+    out.update(c=(1.0, -1.0, 1.0, -1.0)[order - 1] * float(slope), slope=float(slope),
+               intercept=float(intercept), r2=1.0 - float((res ** 2).sum()) / max(ss_tot, 1e-30))
+    if n >= 3:
+        out["sigma"] = float(np.sqrt((res ** 2).sum() / (n - 2) / ((x - x.mean()) ** 2).sum()))
+    return out
+
+
 def cumulant_tau(cumulants: dict, q_list, *, c0: float = 0.0) -> np.ndarray:
     """tau(q) from the cascade's cumulants, tau = -c0 + c1 q - c2 q²/2 + c3 q³/6 - c4 q⁴/24
     (the workbook's reconstruction), with c0 the support's dimension (-tau(0))."""

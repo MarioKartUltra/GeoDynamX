@@ -1,0 +1,51 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""The per-level sample sets of a result (:mod:`dynamix.model.samples`): the WTMM's maxima
+lines and every maximum, the ``Samples`` contract's sets flattened over their valid cells with
+the count factor the border costs."""
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from dynamix.model.samples import sample_sets
+
+
+def _chains(scales):
+    def chain(mods):
+        mod = np.asarray(mods, dtype=np.float64)
+        k = mod.size
+        with np.errstate(divide="ignore"):
+            lm = np.log2(np.abs(mod))
+        return {"x": np.zeros(k, dtype=np.int64), "y": np.arange(k, dtype=np.int64),
+                "mod": mod, "log2_mod": lm, "log2_scales": np.log2(scales)[:k]}
+    return [chain([8.0, 6.0, 9.0, 7.0]), chain([0.5, 0.4, 0.3, 0.2]),
+            chain([2.0, 1.5]), chain([3.0, 2.5, 2.0, 1.5])]
+
+
+def test_a_wtmm_result_offers_its_maxima_lines_and_every_maximum():
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    extrema = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]
+    sets = sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {}})
+    assert list(sets) == ["maxima lines", "every maximum"]
+    assert [len(m) for m in sets["maxima lines"]["mods"]] == [4, 4, 3, 3]       # chains alive per scale
+    assert sets["maxima lines"]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
+    assert [len(m) for m in sets["every maximum"]["mods"]] == [3, 3, 3, 3]
+    assert sets["every maximum"]["weights"] is None
+
+
+def test_the_samples_contract_flattens_over_the_valid_cells_with_the_count_factor():
+    valid = [np.ones((8, 8), bool), np.ones((4, 4), bool)]
+    valid[1][0, 0] = False
+    coef_valid = [np.ones((8, 8), bool), np.ones((4, 4), bool)]
+    samples = {"scales": np.array([2.0, 4.0]), "cells": [64, 16], "d": 2,
+               "sets": {"leaders": {"values": [np.full((8, 8), 2.0), np.full((4, 4), 4.0)], "valid": valid},
+                        "coefficients": {"values": [np.ones((3, 8, 8)), np.ones((3, 4, 4))],
+                                         "valid": coef_valid, "positive_only": True}}}
+    sets = sample_sets({"scales": samples["scales"], "samples": samples, "params": {"gamma": 1.0}})
+    assert list(sets) == ["leaders", "coefficients"]
+    assert [len(m) for m in sets["leaders"]["mods"]] == [64, 15]
+    assert sets["leaders"]["weights"] == pytest.approx([1.0, 16 / 15])
+    assert [len(m) for m in sets["coefficients"]["mods"]] == [192, 48]        # three bands per cell
+    assert sets["coefficients"]["weights"] == pytest.approx([64 / 192, 16 / 48])
+    assert sample_sets({"params": {}}) == {} and sample_sets(None) == {}

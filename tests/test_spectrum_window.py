@@ -428,31 +428,13 @@ def test_kink_bands_shade_the_jump_in_h_and_clear(qtbot):
     assert bare.kink_check is None and bare.ld_check is None
 
 
-def test_the_main_window_builds_the_per_scale_sets_and_seeds_gamma_from_a_leaders_result():
-    from dynamix.shell.main_window import _eta_note_of, _per_scale_sets
+def test_the_main_window_seeds_gamma_from_a_leaders_result():
+    from dynamix.shell.main_window import _eta_note_of
 
-    scales = np.array([2.0, 4.0, 8.0, 16.0])
-    chains = _chains(scales)
-    extrema = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]
-    wtmm = {"scales": scales, "chains": chains, "extrema": extrema, "params": {"fracint_alpha": 0.0}}
-    sets = _per_scale_sets(wtmm)
-    assert list(sets) == ["maxima lines", "every maximum"]
-    assert [len(m) for m in sets["maxima lines"]["mods"]] == [4, 4, 3, 3]       # chains alive per scale
-    assert sets["maxima lines"]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
-    assert [len(m) for m in sets["every maximum"]["mods"]] == [3, 3, 3, 3]
-    quantity = {"leaders": [np.full((8, 8), 2.0), np.full((4, 4), 4.0)], "wse": [np.ones((8, 8)), np.ones((4, 4))]}
-    valid = {"leaders": [np.ones((8, 8), bool), np.ones((4, 4), bool)],
-             "wse": [np.zeros((8, 8), bool), np.ones((4, 4), bool)]}
-    valid["leaders"][1][0, 0] = False
-    leaders = {"scales": np.array([2.0, 4.0]), "_quantity": quantity, "_valid": valid, "_shape": (16, 16),
-               "_h_cells": {}, "params": {"gamma": 1.0}}
-    sets = _per_scale_sets(leaders)
-    assert list(sets) == ["leaders", "WSE leaders"]
-    assert [len(m) for m in sets["leaders"]["mods"]] == [64, 15]
-    assert sets["leaders"]["weights"] == pytest.approx([1.0, 16 / 15])
+    leaders = {"params": {"gamma": 1.0}, "samples": {}}                    # the Samples contract names the tool
     assert _eta_note_of(leaders) == (1.0, "forward lift: 2^(γj) on the DWT coefficients, γ = 1")
-    assert _eta_note_of(wtmm) == (0.0, "forward lift: none (η = 0)")
-    assert _per_scale_sets({"params": {}}) == {}
+    assert _eta_note_of({"params": {"gamma": 1.0}}) == (0.0, "forward lift: none (η = 0)")
+    assert _eta_note_of({"params": {"fracint_alpha": 0.0}}) == (0.0, "forward lift: none (η = 0)")
 
 
 def test_named_tables_fill_the_construction_windows_choice(qtbot):
@@ -464,3 +446,30 @@ def test_named_tables_fill_the_construction_windows_choice(qtbot):
     lone = SpectrumWindow(hd_std, hd_std, tables={"leaders": hd_std})
     qtbot.addWidget(lone)
     assert lone._one_table
+
+
+def test_the_methods_published_fits_are_drawn_on_the_four_panels_and_named(qtbot):
+    """A fit a method's tool publishes lands on τ(q), h(q), c(q) and D(h) (points and the
+    Legendre hull) in its own hue, named in the legend; a redraw replaces it, dropping the name
+    removes it."""
+    q = np.arange(-2.0, 4.01, 0.5)
+    fit = {"name": "L1 · leaders", "kind": "structure functions", "q": q, "tau": 0.5 * q - 2,
+           "h": np.full(q.size, 0.5), "D": np.full(q.size, 2.0), "cq": np.zeros(q.size),
+           "hull": {"h": np.array([0.5, 0.5]), "D": np.array([2.0, 2.0])}}
+    window = SpectrumWindow(h_map=_h_map(), fits=[fit])
+    qtbot.addWidget(window)
+    assert set(window.method_plots) == {"tau", "h", "cq"}
+    items = window._fit_items["L1 · leaders"]
+    np.testing.assert_allclose(items["tau"].getData()[1], 0.5 * q - 2)
+    np.testing.assert_allclose(items["D"].getData()[0], 0.5)
+    assert items["tau"] in window.method_plots["tau"].listDataItems() and items["D"] in window._plot.listDataItems()
+    names = [name for _item, name in window._in_legend["order"]]
+    assert "L1 · leaders" in names and "L1 · leaders (Legendre of τ)" in names
+    other = {**fit, "name": "L1 · log-cumulants", "tau": 0.4 * q - 2, "hull": None}
+    window.set_fits([{**fit, "tau": 0.6 * q - 2}, other])
+    np.testing.assert_allclose(window._fit_items["L1 · leaders"]["tau"].getData()[1], 0.6 * q - 2)
+    assert len(window._fit_items) == 2 and window._fit_items["L1 · log-cumulants"]["hull"].getData()[0] is None \
+        or len(window._fit_items["L1 · log-cumulants"]["hull"].getData()[0]) == 0
+    window.set_fits([other])
+    assert list(window._fit_items) == ["L1 · log-cumulants"]
+    assert "L1 · leaders" not in [name for _item, name in window._in_legend["order"]]

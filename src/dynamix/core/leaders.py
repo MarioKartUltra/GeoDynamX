@@ -37,7 +37,8 @@ from dynamix.core import dwt
 
 __all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
            "local_exponent", "oscillation", "paint", "partition_table", "pleaders", "run_leaders",
-           "sample_sets", "tables", "valid_cells", "wse", "wse_schedule"]
+           "log_cumulants", "sample_sets", "structure_fit", "tables", "valid_cells", "wse",
+           "wse_schedule"]
 
 BANDS = ("horizontal", "vertical", "diagonal")
 METHODS = ("leaders", "p-leaders", "wse")
@@ -289,6 +290,12 @@ def admissibility(coef: dict, valid: list, j_min: int, p: float) -> dict:
             "wse": {"admissible": True, "suggested_gamma": gamma}}
 
 
+def _flatten(per_level: list, valid: list) -> list:
+    """Each level's values over its valid cells as one 1-D array (every band of a banded grid)."""
+    return [np.asarray(m)[..., v].ravel() if np.ndim(m) > np.ndim(v) else np.asarray(m)[v]
+            for m, v in zip(per_level, valid)]
+
+
 def partition_table(per_level: list, valid: list, q_list, cells, *,
                     positive_only: bool = False) -> dict:
     """The structure functions of one quantity in the partition schema the fitter reads:
@@ -300,8 +307,7 @@ def partition_table(per_level: list, valid: list, q_list, cells, *,
     coefficients, whose zeros make negative moments meaningless)."""
     from dynamix.core.microcanonical import partition_tables
 
-    samples = [np.asarray(m)[..., v].ravel() if np.asarray(m).ndim > v.ndim else np.asarray(m)[v]
-               for m, v in zip(per_level, valid)]
+    samples = _flatten(per_level, valid)
     scales = 2.0 ** np.arange(1, len(per_level) + 1)
     table = partition_tables(samples, scales, np.asarray(q_list, dtype=np.float64), d=0.0)
     with np.errstate(divide="ignore"):
@@ -321,6 +327,63 @@ def tables(samples: dict, q_list) -> dict:
     return {name: partition_table(s["values"], s["valid"], q_list, samples["cells"],
                                   positive_only=bool(s.get("positive_only", False)))
             for name, s in samples["sets"].items()}
+
+
+def structure_fit(table: dict, j_min: int, j_max: int, *, weights=None, gamma: float = 0.0,
+                  frame: str = "original", d: int = 2) -> dict:
+    """The scaling exponents off one structure-function table over the levels ``j_min..j_max``
+    by weighted least squares against log2 a: ζ(q) is the slope of log2 S(q, j) (Wendt, Abry and
+    Jaffard 2007, eq. 7, with their weights w_j, Σ w_j = 0, Σ j w_j = 1; ``weights`` None for
+    uniform, else one per level, the valid counts n_j being the paper's choice), τ(q) = ζ(q) − d,
+    and h(q), D(q) the slopes of the tilted means (their eqs. 12 and 13). The σ's propagate the
+    table's per-level σ's through the slope. ``frame`` original takes the pseudo-fractional
+    integration back out: τ − γ q, ζ − γ q, h − γ. ``tau_0``, ``h_0``, ``D_0`` are the fitted
+    lines' values at log2 a = 0, in the frame as computed, so a panel can draw the fits."""
+    log2_s = np.asarray(table["log2_scales"], dtype=np.float64)
+    inside = (log2_s >= j_min) & (log2_s <= j_max)
+    x = log2_s[inside]
+    w = np.ones(x.size) if weights is None else np.asarray(weights, dtype=np.float64)[inside]
+    out = {"q_list": np.asarray(table["q_list"], dtype=np.float64), "levels": x,
+           "weights": "uniform" if weights is None else "counts", "frame": frame, "gamma": float(gamma), "d": d}
+    for key, name in (("tau_qa", "tau"), ("h_qa", "h"), ("D_qa", "D")):
+        slope, err, at_zero = _weighted_slopes(x, w, np.asarray(table[key], dtype=np.float64)[:, inside],
+                                               np.asarray(table["sigma_" + key], dtype=np.float64)[:, inside])
+        out[name], out[name + "_err"], out[name + "_0"] = slope, err, at_zero
+    if frame == "original" and gamma:
+        out["tau"] = out["tau"] - gamma * out["q_list"]
+        out["h"] = out["h"] - gamma
+    out["zeta"], out["zeta_err"] = out["tau"] + d, out["tau_err"]
+    return out
+
+
+def _weighted_slopes(x, w, Y, S) -> tuple:
+    """Per row of ``Y``: the weighted least-squares slope against ``x`` over the row's finite
+    entries, its σ from the per-point σ's ``S`` (finite, positive ones) and the fitted line's
+    value at x = 0 (to draw it); NaN below three points."""
+    V = np.isfinite(Y)
+    W = np.where(V, w[None, :], 0.0)
+    n = V.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        xbar = (W * x[None, :]).sum(axis=1) / W.sum(axis=1)
+        dx = x[None, :] - xbar[:, None]
+        denom = (W * dx * dx).sum(axis=1)
+        Y0 = np.where(V, Y, 0.0)
+        slope = (W * dx * Y0).sum(axis=1) / denom
+        ybar = (W * Y0).sum(axis=1) / W.sum(axis=1)
+        S0 = np.where(np.isfinite(S) & (S > 0), S, 0.0)
+        err = np.sqrt((W * W * dx * dx * S0 * S0).sum(axis=1)) / denom
+    ok = (n >= 3) & (denom > 0)
+    return np.where(ok, slope, np.nan), np.where(ok, err, np.nan), np.where(ok, ybar - slope * xbar, np.nan)
+
+
+def log_cumulants(samples: dict, name: str) -> np.ndarray:
+    """``(4, J)``: the mean, variance, third and fourth cumulant of ln ℓ per level of the set
+    ``name`` of the ``Samples`` contract, over its valid positive values -- what a log-cumulant
+    regresses against ln a (:func:`dynamix.core.spectra.cumulant_regression`)."""
+    from dynamix.core.spectra import ln_moments
+
+    s = samples["sets"][name]
+    return ln_moments(_flatten(s["values"], s["valid"]))
 
 
 def cumulants(table: dict, j_min: int, j_max: int, gamma: float) -> dict:
@@ -431,11 +494,12 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
 
 def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape) -> dict:
     """The ``Samples`` contract over the three quantities and the bare coefficients: references
-    to the per-level grids and masks (no copy), the field's cell count per level."""
+    to the per-level grids and masks (no copy), the field's cell count per level and its
+    dimension ``d``."""
     sets = {k: {"values": quantity[k], "valid": valid[k]} for k in METHODS}
     sets["coefficients"] = {"values": mods, "valid": valid["coefficients"], "positive_only": True}
     cells = [int(np.prod([int(n) // 2 ** j for n in data_shape])) for j in range(1, len(scales) + 1)]
-    return {"scales": scales, "cells": cells, "sets": sets}
+    return {"scales": scales, "cells": cells, "d": len(data_shape), "sets": sets}
 
 
 def _level_of(scale_px, name: str) -> int:

@@ -480,3 +480,48 @@ def test_the_real_block_bounds_the_valid_cells_and_a_wrap_of_another_period_is_a
         assert not v[:e].any() and not v[n - e:].any()                    # the seam's border
     plain = L.run_leaders(f, scale_min=4, scale_max=32, wse_rule="fixed", edge="periodic")
     assert plain["seam"] is False and all(v.all() for v in plain["valid"]["leaders"])
+
+
+# ------------------------------------------------------- what the fitting tools read off the sets
+
+def test_the_structure_fit_reads_fbm_with_either_weighting_and_shifts_frames():
+    """1024², sym4, levels 2–6: ζ(2)/2 and h(1) within 0.03 of H = 0.5 with uniform weights and
+    with the valid counts (Wendt 2007's choice); τ = ζ − 2; a lift γ = 1 fitted in the
+    integrated frame and taken out in the original one gives the same original exponents."""
+    r = L.run_leaders(fbm2d(1024, 0.5, seed=7), wavelet="sym4", scale_min=4, scale_max=64, wse_rule="fixed")
+    t = _tables(r)["leaders"]
+    for w in (None, t["N_a"]):
+        fit = L.structure_fit(t, 2, 6, weights=w)
+        assert fit["weights"] == ("uniform" if w is None else "counts") and list(fit["levels"]) == [2, 3, 4, 5, 6]
+        assert abs(fit["zeta"][_qi(t, 2.0)] / 2 - 0.5) < 0.03 and abs(fit["h"][_qi(t, 1.0)] - 0.5) < 0.03
+        assert np.allclose(fit["tau"], fit["zeta"] - 2) and np.all(fit["tau_err"] >= 0)
+        assert abs(fit["D"][_qi(t, 0.0)] - 2.0) < 0.05 and fit["d"] == 2
+    lifted = L.run_leaders(fbm2d(1024, 0.5, seed=7), wavelet="sym4", scale_min=4, scale_max=64, gamma=1.0,
+                           wse_rule="fixed")
+    tl = _tables(lifted)["leaders"]
+    integrated = L.structure_fit(tl, 2, 6, gamma=1.0, frame="integrated")
+    original = L.structure_fit(tl, 2, 6, gamma=1.0, frame="original")
+    assert np.allclose(original["tau"], integrated["tau"] - Q) and np.allclose(original["h"], integrated["h"] - 1)
+    assert abs(original["zeta"][_qi(tl, 2.0)] / 2 - 0.5) < 0.03
+    narrow = L.structure_fit(t, 2, 3)
+    assert np.all(np.isnan(narrow["tau"]))                                 # two levels fit nothing
+
+
+def test_the_log_cumulants_are_the_ln_moments_of_each_set_and_regress_per_order():
+    from dynamix.core.spectra import cumulant_regression, ln_moments
+
+    r = L.run_leaders(fbm2d(512, 0.5, seed=6), scale_min=4, scale_max=32, wse_rule="fixed")
+    C = L.log_cumulants(r["samples"], "leaders")
+    flat = [m[v] for m, v in zip(r["quantity"]["leaders"], r["valid"]["leaders"])]
+    assert C.shape == (4, 5) and np.allclose(C, ln_moments(flat), equal_nan=True)
+    c1 = cumulant_regression(C, r["scales"], 2, 5, 1)
+    assert abs(c1["c"] - 0.5) < 0.05 and c1["n"] == 4 and 0 < c1["sigma"] < 0.05 and c1["r2"] > 0.99
+    c2 = cumulant_regression(C, r["scales"], 2, 5, 2)
+    assert abs(c2["c"]) < 0.02 and c2["c"] == -c2["slope"]                  # the cascade sign
+    exact = np.array([[0.3 * j for j in range(1, 6)], [0.1 * j for j in range(1, 6)], [0.0] * 5, [0.0] * 5]) * np.log(2.0)
+    fit = cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 5, 2)
+    assert fit["c"] == pytest.approx(-0.1) and fit["sigma"] == pytest.approx(0.0, abs=1e-9) and fit["r2"] == pytest.approx(1.0)
+    assert cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 1, 1)["n"] == 1
+    assert np.isnan(cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 1, 1)["c"])
+    two = cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 2, 1)
+    assert two["n"] == 2 and two["c"] == pytest.approx(0.3) and np.isnan(two["sigma"])

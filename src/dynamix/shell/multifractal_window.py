@@ -176,6 +176,10 @@ class MultifractalWindow(QtWidgets.QDialog):
     #: window to follow: one fit mode, chosen where the fit happens.
     fitModeChanged = QtCore.Signal(str)
 
+    #: The current fit as the construction window compares it with the other methods':
+    #: ``name``, ``kind``, ``q``, ``tau``, ``h``, ``D`` with their σ's, ``hull``, ``cq``.
+    fitChanged = QtCore.Signal(object)
+
     def __init__(self, hd_std: dict, hd_cmax: dict, *, eta_seed: float = 0.0,
                  forward_note: str = "", parent=None, physical_of_log2a=None,
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
@@ -1094,6 +1098,16 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._update_gaussian()
         self._sync_dh_legend()
         self.scaleWindowChanged.emit(float(lo), float(hi))
+        self.fitChanged.emit(self.published_fit())
+
+    def published_fit(self) -> dict:
+        """The current fit in the schema every method's fitting tool publishes."""
+        fit = self._fit
+        q = np.asarray(fit["q_list"], dtype=np.float64)
+        return {"name": f"{self._source} · {self._table_combo.currentText()}", "kind": vocabulary(self._kind)[0].lower(),
+                "q": q, "tau": fit["tau"], "tau_err": fit["tau_err"], "h": fit["h"], "h_err": fit["h_err"],
+                "D": fit["D"], "D_err": fit["D_err"], "hull": spectra.legendre_dh(q, fit["tau"]),
+                "cq": spectra.specific_heat(q, fit["tau"]), "frame": fit.get("frame"), "eta": fit.get("eta")}
 
     def _update_spectrum_plots(self) -> None:
         fit = self._fit

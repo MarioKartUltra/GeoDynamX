@@ -76,6 +76,7 @@ from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
+from dynamix.model.samples import sample_sets
 from dynamix.model import capabilities
 from dynamix.model.plugins import discover
 from dynamix.model.roles import band_devices, band_for_analyzer, consumer_producers, primary_analyzers
@@ -396,44 +397,10 @@ def _eta_note_of(result: dict) -> tuple:
     if alpha != 0.0:
         where = "WT derivs (tensor)" if params.get("mode") == "tensor" else "|∇W| (scalar)"
         return alpha, f"forward lift: a^{alpha:g} on {where}"
-    gamma = float(params.get("gamma", 0.0)) if "_h_cells" in result else 0.0
+    gamma = float(params.get("gamma", 0.0)) if isinstance(result.get("samples"), dict) else 0.0
     if gamma != 0.0:
         return gamma, f"forward lift: 2^(γj) on the DWT coefficients, γ = {gamma:g}"
     return 0.0, "forward lift: none (η = 0)"
-
-
-def _per_scale_sets(result: dict) -> dict:
-    """The per-scale sets of moduli a result carries, for the construction window's
-    large-deviation route and Gaussian ensemble: the WTMM's maxima lines (one modulus per
-    chain per scale, what the partition tables count) and every maximum; the wavelet leaders'
-    three quantities over their valid cells, with the count factor that stands for the cells
-    the border took."""
-    out = {}
-    scales = result.get("scales")
-    if scales is None:
-        return out
-    n_sc = len(scales)
-    chains = result.get("chains") or []
-    if chains:
-        from dynamix.core.partition_tables import _modulus_matrix
-
-        M = _modulus_matrix(chains, n_sc)
-        out["maxima lines"] = {"mods": [M[np.isfinite(M[:, k]), k] for k in range(n_sc)],
-                               "scales": scales, "weights": None}
-    extrema = result.get("extrema") or []
-    mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
-    if mods and len(mods) == len(extrema) == n_sc:
-        out["every maximum"] = {"mods": mods, "scales": scales, "weights": None}
-    quantity, valid, shape = result.get("_quantity"), result.get("_valid"), result.get("_shape")
-    if quantity and valid and shape is not None:
-        for key, label in (("leaders", "leaders"), ("p-leaders", "p-leaders"), ("wse", "WSE leaders")):
-            if key not in quantity:
-                continue
-            sets = [np.asarray(m)[v] for m, v in zip(quantity[key], valid[key])]
-            weights = [float(np.prod([int(n) // 2 ** j for n in shape[:2]])) / max(int(v.sum()), 1)
-                       for j, v in enumerate(valid[key], start=1)]
-            out[label] = {"mods": sets, "scales": scales, "weights": weights}
-    return out
 
 
 def _band_step_for(names) -> "str | None":
@@ -1593,6 +1560,18 @@ class MainWindow(QtWidgets.QMainWindow):
         spectrum_lay.setContentsMargins(0, 0, 0, 0)
         spectrum_lay.addWidget(self._spectrum_button)
         spectrum_lay.addWidget(self._dh_button)
+        # The wavelet leaders' own fitting tools, over the sample sets a result publishes
+        # (the Samples contract): each fits in its own window and publishes its fit to the
+        # construction window, where the methods are compared.
+        self._structure_button = QtWidgets.QPushButton("Structure functions…")
+        self._structure_button.clicked.connect(self._on_structure_button_clicked)
+        self._cumulants_button = QtWidgets.QPushButton("Log-cumulants…")
+        self._cumulants_button.clicked.connect(self._on_cumulants_button_clicked)
+        self._structure_window = self._cumulants_window = None
+        #: The latest fit each fitting window published, by its name.
+        self._published_fits: dict = {}
+        spectrum_lay.addWidget(self._structure_button)
+        spectrum_lay.addWidget(self._cumulants_button)
         # WTMMM angle statistics (Arneodo, Decoster & Roux 2000): P_a(A) across scales, the
         # gradient plane, M per angle sector -- pixel frame or bearings.
         self._anisotropy_button = QtWidgets.QPushButton("Directional roughness (WTMMM)…")
@@ -1608,6 +1587,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel.add_section("Spectrum", spectrum_box)
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_samples_buttons()
         self._refresh_anisotropy()
         self._refresh_curves()
         self._refresh_panel_relevance()
@@ -3329,6 +3309,8 @@ both ``Canvas`` signals report the
                                     sources=self._spectrum_sources(result),
                                     kind=result.get("hd_kind", "partition"))
         self._multifractal_window = window
+        window.fitChanged.connect(self._on_fit_published)
+        self._on_fit_published(window.published_fit())
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
         if self._spectrum_construction_window is not None:
@@ -3507,6 +3489,63 @@ both ``Canvas`` signals report the
             "Needs partition tables (a full wtmm2d compute) or an h-map "
             "(holder_measure / holder_multiaffine) on the active result")
 
+    def _refresh_samples_buttons(self) -> None:
+        """Enable "Structure functions…" and "Log-cumulants…" on a result that publishes sample
+        sets (the Samples contract: the wavelet leaders)."""
+        if not hasattr(self, "_structure_button"):
+            return
+        result = self._active_result
+        ok = bool(result) and isinstance(result.get("samples"), dict)
+        for button, what in ((self._structure_button, "ζ(q), τ(q), h(q) and D(h) by weighted least squares "
+                              "over log₂ S(q, a)"),
+                             (self._cumulants_button, "c₁..c₄: one regression per cumulant of ln ℓ, each on its own range")):
+            button.setEnabled(ok)
+            button.setToolTip(f"{what} on the active result's sample sets (leaders, p-leaders, WSE leaders, "
+                              "coefficients)" if ok else "Needs a Wavelet leaders result on the active layer")
+
+    def _samples_source(self) -> str:
+        """What a fitting window is named for: the layer and the bank."""
+        params = (self._active_result or {}).get("params") or {}
+        layer = self.layer.name if self.layer is not None else "layer"
+        return f"{layer} · DWT {params.get('wavelet', '')}".rstrip()
+
+    def _open_fitting_window(self, attr: str, cls) -> None:
+        result = self._active_result
+        if not result or not isinstance(result.get("samples"), dict):
+            return
+        previous = getattr(self, attr)
+        if previous is not None:
+            previous.close()
+        levels = (result.get("record") or {}).get("levels") or {}
+        window = cls(result["samples"], gamma=float((result.get("params") or {}).get("gamma", 0.0)),
+                     levels=(levels.get("j_min"), levels.get("J")) if levels else None,
+                     source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a())
+        window.fitChanged.connect(self._on_fit_published)
+        setattr(self, attr, window)
+        self._on_fit_published(window.current_fit())
+        window.show()
+        window.raise_()
+
+    def _on_structure_button_clicked(self) -> None:
+        from dynamix.shell.structure_functions_window import StructureFunctionsWindow
+
+        self._open_fitting_window("_structure_window", StructureFunctionsWindow)
+
+    def _on_cumulants_button_clicked(self) -> None:
+        from dynamix.shell.log_cumulants_window import LogCumulantsWindow
+
+        self._open_fitting_window("_cumulants_window", LogCumulantsWindow)
+
+    def _on_fit_published(self, fit) -> None:
+        """A fitting window's fit, kept by name (the latest of each) and handed to an open
+        construction window, where the methods' spectra are compared."""
+        if not fit:
+            return
+        self._published_fits[fit["name"]] = fit
+        win = self._spectrum_construction_window
+        if win is not None and win.isVisible():
+            win.set_fits(list(self._published_fits.values()))
+
     def _on_dh_button_clicked(self) -> None:
         """"D(h) construction…" clicked -- a fresh :class:`SpectrumWindow` on the active
         result's own tables/chains/h-map (the MultifractalWindow lifecycle exactly)."""
@@ -3541,7 +3580,8 @@ both ``Canvas`` signals report the
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
             dh_curves=result.get("dh_curves"), gh_field=gh_field,
             source=result.get("hd_source") or "canonical (Arneodo direct)",
-            kind=result.get("hd_kind", "partition"), per_scale=_per_scale_sets(result))
+            kind=result.get("hd_kind", "partition"), per_scale=sample_sets(result),
+            fits=list(self._published_fits.values()))
         self._spectrum_construction_window = window
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)
@@ -4712,6 +4752,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_samples_buttons()
         self._refresh_anisotropy()
         self._refresh_curves()
         self._refresh_panel_relevance()
@@ -6248,6 +6289,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()      # no active result left -- back to disabled
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_samples_buttons()
         self._refresh_anisotropy()
         self._refresh_curves()
         self._refresh_panel_relevance()
@@ -8093,6 +8135,7 @@ both ``Canvas`` signals report the
         self._refresh_skeleton_button()
         self._refresh_spectrum_button()
         self._refresh_dh_button()
+        self._refresh_samples_buttons()
         self._refresh_anisotropy()
         self._refresh_curves()
         self._refresh_panel_relevance()
