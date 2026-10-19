@@ -1567,11 +1567,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self._structure_button.clicked.connect(self._on_structure_button_clicked)
         self._cumulants_button = QtWidgets.QPushButton("Log-cumulants…")
         self._cumulants_button.clicked.connect(self._on_cumulants_button_clicked)
-        self._structure_window = self._cumulants_window = None
+        # The microcanonical route's own tool, over any result's sample sets (the WTMM's maxima
+        # lines and every maximum, the leaders' sets).
+        self._ld_button = QtWidgets.QPushButton("Large deviations…")
+        self._ld_button.clicked.connect(self._on_ld_button_clicked)
+        self._structure_window = self._cumulants_window = self._ld_window = None
         #: The latest fit each fitting window published, by its name.
         self._published_fits: dict = {}
         spectrum_lay.addWidget(self._structure_button)
         spectrum_lay.addWidget(self._cumulants_button)
+        spectrum_lay.addWidget(self._ld_button)
         # WTMMM angle statistics (Arneodo, Decoster & Roux 2000): P_a(A) across scales, the
         # gradient plane, M per angle sector -- pixel frame or bearings.
         self._anisotropy_button = QtWidgets.QPushButton("Directional roughness (WTMMM)…")
@@ -3502,6 +3507,12 @@ both ``Canvas`` signals report the
             button.setEnabled(ok)
             button.setToolTip(f"{what} on the active result's sample sets (leaders, p-leaders, WSE leaders, "
                               "coefficients)" if ok else "Needs a Wavelet leaders result on the active layer")
+        sets = bool(result) and bool(sample_sets(result))
+        self._ld_button.setEnabled(sets)
+        self._ld_button.setToolTip(
+            "The large-deviation spectrum counted on a per-level sample set: the local exponents' histograms "
+            "per scale, the adaptive bins or a fixed-ε sweep" if sets else
+            "Needs a result with per-level sample sets: a WTMM's maxima or a Wavelet leaders result")
 
     def _samples_source(self) -> str:
         """What a fitting window is named for: the layer and the bank."""
@@ -3535,6 +3546,26 @@ both ``Canvas`` signals report the
         from dynamix.shell.log_cumulants_window import LogCumulantsWindow
 
         self._open_fitting_window("_cumulants_window", LogCumulantsWindow)
+
+    def _on_ld_button_clicked(self) -> None:
+        from dynamix.shell.large_deviations_window import LargeDeviationsWindow
+
+        result = self._active_result
+        sets = sample_sets(result) if result else {}
+        if not sets:
+            return
+        if self._ld_window is not None:
+            self._ld_window.close()
+        levels = (result.get("record") or {}).get("levels") or {}
+        window = LargeDeviationsWindow(
+            sets, log2_L=self._log2_extent(result), levels=(levels.get("j_min"), levels.get("J")) if levels else None,
+            source=self.layer.name if self.layer is not None else "layer", parent=self,
+            physical_of_log2a=self._physical_of_log2a())
+        window.fitChanged.connect(self._on_fit_published)
+        self._ld_window = window
+        self._on_fit_published(window.current_fit())
+        window.show()
+        window.raise_()
 
     def _on_fit_published(self, fit) -> None:
         """A fitting window's fit, kept by name (the latest of each) and handed to an open

@@ -335,46 +335,6 @@ def _per_scale_set(L=128.0, scales=(2.0, 4.0, 8.0, 16.0, 32.0)):
     return {"synthetic": {"mods": mods, "scales": np.asarray(scales), "weights": None}}, h, D
 
 
-def test_large_deviations_draw_from_the_per_scale_set_under_both_rules(qtbot):
-    from dynamix.core import large_deviation as ld
-    from dynamix.shell.spectrum_window import LD_RULES
-
-    sets, h, D = _per_scale_set()
-    hd_std, hd_cmax = _pair()
-    window = SpectrumWindow(hd_std, hd_cmax, log2_L=7.0, per_scale=sets)
-    qtbot.addWidget(window)
-    assert window.ld_check is not None and not window.ld_check.isChecked()
-    assert [window.ld_source_combo.itemText(i) for i in range(window.ld_source_combo.count())] == ["synthetic"]
-    assert "large deviations (synthetic, adaptive ε)" not in _legend_names(window._plot)
-    window.ld_check.setChecked(True)
-    curve = window._ld_curves[0]
-    assert len(curve.xData) > 0 and "large deviations (synthetic, adaptive ε)" in _legend_names(window._plot)
-    lo, hi = window._scale_window()
-    truth = ld.adaptive(sets["synthetic"]["mods"], sets["synthetic"]["scales"],
-                        q_list=hd_std["q_list"], log2_a_min=lo, log2_a_max=hi, length_px=128.0)
-    ok = np.isfinite(truth["h"]) & np.isfinite(truth["D"])
-    assert np.allclose(curve.xData, truth["h"][ok]) and np.allclose(curve.yData, truth["D"][ok])
-    assert np.allclose(curve.yData, 2.0 - 5.0 * (curve.xData - 0.5) ** 2, atol=0.15)
-    assert window._ld_label.text().startswith(f"{int(ok.sum())} of {hd_std['q_list'].size} q")
-    window.ld_rule_combo.setCurrentText(LD_RULES[1])
-    grid = np.linspace(-1.5, 2.5, 161)
-    fixed = ld.fixed(sets["synthetic"]["mods"], sets["synthetic"]["scales"], h_grid=grid,
-                     log2_a_min=lo, log2_a_max=hi, length_px=128.0)
-    for curve, D in zip(window._ld_curves, fixed["D"]):          # each trimmed to its finite span
-        span = np.flatnonzero(np.isfinite(D))
-        assert np.allclose(curve.xData, grid[span[0]:span[-1] + 1])
-        assert np.allclose(np.nan_to_num(curve.yData), np.nan_to_num(D[span[0]:span[-1] + 1]))
-    finest = window._ld_curves[-1]
-    assert 0.25 < finest.xData.min() and finest.xData.max() < 0.75          # the set's own span
-    inside = np.isfinite(finest.yData)
-    assert np.allclose(finest.yData[inside], 2.0 - 5.0 * (finest.xData[inside] - 0.5) ** 2, atol=0.1)
-    assert window._ld_label.text().startswith("ε 0.1, 0.05, 0.025 · spread ≤ ")
-    assert "large deviations (synthetic, fixed ε sweep)" in _legend_names(window._plot)
-    window.ld_check.setChecked(False)
-    assert not curve.xData and window._ld_label.text() == ""              # emptied: None or []
-    assert "large deviations (synthetic, fixed ε sweep)" not in _legend_names(window._plot)
-
-
 def test_the_gaussian_ensemble_has_a_gamma_knob_and_a_per_point_readout(qtbot):
     from dynamix.core.nonconcave import gaussian_ensemble
 
@@ -425,7 +385,7 @@ def test_kink_bands_shade_the_jump_in_h_and_clear(qtbot):
     assert window._kink_bands == []
     bare = SpectrumWindow(h_map=_h_map())                   # no tables: no kinks, no ensemble
     qtbot.addWidget(bare)
-    assert bare.kink_check is None and bare.ld_check is None
+    assert bare.kink_check is None and bare.gaussian_check is None
 
 
 def test_the_main_window_seeds_gamma_from_a_leaders_result():

@@ -33,9 +33,30 @@ def test_the_buttons_follow_the_samples_contract(win):
     win._active_result = _leaders_result()
     win._refresh_samples_buttons()
     assert win._structure_button.isEnabled() and win._cumulants_button.isEnabled()
+    assert win._ld_button.isEnabled()                                        # any sample set will do
     win._active_result = {"h_map": np.zeros((4, 4))}
     win._refresh_samples_buttons()
-    assert not win._structure_button.isEnabled()
+    assert not win._structure_button.isEnabled() and not win._ld_button.isEnabled()
+
+
+def test_the_large_deviations_tool_opens_on_the_wtmm_s_maxima_too(win, qtbot):
+    from test_samples import _chains
+
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    extrema = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]
+    win._active_result = {"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {},
+                          "_shape": (128, 128)}
+    win._refresh_samples_buttons()
+    assert win._ld_button.isEnabled() and not win._structure_button.isEnabled()
+    win._on_ld_button_clicked()
+    ldw = win._ld_window
+    qtbot.addWidget(ldw)
+    assert ldw.windowTitle() == "Large deviations — layer"
+    assert [ldw.source_combo.itemText(i) for i in range(2)] == ["maxima lines", "every maximum"]
+    assert ldw._log2_L == 7.0
+    fit = ldw.current_fit()
+    assert fit is not None and fit["name"] == "layer · maxima lines, large deviations" and "q" in fit
+    assert list(win._published_fits) == [fit["name"]]
 
 
 def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_construction_window(win, qtbot):

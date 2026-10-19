@@ -58,9 +58,6 @@ from dynamix.shell.multifractal_window import (_SOURCE_HUES, Q_COLD, Q_WARM, TAB
                                                 WheelAxisViewBox, add_zero_lines)
 from dynamix.shell.theme import current
 
-#: The large-deviation bin rules: the adaptive (Barral–Gonçalves) bins, or a fixed-ε sweep.
-LD_RULES = ("adaptive ε", "fixed ε sweep")
-
 __all__ = ["SpectrumWindow"]
 
 #: Human labels for the membership rules, in ``chain_groups.MODES`` order (cell 52's dropdown).
@@ -86,7 +83,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         #: The published fits of the methods' fitting tools, by name; their items by name.
         self._fits: dict = {}
         self._fit_items: dict = {}
-        #: Per-scale sets of moduli for the large-deviation route and the Gaussian ensemble:
+        #: Per-scale sets of moduli for the Gaussian ensemble:
         #: name -> {"mods": [per scale], "scales": px, "weights": per-scale count factors or None}.
         self._per_scale = {k: v for k, v in (per_scale or {}).items()
                            if v.get("mods") and v.get("scales") is not None}
@@ -159,8 +156,8 @@ class SpectrumWindow(QtWidgets.QDialog):
 
     def set_fits(self, fits) -> None:
         """The methods' published fits to draw on the four panels: each ``{"name", "q", "tau",
-        "h", "D", "cq", "hull"?}``; a name already drawn is redrawn, one no longer listed is
-        removed."""
+        "h", "D", "cq", "hull"?}``, or ``{"name", "h", "D"}`` for a method that constructs D(h)
+        alone; a name already drawn is redrawn, one no longer listed is removed."""
         wanted = {f["name"]: f for f in fits}
         for name in [n for n in self._fit_items if n not in wanted]:
             gone = self._fit_items.pop(name).values()
@@ -187,10 +184,11 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self._legend_entries.append((items["D"], lambda n=name: n))
                 self._legend_entries.append((items["hull"], lambda n=name: f"{n} (Legendre of τ)"))
             items = self._fit_items[name]
-            q = np.asarray(fit["q"], dtype=np.float64)
-            items["tau"].setData(q, np.asarray(fit["tau"], dtype=np.float64))
-            items["h"].setData(q, np.asarray(fit["h"], dtype=np.float64))
-            items["cq"].setData(q, np.asarray(fit["cq"], dtype=np.float64))
+            if fit.get("q") is not None:                 # a D(h)-only method (large deviations) has no q
+                q = np.asarray(fit["q"], dtype=np.float64)
+                items["tau"].setData(q, np.asarray(fit["tau"], dtype=np.float64))
+                items["h"].setData(q, np.asarray(fit["h"], dtype=np.float64))
+                items["cq"].setData(q, np.asarray(fit["cq"], dtype=np.float64))
             items["D"].setData(np.asarray(fit["h"], dtype=np.float64), np.asarray(fit["D"], dtype=np.float64))
             hull = fit.get("hull")
             items["hull"].setData(np.asarray(hull["h"]) if hull else [], np.asarray(hull["D"]) if hull else [])
@@ -406,30 +404,19 @@ class SpectrumWindow(QtWidgets.QDialog):
             self.select_views_check.toggled.connect(lambda _c: self.broadcast_grouping())
             self._group_controls = [self._gscale_spin]
 
-        # Beyond the hull (spec 15): the large-deviation spectrum counted on a per-scale set,
-        # the Gaussian ensemble's points with their γ, and the kink shading of τ(q).
-        self.ld_check = self.ld_source_combo = self.ld_rule_combo = None
+        # Beyond the hull (spec 15): the Gaussian ensemble's points with their γ over a
+        # per-scale set, and the kink shading of τ(q). The large-deviation spectrum has its own
+        # tool (large_deviations_window) and arrives here as a published fit.
         self.gaussian_check = self.gamma_max_spin = self.gamma_steps_spin = None
         self.kink_check = None
-        self._ld_label = QtWidgets.QLabel("")
-        self._ld_label.setStyleSheet(f"color: {current().ink_muted};")
         self._gamma_readout = QtWidgets.QLabel("")
         self._gamma_readout.setStyleSheet(f"color: {current().ink_muted};")
         if self._per_scale or has_hd:
             beyond = QtWidgets.QHBoxLayout()
             if self._per_scale:
-                self.ld_check = QtWidgets.QCheckBox("large deviations")
-                self.ld_check.toggled.connect(lambda _c: self._recompute())
-                beyond.addWidget(self.ld_check)
-                self.ld_source_combo = QtWidgets.QComboBox()
+                self.ld_source_combo = QtWidgets.QComboBox()         # the ensemble's set
                 self.ld_source_combo.addItems(list(self._per_scale))
                 self.ld_source_combo.currentTextChanged.connect(lambda _t: self._recompute())
-                beyond.addWidget(self.ld_source_combo)
-                self.ld_rule_combo = QtWidgets.QComboBox()
-                self.ld_rule_combo.addItems(list(LD_RULES))
-                self.ld_rule_combo.currentTextChanged.connect(lambda _t: self._recompute())
-                beyond.addWidget(self.ld_rule_combo)
-                beyond.addWidget(self._ld_label)
                 self.gaussian_check = QtWidgets.QCheckBox("Gaussian γ")
                 self.gaussian_check.setEnabled(has_hd)
                 self.gaussian_check.toggled.connect(lambda _c: self._recompute())
@@ -523,17 +510,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._non_curve = pg.PlotDataItem(pen=pg.mkPen(Q_COLD, width=1.2), connect="finite")
         self._plot.addItem(self._dom_curve)
         self._plot.addItem(self._non_curve)
-        # The large-deviation curve (one per ε of the fixed sweep, the finest ε darkest), the
-        # Gaussian ensemble's points carrying (q, γ), and the kink bands.
-        self._ld_curves = []
-        for i in range(3):
-            colour = pg.mkColor(current().amber)
-            colour.setAlpha(90 + 80 * i)
-            curve = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.4), symbol="t", symbolSize=5,
-                                    symbolPen=None, symbolBrush=colour, connect="finite")
-            self._plot.addItem(curve)
-            self._ld_curves.append(curve)
-        self._ld_name = ""
+        # The Gaussian ensemble's points carrying (q, γ), and the kink bands.
         self._gaussian_points = pg.ScatterPlotItem(size=5, pen=None, hoverable=True)
         self._gaussian_points.sigClicked.connect(self._on_gaussian_point)
         self._gaussian_points.sigHovered.connect(self._on_gaussian_point)
@@ -546,7 +523,6 @@ class SpectrumWindow(QtWidgets.QDialog):
             (self._hist_curve, weak_method(self._hist_curve_name)),
             (self._gh_curve, lambda: "gradient histogram (GH)"),
             (self._box_curve, lambda: "box-counting across r (eq. 20)"),
-            (self._ld_curves[0], weak_method(self._ld_curve_name)),
             (self._gaussian_points, weak_method(self._gaussian_curve_name)),
             (self._dom_curve, lambda: "dominant chains"),
             (self._non_curve, lambda: "non-dominant chains")]
@@ -727,12 +703,11 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._update_tangent()
         self._update_grouping()
         self._update_hist_items()
-        self._update_ld()
         self._update_ensemble()
         self._update_kinks()
         self._sync_legend()
 
-    # -- beyond the hull: large deviations, the Gaussian ensemble, the kinks ------------------
+    # -- beyond the hull: the Gaussian ensemble, the kinks ------------------------------------
     def _scale_window(self) -> tuple:
         return float(self._lo_spin.value()), float(self._hi_spin.value())
 
@@ -741,76 +716,8 @@ class SpectrumWindow(QtWidgets.QDialog):
         else four times the largest scale (the Gaussian ensemble's own fallback)."""
         return 2.0 ** self._log2_L if self._log2_L is not None else 4.0 * float(np.max(scales))
 
-    def _ld_curve_name(self) -> str:
-        return self._ld_name
-
     def _gaussian_curve_name(self) -> str:
         return self._gaussian_name
-
-    def _update_ld(self) -> None:
-        """The large-deviation spectrum of the chosen per-scale set over the fit window: the
-        adaptive (h(q), D(q)) curve, or the fixed-ε sweep's three curves with their spread."""
-        from dynamix.core import large_deviation as ld
-
-        on = self.ld_check is not None and self.ld_check.isChecked()
-        for curve in self._ld_curves:
-            curve.setVisible(on)
-            if not on:
-                curve.setData([], [])
-        if not on:
-            self._ld_label.setText("")
-            return
-        name = self.ld_source_combo.currentText()
-        entry = self._per_scale[name]
-        scales = np.asarray(entry["scales"], dtype=np.float64)
-        lo, hi = self._scale_window()
-        rule = self.ld_rule_combo.currentText()
-        common = dict(log2_a_min=lo, log2_a_max=hi, length_px=self._length_px(scales),
-                      scale_weight=entry.get("weights"))
-        try:
-            if rule == LD_RULES[0]:
-                q = (np.asarray(self._fit["q_list"], dtype=np.float64) if self._fit is not None
-                     else np.arange(-3.0, 6.01, 0.5))
-                a = ld.adaptive(entry["mods"], scales, q_list=q, **common)
-                ok = np.isfinite(a["h"]) & np.isfinite(a["D"])
-                self._ld_curves[0].setData(a["h"][ok], a["D"][ok])
-                for curve in self._ld_curves[1:]:
-                    curve.setData([], [])
-                note = f"{int(ok.sum())} of {q.size} q"
-                excess = self._ld_excess(a["h"][ok], a["D"][ok])
-            else:
-                grid = np.linspace(-1.5, 2.5, 161)
-                f = ld.fixed(entry["mods"], scales, h_grid=grid, **common)
-                for curve, D in zip(self._ld_curves, f["D"]):            # finest ε last: on top
-                    finite = np.flatnonzero(np.isfinite(D))
-                    if finite.size:                       # trimmed to its span: the empty bins
-                        span = slice(finite[0], finite[-1] + 1)    # outside would widen the view
-                        curve.setData(grid[span], D[span])
-                    else:
-                        curve.setData([], [])
-                spread = f["spread"][np.isfinite(f["spread"])]
-                note = (f"ε {', '.join(f'{e:g}' for e in f['eps'])} · spread ≤ {spread.max():.2f}"
-                        if spread.size else "no bin holds every scale")
-                excess = self._ld_excess(grid, f["D"][-1])
-        except ValueError as exc:
-            for curve in self._ld_curves:
-                curve.setData([], [])
-            self._ld_name = f"large deviations ({name})"
-            self._ld_label.setText(str(exc))
-            return
-        self._ld_name = f"large deviations ({name}, {rule})"
-        bound = ("" if excess is None else
-                 " · D ≤ L holds" if excess <= 0.05 else f" · above the hull by {excess:.2f}")
-        self._ld_label.setText(note + bound)
-
-    def _ld_excess(self, h, D) -> "float | None":
-        """The largest excess of the curve over the Legendre spectrum of the current fit."""
-        from dynamix.core import large_deviation as ld
-
-        if self._fit is None or len(h) == 0:
-            return None
-        excess = ld.hull_excess(h, D, self._fit["q_list"], self._fit["tau"])
-        return float(np.nanmax(excess)) if np.isfinite(excess).any() else None
 
     def _gammas(self) -> np.ndarray:
         """γ max and the steps below it by halving: 8 and 5 steps give ½, 1, 2, 4, 8."""
