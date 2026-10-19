@@ -225,6 +225,15 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
         # ORIGINAL user path instead, exactly as the windowed branch above already does.
         return _stamp_source(RasterField.from_file(resolved, name=Path(path).stem),
                              resolved, height, width)
+    from dynamix.core.rasterfield import IMAGE_SUFFIXES
+
+    if Path(resolved).suffix.lower() in IMAGE_SUFFIXES:
+        # A colour image keeps its channels as a band stack named R, G, B (the band rows, the
+        # Composite mixer and band_select read them); a greyscale image is a single field.
+        field = RasterField.from_file(resolved, components=True)
+        if np.ndim(field.values) == 3:
+            field.provenance["bands"] = ["R", "G", "B"]
+        return field
     return RasterField.from_file(resolved)
 
 

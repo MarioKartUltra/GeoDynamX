@@ -360,3 +360,22 @@ def test_open_field_gives_a_tescan_image_its_header_frame(tmp_path):
     picture = open_field(str(p), max_pixels=16)
     assert picture.frame.units == "µm" and picture.provenance["georef"].startswith("TESCAN header")
     assert open_field(str(tmp_path / "map-tif.hdr")).frame.units == "µm"
+
+
+def test_a_colour_image_opens_as_a_band_stack_and_a_grey_one_as_a_field(tmp_path):
+    """The dialog's route keeps a PNG's or JPEG's colour channels: an (ny, nx, 3) stack whose bands
+    are named R, G, B, so the band rows, the Composite mixer and band_select see them; a greyscale
+    image stays a single field."""
+    Image = pytest.importorskip("PIL.Image")
+    from dynamix.shell.opening import open_field
+
+    rgb = np.zeros((8, 10, 3), dtype=np.uint8)
+    rgb[..., 0], rgb[..., 2] = 255, 40
+    Image.fromarray(rgb).save(tmp_path / "colour.png")
+    stack = open_field(str(tmp_path / "colour.png"))
+    assert stack.values.shape == (8, 10, 3) and not stack.is_scalar
+    assert stack.provenance["bands"] == ["R", "G", "B"]
+    assert float(stack.values[..., 0].mean()) == 255.0 and float(stack.values[..., 2].mean()) == 40.0
+    Image.fromarray(np.full((8, 10), 7, dtype=np.uint8)).save(tmp_path / "grey.png")
+    grey = open_field(str(tmp_path / "grey.png"))
+    assert grey.values.shape == (8, 10) and grey.is_scalar and "bands" not in grey.provenance
