@@ -372,13 +372,14 @@ def test_the_anisotropy_window_reads_every_level_the_chain_keeps(qtbot, stub_dev
     fed = {}
 
     class _Window:
-        def set_result(self, result, field, *, offset, scale_idx):
-            fed.update(result=result, scale_idx=scale_idx)
+        def set_result(self, result, field, *, offset, scale_idx, **extras):
+            fed.update(result=result, scale_idx=scale_idx, **extras)
 
     win._feed_anisotropy(_Window())
 
     assert len(fed["result"]["extrema"]) == 3                # the window reads across scales
     assert fed["scale_idx"] == 1
+    assert fed["fit_window"] is None and fed["directional"] == []    # no fitter open, no leaders
     assert win.is_computing is False
 
 
@@ -397,8 +398,8 @@ def test_the_anisotropy_window_reads_every_level_past_a_saved_scale_select(qtbot
     fed = {}
 
     class _Window:
-        def set_result(self, result, field, *, offset, scale_idx):
-            fed.update(result=result, scale_idx=scale_idx)
+        def set_result(self, result, field, *, offset, scale_idx, **extras):
+            fed.update(result=result, scale_idx=scale_idx, **extras)
 
     win._feed_anisotropy(_Window())
 

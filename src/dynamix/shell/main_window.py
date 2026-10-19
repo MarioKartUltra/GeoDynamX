@@ -1600,7 +1600,7 @@ class MainWindow(QtWidgets.QMainWindow):
         spectrum_lay.addWidget(self._dh_button)
         # WTMMM angle statistics (Arneodo, Decoster & Roux 2000): P_a(A) across scales, the
         # gradient plane, M per angle sector -- pixel frame or bearings.
-        self._anisotropy_button = QtWidgets.QPushButton("Anisotropy (WTMMM angles)…")
+        self._anisotropy_button = QtWidgets.QPushButton("Directional roughness (WTMMM)…")
         self._anisotropy_button.clicked.connect(self._on_anisotropy_button_clicked)
         self._anisotropy_window: AnisotropyWindow | None = None
         spectrum_lay.addWidget(self._anisotropy_button)
@@ -3404,8 +3404,9 @@ both ``Canvas`` signals report the
         ok = bool(result) and bool(result.get("extrema"))
         self._anisotropy_button.setEnabled(ok)
         self._anisotropy_button.setToolTip(
-            "WTMMM angle statistics — P_a(A) across scales, the gradient plane, M per angle "
-            "sector (Arnéodo, Decoster & Roux 2000)" if ok else
+            "WTMMM statistics — P_a(A) across scales, the gradient plane, M per angle sector "
+            "(Arnéodo, Decoster & Roux 2000); the directional Hurst exponents from the components' "
+            "collapse, the anisotropy against scale, the cut spectra (Khalil et al. 2006)" if ok else
             "Needs a WTMM result with per-scale maxima on the active layer")
         win = self._anisotropy_window
         if ok and win is not None and win.isVisible():
@@ -3462,8 +3463,31 @@ both ``Canvas`` signals report the
         # while the canvas shows the Transport's one.
         result = self._stack_result()
         offset = display_offset(result, self.field) if self.field is not None else (0, 0)
+        fitter = self._multifractal_window
+        fit_window = (tuple(float(v) for v in fitter._region.getRegion())
+                      if fitter is not None and fitter.isVisible() else None)
         win.set_result(result, self.field, offset=offset,
-                       scale_idx=int(self.transport.slider.value()))
+                       scale_idx=int(self.transport.slider.value()), fit_window=fit_window,
+                       directional=self._directional_readings())
+
+    def _directional_readings(self) -> list:
+        """``[(layer name, η(2, e₁)/2, η(2, e₂)/2)]`` from every landed wavelet-leaders result
+        run with its directional option: the DWT's reading of the two directional exponents,
+        shown beside the WTMMM's H_x and H_y."""
+        out = []
+        for lid, res in self._landed_results.items():
+            d = res.get("_directional") if isinstance(res, dict) else None
+            layer = self._layer_by_id.get(lid)
+            if not d or layer is None:
+                continue
+            p = np.asarray(d["p"], dtype=np.float64)
+            at = np.flatnonzero(np.isclose(p, 2.0))
+            if at.size == 0:
+                continue
+            e1, e2 = float(d["eta_e1"][at[0]]) / 2.0, float(d["eta_e2"][at[0]]) / 2.0
+            if np.isfinite(e1) and np.isfinite(e2):
+                out.append((layer.name, e1, e2))
+        return out
 
     def _stack_result(self) -> "dict | None":
         """The active layer's result over every level its chain keeps -- resolved with no shown

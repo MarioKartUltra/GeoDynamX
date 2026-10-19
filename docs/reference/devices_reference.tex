@@ -754,12 +754,28 @@ $0^\circ$ toward increasing column, $+90^\circ$ toward increasing row (clockwise
 point at the current scale, half the scale long (at most 12\,px) and scaled by modulus. The
 WTMMM are the maxima of the modulus along each maxima line (xsmurf's \texttt{ssm}).
 
-\textbf{Anisotropy} (Spectrum section) plots the WTMMM statistics of Arn\'eodo, Decoster and
+\textbf{Directional roughness} (Spectrum section) plots the WTMMM statistics of Arn\'eodo, Decoster and
 Roux (2000, \S6): the density $P_a(\mathcal{A})$ at several scales, flat for an isotropic
 field; the WTMMM of one scale in the gradient plane $(T_{\psi_1},T_{\psi_2})$, round for an
 isotropic field; and the density of $\log_2\mathcal{M}$ in four axial sectors of
 $\mathcal{A}$ (mod $180^\circ$, centred on $0^\circ$, $45^\circ$, $90^\circ$, $135^\circ$),
-whose shapes coincide when $\mathcal{M}$ and $\mathcal{A}$ are independent.
+whose shapes coincide when $\mathcal{M}$ and $\mathcal{A}$ are independent. Below them, Khalil,
+Joncas, Nekka, Kestener and Arn\'eodo's reading of the anisotropy as numbers (2006, ApJS 165:512,
+\S4.2.4): the two components of the WTMMM scale on their own, $T_{\psi_1}\sim a^{H_x}$ and
+$T_{\psi_2}\sim a^{H_y}$, so $\ln P_a$ of each component across the scales of a fit window collapses
+onto one curve once rescaled by $a^{H}$; $H_x$ and $H_y$ are read by the slope against $\log_2 a$ of
+the component's median absolute value (the default) or standard deviation, each with the slope's
+standard error, or by the collapse itself, and the rescaling spins start at the estimate so that a
+drag is the paper's sensitivity sweep (their Fig.~14; $\pm\sigma$, $\pm2\sigma$ companions on
+request). The readout names the component the modulus follows over the window (its global $H$
+is that component's, their \S5.2.4), the directional power spectra of the one-dimensional cuts
+with $\beta_x=2H_x+1$, $\beta_y=2H_y+1$ and the radial $\beta$, and the moment orders $q$ whose
+rescaled modulus pdfs $a^{-qH}\mathcal{M}^qP_a(\mathcal{M})$ keep their area within 10\,\% across
+the scales (their eq.~32: the $q$ the partition functions can carry). The anisotropy against scale
+is the peak of $P_a(\mathcal{A})$ modulo $180^\circ$: its height over the isotropic level and its
+angle, which sharpens and turns towards fine scales as $\tan\mathcal{A}\sim a^{H_y-H_x}$ (their
+eq.~38). When a wavelet-leaders result run with its directional option is landed on any layer,
+its $\eta(2,e_i)/2$ stand beside $H_x$, $H_y$ as the DWT's reading of the same exponents.
 
 \textbf{Frames.} Angles are shown in the pixel frame or, for a georeferenced dataset, as
 azimuths: from grid north for a projected CRS (from the directions its axes run), from true
