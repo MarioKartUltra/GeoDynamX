@@ -213,3 +213,31 @@ def test_the_directional_formalism_is_off_by_default_and_adds_its_curves_when_on
                          "α₁*(p), the anisotropy profile of e₁",
                          "L(H, e₁), the directional Legendre bound", "L(H, e₂), the directional Legendre bound"]
     assert res["warnings"] == []
+
+
+def test_auto_edge_runs_periodic_on_an_extension_output_and_mirrors_otherwise(dev, field):
+    from dynamix.devices.periodic_extension import PeriodicExtension
+    from dynamix.model.device import defaults_for
+
+    p = validate_params(dev, dict(SMALL, wse_rule="fixed"))
+    assert p["edge"] == "auto" and "edge" in keyed_params(dev, p)
+    plain = dev.compute(field, p)
+    assert plain["record"]["edge"] == {"asked": "auto", "used": "mirror", "border_cells": dwt.border_cells("sym4"),
+                                       "block": None, "origin": [0, 0]}
+    assert dev.derived_reading("edge", "auto", field) == "→ mirror"
+    ext = PeriodicExtension().compute(field, defaults_for(PeriodicExtension()))
+    stamp = ext.provenance["edges.filled"]
+    res = dev.compute(ext, p)
+    assert res["record"]["edge"]["used"] == "periodic" and res["record"]["edge"]["border_cells"] == 0
+    assert res["record"]["edge"]["block"] == [512, 512] and res["record"]["edge"]["origin"] == [stamp["row0"], stamp["col0"]]
+    reading = dev.derived_reading("edge", "auto", ext, p)
+    assert reading.startswith("→ periodic (Periodic extension output)")
+    assert (f"no multiple of {2 ** 5}" in reading) == (any(n % 32 for n in ext.values.shape))
+    assert res["record"]["seam"] == bool(any(n % 32 for n in ext.values.shape))
+    # no border: every cell of the block counts, so more cells than the mirrored run kept
+    assert all(a > b for a, b in zip(res["_valid_cells"]["leaders"], plain["_valid_cells"]["leaders"]))
+    assert res["h_map"].shape == ext.values.shape
+    assert abs(res["_cumulants"]["leaders"]["original"]["c1"] - plain["_cumulants"]["leaders"]["original"]["c1"]) < 0.05
+    forced = dev.compute(ext, validate_params(dev, dict(SMALL, wse_rule="fixed", edge="mirror")))
+    assert forced["record"]["edge"]["used"] == "mirror" and forced["record"]["edge"]["block"] == [512, 512]
+    assert dev.derived_reading("edge", "mirror", ext) is None

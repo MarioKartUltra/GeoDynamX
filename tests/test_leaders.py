@@ -411,3 +411,54 @@ def test_run_leaders_refuses_bad_scales_and_small_fields():
         L.run_leaders(f, scale_min=4, scale_max=128)
     with pytest.raises(ValueError, match="1-D signal or a 2-D band"):
         L.run_leaders(np.zeros((4, 4, 4)), scale_min=2, scale_max=4)
+
+
+# ------------------------------------------------------------------------------ edge modes
+
+def test_periodic_continuation_is_translation_invariant_and_keeps_every_cell():
+    """A periodic field (the spectral fBm wraps) run periodic: no border, the leaders of the
+    field rolled by a whole coarsest cell are the rolled leaders; the mirror loses its border."""
+    f = fbm2d(256, 0.5, seed=7)
+    a = L.coefficients(f, "sym4", 4, edge="periodic")
+    assert a["work_shape"] == (256, 256) and a["edge"] == "periodic"
+    assert all(v.all() for v in L.valid_cells(a, 0))
+    b = L.coefficients(np.roll(f, (32, 64), axis=(0, 1)), "sym4", 4, edge="periodic")
+    for j in range(1, 5):
+        assert np.allclose(np.roll(L.leaders(a)[j - 1], (32 // 2 ** j, 64 // 2 ** j), axis=(0, 1)),
+                           L.leaders(b)[j - 1], atol=1e-10)
+    m = L.coefficients(f, "sym4", 4)
+    assert m["edge"] == "mirror" and m["work_shape"] == (512, 512)
+    assert not L.valid_cells(m, dwt.border_cells("sym4"))[0][0].any()
+    for edge in ("reflect", "zero_pad", "edge_pad"):
+        c = L.coefficients(f, "sym4", 4, edge=edge)
+        assert c["work_shape"] == (512, 512) and np.isfinite(c["mods"][0]).all()
+    with pytest.raises(ValueError, match="edge"):
+        L.coefficients(f, "sym4", 4, edge="wrap")
+
+
+def test_the_real_block_bounds_the_valid_cells_and_a_wrap_of_another_period_is_a_seam():
+    """A field whose data occupy a block inside it (a centred Periodic extension's output): only
+    the block's cells count and the structure functions count the block's grid. When the field's
+    size is its own period and a multiple of 2^J the working image is the field (no seam, no
+    border); wrapped to another size, the wrap is a seam the border rule treats as an edge."""
+    f = fbm2d(256, 0.5, seed=8)
+    big = np.pad(f, ((32, 32), (32, 32)), mode="wrap")                   # 320 = 10 · 32, period 256
+    r = L.run_leaders(big, scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q, edge="periodic",
+                      origin=(32, 32), block=(256, 256))
+    assert r["data_shape"] == (256, 256) and r["origin"] == (32, 32) and r["seam"] is False
+    for j in range(1, 6):
+        v = r["valid"]["leaders"][j - 1]
+        lo, hi = 32 // 2 ** j, (32 + 256) // 2 ** j
+        assert v[lo:hi, lo:hi].all() and not v[:lo].any() and not v[hi:].any()
+    t = r["tables"]["leaders"]
+    assert np.allclose(t["tau_qa"][_qi(t, 0.0)], 2 * np.log2(256) - 2 * np.arange(1, 6))
+    odd = L.run_leaders(np.pad(f, ((0, 8), (0, 8)), mode="wrap"), scale_min=4, scale_max=32,
+                        wse_rule="fixed", q_list=Q, edge="periodic", block=(256, 256))
+    assert odd["seam"] is True                                            # 264 wraps to 288: a seam
+    e = dwt.border_cells("sym4")
+    for j in range(1, 6):
+        v = odd["valid"]["leaders"][j - 1]
+        n = 288 // 2 ** j
+        assert not v[:e].any() and not v[n - e:].any()                    # the seam's border
+    plain = L.run_leaders(f, scale_min=4, scale_max=32, wse_rule="fixed", q_list=Q, edge="periodic")
+    assert plain["seam"] is False and all(v.all() for v in plain["valid"]["leaders"])

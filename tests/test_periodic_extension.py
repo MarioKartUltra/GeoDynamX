@@ -198,3 +198,29 @@ def test_a_result_on_the_extended_raster_is_drawn_back_on_the_data(clean_registr
     assert _display_raster_of({**res, "raster_out": small}) is small
     plain = {"raster_out": big}
     assert _display_raster_of(plain) is big
+
+
+def test_the_size_multiple_widens_the_gap_so_a_dyadic_tool_runs_exactly_periodic(clean_registry):
+    from dynamix.core import leaders as L
+    from dynamix.model.device import defaults_for
+    from tests.conftest import fbm2d, make_field
+
+    dev = _device()
+    f = make_field(fbm2d(200, 0.5, seed=2))
+    plain = dev.compute(f, defaults_for(dev))
+    rounded = dev.compute(f, dict(defaults_for(dev), round_to="64"))
+    assert all(n % 64 == 0 for n in rounded.values.shape) and rounded.values.shape >= plain.values.shape
+    prov = rounded.provenance["periodic_extension"]
+    assert prov["round_to"] == "64" and prov["gap_rows"] == rounded.values.shape[0] - 200
+    assert plain.provenance["periodic_extension"]["round_to"] == "none"
+    stamp = rounded.provenance["edges.filled"]
+    assert (stamp["rows"], stamp["cols"]) == (200, 200)
+    r0, c0 = stamp["row0"], stamp["col0"]
+    np.testing.assert_array_equal(rounded.values[r0:r0 + 200, c0:c0 + 200], f.values)
+    # periodic across its wrap, as the plain extension is
+    v = rounded.values
+    wrap = np.sqrt(np.mean((v[0] - v[-1]) ** 2) + np.mean((v[:, 0] - v[:, -1]) ** 2))
+    neighbour = np.sqrt(np.mean(np.diff(v, axis=0) ** 2) + np.mean(np.diff(v, axis=1) ** 2))
+    assert wrap <= 2.0 * neighbour
+    run = L.coefficients(v, "sym4", 6, edge="periodic", origin=(r0, c0), block=(200, 200))
+    assert run["seam"] is False and run["work_shape"] == v.shape

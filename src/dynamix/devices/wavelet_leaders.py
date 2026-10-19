@@ -19,7 +19,7 @@ import numpy as np
 
 from dynamix.core import dwt, leaders
 from dynamix.devices.holder_map import field_values_2d
-from dynamix.devices.wtmm import MOMENT_PARAMS, q_list
+from dynamix.devices.wtmm import MOMENT_PARAMS, filled_block, filled_origin, q_list
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
@@ -44,6 +44,12 @@ class WaveletLeaders:
                               "StripExtras"})
     params = (
         Param("wavelet", ParamKind.CHOICE, default="sym4", choices=dwt.BANKS, label="Wavelet"),
+        # How the field is continued to the pyramid's working image: auto reads a Periodic
+        # extension's stamp and runs periodic, with no border lost; else the mirror.
+        Param("edge", ParamKind.CHOICE, default="auto",
+              choices=("auto", "mirror", "reflect", "periodic", "edge_pad", "zero_pad"),
+              choice_labels=("auto", "mirror", "reflect", "periodic", "edge-value padding", "zero padding"),
+              label="Edge"),
         Param("scale_min", ParamKind.INT, default=4, min=2, max=512, soft_min=2, soft_max=16,
               units="px", label="Finest fitted cell"),
         Param("scale_max", ParamKind.INT, default=64, min=4, max=1024, soft_min=16, soft_max=128,
@@ -80,7 +86,7 @@ class WaveletLeaders:
         Output("oscillation", "raster", lazy=True, label="oscillation ratio", per_level=True),
     )
     param_groups = {
-        "PYRAMID": ("wavelet", "scale_min", "scale_max", "gamma", "dither"),
+        "PYRAMID": ("wavelet", "edge", "scale_min", "scale_max", "gamma", "dither"),
         "P-LEADERS": ("p",),
         "WSE": ("wse_rule", "wse_beta", "wse_depth", "wse_width"),
         "MOMENTS": ("q_min", "q_max", "q_step"),
@@ -100,6 +106,15 @@ class WaveletLeaders:
             out.append(int(round(math.log2(v))))
         return tuple(out)
 
+    @staticmethod
+    def _edge(field, params: dict) -> str:
+        """The continuation used: ``auto`` is periodic on a Periodic extension's output (its
+        ``edges.filled`` stamp), the mirror otherwise."""
+        asked = params.get("edge", "auto")
+        if asked != "auto":
+            return asked
+        return "periodic" if filled_block(field) is not None else "mirror"
+
     def check(self, params: dict) -> None:
         j_min, J = self._levels(params)
         if J - j_min < 2:
@@ -112,7 +127,23 @@ class WaveletLeaders:
         return dwt.border_cells(params["wavelet"]) * int(params["scale_max"])
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        """The fitted cells in the field's units beside ``scale_min`` and ``scale_max``."""
+        """The fitted cells in the field's units beside ``scale_min`` and ``scale_max``; what
+        ``auto`` resolves to beside ``edge``."""
+        if name == "edge":
+            if field is None:
+                return None
+            used = self._edge(field, dict(params or {}, edge=value))
+            head = (f"→ {used}" + (" (Periodic extension output)" if used == "periodic" else "")
+                    if value == "auto" else "")
+            if used == "periodic":
+                # The working image is the field wrapped to a multiple of 2^J: a size that is not
+                # one leaves a seam at the wrap, a border again.
+                J = self._levels(params or {})[1] if params else None
+                shape = tuple(int(n) for n in np.shape(getattr(field, "values", ()))[:2])
+                if J is not None and shape and any(n % 2 ** J for n in shape):
+                    seam = f"{shape[0]} × {shape[1]} px is no multiple of {2 ** J}: the wrap is a seam, bordered"
+                    return f"{head} · {seam}" if head else seam
+            return head or None
         if name not in ("scale_min", "scale_max"):
             return None
         from dynamix.core.units import px_to_metres
@@ -130,11 +161,12 @@ class WaveletLeaders:
 
     # ------------------------------------------------------------------------------- compute
 
-    def _fits(self, shape, params: dict) -> tuple:
+    def _fits(self, shape, params: dict, edge: str) -> tuple:
         """Whether every fitted level keeps at least 16 cells inside the border (4 × 4), the
-        border, and the largest ``scale_max`` whose three coarsest levels all do (0 when none)."""
+        border (none on a torus), and the largest ``scale_max`` whose three coarsest levels all
+        do (0 when none)."""
         j_min, J = self._levels(params)
-        e = dwt.border_cells(params["wavelet"])
+        e = 0 if edge == "periodic" else dwt.border_cells(params["wavelet"])
         side = min(int(n) for n in shape)
         fits = all(side // 2 ** j - 2 * e >= 4 for j in range(j_min, J + 1))
         largest = max((2 ** j for j in range(3, 12) if side // 2 ** j - 2 * e >= 4), default=0)
@@ -143,7 +175,9 @@ class WaveletLeaders:
     def compute(self, field, params: dict, *, progress=None) -> dict:
         vals = field_values_2d(field, self.name)
         self.check(params)
-        fits, largest, e = self._fits(vals.shape, params)
+        edge = self._edge(field, params)
+        block, origin = filled_block(field), filled_origin(field)
+        fits, largest, e = self._fits(block or vals.shape, params, edge)
         if not fits:
             fit_note = (f"the largest scale_max that fits three levels is {largest} px" if largest
                         else "no scale_max fits three levels")
@@ -161,7 +195,7 @@ class WaveletLeaders:
             scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
             wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
             wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
-            q_list=q_list(params), progress=tick)
+            q_list=q_list(params), edge=edge, origin=origin, block=block, progress=tick)
         j_min, J = run["j_min"], run["levels"]
         warnings = []
         adm = run["admissibility"]
@@ -170,8 +204,9 @@ class WaveletLeaders:
                 warnings.append(f"{_METHOD_LABEL[m]} inadmissible on this field (h_min "
                                 f"{adm['h_min']['integrated']:.2f}, η({params['p']:g}) "
                                 f"{adm['eta']['integrated']:.2f}); γ ≥ {adm[m]['suggested_gamma']:g} would clear it")
+        rows, cols = block or vals.shape
         for j in range(j_min, J + 1):
-            inside = (vals.shape[0] // 2 ** j - 2 * e) * (vals.shape[1] // 2 ** j - 2 * e)
+            inside = (rows // 2 ** j - 2 * e) * (cols // 2 ** j - 2 * e)
             if run["valid_cells"]["leaders"][j - 1] < inside / 2:
                 warnings.append(f"level {j} ({2 ** j} px): more than half its cells touch non-finite pixels")
             if run["zero_cells"][j - 1] > 0.01 * max(run["valid_cells"]["leaders"][j - 1], 1):
@@ -197,6 +232,9 @@ class WaveletLeaders:
         h_map, r2_map = self._paint(h_cells[method], j_min, vals.shape)
         record = {
             "method": self.name, "wavelet": params["wavelet"], "levels": {"j_min": j_min, "J": J},
+            "edge": {"asked": params["edge"], "used": edge, "border_cells": e,
+                     "block": list(block) if block else None, "origin": list(origin)},
+            "seam": bool(run["seam"]),
             "gamma": float(params["gamma"]), "p": float(params["p"]), "dither": bool(params["dither"]),
             "wse": {"rule": params["wse_rule"], "schedule": [[list(pair) for pair in lev] for lev in run["wse_schedule"]]},
             "border_cells": run["border_cells"],

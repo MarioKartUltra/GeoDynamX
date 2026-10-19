@@ -20,6 +20,8 @@ only a stencil that cannot fit the field with its gap passes the field through u
 """
 from __future__ import annotations
 
+import math
+
 import dataclasses
 
 import numpy as np
@@ -72,6 +74,11 @@ class PeriodicExtension:
         Param("layout", ParamKind.CHOICE, default="centred", choices=("origin", "centred"),
               choice_labels=("data at the origin", "centred"), label="Layout",
               keyed_at_default=False),
+        # The extended size rounded up to a multiple, by widening the gap: the dyadic tools
+        # (wavelet leaders, dwt2d) run exactly periodic only when 2^J divides the size.
+        Param("round_to", ParamKind.CHOICE, default="none", choices=("none", "32", "64", "128", "256"),
+              choice_labels=("as tuned", "32 px", "64 px", "128 px", "256 px"), label="Size multiple",
+              keyed_at_default=False),
     )
 
     @staticmethod
@@ -86,7 +93,7 @@ class PeriodicExtension:
         if isinstance(field, dict):
             raise ValueError("Periodic extension runs on the FIELD, before the analysing transform — "
                              "drag it ahead of the scale-space tool in the chain")
-        from dynamix.core.daf import extend_2d
+        from dynamix.core.daf import extend_2d, extend_periodic
 
         values = np.asarray(field.values, dtype=np.float64)
         if values.ndim != 2:
@@ -96,10 +103,19 @@ class PeriodicExtension:
             return field                             # nothing to compute; the ⚠ says why
         if progress is not None:
             progress("periodic extension", 0.0)
-        extended = extend_2d(values, tuned)
+        H, W = values.shape
+        multiple = params.get("round_to", "none")
+        if multiple != "none":
+            m = int(multiple)
+            # One gap per axis, widened to the multiple: the fill runs on each axis's own gap.
+            gy = int(math.ceil((H + tuned.gap) / m)) * m - H
+            gx = int(math.ceil((W + tuned.gap) / m)) * m - W
+            ex = extend_periodic(values, gx, tuned.sigma, tuned.M, tuned.lam)
+            extended = extend_periodic(ex.T, gy, tuned.sigma, tuned.M, tuned.lam).T
+        else:
+            extended = extend_2d(values, tuned)
         if progress is not None:
             progress("periodic extension", 1.0)
-        H, W = values.shape
         gy, gx = extended.shape[0] - H, extended.shape[1] - W
         # One gap per axis, after the data: on the torus it bridges both edges of that axis.
         # Centred, the same field is rolled so the data sit in the middle, the gap around them.
@@ -112,6 +128,7 @@ class PeriodicExtension:
         if r0 or c0:
             provenance[FILLED].update(row0=int(r0), col0=int(c0))
         provenance["periodic_extension"] = {"f_b": float(tuned.f_b), "gap": int(tuned.gap),
+                                            "gap_rows": int(gy), "gap_cols": int(gx), "round_to": multiple,
                                             "M": int(tuned.M), "sigma": float(tuned.sigma),
                                             "lam": float(tuned.lam), "layout": layout,
                                             "band": params.get("band", "auto"),

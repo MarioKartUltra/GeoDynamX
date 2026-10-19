@@ -499,6 +499,7 @@ gives $\lambda_b$, the gap and $\sigma$ for the field at hand. On an ROI it exte
 \texttt{M} (DAF order) & 12 & $[2,40]$ & Hermite order of the DAF \\
 \texttt{lam} (Regularization) & $10^{-3}$ & $[0,1]$ & $\lambda$ of the gap solve \\
 \texttt{layout} (Layout) & centred & origin, centred & where the data sit in the extended raster: at the origin with the gap after the last row and column, or in the middle with the gap split around them (the same periodic field, rolled; the real-block stamp carries the offset and WTMM's real block follows it) \\
+\texttt{round\_to} (Size multiple) & none & none, 32, 64, 128, 256 & the extended size rounded up to a multiple by widening the gap, so a dyadic tool after it (wavelet leaders, dwt2d) runs exactly periodic: its pyramid needs $2^J$ to divide the size, else the wrap is a seam \\
 \bottomrule
 \end{longtable}
 
@@ -942,7 +943,10 @@ Leonarduzzi et al.\ 2017's finite-resolution factor when $\eta(p) > 0$, and the
 neighbouring cells (Dumeur et al.\ 2025, Def.~2.2), Meyer's weak scaling exponent. Coefficients
 are $L^1$ ($2^{-j}$ times the orthonormal ones), every band rolled onto the field's dyadic grid by
 its atom's centroid, and cells within the bank's border of an edge or of a non-finite pixel are
-left out (\texttt{wavelet}: sym4 5 cells, sym7 6, db4 5, bl3 13). \texttt{scale\_min} and
+left out (\texttt{wavelet}: sym4 5 cells, sym7 6, db4 5, bl3 13). \texttt{edge} continues the field to the
+pyramid's working image: \emph{auto} runs periodic on a Periodic extension's output (its stamp; no border is lost,
+the real block alone counts) and mirrors otherwise; \emph{mirror}, \emph{reflect}, \emph{edge-value padding},
+\emph{zero padding} and \emph{periodic} may be forced. \texttt{scale\_min} and
 \texttt{scale\_max} (powers of two) bound the fitted levels, at least three; \texttt{gamma} is a
 pseudo-fractional integration of the coefficients by $2^{\gamma j}$, every readout given in the
 integrated frame and shifted back ($\tau - \gamma q$, $h - \gamma$, $c_1 - \gamma$);

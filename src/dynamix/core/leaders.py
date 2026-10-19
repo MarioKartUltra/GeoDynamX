@@ -33,30 +33,60 @@ import numpy as np
 
 from dynamix.core import dwt
 
-__all__ = ["BANDS", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
+__all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
            "local_exponent", "oscillation", "paint", "partition_table", "pleaders", "run_leaders",
            "valid_cells", "wse", "wse_schedule"]
 
 BANDS = ("horizontal", "vertical", "diagonal")
 METHODS = ("leaders", "p-leaders", "wse")
+#: How the field is continued to the working image the periodized transform sees, by numpy's
+#: pad mode: ``mirror`` repeats the edge sample and folds (one period of an even image,
+#: continuous at every edge, the WTMM's ``reflect`` by another name), ``reflect`` folds without
+#: repeating it, ``edge_pad`` and ``zero_pad`` hold a constant, ``periodic`` wraps the field
+#: itself — for a field that is periodic already (a Periodic extension's output), where no edge
+#: exists and no border is lost.
+EDGE_MODES = {"mirror": "symmetric", "reflect": "reflect", "edge_pad": "edge", "zero_pad": "constant",
+              "periodic": "wrap"}
 
 
 # ----------------------------------------------------------------------------------- coefficients
 
-def coefficients(values, name: str, level: int, *, gamma: float = 0.0) -> dict:
-    """The detail moduli of the mirror-extended field, L¹, registered and integrated by
-    2^{γj}: ``mods[j-1]`` is the stack ``(n_bands, *cells)`` of |d| at level j = 1..``level``;
-    ``bad[j-1]`` marks the cells holding a non-finite pixel (filled with the finite mean for
-    the transform); ``quarter[j-1]`` counts the cells per axis that lie inside the field."""
+def _extend(x, W, edge: str):
+    """``x`` continued to the working shape ``W`` by ``edge`` (:data:`EDGE_MODES`): the mirror
+    through :func:`dwt.mirror` (the DWT tools' own construction), the others by numpy's pad
+    after the data."""
+    if edge == "mirror":
+        return dwt.mirror(x, W)
+    if edge not in EDGE_MODES:
+        raise ValueError(f"leaders: edge {edge!r}, expected one of {tuple(EDGE_MODES)}")
+    pad = tuple((0, int(w) - int(n)) for w, n in zip(W, x.shape))
+    return np.pad(x, pad, mode=EDGE_MODES[edge])
+
+
+def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str = "mirror",
+                 origin=(0, 0), block=None) -> dict:
+    """The detail moduli of the field continued by ``edge`` to the working image, L¹, registered
+    and integrated by 2^{γj}: ``mods[j-1]`` is the stack ``(n_bands, *cells)`` of |d| at level
+    j = 1..``level``; ``bad[j-1]`` marks the cells holding a non-finite pixel (filled with the
+    finite mean for the transform); ``block[j-1]`` is the cell range per axis, ``(lo, hi)``, that
+    lies inside the data — the whole field, or the real block of a Periodic extension's output
+    starting at ``origin`` with ``block`` pixels per axis. Under ``periodic`` the working image is
+    the field wrapped to the next multiple of 2^J per axis, not doubled: a periodic field has no
+    edge to hide."""
     x = np.asarray(values, dtype=np.float64)
     if x.ndim not in (1, 2):
         raise ValueError(f"leaders: a 1-D signal or a 2-D band, not shape {x.shape}")
     J = int(level)
     finite = np.isfinite(x)
     filled = np.where(finite, x, float(x[finite].mean()) if finite.any() else 0.0)
-    W = dwt.working_shape(x.shape, J)
-    work = dwt.mirror(filled, W)
-    bad = dwt.mirror((~finite).astype(np.float64), W) > 0.5
+    if edge == "periodic":
+        W = tuple(int(math.ceil(int(n) / 2 ** J)) * 2 ** J for n in x.shape)
+    else:
+        W = dwt.working_shape(x.shape, J)
+    work = _extend(filled, W, edge)
+    bad = _extend((~finite).astype(np.float64), W, "zero_pad" if edge in ("zero_pad", "edge_pad") else edge) > 0.5
+    size = tuple(int(n) for n in x.shape) if block is None else tuple(int(n) for n in block)
+    start = tuple(int(o) for o in origin)
     reg = dwt.registration(name, J)
     d = x.ndim
     mods = []
@@ -72,9 +102,14 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0) -> dict:
         for j in range(1, J + 1):
             rolled = np.roll(coeffs[J + 1 - j], reg[(j, "detail")][0])
             mods.append(np.abs(rolled)[None] * 2.0 ** ((gamma - 0.5) * j))
+    cells = [tuple((int(math.ceil(o / 2 ** j)), int((o + n) // 2 ** j)) for o, n in zip(start, size))
+             for j in range(1, J + 1)]
+    # Wrapping a field to a working size that is not its own period puts a seam at the working
+    # image's wrap: a border there, like any padded edge.
+    seam = edge == "periodic" and tuple(W) != tuple(x.shape)
     return {"mods": mods, "bad": [_pool_to(bad, j, np.any) for j in range(1, J + 1)],
-            "quarter": [tuple(int(n) // 2 ** j for n in x.shape) for j in range(1, J + 1)],
-            "levels": J, "ndim": d, "shape": tuple(x.shape), "work_shape": tuple(W),
+            "block": cells, "levels": J, "ndim": d, "shape": tuple(x.shape), "work_shape": tuple(W),
+            "data_shape": size, "origin": start, "edge": edge, "seam": seam,
             "registration": reg, "gamma": float(gamma), "wavelet": name}
 
 
@@ -120,14 +155,18 @@ def _window_max(fine, depth: int, width: float):
     return out[tuple(slice(0, None, f) for _ in range(fine.ndim))]
 
 
-def valid_cells(coef: dict, margin: int) -> list:
-    """Per level, the cells that enter maps and statistics: inside the field at least ``margin``
-    cells from each edge, and no cell with a non-finite pixel within ``margin`` cells."""
+def valid_cells(coef: dict, margin: int, seam_margin: int = 0) -> list:
+    """Per level, the cells that enter maps and statistics: inside the data's block at least
+    ``margin`` cells from each of its edges, at least ``seam_margin`` cells from the working
+    image's wrap (the seam a wrapped field of another period has there), and no cell with a
+    non-finite pixel within ``margin`` cells."""
     out = []
-    for bad, quarter in zip(coef["bad"], coef["quarter"]):
+    for bad, block in zip(coef["bad"], coef["block"]):
         v = np.zeros(bad.shape, dtype=bool)
-        if all(q - 2 * margin > 0 for q in quarter):
-            v[tuple(slice(margin, q - margin) for q in quarter)] = True
+        window = [(max(lo + margin, seam_margin), min(hi - margin, n - seam_margin))
+                  for (lo, hi), n in zip(block, bad.shape)]
+        if all(hi > lo for lo, hi in window):
+            v[tuple(slice(lo, hi) for lo, hi in window)] = True
         if bad.any():
             v &= ~_box(bad, margin, np.logical_or) if margin else ~bad
         out.append(v)
@@ -323,10 +362,13 @@ def paint(cells, level: int, shape) -> np.ndarray:
 
 def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max: int = 64,
                 gamma: float = 0.0, p: float = 2.0, wse_rule: str = "dumeur", wse_depth: int = 1,
-                wse_width: float = 1.0, wse_beta: float = 0.25, q_list=None, progress=None) -> dict:
+                wse_width: float = 1.0, wse_beta: float = 0.25, q_list=None, edge: str = "mirror",
+                origin=(0, 0), block=None, progress=None) -> dict:
     """The three quantities and every readout on one band (or 1-D signal): the pyramid to
     J = log2 ``scale_max``, the fit over the levels from log2 ``scale_min``; the tables keyed
-    by method plus ``coefficients``; the cumulants and the local exponent per method."""
+    by method plus ``coefficients``; the cumulants and the local exponent per method. ``edge``
+    continues the field (:data:`EDGE_MODES`); under ``periodic`` no border is lost. ``origin``
+    and ``block`` name the data's real block inside the field (a Periodic extension's output)."""
     from dynamix.core.partition_tables import DEFAULT_Q_LIST
 
     J, j_min = _level_of(scale_max, "scale_max"), _level_of(scale_min, "scale_min")
@@ -341,14 +383,20 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     q = np.asarray(DEFAULT_Q_LIST if q_list is None else q_list, dtype=np.float64)
     tick = progress or (lambda frac: None)
 
-    coef = coefficients(x, wavelet, J, gamma=gamma)
+    coef = coefficients(x, wavelet, J, gamma=gamma, edge=edge, origin=origin, block=block)
     tick(0.3)
-    e = dwt.border_cells(wavelet)
+    # The border the continuation costs: the bank's cells for a padded edge, none on a torus;
+    # a wrapped field whose period is not the working size has a seam at the wrap, a border there.
+    border = dwt.border_cells(wavelet)
+    e = 0 if edge == "periodic" else border
+    seam = border if coef["seam"] else 0
+    e_coef, seam_coef = max(e - 1, 0), max(seam - 1, 0)
     schedule = wse_schedule(J, rule=wse_rule, depth=wse_depth, width=wse_width, beta=wse_beta,
-                            log2_n=math.log2(min(x.shape)))
-    reach = max(math.ceil(w) for level in schedule for _, w in level)
-    valid = {"coefficients": valid_cells(coef, e - 1), "leaders": valid_cells(coef, e),
-             "p-leaders": valid_cells(coef, e), "wse": valid_cells(coef, e - 1 + reach)}
+                            log2_n=math.log2(min(coef["data_shape"])))
+    reach = 0 if edge == "periodic" and not coef["seam"] else max(math.ceil(w) for level in schedule for _, w in level)
+    valid = {"coefficients": valid_cells(coef, e_coef, seam_coef), "leaders": valid_cells(coef, e, seam),
+             "p-leaders": valid_cells(coef, e, seam),
+             "wse": valid_cells(coef, e_coef + (reach if edge != "periodic" else 0), seam_coef + (reach if coef["seam"] else 0))}
     adm = admissibility(coef, valid["coefficients"], j_min, p)
     eta = adm["eta"]["integrated"]
     quantity = {"leaders": leaders(coef),
@@ -358,14 +406,16 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     tick(0.6)
     for m, v in zip(quantity["leaders"], valid["leaders"]):
         v &= np.isfinite(m)
-    tables = {k: partition_table(quantity[k], valid[k], q, x.shape) for k in METHODS}
-    tables["coefficients"] = partition_table(coef["mods"], valid["coefficients"], q, x.shape,
+    tables = {k: partition_table(quantity[k], valid[k], q, coef["data_shape"]) for k in METHODS}
+    tables["coefficients"] = partition_table(coef["mods"], valid["coefficients"], q, coef["data_shape"],
                                              positive_only=True)
     cums = {k: cumulants(tables[k], j_min, J, gamma) for k in METHODS}
     local = {k: local_exponent(quantity[k], valid[k], j_min) for k in METHODS}
     tick(1.0)
     return {"levels": J, "j_min": j_min, "scales": 2.0 ** np.arange(1, J + 1), "ndim": x.ndim,
-            "shape": coef["shape"], "wavelet": wavelet, "gamma": float(gamma), "p": float(p),
+            "shape": coef["shape"], "edge": edge, "seam": coef["seam"], "origin": coef["origin"],
+            "data_shape": coef["data_shape"],
+            "wavelet": wavelet, "gamma": float(gamma), "p": float(p),
             "coefficients": coef["mods"], "quantity": quantity, "oscillation": osc, "valid": valid,
             "tables": tables, "cumulants": cums, "admissibility": adm, "local": local,
             "registration": coef["registration"], "border_cells": e, "wse_schedule": schedule,
