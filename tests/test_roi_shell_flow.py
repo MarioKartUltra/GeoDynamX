@@ -1358,3 +1358,16 @@ def test_an_roi_forks_its_own_pixels_as_a_dataset(plain_window, qtbot, monkeypat
     assert forked.provenance["derived"]["roi"] == {"row": 4, "col": 5, "h": 16, "w": 20, "label": roi.label}
     assert win.project.sources[new].nest_under == roi.source_id
     np.testing.assert_array_equal(np.asarray(win._field_for_source(roi.source_id).values), parent)
+
+
+def test_a_refined_field_at_an_roi_draws_over_the_rois_file_pixels(plain_window, qtbot):
+    """Dyadic interpolation at the 16 x 20 ROI makes a 31 x 39 field half a file pixel apart; the
+    canvas draws it over the ROI's own 16 x 20 file pixels, so the ROI's outline encloses it."""
+    win = plain_window
+    _save(win)                                                  # (4, 5, 16, 20), active
+    _roi_child(win, qtbot, "dyadic_interpolation")
+    assert win.layer.tags.get("roi.window") == "4,5,16,20"      # the drop ran on the ROI
+    assert win._active_field[1].values.shape == (31, 39)
+    rect = win.canvas.image_item.mapRectToView(win.canvas.image_item.boundingRect())
+    assert (rect.x(), rect.y()) == (4.75, 3.75)                 # (col - 1/4, row - 1/4)
+    assert (rect.width(), rect.height()) == (19.5, 15.5)        # 39 and 31 samples at 1/2

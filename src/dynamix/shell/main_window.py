@@ -4373,7 +4373,9 @@ both ``Canvas`` signals report the
         what the chain makes, the way an inserted effect is heard at once: the produced field
         goes on the canvas (a stack through the Composite mixer), so noise shows its noise, a
         band row its band, a bus its sends. Bypass the stage to A/B against the dry data. The
-        field is what "Fork derivative dataset…" takes from this row."""
+        field is what "Fork derivative dataset…" takes from this row. A field on a finer or
+        coarser grid than the dataset's (dyadic interpolation) draws at its pitch, over the file
+        pixels it came from."""
         self._active_result = {}               # never a previous layer's result, for the fork
         self._wavelet_bar_state = (None, "")   # nor its wavelet bar, until this one lands
         self.canvas.set_wavelet_profile(None, "")
@@ -4384,7 +4386,11 @@ both ``Canvas`` signals report the
             self._notify("chain ends on a field transform (noise) — add wtmm2d after it to "
                          "analyse", "status")
             return
-        self.canvas.set_field(result, display_origin=self._display_origin(self.field))
+        from dynamix.core.bus import grid_pitch
+
+        pitch = grid_pitch(result, self.field) if self.field is not None else (1.0, 1.0)
+        self.canvas.set_field(result, display_origin=self._display_origin(self.field),
+                              display_pitch=pitch)
         values = np.asarray(result.values)
         self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
         self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
