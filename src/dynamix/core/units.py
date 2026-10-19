@@ -144,7 +144,8 @@ def px_to_metres(field) -> tuple[float | None, str]:
       recognised linear unit converts to real metres. A linear unit this app cannot name keeps the
       raw axis-derived number under whatever label :func:`linear_unit_to_m` returned -- "stay
       native" rather than lie about the unit.
-    - No ``"crs"`` key (a plain image, an EBSD ``.npz``, a bare array) OR the field's frame already
+    - No ``"crs"`` (the key absent, or ``None`` as a file with no georeference records it: a
+      plain image, an SEM map in microns, an EBSD ``.npz``, a bare array) OR the field's frame already
       reports ``"deg"`` (``GeographicFrame`` -- this codebase's own discriminator for "this axis is
       already lon/lat", more reliable than re-detecting geographic-ness from a CRS string that may
       have been abbreviated to a bare EPSG code with no unit text left to parse) -- the axis is
@@ -160,7 +161,7 @@ def px_to_metres(field) -> tuple[float | None, str]:
         return None, frame_unit
 
     provenance = getattr(field, "provenance", None) or {}
-    if "crs" not in provenance or frame_unit == "deg":
+    if not provenance.get("crs") or frame_unit == "deg":
         return dx, frame_unit
 
     factor, label = linear_unit_to_m(provenance)
@@ -171,8 +172,9 @@ def px_to_metres(field) -> tuple[float | None, str]:
 
 # ----------------------------------------------------------------------- the bars' unit choice
 
-_SI = {"nm": 1e-9, "um": 1e-6, "μm": 1e-6, "mm": 1e-3, "cm": 1e-2, "m": 1.0, "km": 1e3}
-_SI_NAME = {"um": "μm"}
+_SI = {"nm": 1e-9, "um": 1e-6, "μm": 1e-6, "µm": 1e-6, "mm": 1e-3, "cm": 1e-2, "m": 1.0, "km": 1e3}
+#: The micro sign (U+00B5, what a LocalFrame in microns carries) displays as the Greek mu.
+_SI_NAME = {"um": "μm", "µm": "μm"}
 #: What a bar's right-click menu offers: the tiered SI unit, the field's own unit, pixels, or a
 #: fixed SI unit.
 UNIT_CHOICES = ("auto", "native", "px", "km", "m", "mm", "μm")

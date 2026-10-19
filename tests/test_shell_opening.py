@@ -343,3 +343,20 @@ def test_opening_a_header_opens_the_image_beside_it(tmp_path):
     lonely.write_text("[MAIN]\n", encoding="utf-8")
     with pytest.raises(ValueError, match="no image beside"):
         resolve_openable(str(lonely))
+
+
+def test_open_field_gives_a_tescan_image_its_header_frame(tmp_path):
+    """The dialog's route: a tif beside its TESCAN header opens in microns, whole or as a
+    decimated picture, and so does the header itself."""
+    rasterio = pytest.importorskip("rasterio")
+    from dynamix.shell.opening import open_field
+
+    p = tmp_path / "map.tif"
+    with rasterio.open(p, "w", driver="GTiff", height=8, width=8, count=1, dtype="uint8") as dst:
+        dst.write(np.zeros((8, 8), dtype="uint8"), 1)
+    (tmp_path / "map-tif.hdr").write_text("[MAIN]\nPixelSizeX=1e-6\nPixelSizeY=1e-6\n", encoding="utf-8")
+    whole = open_field(str(p))
+    assert whole.frame.units == "µm" and np.isclose(whole.frame.dx, 1.0)
+    picture = open_field(str(p), max_pixels=16)
+    assert picture.frame.units == "µm" and picture.provenance["georef"].startswith("TESCAN header")
+    assert open_field(str(tmp_path / "map-tif.hdr")).frame.units == "µm"

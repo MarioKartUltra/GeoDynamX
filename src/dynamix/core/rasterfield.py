@@ -95,6 +95,31 @@ def pixel_frame(cols, rows):
                                       units="px")
 
 
+def unscaled_frame(path, cols, rows):
+    """``(x_axis, y_axis, frame, note)`` of a raster whose file carries no ground scale: an SEM
+    header beside ``path`` gives the pixel size (axes in µm at the given pixel-centre indices,
+    the EBSD convention), else :func:`pixel_frame`; ``note`` is what the provenance records of
+    it (``georef``, and the header with its info-strip rows when there is one)."""
+    from pathlib import Path
+
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.sem_header import read_sidecar
+
+    header = read_sidecar(path)
+    if header is None:
+        x_axis, y_axis, frame = pixel_frame(cols, rows)
+        return x_axis, y_axis, frame, {"georef": "none (pixel-index axes)"}
+    dx, dy = (1e6 * float(v) for v in header["pixel_size_m"])
+    x_axis = np.asarray(cols, dtype=np.float64) * dx
+    y_axis = np.asarray(rows, dtype=np.float64) * dy
+    frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]), dx=dx, dy=dy, units="µm")
+    note = {"georef": f"{header['vendor']} header {Path(header['file']).name}: {1e3 * dx:.3f} nm/px",
+            "sem_header": header}
+    if header["strip_rows"]:
+        note["image_strip_rows"] = int(header["strip_rows"])
+    return x_axis, y_axis, frame, note
+
+
 @dataclass(eq=False)
 class RasterField:
     """A 2-D (or multi-component) raster field placed in scene coordinates via a ``frame``.
@@ -417,13 +442,15 @@ class RasterField:
         _, y_axis = transform * (np.zeros_like(rows), rows)
         x_axis = np.asarray(x_axis, dtype=np.float64)
         y_axis = np.asarray(y_axis, dtype=np.float64)
+        note = {}
         if frame is None:
             if crs is not None and crs.is_projected:
                 frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                                    dx=abs(float(transform.a)), dy=abs(float(transform.e)),
                                    units=crs.linear_units)
             elif crs is None:              # the ground scale is unknown: read in pixels
-                x_axis, y_axis, frame = pixel_frame(cols + int(col_off), rows + int(row_off))
+                x_axis, y_axis, frame, note = unscaled_frame(path, cols + int(col_off),
+                                                             rows + int(row_off))
             else:
                 frame = GeographicFrame()
         return cls(
@@ -433,7 +460,7 @@ class RasterField:
             provenance={"source": given, "window": {"row_off": int(row_off),
                                                         "col_off": int(col_off),
                                                         "height": int(ny), "width": int(nx)},
-                        "crs": str(crs) if crs is not None else None},
+                        "crs": str(crs) if crs is not None else None, **note},
         )
 
     @classmethod
@@ -463,12 +490,13 @@ class RasterField:
         # (measured on the BOEM west crop: 400 real columns collapsed onto 9 distinct x values,
         # 45 wrap-arounds — the "dateline-looking" smear on the Vector tab). The Globe path is
         # independent of this: geo.mapping keys off provenance["crs"], not field.frame.
+        note = {}
         if crs is not None and crs.is_projected:
             frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                                dx=abs(float(transform.a)), dy=abs(float(transform.e)),
                                units=crs.linear_units)
         elif crs is None:                  # the ground scale is unknown: read in pixels
-            x_axis, y_axis, frame = pixel_frame(cols, rows)
+            x_axis, y_axis, frame, note = unscaled_frame(path, cols, rows)
         else:
             frame = GeographicFrame()
         return cls(
@@ -478,7 +506,7 @@ class RasterField:
             x_axis=np.asarray(x_axis, dtype=np.float64),
             y_axis=np.asarray(y_axis, dtype=np.float64),
             units=(crs.linear_units if (crs is not None and crs.is_projected) else ""),
-            provenance={"crs": str(crs) if crs is not None else None},
+            provenance={"crs": str(crs) if crs is not None else None, **note},
         )
 
     @classmethod

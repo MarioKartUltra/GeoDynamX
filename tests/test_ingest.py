@@ -366,3 +366,18 @@ def test_a_header_names_its_partner_image(tmp_path):
     (tmp_path / "cube.img").write_bytes(b"\0" * 8)
     assert partner_of(envi) == tmp_path / "cube.img"
     assert partner_of(tmp_path / "lonely.hdr") is None
+
+
+def test_the_raster_field_routes_read_the_tescan_header(tescan_tif):
+    """The app opens a tif through ``RasterField.from_file`` and ``from_geotiff_window``, not the
+    grid loader: both give the header's frame, the window's axes at its file pixels."""
+    from dynamix.core.rasterfield import RasterField
+
+    whole = RasterField.from_file(tescan_tif)
+    assert whole.frame.units == "µm" and np.isclose(whole.frame.dx, 0.077735)
+    assert whole.provenance["georef"].startswith("TESCAN header")
+    assert whole.provenance["crs"] is None
+    window = RasterField.from_geotiff_window(tescan_tif, row_off=1, col_off=2, height=3, width=4)
+    assert window.frame.units == "µm"
+    assert np.isclose(window.x_axis[0], 2.5 * 0.077735) and np.isclose(window.y_axis[0], 1.5 * 0.080)
+    assert window.provenance["image_strip_rows"] == 2

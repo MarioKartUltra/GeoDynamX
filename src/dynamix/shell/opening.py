@@ -189,15 +189,16 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
             _, y_axis = transform * (np.zeros_like(rows), rows)
             x_axis = np.asarray(x_axis, dtype=np.float64)
             y_axis = np.asarray(y_axis, dtype=np.float64)
+            note = {}
             if crs is not None and crs.is_projected:
                 frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                                    dx=abs(float(transform.a)) * stride,
                                    dy=abs(float(transform.e)) * stride,
                                    units=crs.linear_units)
             elif crs is None:              # the ground scale is unknown: read in pixels
-                from dynamix.core.rasterfield import pixel_frame
+                from dynamix.core.rasterfield import unscaled_frame
 
-                x_axis, y_axis, frame = pixel_frame(cols, rows)
+                x_axis, y_axis, frame, note = unscaled_frame(resolved, cols, rows)
             else:
                 frame = GeographicFrame()
             field = RasterField(
@@ -206,6 +207,7 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
             field.provenance["overview"] = stride
             field.provenance["window"] = {"row_off": 0, "col_off": 0}
             field.provenance["crs"] = str(crs) if crs is not None else None
+            field.provenance.update(note)
             return _stamp_source(field, resolved, height, width)
         if height * width > max_pixels:
             row_off = max(0, (height - window_size) // 2)

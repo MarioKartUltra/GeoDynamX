@@ -129,6 +129,7 @@ def read_picture(path, *, max_dim: int = PICTURE_MAX_DIM, name: str | None = Non
     _, y_axis = transform * (np.zeros(rows.size), rows + 0.5)
     x_axis = np.asarray(x_axis, dtype=np.float64)
     y_axis = np.asarray(y_axis, dtype=np.float64)
+    note = {}
     if crs is not None and crs.is_projected:
         frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]),
                            dx=abs(float(transform.a)), dy=abs(float(transform.e)),
@@ -136,16 +137,17 @@ def read_picture(path, *, max_dim: int = PICTURE_MAX_DIM, name: str | None = Non
     elif crs is not None:
         frame = GeographicFrame()
     else:
-        # No CRS (a bare netCDF/HDF5 grid, a GeoTIFF without one): the ground scale is unknown,
-        # so pixel-index axes in a local frame in pixels, never a geographic claim.
-        from dynamix.core.rasterfield import pixel_frame
+        # No CRS (a bare netCDF/HDF5 grid, a GeoTIFF without one): the ground scale comes from
+        # an SEM header beside the file when there is one, else pixel-index axes in a local
+        # frame in pixels, never a geographic claim.
+        from dynamix.core.rasterfield import unscaled_frame
 
-        x_axis, y_axis, frame = pixel_frame(cols + 0.5, rows + 0.5)
+        x_axis, y_axis, frame, note = unscaled_frame(path, cols + 0.5, rows + 0.5)
     field = RasterField(name=name or f"{Path(path).stem}@pic{s}", values=out, frame=frame,
                         x_axis=x_axis, y_axis=y_axis)
     field.provenance.update({
         "source": path, "full_dims": (H, W), "crs": str(crs) if crs is not None else None,
-        "window": {"row_off": 0, "col_off": 0}, "display_stride": s,
+        "window": {"row_off": 0, "col_off": 0}, "display_stride": s, **note,
     })
     return field
 

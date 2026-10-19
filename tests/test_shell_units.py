@@ -500,3 +500,14 @@ def test_deg_to_metres_runs_along_the_parallel():
 
     assert deg_to_metres(1.0, 0.0) == pytest.approx(np.pi * 6378137.0 / 180.0)
     assert deg_to_metres(2.0, 60.0) == pytest.approx(2.0 * np.pi * 6378137.0 / 180.0 * 0.5)
+
+
+def test_a_crs_key_holding_none_uses_the_frames_own_unit():
+    """A plain image opened from a file records ``"crs": None``: no georeference, so the axis is
+    already in the frame's own unit (microns from an SEM header), never "unknown"."""
+    from dynamix.core.units import in_units
+
+    field = _field(0.077735, units="µm", provenance={"crs": None})
+    assert px_to_metres(field) == (pytest.approx(0.077735), "µm")
+    assert in_units(50.0, "µm", "auto") == (pytest.approx(50.0), "μm")     # the micro sign is an SI length
+    assert in_units(5000.0, "µm", "auto") == (pytest.approx(5.0), "mm")
