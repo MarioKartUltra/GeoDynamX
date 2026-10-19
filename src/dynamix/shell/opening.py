@@ -49,8 +49,17 @@ def resolve_openable(path: str) -> str:
     that suffix test, so they are never candidates. Exactly one match returns the GDAL virtual
     path ``/vsizip/{abspath}/{member}``; zero or multiple matches raise ``ValueError`` naming what
     was found -- choosing among several members is a follow-up, not a silent pick.
+    A ``.hdr`` (a TESCAN sidecar, an ENVI header) resolves to the image beside it, which then
+    loads with the header's metadata.
     """
     p = Path(path)
+    if p.suffix.lower() == ".hdr":
+        from dynamix.core.sem_header import partner_of
+
+        image = partner_of(p)
+        if image is None:
+            raise ValueError(f"{path}: a header with no image beside it")
+        return str(image)
     if p.suffix.lower() != ".zip":
         return str(path)
     with zipfile.ZipFile(p) as zf:

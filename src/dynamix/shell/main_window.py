@@ -2309,7 +2309,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # not an error or progress dialog -- those are the ones DESIGN.md forbids.
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self, "Open raster", "",
-            "Raster, points or reference layers (*.npz *.npy *.tif *.tiff *.zip *.png *.jpg "
+            "Raster, points or reference layers (*.npz *.npy *.tif *.tiff *.hdr *.zip *.png *.jpg "
             "*.csv *.shp *.lyr *.nc *.nc4 *.cdf *.h5 *.hdf5 *.he5 *.hdf)")
         if path:
             self.open_path(path)

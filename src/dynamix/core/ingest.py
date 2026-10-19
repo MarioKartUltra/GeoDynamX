@@ -270,6 +270,30 @@ def _band_subset(path, ks: list, ids: list, name: "str | None"):
         provenance=prov)
 
 
+def _unscaled_frame(p: Path, nx: int, ny: int):
+    """``(x_axis, y_axis, frame, note)`` of a raster whose file carries no ground scale: an SEM
+    header beside it gives the pixel size (axes in µm at pixel centres, the EBSD convention),
+    else the samples' pixel-centre indices; ``note`` is what the provenance records of it."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import pixel_frame
+    from dynamix.core.sem_header import read_sidecar
+
+    cols = np.arange(nx, dtype=np.float64) + 0.5
+    rows = np.arange(ny, dtype=np.float64) + 0.5
+    header = read_sidecar(p)
+    if header is None:
+        x_axis, y_axis, frame = pixel_frame(cols, rows)
+        return x_axis, y_axis, frame, {"georef": "none (pixel-index axes)"}
+    dx, dy = (1e6 * float(v) for v in header["pixel_size_m"])
+    x_axis, y_axis = cols * dx, rows * dy
+    frame = LocalFrame(x0=float(x_axis[0]), y0=float(y_axis[0]), dx=dx, dy=dy, units="µm")
+    note = {"georef": f"{header['vendor']} header {Path(header['file']).name}: {1e3 * dx:.3f} nm/px",
+            "sem_header": header}
+    if header["strip_rows"]:
+        note["image_strip_rows"] = int(header["strip_rows"])
+    return x_axis, y_axis, frame, note
+
+
 def _load_gdal(p: Path, target: str, name: "str | None"):
     import rasterio
 
@@ -307,10 +331,7 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
             frame = GeographicFrame()
             units = ""
     else:
-        from dynamix.core.rasterfield import pixel_frame
-
-        x_axis, y_axis, frame = pixel_frame(np.arange(nx, dtype=np.float64) + 0.5,
-                                            np.arange(ny, dtype=np.float64) + 0.5)
+        x_axis, y_axis, frame, note = _unscaled_frame(p, nx, ny)
         units = ""
     sub_tail = target.split(":")[-1] if target != str(p) else None
     return RasterField(
@@ -318,7 +339,7 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
         values=values, frame=frame, x_axis=x_axis, y_axis=y_axis, units=units,
         provenance={"source": str(p), "subdataset": (target if target != str(p) else None),
                     "crs": str(crs) if crs is not None else None,
-                    **({} if georef else {"georef": "none (pixel-index axes)"})},
+                    **({} if georef else note)},
     )
 
 

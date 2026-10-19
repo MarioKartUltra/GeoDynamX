@@ -328,3 +328,18 @@ def test_boem_style_undeclared_sentinels_read_as_nan(tmp_path):
     assert np.isnan(wv[0, :]).all()
     assert np.isnan(wv[10, 10])                       # declared nodata still honored
     assert np.nanmin(wv) == -25.0
+
+
+def test_opening_a_header_opens_the_image_beside_it(tmp_path):
+    """A ``.hdr`` picked in the file dialog opens its image with the header's metadata, as ENVI
+    tools do; a header with nothing beside it says so."""
+    from dynamix.shell.opening import resolve_openable
+
+    (tmp_path / "map.tif").write_bytes(b"II*\0")
+    hdr = tmp_path / "map-tif.hdr"
+    hdr.write_text("[MAIN]\nPixelSizeX=1e-9\n", encoding="utf-8")
+    assert resolve_openable(str(hdr)) == str(tmp_path / "map.tif")
+    lonely = tmp_path / "lonely.hdr"
+    lonely.write_text("[MAIN]\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no image beside"):
+        resolve_openable(str(lonely))

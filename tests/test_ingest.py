@@ -317,3 +317,52 @@ def test_a_file_without_the_sun_object_stamps_no_sun(tmp_path):
     sd.end()
     f = load_grid(p, subdataset="band")
     assert "sun" not in f.provenance and "lattice" not in f.provenance
+
+
+def _tif(path, shape, dtype="uint16"):
+    rasterio = pytest.importorskip("rasterio")
+    data = np.arange(int(np.prod(shape)), dtype=dtype).reshape(shape)
+    with rasterio.open(path, "w", driver="GTiff", height=shape[0], width=shape[1], count=1,
+                       dtype=dtype) as dst:
+        dst.write(data, 1)
+    return path
+
+
+@pytest.fixture
+def tescan_tif(tmp_path):
+    p = _tif(tmp_path / "map-CL.tif", (6, 8))
+    (tmp_path / "map-CL-tif.hdr").write_text(
+        "[MAIN]\nDevice=MIRA3 XMU\nPixelSizeX=77.735e-9\nPixelSizeY=80e-9\nImageStripSize=2\n"
+        "\n[SEM]\nHV=17.000e3\nDetector=CL\n", encoding="utf-8")
+    return p
+
+
+def test_tescan_sidecar_gives_the_pixel_size_in_microns(tescan_tif):
+    f = ingest.load_grid(tescan_tif)
+    assert f.frame.units == "µm"
+    assert np.isclose(f.x_axis[1] - f.x_axis[0], 0.077735)
+    assert np.isclose(f.y_axis[1] - f.y_axis[0], 0.080)            # anisotropic pixels keep both
+    assert np.isclose(f.x_axis[0], 0.077735 / 2)                     # pixel centres, as the pixel frame's
+    assert f.provenance["georef"] == "TESCAN header map-CL-tif.hdr: 77.735 nm/px"
+    assert f.provenance["image_strip_rows"] == 2
+    assert f.provenance["sem_header"]["fields"]["SEM"]["Detector"] == "CL"
+
+
+def test_a_tif_without_a_header_keeps_its_pixel_frame(tmp_path):
+    f = ingest.load_grid(_tif(tmp_path / "plain.tif", (4, 5), "uint8"))
+    assert f.frame.units == "px"
+    assert f.provenance["georef"] == "none (pixel-index axes)"
+
+
+def test_a_header_names_its_partner_image(tmp_path):
+    from dynamix.core.sem_header import partner_of
+
+    tif = _tif(tmp_path / "map.tif", (3, 3))
+    hdr = tmp_path / "map-tif.hdr"
+    hdr.write_text("[MAIN]\nPixelSizeX=1e-9\nPixelSizeY=1e-9\n", encoding="utf-8")
+    assert partner_of(hdr) == tif
+    envi = tmp_path / "cube.hdr"
+    envi.write_text("ENVI\nsamples = 2\n", encoding="utf-8")
+    (tmp_path / "cube.img").write_bytes(b"\0" * 8)
+    assert partner_of(envi) == tmp_path / "cube.img"
+    assert partner_of(tmp_path / "lonely.hdr") is None
