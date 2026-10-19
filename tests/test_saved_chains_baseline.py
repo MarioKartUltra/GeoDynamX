@@ -61,7 +61,7 @@ def _chains(devices) -> dict:
             out[name] = ([_ANALYSIS, {"device": name, "params": {}}], (64, 64))
         elif name in ("pca", "band_select"):
             out[name] = ([{"device": name, "params": {}}], (64, 64, 3))
-        elif name == "wavelet_leaders":          # three levels inside sym4's border need 128 px
+        elif name in ("wavelet_leaders", "directional_scaling"):   # three levels inside sym4's border need 128 px
             out[name] = ([{"device": name, "params": {"scale_min": 2, "scale_max": 8}}], (128, 128))
         else:
             out[name] = ([{"device": name, "params": {}}], (64, 64))

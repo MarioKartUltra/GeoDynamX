@@ -3448,7 +3448,27 @@ both ``Canvas`` signals report the
         fit_window = (tuple(float(v) for v in fitter._region.getRegion())
                       if fitter is not None and fitter.isVisible() else None)
         win.set_result(result, self.field, offset=offset,
-                       scale_idx=int(self.transport.slider.value()), fit_window=fit_window)
+                       scale_idx=int(self.transport.slider.value()), fit_window=fit_window,
+                       directional=self._directional_readings())
+
+    def _directional_readings(self) -> list:
+        """``[(layer name, η(2, e₁)/2, η(2, e₂)/2)]`` from every landed Directional scaling
+        functions result: the DWT's reading of the two directional exponents, shown beside the
+        WTMMM's H_x and H_y."""
+        out = []
+        for lid, res in self._landed_results.items():
+            d = res.get("_directional") if isinstance(res, dict) else None
+            layer = self._layer_by_id.get(lid)
+            if not d or layer is None:
+                continue
+            p = np.asarray(d["p"], dtype=np.float64)
+            at = np.flatnonzero(np.isclose(p, 2.0))
+            if at.size == 0:
+                continue
+            e1, e2 = float(d["eta_e1"][at[0]]) / 2.0, float(d["eta_e2"][at[0]]) / 2.0
+            if np.isfinite(e1) and np.isfinite(e2):
+                out.append((layer.name, e1, e2))
+        return out
 
     def _stack_result(self) -> "dict | None":
         """The active layer's result over every level its chain keeps -- resolved with no shown

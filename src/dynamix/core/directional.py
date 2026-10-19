@@ -41,11 +41,14 @@ def alpha_grid(step: float = ALPHA_STEP) -> np.ndarray:
     return np.arange(1, n) * step
 
 
-def coefficients(values, name: str, level: int, *, gamma: float = 0.0) -> dict:
-    """The hyperbolic detail moduli of the mirror-extended field: ``mods[(j1, j2)]`` is |c| at
-    the pair (j₁ along x, j₂ along y), L¹, each axis rolled by its own wavelet atom's shift and
-    integrated by 2^{γ(j₁+j₂)/2}; ``valid[(j1, j2)]`` the cells inside the field at least
-    ``border`` cells from an edge along each axis and clear of non-finite pixels."""
+def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str = "mirror") -> dict:
+    """The hyperbolic detail moduli of the field continued by ``edge``
+    (:data:`dynamix.core.leaders.EDGE_MODES`): ``mods[(j1, j2)]`` is |c| at the pair (j₁ along
+    x, j₂ along y), L¹, each axis rolled by its own wavelet atom's shift and integrated by
+    2^{γ(j₁+j₂)/2}; ``valid[(j1, j2)]`` the cells inside the field at least ``border`` cells from
+    an edge along each axis (none under ``periodic``) and clear of non-finite pixels."""
+    from dynamix.core.leaders import _extend
+
     x = np.asarray(values, dtype=np.float64)
     if x.ndim != 2:
         raise ValueError(f"directional: a 2-D band, not shape {x.shape}")
@@ -53,10 +56,10 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0) -> dict:
     finite = np.isfinite(x)
     filled = np.where(finite, x, float(x[finite].mean()) if finite.any() else 0.0)
     W = dwt.working_shape(x.shape, J)
-    work = dwt.mirror(filled, W)
-    bad = dwt.mirror((~finite).astype(np.float64), W) > 0.5
+    work = _extend(filled, W, edge)
+    bad = _extend((~finite).astype(np.float64), W, edge) > 0.5
     reg = dwt.registration(name, J)
-    e = dwt.border_cells(name) - 1                    # the coefficients' own border
+    e = 0 if edge == "periodic" else dwt.border_cells(name) - 1      # the coefficients' own border
     hyp = dwt.hyperbolic(work, name, J)
     mods, valid = {}, {}
     for (j1, j2), c in hyp.items():
@@ -71,7 +74,7 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0) -> dict:
             v &= ~_box(b, e, np.logical_or) if e else ~b
         valid[(j1, j2)] = v
     return {"mods": mods, "valid": valid, "levels": J, "shape": tuple(x.shape), "wavelet": name,
-            "gamma": float(gamma), "border_cells": e}
+            "gamma": float(gamma), "border_cells": e, "edge": edge}
 
 
 def structure_functions(coef: dict, p_list) -> np.ndarray:
@@ -221,11 +224,11 @@ def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float 
 
 
 def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float = 0.0,
-            step: float = ALPHA_STEP) -> dict:
+            step: float = ALPHA_STEP, edge: str = "mirror") -> dict:
     """Everything the directional formalism reads off one band: the structure functions, η_α
     on the grid, η(p, e₁), η(p, e₂), η(p), α₁*(p) and L(H, e₁), L(H, e₂)."""
     p = np.asarray(p_list, dtype=np.float64)
-    coef = coefficients(values, name, level, gamma=gamma)
+    coef = coefficients(values, name, level, gamma=gamma, edge=edge)
     log2_S = structure_functions(coef, p)
     scaling = scaling_functions(log2_S, j_min, coef["levels"], step=step)
     out = {"p": p, "levels": coef["levels"], "j_min": int(j_min), "log2_S": log2_S,

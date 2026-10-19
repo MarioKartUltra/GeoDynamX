@@ -163,3 +163,18 @@ def test_bearings_relabel_the_exponents_and_rotate_the_components(qtbot, clean_r
     assert pixel.startswith("H_x") and bearing.startswith("H_E–W") and "H_N–S" in bearing
     assert aw.hx_label.text() == "rescale with H_E–W" and "T E–W" in aw.comp_plots[0].plotItem.titleLabel.text
     assert "E–W cuts" in aw.spectra_plot.plotItem.legend.items[0][1].text
+
+
+def test_the_main_window_collects_the_directional_scaling_readings(window):
+    from dynamix.shell.main_window import MainWindow
+
+    win = window
+    assert isinstance(win, MainWindow)
+    layer = type("L", (), {"name": "directional"})()
+    win._layer_by_id = {7: layer, 8: layer}
+    win._landed_results = {
+        7: {"_directional": {"p": np.array([1.0, 2.0, 3.0]), "eta_e1": np.array([0.3, 0.84, 1.2]),
+                             "eta_e2": np.array([0.7, 1.0, 1.5])}},
+        8: {"_directional": {"p": np.array([1.0, 3.0]), "eta_e1": np.array([0.3, 1.2]), "eta_e2": np.array([0.7, 1.5])}},
+        9: {"h_map": None}}
+    assert win._directional_readings() == [("directional", pytest.approx(0.42), pytest.approx(0.5))]

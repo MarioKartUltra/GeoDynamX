@@ -971,6 +971,25 @@ oscillation ratio $\log_2(\ell/\ell^w)$ (0 at a cusp, large at a chirp when the 
 $3\lambda$). The record carries the bank, the levels, $\gamma$, $p$, the window schedule, the
 edge used and the border, the registration, the counts and the admissibility.
 
+\subsection{\tool{Directional scaling functions}{directional\_scaling} --- the directional formalism on the hyperbolic DWT}
+The directional thermodynamic formalism of Ben Slimane et al.\ 2019 on the hyperbolic (fully
+separable) wavelet coefficients of a band: the anisotropic scaling function $\eta_\alpha(p)$ on an
+$\alpha_1$ grid of step $\tfrac18$ ($\alpha_2 = 2 - \alpha_1$), read along the index families
+$(j_1, j_2) = ([j\alpha_1], [j\alpha_2])$ as the slowest family's envelope slope over the levels no
+family clips (at least three); $\eta(p, e_1) = \sup_\alpha \eta_\alpha(p)/\alpha_1$ with the
+maximising $\alpha_1$ as the anisotropy profile $\alpha_1^*(p)$, $\eta(p, e_2)$ by symmetry,
+$\eta(p)$ the diagonal, and the directional Legendre bound of their Theorem~6 capped at $d$.
+\texttt{wavelet}, \texttt{edge}, \texttt{scale\_min}, \texttt{scale\_max} and \texttt{gamma} are the
+Wavelet leaders' (the pyramid to $J = \log_2$ \texttt{scale\_max}, the fit from $\log_2$
+\texttt{scale\_min}; under \emph{periodic} no border is lost); the moment orders \texttt{p\_min},
+\texttt{p\_max}, \texttt{p\_step} are the formalism's $p > 0$. The readings are curves for the Curves
+window, $\eta(p, e_1)$, $\eta(p, e_2)$, $\eta(p)$ and $\alpha_1^*(p)$ against $p$, $L(H, e_1)$ and
+$L(H, e_2)$ against $H$; the two directional exponents $\eta(2, e)/2$ stand beside the WTMMM's $H_x$
+and $H_y$ in the Directional roughness window. Anisotropy needs depth: at the finest levels
+$[j\alpha]$ cannot resolve a fractional $\alpha$, and a run that keeps no anisotropy three unclipped
+levels says so. The record carries the bank, the edge used, the levels, $\gamma$, the orders, the
+levels per anisotropy and the three readings.
+
 \subsection{\tool{Wavelet skeleton}{wavelet\_skeleton} --- medial-axis (modulus-minima) extractor}
 Tang--You 2003 (the constructed compact-support wavelet $\kappa$: support radius $=$
 scale, maxima-pair separation $=$ scale, width- and gray-invariant) $+$ You et al.\ 2006

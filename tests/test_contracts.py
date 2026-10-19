@@ -405,6 +405,7 @@ DECLARATIONS = {
     "hessian_measure": (((FIELD,),), {FIELD}, {CURVE}),
     "wavelet_ridge": (((FIELD,),), {FIELD}, {COMPONENTS}),
     "wavelet_leaders": (((FIELD,),), {FIELD}, {HMAP, SAMPLES}),
+    "directional_scaling": (((FIELD,),), {FIELD}, {CURVE}),
 }
 
 

@@ -156,6 +156,11 @@
     1735.1408313810825
    ]
   },
+  "directional_scaling": {
+   "chains": 0,
+   "levels": [],
+   "mod": []
+  },
   "disorder_function": {
    "chains": 0,
    "levels": [],
