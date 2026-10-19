@@ -278,3 +278,16 @@ def _collect_on_the_main_thread(request):
             gc.collect(2 if c2 > t2 else 1 if c1 > t1 else 0)
         if was:
             gc.enable()
+
+
+def pytest_collection_modifyitems(config, items):
+    """The pyvista tests run only when asked: ``DYNAMIX_PYVISTA=1``, or a mark expression given on
+    the command line. The gates leave them out here rather than with ``-m "not pyvista"``: a
+    whole-suite run segfaults in pyvista's teardown, and a mark expression switches off
+    pytest-testmon's selection, which is what keeps an iteration run short."""
+    if os.environ.get("DYNAMIX_PYVISTA") == "1" or config.option.markexpr:
+        return
+    deselected = [item for item in items if "pyvista" in item.keywords]
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = [item for item in items if "pyvista" not in item.keywords]
