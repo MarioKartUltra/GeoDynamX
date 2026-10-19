@@ -76,7 +76,7 @@ from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
-from dynamix.model.samples import sample_sets
+from dynamix.model.samples import has_sample_sets, sample_sets
 from dynamix.model import capabilities
 from dynamix.model.plugins import discover
 from dynamix.model.roles import band_devices, band_for_analyzer, consumer_producers, primary_analyzers
@@ -369,7 +369,8 @@ def _display_style_of(layer) -> dict:
 _PRIMARY_ANALYZERS = ("wtmm2d", "mz_edges", "wavelet_skeleton", "cdf_edges", "pm_edges",
                       "holder_map", "holder_measure", "holder_multiaffine", "band_recon",
                       "band_recon_measure", "band_recon_multiaffine", "lineal_path",
-                      "disorder_function", "hessian_measure", "wavelet_ridge", "wavelet_leaders")
+                      "disorder_function", "hessian_measure", "wavelet_ridge", "wavelet_leaders",
+                      "directional_scaling")
 
 #: The band-reconstruction devices, newest first, and the variant each
 #: h-map producer's band fork commits -- the variant whose engine params are the producer's
@@ -3526,7 +3527,7 @@ both ``Canvas`` signals report the
             "ζ(q), τ(q), h(q) and D(h) by weighted least squares over log₂ S(q, a) of the active result's sample "
             "sets (leaders, p-leaders, WSE leaders, coefficients)" if ok else
             "Needs a Wavelet leaders result on the active layer")
-        sets = bool(result) and bool(sample_sets(result))
+        sets = bool(result) and has_sample_sets(result)
         needs = "Needs a result with per-level sample sets: a WTMM's maxima or a Wavelet leaders result"
         self._cumulants_button.setEnabled(sets)
         self._cumulants_button.setToolTip(

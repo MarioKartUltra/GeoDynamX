@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["sample_sets"]
+__all__ = ["has_sample_sets", "sample_sets"]
 
 #: Set name in the ``Samples`` contract -> its label on a menu.
 LABELS = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE leaders",
@@ -28,6 +28,26 @@ def _flat(values, valid) -> list:
             for m, v in zip(values, valid)]
 
 
+def _lines(result: dict) -> list:
+    """The chains whose moduli are recorded (a chain built by a stub carries none)."""
+    chains = result.get("chains") or []
+    return chains if chains and all(isinstance(ch, dict) and "mod" in ch for ch in chains) else []
+
+
+def _maxima(result: dict) -> list:
+    extrema = result.get("extrema") or []
+    mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
+    return mods if mods and len(mods) == len(extrema) == len(result["scales"]) else []
+
+
+def has_sample_sets(result) -> bool:
+    """Whether :func:`sample_sets` would offer anything, without building it (a button refresh
+    on every landing)."""
+    if not isinstance(result, dict) or result.get("scales") is None:
+        return False
+    return bool(_lines(result) or _maxima(result) or isinstance(result.get("samples"), dict))
+
+
 def sample_sets(result: dict) -> dict:
     """The sets ``result`` carries, in the order a menu lists them; ``{}`` for a result with
     none (a field tail, a points layer, a finest-scale preview)."""
@@ -36,16 +56,15 @@ def sample_sets(result: dict) -> dict:
     if scales is None:
         return out
     n_sc = len(scales)
-    chains = result.get("chains") or []
+    chains = _lines(result)
     if chains:
         from dynamix.core.partition_tables import _modulus_matrix
 
         M = _modulus_matrix(chains, n_sc)
         out["maxima lines"] = {"mods": [M[np.isfinite(M[:, k]), k] for k in range(n_sc)],
                                "scales": scales, "weights": None}
-    extrema = result.get("extrema") or []
-    mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
-    if mods and len(mods) == len(extrema) == n_sc:
+    mods = _maxima(result)
+    if mods:
         out["every maximum"] = {"mods": mods, "scales": scales, "weights": None}
     samples = result.get("samples")
     if isinstance(samples, dict):

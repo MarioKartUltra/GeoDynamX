@@ -39,7 +39,7 @@ class DirectionalScaling:
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = frozenset({CURVE})
-    capabilities = frozenset({"SelfReporting", "RegionAware"})
+    capabilities = frozenset({"SelfReporting", "RegionAware", "StripExtras"})
     params = (
         Param("wavelet", ParamKind.CHOICE, default="sym4", choices=dwt.BANKS, label="Wavelet"),
         Param("edge", ParamKind.CHOICE, default="auto",

@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dynamix.model.samples import sample_sets
+from dynamix.model.samples import has_sample_sets, sample_sets
 
 
 def _chains(scales):
@@ -32,6 +32,10 @@ def test_a_wtmm_result_offers_its_maxima_lines_and_every_maximum():
     assert sets["maxima lines"]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
     assert [len(m) for m in sets["every maximum"]["mods"]] == [3, 3, 3, 3]
     assert sets["every maximum"]["weights"] is None
+    assert has_sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema})
+    bare = [{"x": np.zeros(2), "y": np.zeros(2)}]                                # a stub's chains: no modulus
+    assert sample_sets({"scales": scales, "chains": bare, "extrema": []}) == {}
+    assert not has_sample_sets({"scales": scales, "chains": bare}) and not has_sample_sets({"h_map": None})
 
 
 def test_the_samples_contract_flattens_over_the_valid_cells_with_the_count_factor():
@@ -49,3 +53,4 @@ def test_the_samples_contract_flattens_over_the_valid_cells_with_the_count_facto
     assert [len(m) for m in sets["coefficients"]["mods"]] == [192, 48]        # three bands per cell
     assert sets["coefficients"]["weights"] == pytest.approx([64 / 192, 16 / 48])
     assert sample_sets({"params": {}}) == {} and sample_sets(None) == {}
+    assert has_sample_sets({"scales": samples["scales"], "samples": samples})
