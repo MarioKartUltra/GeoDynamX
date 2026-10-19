@@ -104,6 +104,19 @@ def native_grid(field) -> tuple:
     return (int(values.shape[0]), int(values.shape[1]), float(x[0]), dx, float(y[0]), dy, crs)
 
 
+def grid_pitch(field, base) -> tuple[float, float]:
+    """``(rows, cols)``: pixels of ``base``'s native grid per sample of ``field`` along y and x,
+    from the two fields' axis spacings; 1 along an axis with a single sample. A refinement that
+    keeps the original nodes (dyadic interpolation, one level) has pitch 1/2, a decimation by
+    two has pitch 2."""
+    _ny, _nx, _x0, dx, _y0, dy, _crs = native_grid(base)
+    x = np.asarray(field.x_axis, dtype=np.float64)
+    y = np.asarray(field.y_axis, dtype=np.float64)
+    px = abs(float(x[1] - x[0]) / dx) if x.size > 1 and dx else 1.0
+    py = abs(float(y[1] - y[0]) / dy) if y.size > 1 and dy else 1.0
+    return py, px
+
+
 def grid_mismatch(a: tuple, b: tuple) -> "str | None":
     """Why grid ``b`` cannot share a bus with grid ``a`` (both :func:`native_grid` tuples), or
     ``None`` when they are the same grid."""

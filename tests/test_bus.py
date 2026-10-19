@@ -190,3 +190,23 @@ def test_a_layer_send_not_computed_yet_says_so():
     with pytest.raises(ValueError, match="not computed yet"):
         materialize(_field(np.zeros((4, 5))),
                     [{"layer": 1, "stamp": "never-filed", "label": "recon B"}])
+
+
+def _grid(n: int, first: float, step: float):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    ax = first + step * np.arange(n, dtype=np.float64)
+    return RasterField(name="g", values=np.zeros((n, n)), frame=LocalFrame(), x_axis=ax, y_axis=ax)
+
+
+def test_grid_pitch_is_the_base_pixels_per_sample():
+    """A dyadic refinement keeps the nodes and halves the spacing: half a base pixel per sample;
+    two refinements a quarter; a decimation by two, two pixels; the same grid, one."""
+    from dynamix.core.bus import grid_pitch
+
+    base = _grid(16, 0.5, 1.0)
+    assert grid_pitch(_grid(31, 5.5, 0.5), base) == (0.5, 0.5)
+    assert grid_pitch(_grid(61, 5.5, 0.25), base) == (0.25, 0.25)
+    assert grid_pitch(_grid(8, 0.5, 2.0), base) == (2.0, 2.0)
+    assert grid_pitch(base, base) == (1.0, 1.0)
