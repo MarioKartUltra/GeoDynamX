@@ -266,6 +266,15 @@ class WaveletLeaders:
         return (leaders.paint(h, j_min, shape).astype(np.float32),
                 leaders.paint(r2, j_min, shape).astype(np.float32))
 
+    @staticmethod
+    def _painted(cells, level: int, result: dict) -> np.ndarray:
+        """``cells`` of ``level`` painted over the ROI's own pixels: an ROI result's cells were
+        computed on its processing window, ``margin`` px wider on every side, so the window is
+        painted and the margin cut; a whole-field result's window is the field."""
+        h, w = (int(v) for v in result["_shape"])
+        m = int((result.get("_roi") or {}).get("margin") or 0)
+        return leaders.paint(cells, level, (h + 2 * m, w + 2 * m))[m:m + h, m:m + w].astype(np.float32)
+
     def view(self, result: dict, params: dict) -> dict:
         """The h-map of ``method``: the cached result itself for the method it was computed
         with, else a view built once per method and kept with the result, so the shell sees the
@@ -278,7 +287,9 @@ class WaveletLeaders:
         views = result.setdefault("_views", {})
         if method not in views:
             j_min = int(result["record"]["levels"]["j_min"])
-            h_map, r2_map = self._paint(result["_h_cells"][method], j_min, result["_shape"])
+            h_cells, r2_cells = result["_h_cells"][method]
+            h_map = self._painted(h_cells, j_min, result)
+            r2_map = self._painted(r2_cells, j_min, result)
             views[method] = {**result, "h_map": h_map, "r2_map": r2_map,
                              "params": {**result["params"], "method": method}}
         return views[method]
@@ -299,7 +310,7 @@ class WaveletLeaders:
             with np.errstate(divide="ignore", invalid="ignore"):
                 cells = np.where(cells > 0, np.log2(np.where(cells > 0, cells, 1.0)), np.nan)
         cells = np.where(valid, cells, np.nan)
-        raster = leaders.paint(cells, idx + 1, result["_shape"]).astype(np.float32)
+        raster = self._painted(cells, idx + 1, result)
         return {"raster": raster, "diag": {"level": idx, "scale_px": 2.0 ** (idx + 1),
                                            "valid_cells": int(np.sum(valid))}}
 

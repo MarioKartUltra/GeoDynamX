@@ -260,3 +260,29 @@ def test_wavelet_skeleton_reproduces_the_whole_field_skeleton_inside_the_roi(bui
         lvl["line_id"] = split_lines(lvl)
     got = run_on_region([(dev, params)], f, roi)
     _assert_same_points(ref, got)
+
+
+def test_wavelet_leaders_lazy_outputs_paint_the_roi_not_the_window_corner(builtins):
+    """An ROI result's cells cover the processing window (margin m on every side). A lazy output
+    and a method view paint them over the ROI's own pixels: pixel (i, j) of the ROI's output is
+    pixel (i + m, j + m) of the same output computed on the window."""
+    from dynamix.core import leaders
+    from dynamix.roi.runner import read_processing_window, run_on_region
+
+    dev = builtins["wavelet_leaders"]
+    params = _params(dev, scale_min=4, scale_max=16)
+    m = dev.roi_margin(params)
+    assert m > 0
+    h = w = 96
+    roi = (m + 8, m + 8, h, w)
+    f = _field(n=2 * (m + 8) + h)
+    got = run_on_region([(dev, params)], f, roi)
+    window, _info = read_processing_window(f, roi, m)
+    ref = dev.compute(window, params)
+    out = dev.compute_output("leader", None, got, params, fetch=None, level=0)["raster"]
+    want = dev.compute_output("leader", None, ref, params, fetch=None, level=0)["raster"]
+    assert out.shape == (h, w)
+    np.testing.assert_array_equal(out, want[m:m + h, m:m + w])
+    other = next(mm for mm in leaders.METHODS if mm != params["method"])
+    view = dev.view(got, {**params, "method": other})["h_map"]
+    np.testing.assert_array_equal(view, dev.view(ref, {**params, "method": other})["h_map"][m:m + h, m:m + w])
