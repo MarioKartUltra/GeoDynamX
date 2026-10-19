@@ -281,7 +281,17 @@ def display_offset(result: dict, field) -> tuple[int, int]:
     coordinates and subtracting anything would push them off in the opposite direction. The only
     thing that ever needs moving is a result computed against a frame other than the one being
     drawn.
+
+    The other such frame is a STAGE's: a result computed on a Periodic extension's output
+    (``result["_stage"]``, stamped by the engine) has its coordinates in the extended raster,
+    where the real block starts at the stage's origin. Drawn on the data themselves -- the
+    layer's own field, the block's size -- its overlays move back by that origin; drawn on the
+    extended raster (a fork of the extension), they stay.
     """
+    stage = result.get("_stage")
+    if stage and tuple(np.shape(getattr(field, "values", ()))[:2]) != tuple(stage["shape"]):
+        row0, col0 = stage["origin"]
+        return -int(row0), -int(col0)
     if not (result.get("_roi") or {}).get("roi"):
         return 0, 0
     roi_row, roi_col = roi_offset(result)

@@ -33,10 +33,16 @@ def _smooth(n=192, seed=1):
     return (smooth - smooth.mean()) / smooth.std()
 
 
+def _origin(dev) -> dict:
+    """The extension's params with the data at the origin: the fill tests read the block there;
+    the default layout (centred) has its own tests below."""
+    return dict(defaults_for(dev), layout="origin")
+
+
 def test_the_output_is_the_field_plus_a_filled_gap_with_its_real_block_stamped(clean_registry):
     dev = _device()
     f = make_field(_smooth())
-    out = dev.compute(f, defaults_for(dev))
+    out = dev.compute(f, _origin(dev))
     H, W = f.values.shape
     gy, gx = out.values.shape[0] - H, out.values.shape[1] - W
     assert gy > 0 and gx > 0
@@ -63,7 +69,7 @@ def test_below_the_band_limit_the_tool_extends_anyway_and_warns(clean_registry):
     per wavelength. Only a stencil that cannot fit the field passes it through."""
     dev = _device()
     noise = make_field(np.random.default_rng(0).standard_normal((64, 64)))
-    out = dev.compute(noise, defaults_for(dev))
+    out = dev.compute(noise, _origin(dev))
     assert out.provenance["edges.filled"] == {"rows": 64, "cols": 64}
     assert out.values.shape[0] > 64 and out.provenance["periodic_extension"]["band_limited"] is False
     warnings = dev.knob_warnings(noise, defaults_for(dev))
@@ -71,7 +77,7 @@ def test_below_the_band_limit_the_tool_extends_anyway_and_warns(clean_registry):
     assert "rough" in warnings["band"] and "reflection" not in warnings["band"]
     assert dev.knob_warnings(make_field(_smooth()), defaults_for(dev)) == {}
     tiny = make_field(_smooth()[:12, :12])
-    unfit = dev.compute(tiny, defaults_for(dev))
+    unfit = dev.compute(tiny, _origin(dev))
     np.testing.assert_array_equal(unfit.values, tiny.values)
     assert "edges.filled" not in unfit.provenance
     assert "does not fit" in dev.knob_warnings(tiny, defaults_for(dev))["band"]
@@ -115,7 +121,7 @@ def test_on_an_roi_it_extends_the_rois_own_pixels(clean_registry):
 
     register_builtin_devices()
     field = make_field(_smooth(192, seed=1))
-    out = resolve(_roi_layer(("periodic_extension", {})), field, Cache()).result
+    out = resolve(_roi_layer(("periodic_extension", {"layout": "origin"})), field, Cache()).result
     assert out.provenance["edges.filled"] == {"rows": 96, "cols": 96}
     assert out.provenance["window"] == {"row_off": 20, "col_off": 30}
     np.testing.assert_array_equal(np.asarray(out.values)[:96, :96],
@@ -129,10 +135,66 @@ def test_wtmm_after_it_on_an_roi_runs_periodic_on_the_extended_roi(clean_registr
 
     register_builtin_devices()
     field = make_field(_smooth(192, seed=1))
-    res = resolve(_roi_layer(("periodic_extension", {}), ("wtmm2d", {"n_oct": 2, "n_voice": 2})),
+    res = resolve(_roi_layer(("periodic_extension", {"layout": "origin"}), ("wtmm2d", {"n_oct": 2, "n_voice": 2})),
                   field, Cache()).result
     assert res["params"]["pad_mode"] == "periodic" and res["params"]["real_block"] == (96, 96)
     assert tuple(res["_roi"]["roi"]) == (20, 30, 96, 96)          # drawn at the ROI
     assert any(len(e["x"]) for e in res["extrema"])
     for e in res["extrema"]:
         assert (np.asarray(e["x"]) < 96).all() and (np.asarray(e["y"]) < 96).all()
+
+
+# ------------------------------------------- the stage frame: a result on the extended raster
+
+def test_the_layout_is_centred_by_default_and_the_stamp_carries_the_offset(clean_registry):
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+    from tests.conftest import fbm2d, make_field
+
+    register_builtin_devices()
+    dev = get_device("periodic_extension")
+    assert defaults_for(dev)["layout"] == "centred"
+    out = dev.compute(make_field(fbm2d(128, 0.5, seed=1)), defaults_for(dev))
+    stamp = out.provenance["edges.filled"]
+    gap_r, gap_c = out.values.shape[0] - 128, out.values.shape[1] - 128
+    assert (stamp["rows"], stamp["cols"]) == (128, 128) and gap_r > 0
+    assert (stamp["row0"], stamp["col0"]) == (gap_r // 2, gap_c // 2)
+    assert np.allclose(out.values[stamp["row0"]:stamp["row0"] + 128, stamp["col0"]:stamp["col0"] + 128],
+                       fbm2d(128, 0.5, seed=1))
+
+
+def test_a_result_on_the_extended_raster_is_drawn_back_on_the_data(clean_registry):
+    """The chain extension → wtmm2d: the engine stamps the stage frame, the canvas offset moves
+    the maxima by the block's origin on the data's own field and not on the extended one, and a
+    result raster of the extended shape crops to the block."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.model.contracts import stage_of
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.shell.canvas import display_offset
+    from dynamix.shell.main_window import _display_raster_of
+    from tests.conftest import fbm2d, make_field, make_layer
+
+    register_builtin_devices()
+    field = make_field(fbm2d(256, 0.5, seed=1))
+    extended = get_device("periodic_extension").compute(field, defaults_for(get_device("periodic_extension")))
+    stage = stage_of(extended)
+    r0, c0 = stage["origin"]
+    assert stage["block"] == (256, 256) and stage["shape"] == extended.values.shape and r0 > 0 and c0 > 0
+    assert stage_of(field) is None and stage_of({"_stage": stage}) is stage
+    res = resolve(make_layer(("periodic_extension", {}), ("wtmm2d", {"n_oct": 2})), field, Cache()).result
+    assert res["_stage"] == stage and res["_padding"]["edge"] == "periodic" and res["_padding"]["pad"] == 0
+    assert tuple(res["_shape"]) == extended.values.shape
+    assert display_offset(res, field) == (-r0, -c0)                 # on the data
+    assert display_offset(res, extended) == (0, 0)                  # on the extended raster itself
+    for ext in res["extrema"]:
+        assert np.all(np.asarray(ext["x"]) - c0 >= 0) and np.all(np.asarray(ext["x"]) - c0 < 256)
+        assert np.all(np.asarray(ext["y"]) - r0 >= 0) and np.all(np.asarray(ext["y"]) - r0 < 256)
+    big = np.arange(float(np.prod(extended.values.shape))).reshape(extended.values.shape)
+    cropped = _display_raster_of({**res, "raster_out": big})
+    assert cropped.shape == (256, 256) and cropped[0, 0] == big[r0, c0]
+    small = np.zeros((256, 256))
+    assert _display_raster_of({**res, "raster_out": small}) is small
+    plain = {"raster_out": big}
+    assert _display_raster_of(plain) is big

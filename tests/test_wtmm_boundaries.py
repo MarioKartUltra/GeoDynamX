@@ -57,7 +57,7 @@ def test_a_default_run_mirrors_to_the_widest_measured_reach_and_cuts_nothing(wtm
 def test_auto_after_periodic_extension_is_periodic_with_no_padding_and_no_cut(wtmm):
     ext = get_device("periodic_extension")
     field = make_field(_smooth())
-    extended = ext.compute(field, defaults_for(ext))
+    extended = ext.compute(field, dict(defaults_for(ext), layout="origin"))
     res = wtmm.compute(extended, _params(wtmm))
     H, W = field.values.shape
     assert res["params"]["pad_mode"] == "periodic" and res["params"]["pad"] == 0
@@ -92,7 +92,7 @@ def test_extend_then_wtmm_in_one_chain_keeps_no_maxima_in_the_gap(wtmm):
     from dynamix.model.layer import Layer
 
     field = make_field(_smooth())
-    chain = Chain((DeviceRef("periodic_extension", {}), DeviceRef("wtmm2d", {}))).materialized()
+    chain = Chain((DeviceRef("periodic_extension", {"layout": "origin"}), DeviceRef("wtmm2d", {}))).materialized()
     out = resolve(Layer(layer_id=1, name="L", source_id="s", chain=chain), field, Cache())
     H, W = field.values.shape
     for e in out.result["extrema"]:
@@ -138,7 +138,7 @@ def test_extend_fork_then_wtmm_runs_periodic_with_no_maxima_in_the_gap(wtmm, tmp
     from dynamix.devices.wtmm import resolved_boundary
 
     field = make_field(_smooth())
-    ext = PeriodicExtension().compute(field, defaults_for(PeriodicExtension()))
+    ext = PeriodicExtension().compute(field, dict(defaults_for(PeriodicExtension()), layout="origin"))
     path = tmp_path / "extended.npz"
     write_derivative(str(path), bands=[("as shown", np.asarray(ext.values))], frame=ext.frame,
                      x_axis=ext.x_axis, y_axis=ext.y_axis, name="extended",

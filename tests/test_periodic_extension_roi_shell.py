@@ -28,5 +28,37 @@ def test_an_roi_gets_its_periodic_extension(qtbot, registered_builtins):
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     layer_id, produced = win._active_field
     assert layer_id == win.layer.layer_id
-    assert produced.provenance["edges.filled"] == {"rows": 96, "cols": 96}
-    np.testing.assert_array_equal(np.asarray(produced.values)[:96, :96], v[20:116, 30:126])
+    stamp = produced.provenance["edges.filled"]
+    assert (stamp["rows"], stamp["cols"]) == (96, 96)
+    r0, c0 = stamp.get("row0", 0), stamp.get("col0", 0)              # centred: the block sits inside
+    np.testing.assert_array_equal(np.asarray(produced.values)[r0:r0 + 96, c0:c0 + 96], v[20:116, 30:126])
+
+
+def test_the_canvas_draws_a_result_on_the_extended_raster_back_on_the_data(qtbot, registered_builtins):
+    """The chain extension (centred) → wtmm2d drawn over the layer's own field: the maxima land
+    on the data (the extended frame's origin subtracted), as the author saw them displaced."""
+    from dynamix.engine.cache import Cache
+    from dynamix.engine.resolve import resolve
+    from dynamix.shell.canvas import Canvas
+    from tests.conftest import fbm2d, make_field, make_layer
+
+    field = make_field(fbm2d(256, 0.5, seed=1))
+    res = resolve(make_layer(("periodic_extension", {}), ("wtmm2d", {"n_oct": 2})), field, Cache()).result
+    r0, c0 = res["_stage"]["origin"]
+    assert r0 > 0 and c0 > 0
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(field)
+    canvas.set_result(res, 0)
+    ext = res["extrema"][0]
+    iso = np.asarray(ext["line_id"]) == -1
+    xs, ys = canvas.extrema_item.getData()
+    if iso.any():
+        assert np.allclose(xs, np.asarray(ext["x"])[iso] - c0) and np.allclose(ys, np.asarray(ext["y"])[iso] - r0)
+    assert canvas._draw_off == (-float(r0), -float(c0))
+    # drawn on the extended raster itself (a fork of the extension), nothing moves
+    extended = RasterField(name="ext", values=np.zeros(res["_shape"]), frame=field.frame,
+                           x_axis=np.arange(float(res["_shape"][1])), y_axis=np.arange(float(res["_shape"][0])))
+    canvas.set_field(extended)
+    canvas.set_result(res, 0)
+    assert canvas._draw_off == (0.0, 0.0)

@@ -17,7 +17,9 @@ from test_edge_taper import _field, _labyrinth  # noqa: E402
 
 
 def _extended():
-    ext = PeriodicExtension().compute(_field(_labyrinth(128)), defaults_for(PeriodicExtension()))
+    """The extension with the data at the origin: these tests place the gap by position."""
+    ext = PeriodicExtension().compute(_field(_labyrinth(128)),
+                                      dict(defaults_for(PeriodicExtension()), layout="origin"))
     assert "edges.filled" in ext.provenance
     return ext
 
@@ -52,15 +54,15 @@ def test_whole_field_finds_maxima_in_the_gap_and_real_data_does_not():
 def test_the_centred_layout_rolls_the_gap_around_the_data_and_the_real_block_follows():
     dev = PeriodicExtension()
     field = _field(_labyrinth(128))
-    origin = dev.compute(field, defaults_for(dev))
-    centred = dev.compute(field, dict(defaults_for(dev), layout="centred"))
+    origin = dev.compute(field, dict(defaults_for(dev), layout="origin"))
+    centred = dev.compute(field, defaults_for(dev))                   # centred is the default
     H, W = field.values.shape
     gy, gx = centred.values.shape[0] - H, centred.values.shape[1] - W
     r0, c0 = gy // 2, gx // 2
     assert gy > 0 and gx > 0 and centred.values.shape == origin.values.shape
     stamp = centred.provenance["edges.filled"]
     assert (stamp["row0"], stamp["col0"]) == (r0, c0)
-    assert "row0" not in origin.provenance["edges.filled"]        # the default stamp as it was
+    assert "row0" not in origin.provenance["edges.filled"]        # the origin stamp as it was
     assert "layout" not in keyed_params(dev, defaults_for(dev))
     # the same periodic field, rolled; the data where they were, in pixels and in world units
     assert np.array_equal(centred.values, np.roll(np.roll(origin.values, r0, axis=0), c0, axis=1))

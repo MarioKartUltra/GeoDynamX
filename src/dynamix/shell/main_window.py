@@ -728,11 +728,18 @@ def _roi_display_field(result, raster, field, name):
 def _display_raster_of(result) -> "np.ndarray | None":
     """The derived raster a result wants shown IN PLACE of the field: ``raster_out`` (the
     general contract -- band_recon's reconstruction) first, else ``h_map`` (holder_map's own).
-    None -> the raw field stays up."""
+    None -> the raw field stays up. A raster computed on a stage's extended grid
+    (``result["_stage"]``) is cropped to the real block, the data's own grid, which is what the
+    layer's field and the canvas's registration describe."""
     if not isinstance(result, dict):
         return None
     out = result.get("raster_out")
-    return out if out is not None else result.get("h_map")
+    out = out if out is not None else result.get("h_map")
+    stage = result.get("_stage")
+    if out is not None and stage and tuple(np.shape(out)[:2]) == tuple(stage["shape"]):
+        (r0, c0), (rows, cols) = stage["origin"], stage["block"]
+        out = np.asarray(out)[r0:r0 + rows, c0:c0 + cols]
+    return out
 
 
 def _edges_hidden(layer, layer_input: str | None = None) -> bool:

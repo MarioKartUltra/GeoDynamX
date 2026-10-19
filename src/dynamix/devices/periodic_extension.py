@@ -9,8 +9,10 @@ Kouri 2000), so that the whole is periodic. The grid keeps the field's pixel siz
 extended raster reaches past the original bounds by the gap. The output carries the stamp
 ``edges.filled = {"rows": H, "cols": W}``, the real block, which WTMM reads: no maxima in the gap, the
 threshold from real pixels, and its Edge ``auto`` resolving to ``periodic``. Under the ``centred``
-layout the same field is rolled so the data sit in the middle, and the stamp adds the block's
-offset, ``row0`` and ``col0``. The band limit is read off the data, where a fraction of the power
+layout, the default, the same field is rolled so the data sit in the middle with the gap split
+around them, and the stamp adds the block's offset, ``row0`` and ``col0``; the engine stamps a
+result computed on the output with that frame (``_stage``), so the shell draws its overlays and
+rasters back on the data. The band limit is read off the data, where a fraction of the power
 lies, or given as a wavelength λ_b; the gap is two wavelengths and σ follows from the DAF's gain
 there. Fewer than 6 points per wavelength at the limit makes a rough fill, which the strip's ⚠
 says while the extension runs (WTMM's automatic edge handling reflects instead at that point);
@@ -67,7 +69,7 @@ class PeriodicExtension:
         # Where the data sit in the extended raster: at the origin with the gap after the last row
         # and column, or in the middle with the gap split around them -- the same periodic field,
         # rolled, the stamp carrying the block's offset.
-        Param("layout", ParamKind.CHOICE, default="origin", choices=("origin", "centred"),
+        Param("layout", ParamKind.CHOICE, default="centred", choices=("origin", "centred"),
               choice_labels=("data at the origin", "centred"), label="Layout",
               keyed_at_default=False),
     )

@@ -231,15 +231,42 @@ def fill_of(source):
     return prov.get("fill")
 
 
+def stage_of(source):
+    """The frame a stage-produced field put its data in, when it is not the data's own: for a
+    Periodic extension output (``provenance["edges.filled"]``), ``{"origin": (row0, col0),
+    "block": (rows, cols), "shape": (ny, nx)}`` -- where the real block sits inside the extended
+    raster. ``None`` for a result, a field without the stamp, or one whose block is its whole
+    extent."""
+    if isinstance(source, dict):
+        return source.get("_stage")
+    prov = getattr(source, "provenance", None) or {}
+    filled = prov.get("edges.filled")
+    values = getattr(source, "values", None)
+    if not filled or values is None:
+        return None
+    shape = tuple(int(n) for n in np.shape(values)[:2])
+    block = (int(filled["rows"]), int(filled["cols"]))
+    if block == shape:
+        return None
+    return {"origin": (int(filled.get("row0", 0)), int(filled.get("col0", 0))), "block": block,
+            "shape": shape}
+
+
 def stamp_fill(result, source):
-    """An analyzer's result stamped with the fill of the field it analysed (``_fill``), so a
-    reading downstream can say that analysis inside the region reads a reconstruction.
-    Nothing is stamped on a field tail or when the input carries no fill."""
+    """An analyzer's result stamped with what the field it analysed carried: its fill
+    (``_fill``, so a reading downstream can say that analysis inside the region reads a
+    reconstruction) and its stage frame (``_stage``, so the shell draws a result computed on an
+    extended raster back on the data: its overlays move by the real block's origin and its
+    rasters crop to the block). Nothing is stamped on a field tail or when the input carries
+    neither."""
     if not isinstance(result, dict):
         return result
-    stamp = fill_of(source)
-    if stamp is None:
+    fill, stage = fill_of(source), stage_of(source)
+    if fill is None and stage is None:
         return result
     out = dict(result)
-    out["_fill"] = stamp
+    if fill is not None:
+        out["_fill"] = fill
+    if stage is not None:
+        out["_stage"] = stage
     return out
