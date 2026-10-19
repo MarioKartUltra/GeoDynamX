@@ -190,3 +190,26 @@ def test_dither_perturbs_quantised_data_and_is_keyed(dev):
     a, b = dev.compute(make_field(f), p0), dev.compute(make_field(f), p1)
     assert not np.array_equal(np.nan_to_num(a["h_map"]), np.nan_to_num(b["h_map"]))
     assert b["record"]["dither"] is True
+
+
+def test_the_directional_formalism_is_off_by_default_and_adds_its_curves_when_on(dev, field):
+    p0 = validate_params(dev, dict(SMALL, wse_rule="fixed"))
+    assert p0["directional"] is False and keyed_params(dev, p0)["directional"] is False
+    res0 = dev.compute(field, p0)
+    assert res0["_directional"] is None and "directional" not in res0["record"]
+    p1 = validate_params(dev, dict(SMALL, wse_rule="fixed", directional=True, scale_max=64))
+    assert keyed_params(dev, p1)["directional"] is True
+    res = dev.compute(make_field(fbm2d(1024, 0.5, seed=6)), p1)
+    d = res["_directional"]
+    assert d is not None and d["eta_alpha"].shape == (int(np.sum(np.arange(-3, 6.01, 0.5) > 0)), 15)
+    assert list(d["p"]) == list(np.arange(0.5, 6.01, 0.5))
+    assert res["record"]["directional"]["alpha_step"] == 1 / 8 and len(res["record"]["directional"]["levels_per_alpha"]) == 15
+    at_p1 = list(d["p"]).index(1.0)
+    assert abs(d["eta_e1"][at_p1] - 0.5) < 0.15 and abs(d["eta_e2"][at_p1] - 0.5) < 0.15
+    from dynamix.model.curves import curves_of
+
+    names = [c.name for c in curves_of(dev, res, field, p1)]
+    assert names[6:] == ["η(p, e₁), along x", "η(p, e₂), along y", "η(p), the diagonal α = (1, 1)",
+                         "α₁*(p), the anisotropy profile of e₁",
+                         "L(H, e₁), the directional Legendre bound", "L(H, e₂), the directional Legendre bound"]
+    assert res["warnings"] == []

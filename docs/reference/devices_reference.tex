@@ -947,9 +947,18 @@ of the finest fitted level with its $R^2$, painted on the native grid as the h-m
 chooses which of the three the h-map and the Structure functions window show; \texttt{show} draws
 the h-map or, on the Scale slider, $\log_2$ of a quantity per level or the oscillation ratio
 $\log_2(\ell/\ell^w)$ (0 at a cusp, large at a chirp when the window lies inside $3\lambda$).
-The Curves window offers $C_1(a)$ and $C_2(a)$ of $\ln\ell$ per method. The record carries the
+The Curves window offers $C_1(a)$ and $C_2(a)$ of $\ln\ell$ per method. \texttt{directional}
+(off: a second transform) adds the directional thermodynamic formalism of Ben Slimane et al.\ 2019
+on the hyperbolic (fully separable) coefficients: the anisotropic scaling function $\eta_\alpha(p)$
+on an $\alpha_1$ grid of step $\tfrac18$ ($\alpha_2 = 2 - \alpha_1$), read along their index
+families as the slowest family's envelope slope over the levels no family clips (at least three),
+$\eta(p, e_1) = \sup_\alpha \eta_\alpha(p)/\alpha_1$ with the maximising $\alpha_1$ as the
+anisotropy profile, $\eta(p, e_2)$ by symmetry, $\eta(p)$ the diagonal, and the directional
+Legendre bound of their Theorem~6 capped at $d$; as curves against $p$ and $H$ in the Curves window
+(the positive moment orders are its $p$). Anisotropy needs depth: at the finest levels $[j\alpha]$
+cannot resolve a fractional $\alpha$. The record carries the
 bank, the levels, $\gamma$, $p$, the window schedule, the border, the registration, the counts,
-the admissibility and the cumulants.
+the admissibility and the cumulants, and the directional readings when on.
 
 \subsection{\tool{Wavelet skeleton}{wavelet\_skeleton} --- medial-axis (modulus-minima) extractor}
 Tang--You 2003 (the constructed compact-support wavelet $\kappa$: support radius $=$

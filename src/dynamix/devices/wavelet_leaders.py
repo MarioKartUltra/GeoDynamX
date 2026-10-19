@@ -62,6 +62,8 @@ class WaveletLeaders:
         Param("wse_width", ParamKind.FLOAT, default=1.0, min=0.0, max=8.0, soft_min=0.0, soft_max=3.0,
               label="Half-width (cells)", active_when=("wse_rule", ("fixed",))),
         *MOMENT_PARAMS,
+        # The directional formalism on the hyperbolic coefficients: a second transform.
+        Param("directional", ParamKind.BOOL, default=False, label="Directional"),
         # View-only: what the h-map and the fitter show first, and the raster drawn.
         Param("method", ParamKind.CHOICE, default="leaders", choices=tuple(leaders.METHODS),
               choice_labels=tuple(_METHOD_LABEL[m] for m in leaders.METHODS), label="Method", view=True),
@@ -82,6 +84,7 @@ class WaveletLeaders:
         "P-LEADERS": ("p",),
         "WSE": ("wse_rule", "wse_beta", "wse_depth", "wse_width"),
         "MOMENTS": ("q_min", "q_max", "q_step"),
+        "DIRECTIONAL": ("directional",),
     }
 
     # ------------------------------------------------------------------------------ the knobs
@@ -175,6 +178,16 @@ class WaveletLeaders:
                 warnings.append(f"level {j} ({2 ** j} px): {run['zero_cells'][j - 1]} leaders are exactly zero "
                                 "(quantised data); the dither knob perturbs by half a least significant bit")
                 break
+        directional = None
+        if params["directional"]:
+            from dynamix.core import directional as dr
+
+            q = q_list(params)
+            directional = dr.analyse(vals, params["wavelet"], J, j_min=j_min, p_list=q[q > 0],
+                                     gamma=float(params["gamma"]))
+            if not np.isfinite(directional["eta_alpha"]).any():
+                warnings.append("directional: no anisotropy keeps three unclipped levels between "
+                                f"{params['scale_min']} and {params['scale_max']} px; deepen scale_max")
         h_cells = {m: (h.astype(np.float32), r2.astype(np.float32)) for m, (h, r2) in run["local"].items()}
         quantity = {m: [np.asarray(a, dtype=np.float32) for a in run["quantity"][m]] for m in leaders.METHODS}
         quantity["oscillation"] = [np.asarray(a, dtype=np.float32) for a in run["oscillation"]]
@@ -193,6 +206,14 @@ class WaveletLeaders:
             "valid_cells": run["valid_cells"], "zero_cells": run["zero_cells"],
             "admissibility": adm, "cumulants": run["cumulants"], "warnings": warnings,
         }
+        if directional is not None:
+            record["directional"] = {
+                "alpha_step": dr.ALPHA_STEP, "p": [float(v) for v in directional["p"]],
+                "levels_per_alpha": [int(v) for v in directional["n_levels"]],
+                "eta_e1": [float(v) for v in directional["eta_e1"]],
+                "eta_e2": [float(v) for v in directional["eta_e2"]],
+                "alpha_star_e1": [float(v) for v in directional["alpha_star_e1"]],
+            }
         return {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
@@ -201,7 +222,7 @@ class WaveletLeaders:
             "_h_cells": h_cells, "_quantity": quantity, "_valid": valid,
             "_cumulants": run["cumulants"], "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
-            "_dyadic_origin": (0, 0),
+            "_dyadic_origin": (0, 0), "_directional": directional,
             "_frame": getattr(field, "frame", None), "_shape": tuple(vals.shape),
             "record": record, "warnings": warnings,
         }
@@ -278,6 +299,20 @@ class WaveletLeaders:
             out.append(Curve(f"C₂(a) of ln {label}", np.asarray(t["scales"]), mom[1], "a (px)",
                              "variance of ln ℓ", logx=True, marks=marks,
                              note=f"c2 = {c['c2']:+.4f} (the app's cascade sign)"))
+        d = result.get("_directional")
+        if d is not None:
+            p = np.asarray(d["p"])
+            fitted = int(np.sum(d["n_levels"] >= 3))
+            note = f"{fitted} of {d['alpha'].size} anisotropies keep three unclipped levels"
+            for key, name in (("eta_e1", "η(p, e₁), along x"), ("eta_e2", "η(p, e₂), along y"),
+                              ("eta_iso", "η(p), the diagonal α = (1, 1)")):
+                out.append(Curve(name, p, np.asarray(d[key]), "p", "η", note=note))
+            out.append(Curve("α₁*(p), the anisotropy profile of e₁", p, np.asarray(d["alpha_star_e1"]),
+                             "p", "α₁*", note="the largest maximiser of η_α(p)/α₁; 1 is isotropic"))
+            for key, name in (("L_e1", "L(H, e₁), the directional Legendre bound"),
+                              ("L_e2", "L(H, e₂), the directional Legendre bound")):
+                out.append(Curve(name, np.asarray(d[key]["h"]), np.asarray(d[key]["L"]), "H", "L",
+                                 note="Theorem 6's upper bound over p ≥ p_α, capped at d = 2"))
         return out
 
     def cache_key(self, source_id: str, params: dict) -> str:
