@@ -181,7 +181,7 @@ class MultifractalWindow(QtWidgets.QDialog):
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
                  extrema_mods=None, scales=None, dh_hist=None, dh_box=None,
                  source: str = "canonical (Arneodo WTMM)", sources=None, h_map=None,
-                 kind: str = "partition"):
+                 kind: str = "partition", tables: "dict | None" = None):
         #: What the tables are (``VOCABULARY``): names the window and its first family.
         self._kind = str(kind or "partition")
         #: The h-map, for the box-counting construction on request.
@@ -222,9 +222,13 @@ class MultifractalWindow(QtWidgets.QDialog):
         self.setModal(False)
         self.setWindowTitle(f"{vocabulary(self._kind)[0]} — {self._source}")
 
-        self._hd_by_choice = {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
-        #: One table under two names (the moment route): the choice means nothing and is hidden.
-        self._one_table = hd_std is hd_cmax
+        #: The Table choice's entries: the WTMM's two modes, or the named tables a result carries
+        #: (the wavelet leaders' methods), the first entry the default.
+        self._hd_by_choice = (dict(tables) if tables
+                              else {"no-sup (std)": hd_std, "sup (cmax)": hd_cmax})   # TABLE_CHOICES order
+        #: One table under two names (the moment route), or one named table: the choice means
+        #: nothing and is hidden.
+        self._one_table = len(self._hd_by_choice) == 1 or (not tables and hd_std is hd_cmax)
         self._filtered_tables = (hd_std, hd_cmax)
         if self._filter_note:
             self.setWindowTitle(self.windowTitle() + f" — {self._filter_note}")
@@ -272,7 +276,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         self._table_label = QtWidgets.QLabel("Table")
         controls.addWidget(self._table_label)
         self._table_combo = QtWidgets.QComboBox()
-        self._table_combo.addItems(list(TABLE_CHOICES))
+        self._table_combo.addItems(list(self._hd_by_choice))
         self._table_combo.currentTextChanged.connect(self._on_table_changed)
         controls.addWidget(self._table_combo)
         for w in (self._table_label, self._table_combo):

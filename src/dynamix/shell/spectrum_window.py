@@ -75,7 +75,7 @@ class SpectrumWindow(QtWidgets.QDialog):
                  log2_L: "float | None" = None, parent=None, all_tables=None,
                  filter_note: str = "", dh_curves=None, gh_field=None,
                  source: str = "canonical (Arneodo direct)", kind: str = "partition",
-                 per_scale: "dict | None" = None):
+                 per_scale: "dict | None" = None, tables: "dict | None" = None):
         super().__init__(parent, QtCore.Qt.Window)
         #: Per-scale sets of moduli for the large-deviation route and the Gaussian ensemble:
         #: name -> {"mods": [per scale], "scales": px, "weights": per-scale count factors or None}.
@@ -84,8 +84,10 @@ class SpectrumWindow(QtWidgets.QDialog):
         #: What the canonical points are: the WTMM's direct construction, or the moment route.
         self._source = str(source)
         self._kind = str(kind or "partition")
-        #: One table under two names (the moment route): the choice means nothing and is hidden.
-        self._one_table = hd_std is not None and hd_std is hd_cmax
+        #: One table under two names (the moment route), or one named table: the choice means
+        #: nothing and is hidden.
+        self._one_table = (len(tables) == 1 if tables
+                           else hd_std is not None and hd_std is hd_cmax)
         #: The legend lists what is drawn: (item, name) pairs synced after every change.
         self._legend_entries: list = []
         self._in_legend: dict = {}
@@ -102,7 +104,8 @@ class SpectrumWindow(QtWidgets.QDialog):
         if (hd_std is None or hd_cmax is None) and h_map is None:
             raise ValueError("SpectrumWindow needs the partition tables (hd_std AND hd_cmax) "
                              "or an h_map -- got neither")
-        self._hd_by_choice = ({"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}
+        self._hd_by_choice = (dict(tables) if tables else
+                              {"no-sup (std)": hd_std, "sup (cmax)": hd_cmax}      # TABLE_CHOICES order
                               if hd_std is not None and hd_cmax is not None else None)
         self._filtered_tables = (hd_std, hd_cmax)
         self._chains = chains if chains else None
@@ -189,7 +192,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._table_label = QtWidgets.QLabel("Table")
         controls.addWidget(self._table_label)
         self._table_combo = QtWidgets.QComboBox()
-        self._table_combo.addItems(list(TABLE_CHOICES))
+        self._table_combo.addItems(list(self._hd_by_choice) if self._hd_by_choice else list(TABLE_CHOICES))
         self._table_combo.currentTextChanged.connect(lambda _t: self._recompute())
         controls.addWidget(self._table_combo)
         for w in (self._table_label, self._table_combo):

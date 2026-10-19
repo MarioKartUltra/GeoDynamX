@@ -801,3 +801,23 @@ def test_the_main_windows_button_names_what_the_active_result_holds(qtbot, clean
     win._active_result = {"hd_std": hd_std, "hd_cmax": hd_cmax}
     win._refresh_spectrum_button()
     assert win._spectrum_button.text() == "Partition functions…"
+
+
+def test_named_tables_fill_the_table_choice_in_their_order(qtbot):
+    """A result carrying named structure-function tables (the wavelet leaders' methods) lists
+    them under the Table choice, the first the default; one named table hides the choice."""
+    hd_std, hd_cmax = _pair()
+    tables = {"p-leaders": hd_cmax, "leaders": hd_std, "wse": hd_std}
+    window = MultifractalWindow(hd_cmax, hd_cmax, kind="structure", tables=tables)
+    qtbot.addWidget(window)
+    assert [window._table_combo.itemText(i) for i in range(window._table_combo.count())] == [
+        "p-leaders", "leaders", "wse"]
+    assert window._table_combo.isVisible() or not window._one_table
+    assert window._current_hd() is hd_cmax
+    window._table_combo.setCurrentText("leaders")
+    assert window._current_hd() is hd_std
+    fit = spectra.fit_spectra(hd_std, *window._region.getRegion())
+    assert np.allclose(window.current_fit()["tau"], fit["tau"], equal_nan=True)
+    lone = MultifractalWindow(hd_std, hd_std, kind="structure", tables={"leaders": hd_std})
+    qtbot.addWidget(lone)
+    assert lone._one_table and lone._current_hd() is hd_std
