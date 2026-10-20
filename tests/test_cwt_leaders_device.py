@@ -239,3 +239,22 @@ def test_a_region_counts_its_own_occupied_discs(dev):
         occupied = float(got["_valid"][j].sum())
         assert 0 < occupied < 32 * 36, (j, occupied)
         assert got["samples"]["cells"][j] == pytest.approx(occupied / max(np.pi * r * r, 1.0))
+
+
+# ------------------------------------------------------------------------- the p-leaders
+
+@pytest.mark.parametrize("H", [0.3, 0.7])
+def test_p_leaders_read_the_hurst_exponent_and_the_record_carries_eta_and_h_min(dev, H):
+    """The p-leader is the transcription of the local L^p norm behind the T^p_α spaces: the disc mean
+    of M^p at each admitted scale summed over the scales up to the leader's own, divided by
+    Leonarduzzi et al. 2017's finite-resolution factor with η(p) from the coefficients' structure
+    function Z̃(a, p) (Jaffard 1997 Part I). On fBm ζ(q) = qH for the p-leaders too; the record
+    carries η(p) ≈ pH and h_min, and the reading names η(p)."""
+    res = dev.compute(_field(fbm2d(512, H, seed=3)), _params(dev, p=2.0))
+    z = _zeta(res, (1.0, 2.0), set_name="cwt-p-leaders")
+    for q, zeta in z.items():
+        assert zeta == pytest.approx(q * H, abs=0.1 * max(1.0, abs(q))), (q, zeta, z)
+    rec = res["record"]
+    assert rec["eta_p"] == pytest.approx(2 * H, abs=0.15)
+    assert np.isfinite(rec["h_min"]) and rec["finite_resolution_factor"][-1] > 1.0
+    assert "η(2) =" in dev.reading(res, _params(dev, p=2.0))

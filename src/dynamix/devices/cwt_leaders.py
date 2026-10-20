@@ -164,17 +164,48 @@ class CwtLeaders:
                 measured[i, y, x] = mod[i, y, x]
         leaders = core.cylinder_leaders(measured, radii, sup_from=sup_from)
 
+        # The admissibility of the coefficients over the admitted scales, against log2 a: h_min the
+        # slope of log2 max M (leaders need h_min > 0) and η(p) the slope of log2 mean M^p, the
+        # coefficient structure function Z̃(a, p) of Jaffard 1997 Part I (p-leaders need η(p) > 0).
         p = float(params["p"])
+        admitted = list(range(sup_from, len(scales)))
+        log2_a = np.log2(scales[sup_from:])
+        h_min, eta_p = float("nan"), float("nan")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            if len(admitted) >= 2:
+                h_min = float(np.polyfit(log2_a, [np.log2(np.nanmax(mod[i])) for i in admitted], 1)[0])
+                if p > 0:
+                    eta_p = float(np.polyfit(log2_a, [np.log2(np.nanmean(mod[i].astype(np.float64) ** p))
+                                                      for i in admitted], 1)[0])
+        if h_min <= 0:
+            warnings.append(f"h_min = {h_min:.2f}: the field is not uniformly Hölder, the leaders need h_min > 0; "
+                            "a lift η would clear it")
+        if p > 0 and eta_p <= 0:
+            warnings.append(f"η({p:g}) = {eta_p:.2f}: the coefficients are not in L^{p:g} at this p, the p-leaders need "
+                            "η(p) > 0; a lift η would clear it")
+        # The p-leader: the disc mean of M^p at each admitted scale, summed over the scales up to the
+        # leader's own (the log-scale measure, one term per voice), divided by the finite-resolution
+        # factor (1 − 2^{−nη/v})/(1 − 2^{−η/v}) of Leonarduzzi, Wendt, Abry, Jaffard, Roux and Torres
+        # 2017 with η = η(p) and v the voices per octave, applied when η > 0: the partial geometric
+        # sum of a pure power law, so a^{ph} returns as itself however few scales are admitted.
+        # The transcription of the local L^p norm behind the T^p_α spaces (Jaffard and Melot 2005);
+        # no published CWT p-leader exists, and a mean over the scales is not a power law.
         p_leaders = None
+        factors = []
         if p > 0:
             p_leaders = np.full(mod.shape, np.nan, dtype=np.float32)
             acc = None
-            for j in range(sup_from, len(scales)):
+            voice = 1.0 / int(params["n_voice"])
+            for j in admitted:
                 term = np.where(np.isfinite(measured[j]), measured[j].astype(np.float64) ** p, np.nan)
                 acc = term if acc is None else np.where(np.isfinite(term), np.nan_to_num(acc) + term, acc)
                 total, count = core.disc_boxsum(acc, float(radii[j]))
+                n = j - sup_from + 1
+                factor = ((1.0 - 2.0 ** (-n * eta_p * voice)) / (1.0 - 2.0 ** (-eta_p * voice))
+                          if eta_p > 0 else 1.0)
+                factors.append(float(factor))
                 with np.errstate(divide="ignore", invalid="ignore"):
-                    mean = total / (count * (j - sup_from + 1))
+                    mean = total / (count * factor)
                 p_leaders[j] = np.where(count > 0, mean ** (1.0 / p), np.nan).astype(np.float32)
 
         # The valid mask is the WTMM's own edge group: the disc sup over the frame is what the
@@ -234,9 +265,10 @@ class CwtLeaders:
             "ladder": {k: params[k] for k in ("n_oct", "n_voice", "a_min")}, "scales": scales.tolist(),
             "energy_radius_per_scale": c, "radius_k": float(params["radius_k"]), "radii_px": radii.tolist(),
             "energy": float(params["energy"]), "sup_from_octaves": int(params["sup_from"]),
-            "eta": float(params["fracint_alpha"]), "p": p,
-            "p_leader": "(mean over the cylinder of M^p)^(1/p), the mean over the admitted scales "
-                        "of the disc mean" if p > 0 else None,
+            "eta": float(params["fracint_alpha"]), "p": p, "h_min": h_min, "eta_p": eta_p,
+            "p_leader": "(sum over the admitted scales of the disc mean of M^p, over the finite-resolution "
+                        "factor)^(1/p)" if p > 0 else None,
+            "finite_resolution_factor": factors,
             "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "borders_px": borders},
             "fit_range": fit_range, "sample_stride": float(params["sample_stride"]),
             "cwt_cache_hits": sorted(stage["cache_hits"]), "maxima_cache_hits": sorted(maxima_hits),
@@ -301,8 +333,12 @@ class CwtLeaders:
                  f"N_eff {min(cells):.0f}–{max(cells):.0f}"]
         if rec["eta"]:
             parts.append(f"η {rec['eta']:g}")
+        if np.isfinite(rec["h_min"]):
+            parts.append(f"h_min = {rec['h_min']:.2f}")
         if rec["p"] > 0:
             parts.append(f"p = {rec['p']:g}")
+            if np.isfinite(rec["eta_p"]):
+                parts.append(f"η({rec['p']:g}) = {rec['eta_p']:.2f}")
         return " · ".join(parts + rec["warnings"])
 
     def view(self, result: dict, params: dict) -> dict:
