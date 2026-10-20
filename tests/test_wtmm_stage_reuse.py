@@ -85,3 +85,38 @@ def test_a_stage_hit_shares_its_arrays_read_only_and_isolates_its_structure():
     assert "mod" in stored[0] and "mod" in a
     with pytest.raises(ValueError):
         b["x"][0] = -1                                         # the numbers are the store's
+
+
+def test_a_threshold_change_reuses_the_detected_peaks(monkeypatch):
+    """The NMS detection (two interpolations of the modulus per pixel and scale) is the cost of
+    the extrema stage and does not depend on the threshold: a threshold change keeps the
+    detected peaks in the store, re-thresholds and re-labels them, and reads exactly what a
+    fresh run reads."""
+    import numpy as np
+    from conftest import fbm2d, make_field
+    from dynamix.core import wtmm_backend
+    from dynamix.core.wtmm_backend import run_wtmm2d
+
+    calls = []
+    original = wtmm_backend._nms_peaks_scale
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(wtmm_backend, "_nms_peaks_scale", counted)
+    field = make_field(fbm2d(128, 0.5, seed=4))
+    params = {"n_oct": 2, "n_voice": 1, "a_min": 1.0, "wavelet": "mexican", "fracint_alpha": 0.0,
+              "smoother_params": {}}
+    cache: dict = {}
+    run_wtmm2d(field, dict(params, thresh=0.02), stage_cache=cache)
+    n = len(calls)
+    assert n > 0
+    second = run_wtmm2d(field, dict(params, thresh=0.1), stage_cache=cache)
+    assert len(calls) == n and "peaks" in second["cache_hits"]
+    fresh = run_wtmm2d(field, dict(params, thresh=0.1))
+    assert len(second["extrema"]) == len(fresh["extrema"])
+    for a, b in zip(second["extrema"], fresh["extrema"]):
+        for k in ("x", "y", "mod", "arg", "line_id"):
+            np.testing.assert_array_equal(a[k], b[k])
+    assert all(e["x"].size for e in second["extrema"])

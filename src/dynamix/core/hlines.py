@@ -38,4 +38,5 @@ def hline_runs(ext: dict, shape) -> list[np.ndarray]:
     # with an edge. Per line this was three numpy calls times tens of thousands of lines.
     breaks = np.nonzero(seg[1:] != seg[:-1])[0] + 1
     cuts = np.unique(np.concatenate([breaks, starts[(starts > 0) & (starts < order.size)]]))
-    return [walk for walk in np.split(order, cuts) if walk.size >= 2]      # a line needs an edge
+    bounds = np.concatenate([[0], cuts, [order.size]])
+    return [order[i:j] for i, j in zip(bounds[:-1], bounds[1:]) if j - i >= 2]      # a line needs an edge
