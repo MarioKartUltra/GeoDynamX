@@ -127,6 +127,64 @@ def disc_boxsum(src, R: float) -> tuple[np.ndarray, np.ndarray]:
     return total.astype(np.float32), count
 
 
+#: Measured energy radii per (smoother, operator, the smoother's own knobs, energy fraction).
+_RADII: dict = {}
+_SMOOTHER_KNOBS = ("alpha", "q", "beta")
+
+
+def _theta_hat(sx, sy, wavelet: str, params: dict):
+    """θ̂ of the smoother at scaled wavenumbers ``sx = kx·scale``: the two closed forms the
+    backend transcribes, else the registry's."""
+    if wavelet == "gaussian":
+        return np.exp(-(sx * sx + sy * sy))
+    if wavelet == "mexican":
+        k2 = sx * sx + sy * sy
+        return k2 * np.exp(-k2)
+    from dynamix.core.smoothers import smoother
+
+    return smoother(wavelet, params).theta_hat(sx, sy)
+
+
+def energy_radius(wavelet: str, operator: str, params: dict | None, energy: float = 0.99) -> float:
+    """``c`` such that the disc of radius ``c × scale`` holds the fraction ``energy`` of ∫|ψ|² for
+    the analysing kernel of the smoother ``wavelet`` under ``operator``: ``"gradient"``, the
+    vector kernel ∇θ whose modulus the WTMM stage takes, or ``"none"``, θ itself. Measured once
+    from the backend's own Fourier kernels (``_build_wavelet_filters_numpy``'s convention:
+    wavenumbers in cycles per pixel times the stage's scale) on a 1024-square grid at a reference
+    scale, inverse-transformed by the FFT policy's engine, and cached. Spec 30 §2: the constant is
+    tied to the kernel, not re-measured on the pixel grid at every scale."""
+    knobs = tuple(sorted((k, float(v)) for k, v in (params or {}).items() if k in _SMOOTHER_KNOBS))
+    key = (wavelet, operator, knobs, float(energy))
+    if key in _RADII:
+        return _RADII[key]
+    if operator not in ("gradient", "none"):
+        raise ValueError(f"unknown operator {operator!r}; expected 'gradient' or 'none'")
+    from dynamix.core import fft_policy
+    from dynamix.core.wtmm_backend import _build_wavelet_filters_numpy
+
+    n, ref = 1024, 64.0                              # σ ≈ 14 px: resolved, and far from the edge
+    f = np.fft.fftfreq(n)
+    kx, ky = np.meshgrid(f, f)
+    fft = fft_policy.active()
+    if operator == "gradient":
+        filters = _build_wavelet_filters_numpy(kx, ky, ref, wavelet=wavelet, params=params,
+                                               dtype=np.float64)
+        density = sum(np.abs(np.asarray(fft.ifft2(filters[name]))) ** 2 for name in ("dx", "dy"))
+    else:
+        theta = _theta_hat(kx * ref, ky * ref, wavelet, dict(params or {})).astype(np.complex128)
+        density = np.abs(np.asarray(fft.ifft2(theta))) ** 2
+    x = f * n                                        # the kernel sits at index 0 and wraps
+    r = np.hypot(*np.meshgrid(x, x)).ravel()
+    order = np.argsort(r, kind="stable")
+    cumulative = np.cumsum(density.ravel()[order])
+    radius = float(r[order][np.searchsorted(cumulative, energy * cumulative[-1])])
+    if radius > n / 4:
+        raise ValueError(f"{wavelet}/{operator}: the kernel's energy radius {radius:.0f} px at scale "
+                         f"{ref} exceeds the measuring grid; the smoother's support is too wide")
+    _RADII[key] = radius / ref
+    return _RADII[key]
+
+
 def cylinder_leaders(mod, radii, sup_from: int = 0) -> np.ndarray:
     """``L[j]`` = the disc dilation, with radius ``radii[j]``, of the running maximum of ``mod[i]``
     over ``sup_from ≤ i ≤ j``: the cylinder supremum of spec 30 §3.1, scale by scale from the finest
