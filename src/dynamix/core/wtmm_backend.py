@@ -2426,6 +2426,25 @@ def _apply_fracint2d(cwt: dict, scales, fracint_alpha: float) -> dict:
     return dict(cwt, mod=lifted)
 
 
+def _isolate(value):
+    """A stage result handed out of the in-memory store: the dicts, lists and tuples copied
+    (a downstream annotation or ``pop`` edits its own structure), every array shared as a
+    read-only view (the numbers are the store's; an in-place write raises instead of
+    corrupting the next hit). A deep copy of the maxima and chains cost half a second per knob
+    change on a 1024² field; this costs the dictionaries."""
+    if isinstance(value, np.ndarray):
+        view = value.view()
+        view.setflags(write=False)
+        return view
+    if isinstance(value, dict):
+        return {k: _isolate(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_isolate(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_isolate(v) for v in value)
+    return value
+
+
 def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, load_fn,
                   cache_hits, progress, *, backend, stage_cache, ck):
     """One cacheable stage behind both the in-memory store (``stage_cache``, keyed on the
@@ -2434,8 +2453,6 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
     scalar pipeline and the CWT leaders' stage runner (:func:`run_cwt_stage`)."""
     # The engine owns the store. The backend/precision are part of this in-memory
     # identity even though the historical on-disk format predates those settings.
-    import copy
-
     memory_key = None
     if stage_cache is not None:
         from dynamix.core import fft_policy
@@ -2450,9 +2467,10 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
             cache_hits.add(stage)
             if progress is not None:
                 progress(stage, 1.0)
-            # Line ordering and output annotations can mutate maxima/chains. Keep
-            # their saved stages isolated; the large CWT arrays are only read.
-            return result if stage == "cwt" else copy.deepcopy(result)
+            # Line ordering and output annotations edit the maxima's and chains' dicts: the
+            # store's structure stays its own, the arrays are shared read-only; the large CWT
+            # arrays are only read.
+            return result if stage == "cwt" else _isolate(result)
 
     def checked_compute():
         result = compute_fn()
@@ -2465,9 +2483,11 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
                             save_fn, load_fn, cache_hits, progress)
     ck()
     if memory_key is not None:
-        stage_cache[memory_key] = result if stage == "cwt" else copy.deepcopy(result)
+        stage_cache[memory_key] = result if stage == "cwt" else _isolate(result)
         if hasattr(stage_cache, "set_context"):
             stage_cache.set_context(memory_key, stage_context)
+        if stage != "cwt":
+            result = _isolate(result)
     return result
 
 
