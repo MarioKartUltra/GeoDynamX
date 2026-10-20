@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """One wheel gesture on every plot of the spectra and figures: the wheel zooms x, Shift + wheel
-zooms y (the author, 2026-10-20: every figure and spectrum, not only some). A source scan keeps
-it that way for the next plot anyone adds."""
+zooms y. A source scan keeps it that way for the next plot anyone adds."""
 from __future__ import annotations
 
 import pathlib
