@@ -275,7 +275,7 @@ def test_the_result_carries_structure_tables_for_the_partition_functions_window(
     params = dict(defaults_for(dev), wavelet="gaussian", n_oct=3, a_min=1.0, edge="reflect", p=0.0)
     res = dev.compute(make_field(fbm2d(96, 0.5, seed=12)), params)
     assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"]
-    assert "leaders" in res["hd_source"]
+    assert res["hd_source"] == "CWT leaders"
     q = np.arange(-3.0, 6.0 + 1e-9, 0.5)
     expected = tables(res["samples"], q)["cwt-leaders"]
     np.testing.assert_allclose(res["hd_std"]["q_list"], q)

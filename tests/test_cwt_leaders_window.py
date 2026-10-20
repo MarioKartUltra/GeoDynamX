@@ -115,6 +115,10 @@ def test_a_leaders_landing_sets_the_wavelet_bar_so_the_fitters_read_physical_len
         win._on_chain_edited(desc)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=120000)
     assert win._bar_device is not None and win._bar_device[0] == "cwt_leaders"
+    # The names the tools publish under: the layer (the fork names it after its device), the
+    # family, then the set and the tool.
+    assert win._samples_source() == "bar · cwt_leaders · gaussian"
+    assert win._tables_source(win._active_result, "x") == "bar · cwt_leaders · gaussian · CWT leaders"
     assert win._physical_of_log2a() is not None
     win._on_structure_button_clicked()
     assert win._structure_window._xaxis_combo.isEnabled()

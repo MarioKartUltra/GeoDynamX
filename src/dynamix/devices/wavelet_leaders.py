@@ -257,7 +257,7 @@ class WaveletLeaders:
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
             "samples": samples, "hd_std": hd, "hd_cmax": hd, "hd_kind": "structure",
-            "hd_source": f"structure functions over the dyadic {params['method']}",
+            "hd_source": f"dyadic {params['method']}",
             "_h_cells": h_cells, "_quantity": quantity, "_valid": valid, "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
             "_dyadic_origin": (0, 0),

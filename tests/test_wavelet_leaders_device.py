@@ -243,7 +243,7 @@ def test_the_dyadic_result_carries_structure_tables_for_the_partition_functions_
     res = dev.compute(field, validate_params(dev, dict(SMALL, method="p-leaders")))
     assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"]
     assert res["samples"]["dyadic"] is True and res["hd_std"]["dyadic"] is True
-    assert res["hd_std"]["set"] == "p-leaders" and "dyadic p-leaders" in res["hd_source"]
+    assert res["hd_std"]["set"] == "p-leaders" and res["hd_source"] == "dyadic p-leaders"
     np.testing.assert_allclose(res["hd_std"]["q_list"], leaders.TABLE_Q)
     expected = leaders.tables(res["samples"], leaders.TABLE_Q)["p-leaders"]
     np.testing.assert_allclose(res["hd_std"]["tau_qa"], expected["tau_qa"], equal_nan=True)

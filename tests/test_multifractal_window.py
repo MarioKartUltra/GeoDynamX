@@ -879,3 +879,12 @@ def test_a_dyadic_table_reads_j_on_the_scale_axis(qtbot):
     plain = MultifractalWindow(*_pair())
     qtbot.addWidget(plain)
     assert all(plot.getAxis("bottom").labelText == "log₂ a" for plot in plain._family_plots.values())
+
+
+def test_a_one_table_window_publishes_under_the_tool_s_name_without_a_table_tail(qtbot):
+    """A leaders result has one table: the published fit is named for the source and the tool,
+    the sup / no-sup choice (hidden) never reaching the construction's legend."""
+    hd_std, _hd_cmax = _pair()
+    window = MultifractalWindow(hd_std, hd_std, source="dem · mexican · CWT leaders", kind="structure")
+    qtbot.addWidget(window)
+    assert window.published_fit()["name"] == "dem · mexican · CWT leaders, partition functions"

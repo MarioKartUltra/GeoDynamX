@@ -1119,7 +1119,10 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         """The current fit in the schema every method's fitting tool publishes."""
         fit = self._fit
         q = np.asarray(fit["q_list"], dtype=np.float64)
-        return {"name": f"{self._source} · {self._table_combo.currentText()}", "kind": vocabulary(self._kind)[0].lower(),
+        # One table (the leaders): the source and the tool; two: the source and the table chosen.
+        name = (f"{self._source}, partition functions" if self._one_table
+                else f"{self._source} · {self._table_combo.currentText()}")
+        return {"name": name, "kind": vocabulary(self._kind)[0].lower(),
                 "q": q, "tau": fit["tau"], "tau_err": fit["tau_err"], "h": fit["h"], "h_err": fit["h_err"],
                 "D": fit["D"], "D_err": fit["D_err"], "hull": spectra.legendre_dh(q, fit["tau"]),
                 "cq": spectra.specific_heat(q, fit["tau"]), "frame": fit.get("frame"), "eta": fit.get("eta")}

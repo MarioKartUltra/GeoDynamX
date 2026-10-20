@@ -23,7 +23,7 @@ from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
-HD_SOURCE = "structure functions over the CWT leaders"
+HD_SOURCE = "CWT leaders"
 
 _WTMM = {p.name: p for p in WTMM2D.params}
 _LADDER = ("n_oct", "n_voice", "a_min", "fracint_alpha")

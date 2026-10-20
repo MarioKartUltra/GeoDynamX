@@ -3381,7 +3381,7 @@ both ``Canvas`` signals report the
                                     filter_note=filter_note, extrema_mods=mods, scales=scales,
                                     dh_hist=dh_hist, h_map=result.get("h_map"),
                                     h_map_method=(result.get("record") or {}).get("method", ""),
-                                    source=result.get("hd_source") or "canonical (Arneodo WTMM)",
+                                    source=self._tables_source(result, "canonical (Arneodo WTMM)"),
                                     sources=self._spectrum_sources(result),
                                     kind=result.get("hd_kind", "partition"))
         self._multifractal_window = window
@@ -3670,8 +3670,18 @@ both ``Canvas`` signals report the
         result = self._active_result or {}
         params = result.get("params") or {}
         layer = self.layer.name if self.layer is not None else "layer"
-        transform = "CWT" if (result.get("record") or {}).get("method") == "cwt_leaders" else "DWT"
-        return f"{layer} · {transform} {params.get('wavelet', '')}".rstrip()
+        # The dyadic device names its bank (DWT sym4); a CWT family names itself.
+        bank = ("" if (result.get("record") or {}).get("method") == "cwt_leaders" else "DWT ") + str(params.get("wavelet", ""))
+        return f"{layer} · {bank}".rstrip(" ·")
+
+    def _tables_source(self, result, default: str) -> str:
+        """What the partition fitter and the construction name a result's tables for: the layer
+        and bank in front of the set when the result publishes samples (the leaders), else the
+        transform's own source, else ``default``."""
+        own = result.get("hd_source") if isinstance(result, dict) else None
+        if own and isinstance(result.get("samples"), dict):
+            return f"{self._samples_source()} · {own}"
+        return own or default
 
     def _open_fitting_window(self, attr: str, cls, **extra) -> None:
         result = self._active_result
@@ -3805,7 +3815,7 @@ both ``Canvas`` signals report the
             min_chain_len=int(params.get("min_chain_len", 2)),
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,
             dh_curves=result.get("dh_curves"), gh_field=gh_field,
-            source=result.get("hd_source") or "canonical (Arneodo direct)",
+            source=self._tables_source(result, "canonical (Arneodo direct)"),
             kind=result.get("hd_kind", "partition"), per_scale=sample_sets(result),
             fits=list(self._published_fits.values()))
         self._spectrum_construction_window = window
