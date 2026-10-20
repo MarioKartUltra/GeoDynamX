@@ -109,3 +109,54 @@ def test_the_spectrum_line_stops_at_the_grid_boundary_and_leaves_those_points_as
     assert np.isnan(y[boundary]).all() and np.isfinite(y[~boundary]).all()
     dots_x, _dots_y = w.boundary_points.getData()
     assert dots_x.size == 2 and w.curve.opts["connect"] == "finite"
+
+
+def _landed(qtbot):
+    """A window with a hand-built landed result: two boundary minima at the ends, three inside."""
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    h = np.linspace(0.0, 1.0, 5)
+    D = np.array([-1.0, 0.5, 1.0, 0.5, -1.0])
+    boundary = np.array([True, False, False, False, True])
+    q = np.array([-1.0, 0.0, 1.0])
+    tau = np.stack([0.5 * q, 0.4 * q + 0.1 * q * q], axis=1)[:, :, None]      # (n_q, n_γ, n_δ)
+    ensemble = {"q": q, "gamma": np.array([0.0, 1.0]), "delta": np.array([0.0]),
+                "scales": scales[:3], "n_scales": 3, "tau_r2": np.ones((3, 2, 1)), "reference_amplitude": 1.0,
+                "tau": tau, "log_partition": np.zeros((3, 2, 1, 3))}
+    result = {"h": h, "D": D, "boundary": boundary, "q_star": np.zeros(5), "gamma_star": np.zeros(5),
+              "delta_star": np.zeros(5), "settings": {"lo": 1.0, "hi": 3.0, "amplitude": 1.0}, "ensemble": ensemble}
+    w._completed(w._generation, result)
+    return w
+
+
+def test_the_four_panels_sit_in_a_two_by_two_grid_with_the_specific_heat(qtbot):
+    from dynamix.core import spectra
+    w = _landed(qtbot)
+    grid = w._glw.ci
+    assert grid.getItem(0, 0) is w.plot and grid.getItem(0, 1) is w.diagram_plot
+    assert grid.getItem(1, 0) is w.tau_plot and grid.getItem(1, 1) is w.cq_plot
+    items = w.cq_plot.listDataItems()
+    assert len(items) == 2                                                   # one c_γ(q) per γ
+    g = w.current_fit()["ensemble"]
+    np.testing.assert_allclose(items[1].getData()[1], spectra.specific_heat(g["q"], g["tau"][:, 1, 0]), equal_nan=True)
+
+
+def test_the_spectrum_opens_on_a_fixed_range_with_h_min_and_h_max_marked(qtbot):
+    w = _landed(qtbot)
+    (x0, x1), (y0, y1) = w.plot.viewRange()
+    assert abs(x0 + 1.0) < 1e-6 and abs(x1 - 3.0) < 1e-6 and abs(y0 + 0.5) < 1e-6 and abs(y1 - 2.5) < 1e-6
+    assert w.h_min_line.isVisible() and w.h_max_line.isVisible()
+    assert abs(w.h_min_line.value() - 0.25) < 1e-9 and abs(w.h_max_line.value() - 0.75) < 1e-9
+
+
+def test_the_range_sliders_on_the_partition_panel_follow_and_drive_the_scale_spins(qtbot):
+    w = _landed(qtbot)
+    assert w._region in w.diagram_plot.items                                   # it survives a redraw
+    w._region.setRegion((1.5, 2.5))
+    assert (w.spins["log₂a min"].value(), w.spins["log₂a max"].value()) == (1.5, 2.5)
+    w.spins["log₂a min"].setValue(1.0)
+    assert tuple(round(v, 6) for v in w._region.getRegion()) == (1.0, 2.5)
+    w.set_scale_window(2.0, 4.0)
+    assert tuple(round(v, 6) for v in w._region.getRegion()) == (2.0, 4.0)

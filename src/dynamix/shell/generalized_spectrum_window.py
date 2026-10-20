@@ -9,6 +9,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
+from dynamix.core import spectra
 from dynamix.core.nonconcave import gaussian_ensemble, generalized_legendre
 from dynamix.core.partition_tables import moment_grid
 from dynamix.shell.theme import current
@@ -120,6 +121,8 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         pick.addWidget(self.delta_combo)
         pick.addStretch(1)
         layout.addLayout(pick)
+        # Four panels: D(h) and the partition function above, τ_g(q) and the specific heat
+        # c_γ(q) = −q² τ_g″ below; the partition panel carries the scale-window sliders.
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         self.plot = self._glw.addPlot(row=0, col=0, viewBox=WheelAxisViewBox())     # wheel: x; Shift: y
@@ -127,14 +130,36 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.plot.setLabel("left", "generalized spectrum upper estimate")
         self.curve = self.plot.plot(pen=pg.mkPen(current().ink, width=2), connect="finite")
         self.boundary_points = self.plot.plot(pen=None, symbol="o", symbolSize=4)
+        # h_min and h_max: the last interior minima; outside them the minima sit on the grid's
+        # boundary, Touchette & Beck's −∞ floor with an unbounded grid.
+        floor_pen = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
+        self.h_min_line = pg.InfiniteLine(angle=90, movable=False, pen=floor_pen, label="h_min",
+                                          labelOpts={"position": 0.9, "color": current().ink_muted})
+        self.h_max_line = pg.InfiniteLine(angle=90, movable=False, pen=floor_pen, label="h_max",
+                                          labelOpts={"position": 0.9, "color": current().ink_muted})
+        for line in (self.h_min_line, self.h_max_line):
+            line.setVisible(False)
+            self.plot.addItem(line, ignoreBounds=True)
         self.diagram_plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())
         self.diagram_plot.setLabel("bottom", "log₂ a")
         self.diagram_plot.setLabel("left", "log₂ Z_g(q, a)")
-        self.tau_plot = self._glw.addPlot(row=0, col=2, viewBox=WheelAxisViewBox())
+        band = pg.mkColor(current().amber)
+        band.setAlpha(28)
+        self._region = pg.LinearRegionItem(values=(lo, hi), orientation="vertical", brush=pg.mkBrush(band),
+                                           pen=pg.mkPen(current().amber))
+        self._region.setBounds((float(np.log2(a).min()) - 1.0, float(np.log2(a).max()) + 1.0))
+        self._region.sigRegionChanged.connect(self._on_region)
+        self.diagram_plot.addItem(self._region, ignoreBounds=True)
+        self.tau_plot = self._glw.addPlot(row=1, col=0, viewBox=WheelAxisViewBox())
         self.tau_plot.setLabel("bottom", "q")
         self.tau_plot.setLabel("left", "τ_g(q)")
         add_zero_lines(self.tau_plot)
-        for plot in (self.plot, self.diagram_plot, self.tau_plot):
+        self.cq_plot = self._glw.addPlot(row=1, col=1, viewBox=WheelAxisViewBox())
+        self.cq_plot.setLabel("bottom", "q")
+        self.cq_plot.setLabel("left", "c_γ(q) = −q² τ_g″")
+        add_zero_lines(self.cq_plot)
+        self._panel_items: dict = {self.diagram_plot: [], self.tau_plot: [], self.cq_plot: []}
+        for plot in (self.plot, self.diagram_plot, self.tau_plot, self.cq_plot):
             for side in ("bottom", "left"):
                 plot.getAxis(side).enableAutoSIPrefix(False)
         layout.addWidget(self._glw, 1)
@@ -148,8 +173,8 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         for spin in self.spins.values():
             spin.valueChanged.connect(self._mark_pending)
         for label in ("log₂a min", "log₂a max"):
-            self.spins[label].valueChanged.connect(lambda _v: self._publish_range(
-                self.spins["log₂a min"].value(), self.spins["log₂a max"].value()))
+            self.spins[label].valueChanged.connect(lambda _v: (self._sync_region(), self._publish_range(
+                self.spins["log₂a min"].value(), self.spins["log₂a max"].value())))
         self.spins["log₂ amplitude reference"].setEnabled(False)
         self.auto_amplitude_check.toggled.connect(
             lambda on: (self.spins["log₂ amplitude reference"].setEnabled(not on), self._mark_pending()))
@@ -157,6 +182,26 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.resize(1180, 700)
         from dynamix.shell.window_fit import fit_to_screen
         fit_to_screen(self, 1180, 700)
+
+    def _sync_region(self) -> None:
+        """The sliders follow the spins."""
+        lo, hi = sorted((self.spins["log₂a min"].value(), self.spins["log₂a max"].value()))
+        if tuple(self._region.getRegion()) != (lo, hi):
+            self._region.blockSignals(True)
+            self._region.setRegion((lo, hi))
+            self._region.blockSignals(False)
+
+    def _on_region(self) -> None:
+        """The spins follow the sliders; the next Compute runs over the new window."""
+        lo, hi = sorted(float(v) for v in self._region.getRegion())
+        for label, v in (("log₂a min", lo), ("log₂a max", hi)):
+            spin = self.spins[label]
+            if spin.value() != v:
+                spin.blockSignals(True)
+                spin.setValue(v)
+                spin.blockSignals(False)
+        self._mark_pending()
+        self._publish_range(lo, hi)
 
     def _fill_pick(self, combo: QtWidgets.QComboBox, values) -> None:
         """The grid's values on a picker, 0 picked when the grid holds it, else the first."""
@@ -177,25 +222,32 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         q, x = np.asarray(g["q"], float), np.log2(np.asarray(g["scales"], float))
         log2_z = np.asarray(g["log_partition"], float)[:, gi, di, :] / np.log(2.0)
         tau = np.asarray(g["tau"], float)
-        self.diagram_plot.clear()
-        self.tau_plot.clear()
-        add_zero_lines(self.tau_plot)
+        for plot, items in self._panel_items.items():          # the sliders and the zero lines stay
+            for item in items:
+                plot.removeItem(item)
+            items.clear()
+
+        def put(plot, item):
+            plot.addItem(item)
+            self._panel_items[plot].append(item)
         for i in range(q.size):
             hue = _q_color(i, q.size)
-            self.diagram_plot.addItem(pg.PlotDataItem(x, log2_z[i], pen=None, symbol="o", symbolSize=5,
-                                                      symbolPen=None, symbolBrush=hue))
+            put(self.diagram_plot, pg.PlotDataItem(x, log2_z[i], pen=None, symbol="o", symbolSize=5,
+                                                   symbolPen=None, symbolBrush=hue))
             slope = tau[i, gi, di]
             if np.isfinite(slope) and np.isfinite(log2_z[i]).any():
                 ok = np.isfinite(log2_z[i])
                 intercept = float(log2_z[i][ok].mean() - slope * x[ok].mean())
                 ends = np.array([x.min(), x.max()])
-                self.diagram_plot.addItem(pg.PlotDataItem(ends, intercept + slope * ends,
-                                                          pen=pg.mkPen(hue, style=QtCore.Qt.DashLine, width=1.4)))
+                put(self.diagram_plot, pg.PlotDataItem(ends, intercept + slope * ends,
+                                                       pen=pg.mkPen(hue, style=QtCore.Qt.DashLine, width=1.4)))
         gammas = np.asarray(g["gamma"], float)
         for k in range(gammas.size):
             hue = _q_color(k, max(gammas.size, 2))
-            self.tau_plot.addItem(pg.PlotDataItem(q, tau[:, k, di], pen=pg.mkPen(hue, width=2.5 if k == gi else 1.0),
-                                                  name=f"γ = {gammas[k]:g}"))
+            pen = pg.mkPen(hue, width=2.5 if k == gi else 1.0)
+            put(self.tau_plot, pg.PlotDataItem(q, tau[:, k, di], pen=pen, name=f"γ = {gammas[k]:g}"))
+            put(self.cq_plot, pg.PlotDataItem(q, spectra.specific_heat(q, tau[:, k, di]), pen=pen,
+                                              connect="finite", name=f"γ = {gammas[k]:g}"))
 
     def current_fit(self):
         return self._fit
@@ -206,6 +258,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             spin.blockSignals(True)
             spin.setValue(float(v))
             spin.blockSignals(False)
+        self._sync_region()
         self._mark_pending()
 
     def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
@@ -280,6 +333,14 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         b = result["boundary"] & np.isfinite(result["D"])
         self.curve.setData(result["h"], np.where(b, np.nan, result["D"]))
         self.boundary_points.setData(result["h"][b], result["D"][b])
+        inside = np.asarray(result["h"], float)[~b & np.isfinite(result["D"])]
+        for line, value in ((self.h_min_line, inside.min() if inside.size else None),
+                            (self.h_max_line, inside.max() if inside.size else None)):
+            line.setVisible(value is not None)
+            if value is not None:
+                line.setValue(float(value))
+        self.plot.setXRange(-1.0, 3.0, padding=0.0)              # the spectrum's own window
+        self.plot.setYRange(-0.5, 2.5, padding=0.0)
         self._fit = {**result, "name": self._last_name, "kind": "generalized spectrum",
                      "valid": bool(np.isfinite(result["D"]).any()), "window": (result["settings"]["lo"], result["settings"]["hi"])}
         self._fill_pick(self.gamma_combo, g["gamma"])
