@@ -248,11 +248,16 @@ class WaveletLeaders:
             "valid_cells": run["valid_cells"], "zero_cells": run["zero_cells"],
             "admissibility": adm, "warnings": warnings,
         }
+        samples = leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"],
+                                      wse_schedule=run["wse_schedule"] if params["wse_rule"] == "dumeur" else None)
+        # The method's set as one structure-function table in the partition schema: the
+        # Partition functions window opens on a leaders result like the CWT leaders'.
+        hd = leaders.structure_table(samples, params["method"])
         return {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
-            "samples": leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"],
-                                            wse_schedule=run["wse_schedule"] if params["wse_rule"] == "dumeur" else None),
+            "samples": samples, "hd_std": hd, "hd_cmax": hd, "hd_kind": "structure",
+            "hd_source": f"structure functions over the dyadic {params['method']}",
             "_h_cells": h_cells, "_quantity": quantity, "_valid": valid, "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
             "_dyadic_origin": (0, 0),

@@ -23,9 +23,6 @@ from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
-#: The moment orders of the structure-function table a leaders result carries for the Partition
-#: functions window: the WTMM's own default q grid (q_min −3, q_max 6, step ½).
-TABLE_Q = np.round(np.arange(-3.0, 6.0 + 1e-9, 0.5), 6)
 HD_SOURCE = "structure functions over the CWT leaders"
 
 _WTMM = {p.name: p for p in WTMM2D.params}
@@ -290,14 +287,20 @@ class CwtLeaders:
             "record": record, "warnings": warnings,
         }
 
+    def wavelet_profile(self, params: dict, scale_px: float, level: int):
+        """The analysing wavelet's section and λ* at ``scale_px`` (the wavelet scale bar and the
+        fitters' physical axis): the WTMM's own families."""
+        from dynamix.core.wavelet_profiles import wtmm_profile
+        return wtmm_profile(params["wavelet"], scale_px, smoother_params(params))
+
     @staticmethod
     def _structure_table(samples: dict) -> dict:
         """The leaders' structure functions in the partition schema the Partition functions
         window fits (spec 30 §5.7), at the WTMM's default moment orders so a leaders layer and a
         default WTMM run compare on one q grid; the Structure functions window keeps reading the
         samples themselves at its own orders."""
-        from dynamix.core.leaders import tables
-        return tables(samples, TABLE_Q)["cwt-leaders"]
+        from dynamix.core.leaders import structure_table
+        return structure_table(samples, "cwt-leaders")
 
     def compute_roi(self, window, core_rect, params: dict, *, info=None, progress=None, cancel=None,
                     stage_cache=None) -> dict:

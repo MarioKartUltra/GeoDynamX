@@ -868,3 +868,14 @@ def test_a_table_change_retracts_the_fit_published_under_the_old_table(qtbot):
     window._table_combo.setCurrentText("sup (cmax)")
     assert got[0].get("valid") is False and got[0]["name"].endswith("no-sup (std)")
     assert got[-1].get("valid", True) is not False and got[-1]["name"].endswith("sup (cmax)")
+
+
+def test_a_dyadic_table_reads_j_on_the_scale_axis(qtbot):
+    hd_std, hd_cmax = _pair()
+    dyadic = {**hd_std, "dyadic": True}
+    window = MultifractalWindow(dyadic, dyadic)
+    qtbot.addWidget(window)
+    assert all(plot.getAxis("bottom").labelText == "j" for plot in window._family_plots.values())
+    plain = MultifractalWindow(*_pair())
+    qtbot.addWidget(plain)
+    assert all(plot.getAxis("bottom").labelText == "log₂ a" for plot in plain._family_plots.values())

@@ -19,7 +19,8 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import leaders, spectra
 from dynamix.model.samples import LABELS
-from dynamix.shell.multifractal_window import PhysicalAxis, WheelAxisViewBox, _q_color, add_zero_lines
+from dynamix.shell.multifractal_window import (PhysicalAxis, PhysicalLog2Axis, WheelAxisViewBox, _q_color,
+                                               add_zero_lines)
 from dynamix.shell.theme import current
 from dynamix.shell.shared_range import SharedRangeFollower
 
@@ -45,6 +46,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._gamma = float(gamma)
         self._source = source
         self._physical = physical_of_log2a
+        self._dyadic = bool(samples.get("dyadic"))      # a pyramid's levels: the axis reads j
         self._tables: dict = {}
         self._fit: dict | None = None
         self._family_items: list = []
@@ -106,7 +108,8 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
                                     if self._gamma else "γ = 0: both frames coincide")
         self.frame_combo.currentIndexChanged.connect(lambda _i: self._refit())
         controls.addWidget(self.frame_combo)
-        controls.addWidget(QtWidgets.QLabel("log₂a"))
+        self._scale_label = QtWidgets.QLabel(self._scale_name())
+        controls.addWidget(self._scale_label)
         self.lo_spin, self.hi_spin = QtWidgets.QDoubleSpinBox(), QtWidgets.QDoubleSpinBox()
         for spin, seed in ((self.lo_spin, lo), (self.hi_spin, hi)):
             spin.setRange(*self._span)
@@ -116,6 +119,14 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             spin.valueChanged.connect(self._on_spins)
             controls.addWidget(spin)
         controls.addWidget(self._make_follow_check())
+        # The family's abscissa: the ladder's log₂ a (or j) in pixels, or log₂ of the physical
+        # λ* in the bars' unit, as the Partition functions window offers.
+        controls.addWidget(QtWidgets.QLabel("x"))
+        self._xaxis_combo = QtWidgets.QComboBox()
+        self._xaxis_combo.addItems(["log₂ a (px)", "log₂ λ* (unit)"])
+        self._xaxis_combo.setEnabled(self._physical is not None)
+        self._xaxis_combo.currentTextChanged.connect(self._on_xaxis_changed)
+        controls.addWidget(self._xaxis_combo)
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -123,7 +134,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
         self.family_plot = self._glw.addPlot(row=0, col=0, colspan=3, viewBox=WheelAxisViewBox())
-        self.family_plot.setLabel("bottom", "log₂ a")
+        self.family_plot.setLabel("bottom", self._scale_name())
         self.family_plot.setLabel("left", "log₂ S(q, a)")
         if self._physical is not None:
             self.family_plot.setAxisItems({"top": PhysicalAxis(self._physical)})
@@ -168,6 +179,28 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         layout.addWidget(self.readout)
         fit_to_screen(self, 1100, 760)
         remember_geometry(self, "structure_functions")
+
+    def _scale_name(self) -> str:
+        return "j" if self._dyadic else "log₂ a"
+
+    def _physical_unit(self) -> str:
+        """The unit the physical conversion reads at the middle of the ladder."""
+        if self._physical is None:
+            return ""
+        log2_s = np.log2(np.asarray(self._samples["scales"], dtype=np.float64))
+        for v in (float(np.median(log2_s)), float(log2_s.min()), float(log2_s.max())):
+            got = self._physical(v)
+            if got is not None:
+                return str(got[1])
+        return ""
+
+    def _on_xaxis_changed(self, text: str) -> None:
+        if text.startswith("log₂ λ*") and self._physical is not None:
+            self.family_plot.setAxisItems({"bottom": PhysicalLog2Axis(self._physical)})
+            self.family_plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
+        else:
+            self.family_plot.setAxisItems({"bottom": pg.AxisItem("bottom")})
+            self.family_plot.setLabel("bottom", self._scale_name())
 
     # -- the fit ----------------------------------------------------------------------------
     def _q_list(self) -> np.ndarray:

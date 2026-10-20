@@ -95,3 +95,27 @@ def test_a_leaders_layer_opens_the_partition_functions_window(qtbot, clean_regis
     assert win._dh_button.isEnabled()
     win._on_spectrum_button_clicked()
     assert win._multifractal_window is not None
+
+
+def test_a_leaders_landing_sets_the_wavelet_bar_so_the_fitters_read_physical_lengths(qtbot, clean_registry):
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.shell.main_window import MainWindow
+    register_builtin_devices()
+    v = fbm2d(96, 0.5, seed=12)
+    field = RasterField(name="bar", values=v, frame=LocalFrame(), x_axis=np.arange(96.0), y_axis=np.arange(96.0))
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    win.load_field(field, "/nonexistent/bar.npz")
+    params = defaults_for(get_device("cwt_leaders"))
+    params.update({"wavelet": "gaussian", "n_oct": 3, "a_min": 1.0, "edge": "reflect", "p": 0.0})
+    desc = [{"device": "cwt_leaders", "params": params}]
+    win.strips.set_steps(desc, field=win.field)
+    with qtbot.waitSignal(win.resolved, timeout=120000):
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=120000)
+    assert win._bar_device is not None and win._bar_device[0] == "cwt_leaders"
+    assert win._physical_of_log2a() is not None
+    win._on_structure_button_clicked()
+    assert win._structure_window._xaxis_combo.isEnabled()
+    assert win._structure_window.family_plot.getAxis("bottom").labelText == "log₂ a"   # a continuous ladder

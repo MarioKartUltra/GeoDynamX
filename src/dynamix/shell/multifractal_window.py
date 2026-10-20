@@ -467,7 +467,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         warm.setAlpha(28)
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
             plot = self._glw.addPlot(row=0, col=4 * col, colspan=4, viewBox=WheelAxisViewBox())
-            plot.setLabel("bottom", "log₂ a")
+            plot.setLabel("bottom", self._scale_axis_label())
             plot.setLabel("left", vocabulary(self._kind)[1] if key == "tau_qa" else ylabel)
             if self._physical is not None:
                 plot.setAxisItems({"top": PhysicalAxis(self._physical)})
@@ -1014,6 +1014,10 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         return {"naive": "naive", "fixed focus": "fixed_focus",
                 "focus": "focus"}[self._fitmode_combo.currentText()]
 
+    def _scale_axis_label(self) -> str:
+        """``j`` for a dyadic table (a pyramid's levels), ``log₂ a`` for a ladder."""
+        return "j" if self._current_hd().get("dyadic") else "log₂ a"
+
     def _physical_unit(self) -> str:
         """The unit the physical conversion reads at the middle of the scale range."""
         if self._physical is None:
@@ -1033,7 +1037,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                 plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
             else:
                 plot.setAxisItems({"bottom": pg.AxisItem("bottom")})
-                plot.setLabel("bottom", "log₂ a")
+                plot.setLabel("bottom", self._scale_axis_label())
 
     def refresh_physical_axes(self) -> None:
         """The bars' units changed: the physical axes re-read their conversion."""

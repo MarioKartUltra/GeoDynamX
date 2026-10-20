@@ -83,7 +83,9 @@ def test_the_run_carries_the_three_readings_their_sample_sets_and_the_h_map(dev,
     coef = samples["sets"]["coefficients"]
     assert coef["positive_only"] and coef["values"][0].dtype == np.float32
     assert coef["values"][0].shape == (3,) + coef["valid"][0].shape == (3, 512, 512)    # the mirrored working image
-    assert not any(k.startswith("hd_") for k in res) and "_cumulants" not in res and "_directional" not in res
+    # The method's set rides as the Partition functions window's structure table; nothing else is fitted here.
+    assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"] and res["hd_std"]["set"] == "leaders"
+    assert "_cumulants" not in res and "_directional" not in res
     rec = res["record"]
     assert rec["levels"] == {"j_min": 2, "J": 5} and rec["border_cells"] == e and rec["wse"]["rule"] == "fixed"
     assert rec["wse"]["schedule"][0] == [[0, 1.0], [1, 1.0]]
@@ -232,3 +234,16 @@ def test_auto_edge_runs_periodic_on_an_extension_output_and_mirrors_otherwise(de
     forced = dev.compute(ext, validate_params(dev, dict(SMALL, wse_rule="fixed", edge="mirror")))
     assert forced["record"]["edge"]["used"] == "mirror" and forced["record"]["edge"]["block"] == [512, 512]
     assert dev.derived_reading("edge", "mirror", ext) is None
+
+
+def test_the_dyadic_result_carries_structure_tables_for_the_partition_functions_window(dev, field):
+    """The dyadic leaders open the Partition functions window like the CWT leaders: the set the
+    method names becomes one structure-function table at the shared moment orders, marked
+    dyadic so the windows label the scale axis j."""
+    res = dev.compute(field, validate_params(dev, dict(SMALL, method="p-leaders")))
+    assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"]
+    assert res["samples"]["dyadic"] is True and res["hd_std"]["dyadic"] is True
+    assert res["hd_std"]["set"] == "p-leaders" and "dyadic p-leaders" in res["hd_source"]
+    np.testing.assert_allclose(res["hd_std"]["q_list"], leaders.TABLE_Q)
+    expected = leaders.tables(res["samples"], leaders.TABLE_Q)["p-leaders"]
+    np.testing.assert_allclose(res["hd_std"]["tau_qa"], expected["tau_qa"], equal_nan=True)

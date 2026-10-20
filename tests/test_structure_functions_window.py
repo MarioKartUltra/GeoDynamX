@@ -114,3 +114,25 @@ def test_the_family_panel_draws_each_scale_as_a_dot_with_the_fit_line_through_th
     assert window._family_items
     assert all(it.opts["symbol"] == "o" and it.opts["pen"] is None for it in window._family_items)
     assert window._fit_items and all(it.opts["pen"] is not None for it in window._fit_items)
+
+
+def test_the_x_axis_switches_to_the_physical_length_when_a_conversion_is_known(qtbot):
+    from dynamix.shell.multifractal_window import PhysicalLog2Axis
+    window = StructureFunctionsWindow(_samples(), levels=(2, 5), physical_of_log2a=lambda v: (2.0 ** v * 3.0, "m"))
+    qtbot.addWidget(window)
+    assert window._xaxis_combo.isEnabled()
+    window._xaxis_combo.setCurrentText("log₂ λ* (unit)")
+    assert isinstance(window.family_plot.getAxis("bottom"), PhysicalLog2Axis)
+    assert "(m)" in window.family_plot.getAxis("bottom").labelText
+    window._xaxis_combo.setCurrentText("log₂ a (px)")
+    assert window.family_plot.getAxis("bottom").labelText == "log₂ a"
+    plain = StructureFunctionsWindow(_samples(), levels=(2, 5))
+    qtbot.addWidget(plain)
+    assert not plain._xaxis_combo.isEnabled()
+
+
+def test_a_dyadic_ladder_reads_j_on_the_scale_axis(qtbot):
+    window = StructureFunctionsWindow({**_samples(), "dyadic": True}, levels=(2, 5))
+    qtbot.addWidget(window)
+    assert window.family_plot.getAxis("bottom").labelText == "j"
+    assert window._scale_label.text() == "j"

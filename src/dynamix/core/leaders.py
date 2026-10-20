@@ -333,6 +333,22 @@ def tables(samples: dict, q_list) -> dict:
             for name, s in samples["sets"].items()}
 
 
+#: The moment orders of the structure-function table a leaders result carries for the Partition
+#: functions window: the WTMM's own default q grid (q_min −3, q_max 6, step ½), so a leaders
+#: layer and a default WTMM run compare on one grid.
+TABLE_Q = np.round(np.arange(-3.0, 6.0 + 1e-9, 0.5), 6)
+
+
+def structure_table(samples: dict, set_name: str) -> dict:
+    """One set's structure functions in the partition schema at :data:`TABLE_Q`, carrying the
+    set's name and whether its ladder is dyadic (the windows then label the scale axis j), so a
+    leaders result opens the Partition functions window beside the WTMM's own tables."""
+    table = tables({**samples, "sets": {set_name: samples["sets"][set_name]}}, TABLE_Q)[set_name]
+    table["set"] = set_name
+    table["dyadic"] = bool(samples.get("dyadic"))
+    return table
+
+
 def structure_fit(table: dict, j_min: int, j_max: int, *, weights=None, gamma: float = 0.0,
                   frame: str = "original", d: int = 2) -> dict:
     """The scaling exponents off one structure-function table over the levels ``j_min..j_max``
@@ -533,7 +549,7 @@ def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape, *, 
             strides.append(stride)
         sets["wse"].update(valid=masks, cells=effective, decimation=strides,
                            normalization="omega^d times decimated sum (Dumeur 2.4)")
-    return {"scales": scales, "cells": cells, "d": len(data_shape), "sets": sets}
+    return {"scales": scales, "cells": cells, "d": len(data_shape), "sets": sets, "dyadic": True}
 
 
 def _level_of(scale_px, name: str) -> int:
