@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""SkeletonDialog: the WTMM skeleton log-log plot -- coefficient vs scale, colored by OLS
+"""SkeletonDialog: the WTMM skeleton log-log plot -- coefficient vs scale, coloured by OLS
 Hölder slope, with the "Normalize at finest scale" convergence fan and h-range chain selection
 (EQSelect's own ``_WtmmSkeletonDialog``, EQ§4/§5a; the
 notebook log-log conventions).
@@ -9,20 +9,24 @@ This display is EQSelect's answer to "no log-log plot of coeff vs scale" (spec M
 shape below follows EQSelect's own Hölder-lines view as closely as DynamiX's simpler,
 single-view scope allows -- there is no cascade-tree view here (the spec's own non-goals list it
 as deferred); every chain this dialog is given is drawn (up to the cap) as one leaf-to-root
-maxima-line polyline, colored by its own OLS slope.
+maxima-line polyline, coloured by its own OLS slope.
 
-**Figure construction.** One ``matplotlib.figure.Figure(constrained_layout=True)`` -- EQSelect's
-own colorbar-ratchet lesson (without ``constrained_layout``, adding/removing the colorbar
-shrinks the axes a little more every time it happens) -- holding two axes side by side (main
-log-log plot : histogram, width ratio 3:1). The main axes carries ONE ``LineCollection`` for every
-drawn chain (``alpha=0.2, linewidths=0.5``, CW§1's own v1-cell-57 numbers), colored by the SAME
-per-chain array through ``coolwarm``, clipped to the finite values' 2nd-98th percentile (short chains produce outlier slopes that would otherwise wash out the color scale for everyone
-else) and labelled with a colorbar "Hölder slope h". A SECOND, initially empty ``LineCollection``
-sits on the same axes for the selection highlight (see "Highlight color" below). The histogram
-axes shows the FULL (uncapped) finite-h distribution, ``bins=50, range=(-3, 2)`` (CW§1's own
-hard-coded shape) -- independent of the draw cap, since a histogram costs nothing extra past a
-few thousand chains and there is no reason to hide part of the real distribution just because not
-every line fits on screen.
+**Figure construction.** One ``pg.GraphicsLayoutWidget`` on the theme's ground holds, left to
+right, the main log-log plot, a colour bar and the histogram (column stretch 3 : 0 : 1). The two
+plots take the shared wheel gesture of every figure in the app (:mod:`dynamix.shell.plot_zoom`:
+the wheel zooms x, Shift and the wheel zoom y) and pyqtgraph's own context menu exports them.
+The drawn chains are bucketed into ``_COLOUR_BINS`` colour bins over a diverging blue-red map
+whose centre reads against the ground (:func:`_colour_map`: the coolwarm family's white centre
+on a dark ground, a grey centre on a light one), and each bin is ONE NaN-separated, antialiased
+``PlotDataItem`` (``connect="finite"``), so two thousand chains cost two dozen items. A chain's bin is its OLS slope clipped to the 2nd-98th percentile of the drawn finite
+values (short chains produce outlier slopes that would otherwise wash out the colour range for
+everything else); the colour bar (``pg.ColorBarItem``, labelled "Hölder slope h") shows those
+levels, and a chain without a finite slope draws in the muted ink. One more item on top carries
+the selection highlight in the theme's selection accent, the role the canvas's own selected-chain
+overlay wears. The histogram shows the FULL (uncapped) finite-h distribution as a filled step
+curve, ``bins=50, range=(-3, 2)`` (CW§1's own hard-coded shape) -- independent of the draw cap,
+since a histogram costs nothing extra past a few thousand chains and there is no reason to hide
+part of the real distribution just because not every line fits on screen.
 
 **Stats are computed exactly ONCE, at construction, cached on ``self._h``**
 (``dynamix.core.chain_stats.stats_for(chains, "ols")`` -- the port, the SAME estimator
@@ -41,23 +45,12 @@ accepts is a real index into that list, the same index space ``Canvas`` picking 
 ``GroupPalette`` membership already use for these exact chains (``main_window.py``'s own call
 site). The title notes the cap ("... [capped from N]") whenever it actually bit.
 
-**Highlight color: black, not the theme's ``selection_accent``.** EQSelect's own Hölder-lines
-highlight is a flat black overdraw, ``lw=1.8`` -- used here verbatim rather than importing
-``dynamix.shell.theme`` for the app's shared selection accent. This is a deliberate, DOCUMENTED
-choice (the design's "pick one, document"): pulling in ``theme.py`` would be this module's
-ONLY ``dynamix.shell.*`` dependency, for a single line color, on a module that is otherwise exactly
-as self-contained as ``topology_panel.py`` (``devloop.py``'s ``_DEPENDS_ON["skeleton_dialog"] =
-()``) -- not worth the coupling for a highlight that already reads unambiguously as "selected" in
-black-on-coolwarm. A future pass is free to switch to ``selection_accent`` if the two highlight
-styles ever need to look visually related; nothing here would resist that, it just was not judged
-worth the added dependency edge today.
-
 **Normalize at finest scale.** Chain-dict index 0 is the finest scale (CW§1's own chain
 dict contract). The checkbox shifts every drawn/highlighted polyline so its own index-0 point
 sits at the plot origin -- a pure per-chain translation (``x -= x[0]; y -= y[0]``), so the SLOPE a
 line displays is untouched; only where it starts moves. Axis labels switch to the Δ forms
 (EQ§5a's own wording, log2 instead of EQSelect's log10 -- the project's scale doctrine keeps this
-whole codebase in log2). Toggling never touches ``self._h`` or the colorbar's clim -- both are a
+whole codebase in log2). Toggling never touches ``self._h`` or the colour bar's levels -- both are a
 function of slope alone, and slope is exactly what a translation preserves.
 
 **px_size (CW§1's physical-units offset).** ``px_size`` is frame units per pixel, or ``None`` for
@@ -71,12 +64,6 @@ h-slope estimate (an x shift, not a scale). There is no unit STRING to label the
 constructor only ever receives a float), so the axis label stays the plain "log₂ scale" either
 way -- see the module's own axis-label helper.
 
-**Lazy matplotlib**, per ``right_panel.py``'s own precedent (its module docstring, ":70-73"):
-imported only inside the methods that build a figure, never at module scope, and
-``matplotlib.use(...)`` is never called anywhere -- importing ``FigureCanvasQTAgg`` IS the backend
-selection; the harness's mandated ``QT_QPA_PLATFORM=offscreen`` needs nothing else (confirmed:
-this module's own test suite builds a real ``FigureCanvasQTAgg`` under that exact platform).
-
 **Lifecycle** is owned entirely by ``main_window.py``, not here: a fresh ``SkeletonDialog`` is
 built on every "Skeleton plot…" click, from whatever chains are on screen AT THAT MOMENT -- no
 caching of an old instance across opens (see that module's own ``_on_skeleton_button_clicked``
@@ -88,9 +75,13 @@ from __future__ import annotations
 import math
 
 import numpy as np
+import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import chain_stats
+from dynamix.shell.plot_zoom import WheelAxisViewBox
+from dynamix.shell.theme import current, rgb
+from dynamix.shell.window_fit import fit_to_screen
 
 __all__ = ["SkeletonDialog", "MAX_DRAWN"]
 
@@ -102,10 +93,19 @@ MAX_DRAWN = 2000
 _HIST_BINS = 50
 _HIST_RANGE = (-3.0, 2.0)
 
-#: EQSelect's own Hölder-lines highlight -- see the module docstring's "Highlight color"
-#: section for why this stays a plain matplotlib color name rather than the theme accent.
-_HIGHLIGHT_COLOR = "black"
-_HIGHLIGHT_LW = 1.8
+#: The colour bins the drawn chains are bucketed into, and the diverging maps they sample: the
+#: coolwarm family (white centre) on a dark ground, a grey-centred blue-red on a light one.
+_COLOUR_BINS = 24
+_MAP_ON_DARK = "CET-D1"
+_MAP_ON_LIGHT = "CET-D8"
+_LINE_WIDTH = 1.0
+_HIGHLIGHT_WIDTH = 2.0
+
+
+def _colour_map(theme) -> str:
+    """The diverging map whose centre reads against ``theme.ground``."""
+    dark = sum(rgb(theme.ground)) < 3 * 128
+    return _MAP_ON_DARK if dark else _MAP_ON_LIGHT
 
 
 def _chain_xy(chain: dict, px_log2: float, normalize: bool) -> tuple[np.ndarray, np.ndarray]:
@@ -143,54 +143,55 @@ class SkeletonDialog(QtWidgets.QDialog):
     selectionRequested = QtCore.Signal(list)
 
     def __init__(self, chains, px_size: float | None = None, parent=None):
-        # Qt.Window (not the QDialog default Qt.Dialog): a real, independently resizable
-        # top-level window with min/max/close chrome -- EQSelect's own "Standalone resizable
-        # window", not a fixed-chrome modal-flavored dialog.
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
-
         self._chains = list(chains)
         self._px_log2 = math.log2(px_size) if px_size else 0.0
         self._normalize = False
         self._selected: set[int] = set()
-
-        # Cached ONCE -- see module docstring's "Stats are computed exactly ONCE" section.
         self._h = chain_stats.stats_for(self._chains, "ols")
         finite = self._h[np.isfinite(self._h)]
         self._h_lo = float(finite.min()) if finite.size else -1.0
         self._h_hi = float(finite.max()) if finite.size else 1.0
-
         n = len(self._chains)
         self._drawn_n = min(n, MAX_DRAWN)
         cap_note = f" [capped from {n}]" if n > MAX_DRAWN else ""
         self.setWindowTitle(f"WTMM skeleton — log₂ scale vs log₂|W|{cap_note}")
-
         self._build_ui()
         self._init_static_plot()
         self._update_axis_labels()
 
-    # -- construction ---------------------------------------------------------------------------
     def _build_ui(self) -> None:
-        from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
-        from matplotlib.figure import Figure
-
-        self._figure = Figure(constrained_layout=True)   # EQ§4's own colorbar-ratchet fix
-        self._ax_main, self._ax_hist = self._figure.subplots(
-            1, 2, gridspec_kw={"width_ratios": (3, 1)})
-        self._canvas = FigureCanvasQTAgg(self._figure)
-        self._toolbar = NavigationToolbar2QT(self._canvas, self)
-
+        theme = current()
         layout = QtWidgets.QVBoxLayout(self)
-        layout.addWidget(self._toolbar)
-        layout.addWidget(self._canvas, 1)
-
+        self._figure = pg.GraphicsLayoutWidget()
+        self._figure.setBackground(theme.ground)
+        self._main = self._figure.addPlot(row=0, col=0, viewBox=WheelAxisViewBox())
+        self._colour_bar = pg.ColorBarItem(
+            values=(-1.0, 1.0), width=14, colorMap=pg.colormap.get(_colour_map(theme)),
+            label="Hölder slope h", interactive=False, pen=theme.ink_muted, colorMapMenu=False)
+        for side in ("left", "right"):                 # the label's axis and the values' axis
+            self._colour_bar.getAxis(side).setTextPen(theme.ink)
+        self._figure.addItem(self._colour_bar, row=0, col=1)
+        self._hist = self._figure.addPlot(row=0, col=2, viewBox=WheelAxisViewBox())
+        self._figure.ci.layout.setColumnStretchFactor(0, 3)
+        self._figure.ci.layout.setColumnStretchFactor(2, 1)
+        for plot in (self._main, self._hist):
+            plot.showGrid(x=True, y=True, alpha=0.15)
+            for side in ("bottom", "left"):            # plain decimals, never an "(x0.001)" prefix
+                axis = plot.getAxis(side)
+                axis.enableAutoSIPrefix(False)
+                axis.setTextPen(theme.ink)
+                axis.setPen(theme.ink_muted)
+        self._hist.setLabel("bottom", "h")
+        self._hist.setLabel("left", "count")
+        layout.addWidget(self._figure, 1)
         self._normalize_check = QtWidgets.QCheckBox("Normalize at finest scale")
         self._normalize_check.setToolTip(
             "Anchor every maxima line at its finest-scale coefficient so slopes fan out from a "
             "common origin without crossing.")
         self._normalize_check.toggled.connect(self._on_normalize_toggled)
         layout.addWidget(self._normalize_check)
-
         controls = QtWidgets.QHBoxLayout()
         controls.addWidget(QtWidgets.QLabel("h ≥"))
         self._h_lo_spin = self._make_h_spin()
@@ -208,8 +209,7 @@ class SkeletonDialog(QtWidgets.QDialog):
         controls.addWidget(self._select_button)
         controls.addStretch(1)
         layout.addLayout(controls)
-
-        self.resize(900, 520)
+        fit_to_screen(self, 960, 560)
 
     def _make_h_spin(self) -> QtWidgets.QDoubleSpinBox:
         """EQ§4's own spin shape: 3 decimals, range padded ±1.0 past the data's own finite
@@ -221,63 +221,79 @@ class SkeletonDialog(QtWidgets.QDialog):
         spin.setSingleStep(max((self._h_hi - self._h_lo) / 100.0, 1e-6))
         return spin
 
-    # -- static plot elements (built once; never rebuilt by normalize/selection) --------------
     def _init_static_plot(self) -> None:
-        from matplotlib.collections import LineCollection
-
-        segments = self._segments_for(range(self._drawn_n))
-        colors = self._h[:self._drawn_n]
-        finite = colors[np.isfinite(colors)]
+        theme = current()
+        slopes = self._h[:self._drawn_n]
+        finite = slopes[np.isfinite(slopes)]
         if finite.size:
             lo, hi = (float(v) for v in np.percentile(finite, [2, 98]))
-            if lo == hi:                     # degenerate: every finite h identical -- set_clim
-                lo, hi = lo - 0.5, hi + 0.5   # refuses an empty interval
+            if lo == hi:                     # degenerate: every finite h identical
+                lo, hi = lo - 0.5, hi + 0.5
         else:
             lo, hi = -1.0, 1.0
-
-        self._line_collection = LineCollection(
-            segments, array=colors, cmap="coolwarm", alpha=0.2, linewidths=0.5)
-        self._line_collection.set_clim(lo, hi)
-        self._ax_main.add_collection(self._line_collection)
-        self._ax_main.autoscale()
-        colorbar = self._figure.colorbar(self._line_collection, ax=self._ax_main)
-        colorbar.set_label("Hölder slope h")
-
-        # Selection highlight overlay -- see module docstring's "Highlight color" section.
-        self._highlight_collection = LineCollection(
-            [], color=_HIGHLIGHT_COLOR, linewidths=_HIGHLIGHT_LW)
-        self._ax_main.add_collection(self._highlight_collection)
-
+        self._colour_bar.setLevels((lo, hi))
+        fraction = np.clip(np.nan_to_num((slopes - lo) / (hi - lo)), 0.0, 1.0)
+        self._bin_of = np.where(np.isfinite(slopes),
+                                np.rint(fraction * (_COLOUR_BINS - 1)), -1).astype(int)
+        shades = pg.colormap.get(_colour_map(theme)).map(np.linspace(0.0, 1.0, _COLOUR_BINS),
+                                                          mode="qcolor")
+        self._bin_items = []
+        for shade in shades:
+            shade.setAlpha(220)
+            item = pg.PlotDataItem(pen=pg.mkPen(shade, width=_LINE_WIDTH), connect="finite",
+                                   antialias=True)
+            self._main.addItem(item)
+            self._bin_items.append(item)
+        self._unfit_item = pg.PlotDataItem(pen=pg.mkPen(theme.ink_muted, width=_LINE_WIDTH),
+                                           connect="finite", antialias=True)
+        self._main.addItem(self._unfit_item)
+        self._highlight_item = pg.PlotDataItem(
+            pen=pg.mkPen(theme.selection_accent, width=_HIGHLIGHT_WIDTH), connect="finite",
+            antialias=True)
+        self._highlight_item.setZValue(10)
+        self._main.addItem(self._highlight_item)
+        self._update_geometry()
         all_finite = self._h[np.isfinite(self._h)]
-        self._ax_hist.hist(all_finite, bins=_HIST_BINS, range=_HIST_RANGE)
-        self._ax_hist.set_xlabel("h")
-        self._ax_hist.set_ylabel("count")
+        counts, edges = np.histogram(all_finite, bins=_HIST_BINS, range=_HIST_RANGE)
+        fill = pg.mkColor(theme.ink)
+        fill.setAlpha(70)
+        self._hist_item = self._hist.plot(edges, counts, stepMode="center", fillLevel=0,
+                                          brush=pg.mkBrush(fill), pen=pg.mkPen(theme.ink, width=1))
 
-    # -- geometry (rebuilt on normalize toggle / set_selection; never touches self._h) --------
-    def _segments_for(self, indices) -> list:
-        return [np.column_stack(_chain_xy(self._chains[i], self._px_log2, self._normalize))
-                for i in indices]
+    def _polylines(self, indices) -> tuple[np.ndarray, np.ndarray]:
+        """The chains at ``indices`` as one NaN-separated (x, y) pair, in the dialog's current
+        px offset and normalize state."""
+        xs: list[np.ndarray] = []
+        ys: list[np.ndarray] = []
+        nan = np.array([np.nan])
+        for i in indices:
+            x, y = _chain_xy(self._chains[i], self._px_log2, self._normalize)
+            xs += [x, nan]
+            ys += [y, nan]
+        if not xs:
+            return np.empty(0), np.empty(0)
+        return np.concatenate(xs[:-1]), np.concatenate(ys[:-1])
 
     def _update_geometry(self) -> None:
-        self._line_collection.set_segments(self._segments_for(range(self._drawn_n)))
+        drawn = np.arange(self._drawn_n)
+        for b, item in enumerate(self._bin_items):
+            item.setData(*self._polylines(drawn[self._bin_of == b]))
+        self._unfit_item.setData(*self._polylines(drawn[self._bin_of < 0]))
         self._update_highlight()
-        self._ax_main.relim()
-        self._ax_main.autoscale_view()
-        self._canvas.draw_idle()
+        self._main.autoRange()
 
     def _update_highlight(self) -> None:
         drawable = sorted(i for i in self._selected if i < self._drawn_n)
-        self._highlight_collection.set_segments(self._segments_for(drawable))
+        self._highlight_item.setData(*self._polylines(drawable))
 
     def _update_axis_labels(self) -> None:
         if self._normalize:
-            self._ax_main.set_xlabel("Δ log₂ scale (from finest)")
-            self._ax_main.set_ylabel("log₂|W| − log₂|W|(finest)")
+            self._main.setLabel("bottom", "Δ log₂ scale (from finest)")
+            self._main.setLabel("left", "log₂|W| − log₂|W|(finest)")
         else:
-            self._ax_main.set_xlabel("log₂ scale")
-            self._ax_main.set_ylabel("log₂|W|")
+            self._main.setLabel("bottom", "log₂ scale")
+            self._main.setLabel("left", "log₂|W|")
 
-    # -- gestures -------------------------------------------------------------------------------
     def _on_normalize_toggled(self, checked: bool) -> None:
         self._normalize = bool(checked)
         self._update_axis_labels()
@@ -288,7 +304,6 @@ class SkeletonDialog(QtWidgets.QDialog):
         indices = [i for i, h in enumerate(self._h) if np.isfinite(h) and lo <= h <= hi]
         self.selectionRequested.emit(indices)
 
-    # -- MainWindow -> dialog (the other half of the bidirectional sync) ----------------------
     def set_selection(self, indices) -> None:
         """Redraw the highlight overlay for ``indices`` (positions into THIS dialog's own
         ``chains`` list) WITHOUT touching :attr:`_h` -- the cached stats array keeps its object
@@ -297,4 +312,3 @@ class SkeletonDialog(QtWidgets.QDialog):
         but never drawn -- there is no on-screen line for it to highlight yet."""
         self._selected = {int(i) for i in indices}
         self._update_highlight()
-        self._canvas.draw_idle()
