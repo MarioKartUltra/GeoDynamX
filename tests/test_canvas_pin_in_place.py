@@ -192,3 +192,27 @@ def test_a_refined_field_draws_over_its_file_pixels_not_its_sample_count(qtbot):
     assert (np.nanmin(xs), np.nanmax(xs), np.nanmin(ys), np.nanmax(ys)) == (6.5, 22.5, 4.5, 20.5)
     # the ROI gesture clamps to the field's extent in file pixels, not to 31
     assert canvas._field_shape() == (16, 16)
+
+
+def test_a_result_on_a_refined_field_draws_at_the_field_pitch(qtbot):
+    """An analysis of a refined child is in the child's sample grid; the canvas draws it through
+    the same registration as the child's image (sample × pitch + the window offset), so a
+    maximum at sample (3, 2) of a half-pitch child at (5, 7) lands on file (7 + 1.5, 5 + 1.0),
+    the maxima raster covers the image's rect, and a click converts back to the sample."""
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(_refined_child(), display_pitch=(0.5, 0.5))
+    canvas.set_result(_result(n=31), 0)
+    xs, ys = canvas.extrema_item.getData()
+    assert (float(xs[0]), float(ys[0])) == (8.5, 6.0)
+    rect = canvas.isolated_raster_item.mapRectToView(canvas.isolated_raster_item.boundingRect())
+    assert (rect.x(), rect.y(), rect.width(), rect.height()) == (6.75, 4.75, 15.5, 15.5)
+    assert canvas.result_xy((8.5, 6.0)) == (3.0, 2.0)
+    # the ROI box of a region result on the child spans its samples at the pitch
+    result = _result(n=31)
+    result["_roi"] = {"roi": (2, 4, 6, 8)}
+    canvas.set_result(result, 0)
+    bx, by = canvas.roi_bounds_item.getData()
+    # display_offset = roi − window = (−3, −3) samples → × ½ → file (5 − 1.5, 7 − 1.5); the box is 8 × ½ wide
+    assert (min(bx), max(bx)) == (5.5 - 0.25, 5.5 - 0.25 + 4.0)
+    assert (min(by), max(by)) == (3.5 - 0.25, 3.5 - 0.25 + 3.0)

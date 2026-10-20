@@ -1782,14 +1782,17 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self.clear_footprint()
             return
         br, bc = self._base_off
+        py, px = self._display_pitch
         H, W = (int(v) for v in footprint["shape"])
         r0, c0 = (int(v) for v in footprint.get("origin", (0, 0)))
         out, b = int(footprint["shown"]), int(footprint["border"])
-        x0, y0 = bc + c0 - 0.5, br + r0 - 0.5
+        # The footprint is in the raster's own samples; it draws through the field's pitch.
+        x0, y0 = bc + (c0 - 0.5) * px, br + (r0 - 0.5) * py
+        Wx, Hy, ox, oy = W * px, H * py, out * px, out * py
         if out > 0:
             self.footprint_outline_item.setData(
-                np.array([x0 - out, x0 + W + out, x0 + W + out, x0 - out, x0 - out], dtype=float),
-                np.array([y0 - out, y0 - out, y0 + H + out, y0 + H + out, y0 - out], dtype=float))
+                np.array([x0 - ox, x0 + Wx + ox, x0 + Wx + ox, x0 - ox, x0 - ox], dtype=float),
+                np.array([y0 - oy, y0 - oy, y0 + Hy + oy, y0 + Hy + oy, y0 - oy], dtype=float))
         else:
             self.footprint_outline_item.setData([], [])
         s, off = int(footprint["stride"]), int(footprint["offset"])
@@ -1814,7 +1817,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             if cmap is not None:
                 self.footprint_image_item.setColorMap(cmap)
             self.footprint_image_item.setRect(QtCore.QRectF(
-                x0 + off, y0 + off, padded.shape[1] * s, padded.shape[0] * s))
+                x0 + off * px, y0 + off * py, padded.shape[1] * s * px, padded.shape[0] * s * py))
             self.footprint_image_item.setVisible(True)
         else:
             self.footprint_image_item.setVisible(False)
@@ -2230,10 +2233,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
                     self._handle_transect_click(xy)
                 else:
                     max_dist = self._pick_radius_data(_PICK_MAX_DIST_PX)
-                    dr, dc = self._draw_off
-                    self.chainPicked.emit(pick_chain(self._pick_chains or [],
-                                                     (xy[0] - dc, xy[1] - dr),
-                                                     max_dist), shift)
+                    self.chainPicked.emit(pick_chain(self._pick_chains or [], self.result_xy(xy),
+                                                     max_dist / self._display_pitch[1]), shift)
         super().mouseReleaseEvent(event)
 
     def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM, display_origin=None,
@@ -2362,6 +2363,13 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if had and self._levels:
             self._paint(self.image_item, self._field, self._image_stride)
 
+    def result_xy(self, xy) -> tuple[float, float]:
+        """A data-space point back in the drawn result's own sample grid: the inverse of the
+        affine :meth:`set_result` draws through (the offset off, then the pitch out)."""
+        dr, dc = self._draw_off
+        py, px = self._display_pitch
+        return (float(xy[0] - dc) / px, float(xy[1] - dr) / py)
+
     def set_result(self, result: dict, scale_idx: int) -> None:
         """Redraw the per-scale overlay: isolated extrema (``line_id == -1``) as points, every
         ordered H-line as one NaN-separated polyline, (if enabled) V-chain drift trails, and (for
@@ -2407,18 +2415,23 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """
         ext = result["extrema"][scale_idx]
         shape = result["_shape"]
+        # The result is in its field's SAMPLE grid, and the field draws at ``_display_pitch``
+        # file pixels per sample (:meth:`set_field`); every overlay goes through the same affine
+        # as the image, file = base + pitch × sample, so an analysis of a refined grid lands on
+        # the picture it was computed on. Pitch (1, 1) is bit-for-bit the old arithmetic.
+        py, px = self._display_pitch
         row_off, col_off = display_offset(result, self._field)
-        row_off += self._base_off[0]           # pin-in-place: overlays live file-absolute
-        col_off += self._base_off[1]
+        row_off = row_off * py + self._base_off[0]       # pin-in-place: overlays live file-absolute
+        col_off = col_off * px + self._base_off[1]
         self._draw_off = (float(row_off), float(col_off))
         reg_dx, reg_dy = result.get("_display_offset") or (0, 0)
-        max_row, max_col = row_off + reg_dy, col_off + reg_dx       # where the maxima draw
+        max_row, max_col = row_off + reg_dy * py, col_off + reg_dx * px    # where the maxima draw
 
         self._draw_arrows(result, scale_idx, max_row, max_col)
         ext_x = np.asarray(ext["x"])
         ext_y = np.asarray(ext["y"])
         iso = np.asarray(ext["line_id"]) == -1
-        self.extrema_item.setData(x=ext_x[iso] + max_col, y=ext_y[iso] + max_row)
+        self.extrema_item.setData(x=ext_x[iso] * px + max_col, y=ext_y[iso] * py + max_row)
 
         # The polyline helpers run in the RESULT's own coordinates (`hline_polylines` indexes a
         # scratch grid of `shape`, which is the ROI's shape), so the translation is applied to
@@ -2443,7 +2456,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         hx_pre, hy_pre = hx, hy                  # pre-cap: the raster overlay has no point cost
         if sel_geom is None:
             hx, hy, h_kept, h_total = cap_polylines(hx, hy, self.draw_cap)
-        self.hchain_item.setData(hx + max_col, hy + max_row)
+        self.hchain_item.setData(hx * px + max_col, hy * py + max_row)
 
         # The raster-pixel extrema overlay: the same visible truth the polylines
         # carried, in pixel form on the result's own grid. Members from the drawn H-line
@@ -2466,7 +2479,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             ok = (dx_i >= 0) & (dx_i < nx_r) & (dy_i >= 0) & (dy_i < ny_r)
             iso_y, iso_x = dy_i[ok], dx_i[ok]
         self._maxima_masks = ((ny_r, nx_r), (on_y, on_x), (iso_y, iso_x),
-                              QtCore.QRectF(max_col - 0.5, max_row - 0.5, nx_r, ny_r))
+                              QtCore.QRectF(max_col - 0.5 * px, max_row - 0.5 * py, nx_r * px, ny_r * py))
         self._paint_maxima_rasters()
 
         # Split by `tags` -- see the docstring above for why. `chain.get("tags")` is absent on
@@ -2494,7 +2507,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         v_kept = v_total = 0
         if sel_geom is None:
             vx, vy, v_kept, v_total = cap_polylines(vx, vy, self.draw_cap)
-        self.vtrail_item.setData(vx + col_off, vy + row_off)
+        self.vtrail_item.setData(vx * px + col_off, vy * py + row_off)
         # Honest "drawing N of M" when the cap withheld lines (never a silent truncation).
         notes = []
         if h_total > h_kept:
@@ -2504,13 +2517,14 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.cap_note = (" · ".join(notes) + " — tighten filters to see the rest"
                          if notes else self.cap_note)
 
-        self.seam_item.setData(sx + col_off, sy + row_off)
+        self.seam_item.setData(sx * px + col_off, sy * py + row_off)
 
-        self._draw_grouped_trails(grouped_xy, col_off, row_off)
+        self._draw_grouped_trails({c: (gx * px, gy * py) for c, (gx, gy) in grouped_xy.items()},
+                                  col_off, row_off)
 
         excluded = result.get("chains_excluded") or _NO_CHAINS
         gx, gy = self._cached_geometry("ghost", excluded, lambda: vchain_trails(excluded))
-        self.ghost_item.setData(gx + col_off, gy + row_off)
+        self.ghost_item.setData(gx * px + col_off, gy * py + row_off)
         self._show_ghosts = bool(result.get("_show_ghosts", True))
         self._apply_trails_visibility()
         # The maxima gate: arrow mode "off" already leaves arrow_item empty, so the flag only
@@ -2561,9 +2575,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if not roi:
             self.roi_bounds_item.setData([], [])
             return
-        h, w = int(roi[2]), int(roi[3])
-        # Around the region's CELLS (centre registration), exactly on the saved ROI's own box.
-        x0, y0 = col_off - 0.5, row_off - 0.5
+        py, px = self._display_pitch
+        h, w = int(roi[2]) * py, int(roi[3]) * px
+        # Around the region's CELLS (centre registration), exactly on the saved ROI's own box,
+        # at the field's pitch.
+        x0, y0 = col_off - 0.5 * px, row_off - 0.5 * py
         self.roi_bounds_item.setData(
             [x0, x0 + w, x0 + w, x0, x0],
             [y0, y0, y0 + h, y0 + h, y0])
@@ -2608,7 +2624,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         ref = float(np.nanpercentile(mod, 95)) if mod.size else 1.0
         base = float(np.clip(0.5 * a, 1.5, 12.0))
         lengths = base * (0.3 + 0.7 * np.clip(mod / (ref if ref > 0 else 1.0), 0.0, 1.0))
-        xs, ys = _arrow_segments(x + col_off, y + row_off, arg, lengths)
+        py, px = self._display_pitch
+        xs, ys = _arrow_segments(x * px + col_off, y * py + row_off, arg, lengths * px)
         self.arrow_item.setData(xs, ys)
 
     def set_maxima_visible(self, visible: bool) -> None:
@@ -2692,7 +2709,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
             cached = (dilated, x, y)
             self._coi_cache[a_idx] = cached
         _, x, y = cached
-        self.coi_item.setData(x + col_off, y + row_off)
+        py, px = self._display_pitch
+        self.coi_item.setData(x * px + col_off, y * py + row_off)
 
     def scale_bar_style(self) -> dict:
         return dict(self._scale_bar_style)
