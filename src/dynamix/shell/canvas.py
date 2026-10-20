@@ -962,6 +962,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.footprint_outline_item = pg.PlotDataItem(
             pen=pg.mkPen(COI_COLOR, width=1.5, style=QtCore.Qt.PenStyle.DashLine), connect="finite")
         self.view.addItem(self.footprint_outline_item)
+        # The CWT leaders' disc at the scale shown (:meth:`set_disc`), in the footprint's colour.
+        self.disc_item = pg.PlotDataItem(pen=pg.mkPen(COI_COLOR, width=1.5), connect="finite")
+        self.view.addItem(self.disc_item)
         self.footprint_band_item = QtWidgets.QGraphicsPathItem()
         self.footprint_band_item.setBrush(QtGui.QBrush(QtGui.QColor(*COI_COLOR),
                                                        QtCore.Qt.BrushStyle.BDiagPattern))
@@ -1817,6 +1820,17 @@ a bounded gather of at most :attr:`draw_cap` chains per
             if W > 2 * b and H > 2 * b:
                 path.addRect(QtCore.QRectF(x0 + b, y0 + b, W - 2 * b, H - 2 * b))
         self.footprint_band_item.setPath(path)
+
+    def set_disc(self, disc: "dict | None") -> None:
+        """A ring of ``disc["radius"]`` px around ``(disc["row"], disc["col"])``, the field's own
+        pixels: the CWT leaders' neighbourhood at the scale shown (spec 30 §3.5). None clears it."""
+        if disc is None:
+            self.disc_item.setData([], [])
+            return
+        br, bc = self._base_off
+        t = np.linspace(0.0, 2.0 * np.pi, 73)
+        r = float(disc["radius"])
+        self.disc_item.setData(bc + float(disc["col"]) + r * np.cos(t), br + float(disc["row"]) + r * np.sin(t))
 
     def clear_footprint(self) -> None:
         """Take the edge footprint off the canvas."""

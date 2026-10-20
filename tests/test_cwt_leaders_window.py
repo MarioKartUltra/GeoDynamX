@@ -43,3 +43,29 @@ def test_the_structure_functions_window_fits_the_leaders_with_the_plus_d_law(qtb
     assert fit["h"][at(0.0)] == pytest.approx(0.5, abs=0.1)
     assert fit["D"][at(0.0)] == pytest.approx(2.0, abs=0.15)
     assert fit["tau"][at(2.0)] == pytest.approx(2 * 0.5 - 2, abs=0.25)
+
+
+def test_the_raster_tab_draws_the_disc_at_the_scale_shown(qtbot, clean_registry):
+    """A landed cwt_leaders result puts a ring of R(a) at the scale shown on the canvas, centred on
+    what the result covers (spec 30 §3.5: the "visual of the radii at each scale")."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.shell.main_window import MainWindow
+
+    register_builtin_devices()
+    v = fbm2d(96, 0.5, seed=12)
+    field = RasterField(name="disc", values=v, frame=LocalFrame(), x_axis=np.arange(96.0), y_axis=np.arange(96.0))
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    win.load_field(field, "/nonexistent/disc.npz")
+    params = defaults_for(get_device("cwt_leaders"))
+    params.update({"wavelet": "gaussian", "n_oct": 3, "a_min": 1.0, "edge": "reflect", "p": 0.0})
+    desc = [{"device": "cwt_leaders", "params": params}]
+    win.strips.set_steps(desc, field=win.field)
+    with qtbot.waitSignal(win.resolved, timeout=120000):
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=120000)
+    radii = win._active_result["_radii"]
+    xs, ys = (np.asarray(a, dtype=float) for a in win.canvas.disc_item.getData())
+    assert xs.size == 73
+    np.testing.assert_allclose(np.hypot(xs - 48.0, ys - 48.0), radii[0], atol=1e-6)

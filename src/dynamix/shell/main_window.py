@@ -8089,6 +8089,7 @@ both ``Canvas`` signals report the
             self.strips._show_warning(notice)
             return
         self.layer.tags["ui.scale_idx"] = str(int(idx))
+        self.canvas.set_disc(self._leaders_disc())
         if self._edge_footprint_kept():
             self._show_edge_footprint(linger=False)
         if self._load_level_filters(int(idx) + 1):
@@ -8298,6 +8299,7 @@ both ``Canvas`` signals report the
         self._active_result_owner = self.layer.layer_id if self.layer is not None else None
         if self.layer is not None:
             self._landed_results[self.layer.layer_id] = result
+        self.canvas.set_disc(self._leaders_disc())
         # The wavelet bars: the analysing wavelet of this landing's device at the level on
         # show. First, so the Transport's reading and the multifractal axis read the same λ*.
         self._wavelet_bar_state = self._bar_state(renderable, result)
@@ -10972,6 +10974,21 @@ both ``Canvas`` signals report the
         action = self.commands.get("view.edge_footprint") if hasattr(self, "commands") else None
         return action is not None and action.isChecked()
 
+    def _leaders_disc(self) -> "dict | None":
+        """The CWT leaders' disc at the scale shown, drawn at the centre of what the result covers
+        (the field, or the region of an ROI result), in the displayed field's pixels; None when the
+        active result is not a leaders'."""
+        result = self._active_result
+        radii = result.get("_radii") if isinstance(result, dict) else None
+        if radii is None or self.layer is None or self.field is None or not len(radii):
+            return None
+        from dynamix.shell.canvas import display_offset
+
+        level = min(max(int(shown_level(self.layer) or 0), 0), len(radii) - 1)
+        h, w = (int(v) for v in result.get("_shape") or np.shape(self.field.values)[:2])
+        row_off, col_off = display_offset(result, self.field)
+        return {"row": row_off + h / 2.0, "col": col_off + w / 2.0, "radius": float(radii[level])}
+
     def _show_edge_footprint(self, *, linger: bool) -> None:
         """The active layer's WTMM edge footprint on the canvas at the shown scale, read off the
         field reaching the WTMM step (from the cache, so nothing computes here; the dataset where
@@ -10979,6 +10996,7 @@ both ``Canvas`` signals report the
         View > Edge Footprint keeps it."""
         from dynamix.engine.resolve import cached_input
 
+        self.canvas.set_disc(self._leaders_disc())
         if (self.layer is None or self.field is None or "wtmm2d" not in self._names
                 or self._bypassed[self._names.index("wtmm2d")]):
             self.canvas.clear_footprint()
