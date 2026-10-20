@@ -24,9 +24,17 @@ the fit window: the count grows as (a/L)^{−D} towards fine scales. Two bin rul
 
 The chain D_H(h) ≤ D_LD(h) ≤ L(h) (Leonarduzzi et al. 2018, Cor. 1; Seuret §2.4.4) is checked
 against the Legendre spectrum of the same input by :func:`hull_excess`. The prefactor of the
-moduli (their amplitude at a = L) shifts every fixed-rule h_λ by log2 C / log2(a/L), less at
-finer scales; it is the fixed route's known bias, reported through :func:`prefactor_shift`,
-not corrected.
+moduli (their amplitude at a = L) shifts every h_λ by log2 C / log2(a/L), less at finer scales;
+Leonarduzzi et al. 2019 (18)–(19) take it out with c₁,₀, the intercept of the regression of
+the per-scale mean of log2 M on log2(a/L) (Struzik 2000's mean-field reference at the sample
+length is the same correction): :func:`intercept`, subtracted from every exponent by default
+(``prefactor="intercept"``) on both routes; :func:`prefactor_shift` still reports what it
+would have been.
+
+The leaders profiles of Bastin, Esser and Jaffard 2016 (Definition 4.1), :func:`profiles`,
+are the cumulative counts, θ⁺(α) of the cells with h_λ ≤ α + ε and θ⁻(α) of those with
+h_λ ≥ α − ε: increasing and decreasing bounds on the spectrum that do not depend on the
+wavelet basis where the density does (their Propositions 3.3, 5.4 and 5.6).
 """
 from __future__ import annotations
 
@@ -60,10 +68,29 @@ def _weights(scale_weight, n: int) -> np.ndarray:
     return np.ones(n) if scale_weight is None else np.asarray(scale_weight, dtype=np.float64)
 
 
-def local_exponents(mods, scale_px: float, length_px: float) -> np.ndarray:
-    """h_λ = log2 M_λ / log2(a/L) for the positive finite moduli at one scale."""
+def local_exponents(mods, scale_px: float, length_px: float, offset: float = 0.0) -> np.ndarray:
+    """h_λ = (log2 M_λ − offset) / log2(a/L) for the positive finite moduli at one scale, the
+    offset being the prefactor intercept c₁,₀ (:func:`intercept`) or 0."""
     m, _ = _samples(mods, None)
-    return np.log2(m) / np.log2(float(scale_px) / float(length_px))
+    return (np.log2(m) - float(offset)) / np.log2(float(scale_px) / float(length_px))
+
+
+def intercept(mods_per_scale, scales_px, *, log2_a_min: float, log2_a_max: float, length_px: float,
+              counts_per_scale=None) -> float:
+    """c₁,₀ of Leonarduzzi et al. 2019 (18): the intercept of the regression of the per-scale
+    (multiplicity-weighted) mean of log2 M against log2(a/L) over the scales in the window, in
+    log2 units; 0 with fewer than two scales."""
+    a, L, keep = _scales(scales_px, length_px, log2_a_min, log2_a_max)
+    xs, means = [], []
+    for k in keep:
+        m, c = _samples(mods_per_scale[k], None if counts_per_scale is None else counts_per_scale[k])
+        if m.size:
+            xs.append(np.log2(a[k] / L))
+            means.append(float((c * np.log2(m)).sum() / c.sum()))
+    if len(xs) < 2:
+        return 0.0
+    slope, c10 = np.polyfit(np.asarray(xs), np.asarray(means), 1)
+    return float(c10)
 
 
 def _window_counts(h, c, centres, eps) -> np.ndarray:
@@ -76,18 +103,29 @@ def _window_counts(h, c, centres, eps) -> np.ndarray:
 
 
 def counts(mods_per_scale, scales_px, h_grid, eps: float, *, length_px: float,
-           counts_per_scale=None, scale_weight=None) -> np.ndarray:
+           counts_per_scale=None, scale_weight=None, offset: float = 0.0) -> np.ndarray:
     """N^ε(a, h): ``(n_scales, n_h)`` cells (or their multiplicities, times the scale's
-    weight) within ``eps`` of each grid value, at every scale."""
+    weight) within ``eps`` of each grid value, at every scale; ``offset`` is the prefactor
+    intercept the exponents are read against."""
     a = np.asarray(scales_px, dtype=np.float64)
     wts = _weights(scale_weight, a.size)
     out = np.zeros((a.size, len(h_grid)))
     for k in range(a.size):
         m, c = _samples(mods_per_scale[k], None if counts_per_scale is None else counts_per_scale[k], wts[k])
         if m.size:
-            h = np.log2(m) / np.log2(a[k] / float(length_px))
+            h = (np.log2(m) - float(offset)) / np.log2(a[k] / float(length_px))
             out[k] = _window_counts(h, c, np.asarray(h_grid, dtype=np.float64), float(eps))
     return out
+
+
+def _cumulative_counts(h, c, centres, eps, side: str) -> np.ndarray:
+    """Σ of ``c`` over h ≤ centre + eps (``"plus"``) or h ≥ centre − eps (``"minus"``)."""
+    order = np.argsort(h)
+    hs, cum = h[order], np.concatenate([[0.0], np.cumsum(c[order])])
+    centres = np.asarray(centres, dtype=np.float64)
+    if side == "plus":
+        return cum[np.searchsorted(hs, centres + eps + 1e-12, side="right")]
+    return cum[-1] - cum[np.searchsorted(hs, centres - eps - 1e-12, side="left")]
 
 
 def _minus_slopes(x, Y) -> np.ndarray:
@@ -102,12 +140,25 @@ def _minus_slopes(x, Y) -> np.ndarray:
     return s
 
 
+def _intercept_of(prefactor: str, mods_per_scale, scales_px, log2_a_min, log2_a_max, length_px,
+                  counts_per_scale) -> float:
+    if prefactor not in ("intercept", "none"):
+        raise ValueError(f"prefactor {prefactor!r}: 'intercept' (c₁,₀ taken out) or 'none'")
+    if prefactor == "none":
+        return 0.0
+    return intercept(mods_per_scale, scales_px, log2_a_min=log2_a_min, log2_a_max=log2_a_max,
+                     length_px=length_px, counts_per_scale=counts_per_scale)
+
+
 def fixed(mods_per_scale, scales_px, *, h_grid, log2_a_min: float, log2_a_max: float,
-          length_px: float, eps_list=EPS_SWEEP, counts_per_scale=None, scale_weight=None) -> dict:
+          length_px: float, eps_list=EPS_SWEEP, counts_per_scale=None, scale_weight=None,
+          prefactor: str = "intercept") -> dict:
     """D_LD on ``h_grid`` for each half-width of ``eps_list`` over the scales inside the
     window: ``D`` is ``(n_eps, n_h)`` (NaN where a bin is empty at some scale), ``spread`` the
-    range of D across ε per h (the convergence check), ``log2_counts`` ``(n_eps, n_kept, n_h)``."""
+    range of D across ε per h (the convergence check), ``log2_counts`` ``(n_eps, n_kept, n_h)``,
+    ``intercept`` the c₁,₀ the exponents were read against (0 under ``prefactor="none"``)."""
     a, L, keep = _scales(scales_px, length_px, log2_a_min, log2_a_max)
+    c10 = _intercept_of(prefactor, mods_per_scale, scales_px, log2_a_min, log2_a_max, length_px, counts_per_scale)
     h_grid = np.asarray(h_grid, dtype=np.float64)
     eps_list = tuple(float(e) for e in eps_list)
     if not eps_list or not all(np.isfinite(e) and e > 0 for e in eps_list):
@@ -117,7 +168,7 @@ def fixed(mods_per_scale, scales_px, *, h_grid, log2_a_min: float, log2_a_max: f
         return {"h": h_grid, "D": nan, "eps": eps_list, "spread": np.full(h_grid.size, np.nan),
                 "epsilon_count": np.zeros(h_grid.size, dtype=int),
                 "log2_counts": np.full((len(eps_list), len(keep), h_grid.size), np.nan),
-                "scales": a[keep]}
+                "scales": a[keep], "intercept": c10, "prefactor": prefactor}
     x = np.log2(a[keep] / L)
     sub_mods = [mods_per_scale[k] for k in keep]
     sub_counts = None if counts_per_scale is None else [counts_per_scale[k] for k in keep]
@@ -125,7 +176,7 @@ def fixed(mods_per_scale, scales_px, *, h_grid, log2_a_min: float, log2_a_max: f
     log2_n = np.empty((len(eps_list), len(keep), h_grid.size))
     for i, eps in enumerate(eps_list):
         n = counts(sub_mods, a[keep], h_grid, eps, length_px=L, counts_per_scale=sub_counts,
-                   scale_weight=sub_w)
+                   scale_weight=sub_w, offset=c10)
         with np.errstate(divide="ignore"):
             log2_n[i] = np.where(n > 0, np.log2(np.where(n > 0, n, 1.0)), np.nan)
     D = _minus_slopes(x, np.swapaxes(log2_n, 1, 2))          # (n_eps, n_h) rows over the scales
@@ -134,11 +185,45 @@ def fixed(mods_per_scale, scales_px, *, h_grid, log2_a_min: float, log2_a_max: f
     spread = np.full(h_grid.size, np.nan)
     spread[common] = np.ptp(D[:, common], axis=0)
     return {"h": h_grid, "D": D, "eps": eps_list, "spread": spread, "log2_counts": log2_n,
-            "epsilon_count": epsilon_count, "scales": a[keep]}
+            "epsilon_count": epsilon_count, "scales": a[keep], "intercept": c10, "prefactor": prefactor}
+
+
+def profiles(mods_per_scale, scales_px, *, h_grid, eps: float, log2_a_min: float, log2_a_max: float,
+             length_px: float, counts_per_scale=None, scale_weight=None,
+             prefactor: str = "intercept") -> dict:
+    """The leaders profiles on ``h_grid``: ``D_plus`` is minus the slope against log2(a/L) of
+    the log2 count of cells with h_λ ≤ h + ε (Bastin, Esser and Jaffard 2016, Definition 4.1,
+    θ⁺, the leaders at least 2^{−(α+ε)j}), ``D_minus`` of those with h_λ ≥ h − ε (θ⁻); one ε, as
+    their Remark 4.2 says of practice. Each is the running maximum of the density from its own
+    side, so both bound it; ``log2_counts_plus`` / ``_minus`` are ``(n_kept, n_h)``."""
+    a, L, keep = _scales(scales_px, length_px, log2_a_min, log2_a_max)
+    h_grid = np.asarray(h_grid, dtype=np.float64)
+    c10 = _intercept_of(prefactor, mods_per_scale, scales_px, log2_a_min, log2_a_max, length_px, counts_per_scale)
+    out = {"h": h_grid, "eps": float(eps), "scales": a[keep], "intercept": c10, "prefactor": prefactor}
+    if len(keep) < 2:
+        nan = np.full(h_grid.size, np.nan)
+        return {**out, "D_plus": nan, "D_minus": nan.copy(),
+                "log2_counts_plus": np.full((len(keep), h_grid.size), np.nan),
+                "log2_counts_minus": np.full((len(keep), h_grid.size), np.nan)}
+    x = np.log2(a[keep] / L)
+    wts = _weights(scale_weight, a.size)
+    log2_n = {side: np.full((len(keep), h_grid.size), np.nan) for side in ("plus", "minus")}
+    for i, k in enumerate(keep):
+        m, c = _samples(mods_per_scale[k], None if counts_per_scale is None else counts_per_scale[k], wts[k])
+        if m.size == 0:
+            continue
+        h = (np.log2(m) - c10) / x[i]
+        for side in ("plus", "minus"):
+            n = _cumulative_counts(h, c, h_grid, float(eps), side)
+            with np.errstate(divide="ignore"):
+                log2_n[side][i] = np.where(n > 0, np.log2(np.where(n > 0, n, 1.0)), np.nan)
+    return {**out, "D_plus": _minus_slopes(x, log2_n["plus"].T), "D_minus": _minus_slopes(x, log2_n["minus"].T),
+            "log2_counts_plus": log2_n["plus"], "log2_counts_minus": log2_n["minus"]}
 
 
 def adaptive(mods_per_scale, scales_px, *, q_list, log2_a_min: float, log2_a_max: float,
-             length_px: float, counts_per_scale=None, scale_weight=None) -> dict:
+             length_px: float, counts_per_scale=None, scale_weight=None,
+             prefactor: str = "intercept") -> dict:
     """The (h(q), D(q)) curve of the adaptive bins: per kept scale and q the centre is the
     q-tilted mean of h_λ and the half-width (ln 2)^{1/2} times its q-tilted standard deviation
     (a finite-scale variance-bandwidth adaptation, not a verified implementation of the
@@ -147,11 +232,13 @@ def adaptive(mods_per_scale, scales_px, *, q_list, log2_a_min: float, log2_a_max
     same (the partition tables' h(q)); ``centres`` and ``eps`` are ``(n_kept, n_q)``."""
     a, L, keep = _scales(scales_px, length_px, log2_a_min, log2_a_max)
     q = np.asarray(q_list, dtype=np.float64)
+    c10 = _intercept_of(prefactor, mods_per_scale, scales_px, log2_a_min, log2_a_max, length_px, counts_per_scale)
     if len(keep) < 2:
         nan = np.full(q.size, np.nan)
         return {"q": q, "h": nan, "D": nan.copy(), "centres": np.full((len(keep), q.size), np.nan),
                 "eps": np.full((len(keep), q.size), np.nan),
-                "log2_counts": np.full((len(keep), q.size), np.nan), "scales": a[keep]}
+                "log2_counts": np.full((len(keep), q.size), np.nan), "scales": a[keep],
+                "intercept": c10, "prefactor": prefactor}
     x = np.log2(a[keep] / L)
     wts = _weights(scale_weight, a.size)
     centres, eps, log2_n, mean_log2 = (np.full((len(keep), q.size), np.nan) for _ in range(4))
@@ -159,7 +246,7 @@ def adaptive(mods_per_scale, scales_px, *, q_list, log2_a_min: float, log2_a_max
         m, c = _samples(mods_per_scale[k], None if counts_per_scale is None else counts_per_scale[k], wts[k])
         if m.size == 0:
             continue
-        lm = np.log2(m)
+        lm = np.log2(m) - c10
         h = lm / x[i]
         lw = np.log(c)[None, :] + q[:, None] * np.log(m)[None, :]
         w = np.exp(lw - lw.max(axis=1, keepdims=True))
@@ -173,7 +260,7 @@ def adaptive(mods_per_scale, scales_px, *, q_list, log2_a_min: float, log2_a_max
     D = _minus_slopes(x, log2_n.T)
     h = -_minus_slopes(x, mean_log2.T)
     return {"q": q, "h": h, "D": D, "centres": centres, "eps": eps, "log2_counts": log2_n,
-            "scales": a[keep]}
+            "scales": a[keep], "intercept": c10, "prefactor": prefactor}
 
 
 def prefactor_shift(mods_per_scale, scales_px, *, log2_a_min: float, log2_a_max: float,

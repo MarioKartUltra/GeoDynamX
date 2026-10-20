@@ -3376,6 +3376,7 @@ both ``Canvas`` signals report the
                                     log2_L=self._log2_extent(result), all_tables=all_tables,
                                     filter_note=filter_note, extrema_mods=mods, scales=scales,
                                     dh_hist=dh_hist, h_map=result.get("h_map"),
+                                    h_map_method=(result.get("record") or {}).get("method", ""),
                                     source=result.get("hd_source") or "canonical (Arneodo WTMM)",
                                     sources=self._spectrum_sources(result),
                                     kind=result.get("hd_kind", "partition"))
@@ -3769,6 +3770,7 @@ both ``Canvas`` signals report the
             hd_std, hd_cmax, chains=chains, scales=scales if scales is not None
             else result.get("scales"), h_map=h_map,
             h_map_estimator=str(params.get("estimator", "")),
+            h_map_method=(result.get("record") or {}).get("method", ""),
             eta_seed=eta_seed, forward_note=note,
             min_chain_len=int(params.get("min_chain_len", 2)),
             log2_L=log2_L, parent=self, all_tables=all_tables, filter_note=filter_note,

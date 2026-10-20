@@ -106,6 +106,20 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
             spin.valueChanged.connect(lambda _v: self._recompute())
             controls.addWidget(spin)
         controls.addWidget(self._make_follow_check())
+        # Leonarduzzi et al. 2019 (18)–(19): the amplitude intercept c₁,₀ taken off every exponent.
+        self.prefactor_check = QtWidgets.QCheckBox("prefactor c₁,₀")
+        self.prefactor_check.setChecked(True)
+        self.prefactor_check.setToolTip("Read every exponent against c₁,₀, the intercept of the per-scale mean of "
+                                        "log₂M on log₂(a/L) (Leonarduzzi et al. 2019; Struzik's mean-field reference)")
+        self.prefactor_check.toggled.connect(lambda _c: self._recompute())
+        controls.addWidget(self.prefactor_check)
+        # Bastin, Esser & Jaffard 2016: the increasing and decreasing leaders profiles, the
+        # wavelet-robust bounds, beside the fixed sweep's density.
+        self.profiles_check = QtWidgets.QCheckBox("profiles θ±")
+        self.profiles_check.setToolTip("The cumulative counts θ⁺ (h_λ ≤ h + ε) and θ⁻ (h_λ ≥ h − ε) of Bastin, Esser "
+                                       "& Jaffard 2016, each the running maximum of the density from its side")
+        self.profiles_check.toggled.connect(lambda _c: self._recompute())
+        controls.addWidget(self.profiles_check)
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -157,6 +171,13 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
                                     symbolPen=None, symbolBrush=colour, connect="finite")
             self.dh_plot.addItem(curve)
             self.curves.append(curve)
+        # The two profiles, dashed, on the narrowest ε of the sweep.
+        self.profile_curves = []
+        for _ in range(2):
+            curve = pg.PlotDataItem(pen=pg.mkPen(current().ink, style=QtCore.Qt.DashLine, width=1.2),
+                                    connect="finite")
+            self.dh_plot.addItem(curve)
+            self.profile_curves.append(curve)
         self.readout = QtWidgets.QLabel("")
         self.readout.setProperty("reading", "true")
         self.readout.setWordWrap(True)
@@ -200,17 +221,25 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         for spin in (self.hmin_spin, self.hmax_spin, self.hstep_spin, *self.eps_spins):
             spin.setEnabled(not adaptive)
         self.apply_grid_button.setEnabled(not adaptive)
+        self.profiles_check.setEnabled(not adaptive)
+        prefactor = "intercept" if self.prefactor_check.isChecked() else "none"
         self.target_label.setText(entry.get("target", "Sample large deviations") +
                                   (" · adaptive heuristic; q tilts may skip nonconcave regions" if adaptive else
                                    " · finite-bin estimates; compare bin widths and resolutions"))
         name = f"{self._source} · {self.source_combo.currentText()}, large deviations" if self._source \
             else f"{self.source_combo.currentText()}, large deviations"
-        histogram_key = (self.source_combo.currentText(), L, lo, hi)
+        common = dict(log2_a_min=lo, log2_a_max=hi, length_px=L, scale_weight=entry.get("weights"),
+                      prefactor=prefactor)
+        histogram_key = (self.source_combo.currentText(), L, lo, hi, prefactor)
         if histogram_key != getattr(self, "_histogram_key", None):
-            self._draw_histograms(entry["mods"], scales, L, lo, hi)
+            try:
+                offset = ld.intercept(entry["mods"], scales, log2_a_min=lo, log2_a_max=hi, length_px=L) \
+                    if prefactor == "intercept" else 0.0
+            except ValueError:
+                offset = 0.0
+            self._draw_histograms(entry["mods"], scales, L, lo, hi, offset)
             self._histogram_key = histogram_key
-        common = dict(log2_a_min=lo, log2_a_max=hi, length_px=L, scale_weight=entry.get("weights"))
-        for curve in self.curves:
+        for curve in self.curves + self.profile_curves:
             curve.setData([], [])
         try:
             if rule == LD_RULES[0]:
@@ -220,7 +249,7 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
                 h, D = a["h"][ok], a["D"][ok]
                 self.curves[-1].setData(h, D)
                 note = f"{int(ok.sum())} of {q.size} q · adaptive half-widths (ln 2)^½ × the tilted sd"
-                extra = {"q": q[ok], "eps": a["eps"]}
+                extra = {"q": q[ok], "eps": a["eps"], "intercept": a["intercept"]}
             else:
                 h_lo, h_hi, dh = self.hmin_spin.value(), self.hmax_spin.value(), self.hstep_spin.value()
                 if h_hi <= h_lo:
@@ -246,7 +275,15 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
                 note = (f"ε {', '.join(f'{e:g}' for e in f['eps'])} · spread across ε ≤ {spread.max():.2f}"
                         if spread.size else "insufficient common ε support; spread unavailable")
                 extra = {"eps": f["eps"], "D_by_eps": f["D"], "h_grid": grid,
-                         "epsilon_count": f["epsilon_count"]}
+                         "epsilon_count": f["epsilon_count"], "intercept": f["intercept"]}
+                if self.profiles_check.isChecked():
+                    p = ld.profiles(entry["mods"], scales, h_grid=grid, eps=float(eps[narrowest]), **common)
+                    for curve, Dp in zip(self.profile_curves, (p["D_plus"], p["D_minus"])):
+                        span = np.flatnonzero(np.isfinite(Dp))
+                        if span.size:
+                            curve.setData(grid[span[0]:span[-1] + 1], Dp[span[0]:span[-1] + 1])
+                    extra.update(D_plus=p["D_plus"], D_minus=p["D_minus"], profiles_eps=p["eps"])
+                    note += f" · θ± profiles at ε {eps[narrowest]:g}"
         except ValueError as exc:
             self._fit = None
             for curve in self.curves:
@@ -261,8 +298,9 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._fit["target"] = entry.get("target", "sample large deviations")
         self._fit["valid"] = bool(D.size)
         peak = f" · peak D {np.nanmax(D):.2f} at h {h[np.nanargmax(D)]:.3f}" if D.size else ""
+        c10 = f" · c₁,₀ = {extra['intercept']:.2f}" if prefactor == "intercept" else ""
         self.readout.setText(f"{self.source_combo.currentText()} · log₂a {lo:g}–{hi:g} ({kept} scales), "
-                             f"L = {L:g} px · {note}{peak}")
+                             f"L = {L:g} px · {note}{peak}{c10}")
         self._sync_legend(rule)
         self.fitChanged.emit(self._fit)
 
@@ -273,16 +311,19 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         else:
             for curve, eps in zip(self.curves, (s.value() for s in self.eps_spins)):
                 self._legend.addItem(curve, f"ε = {eps:g}")
+            if self.profiles_check.isChecked():
+                self._legend.addItem(self.profile_curves[0], "θ⁺ (h_λ ≤ h + ε)")
+                self._legend.addItem(self.profile_curves[1], "θ⁻ (h_λ ≥ h − ε)")
 
-    def _draw_histograms(self, mods, scales, L, lo, hi) -> None:
+    def _draw_histograms(self, mods, scales, L, lo, hi, offset: float = 0.0) -> None:
         """The local exponents' histogram at every scale inside the window, cold to warm from
-        the finest scale, on one grid of bins."""
+        the finest scale, on one grid of bins, read against the prefactor ``offset``."""
         for item in self._hist_items:
             self.hist_plot.removeItem(item)
         self._hist_items = []
         self._hist_legend.clear()
         inside = [k for k, a in enumerate(scales) if lo - 1e-9 <= np.log2(a) <= hi + 1e-9 and a < L]
-        exps = [ld.local_exponents(mods[k], scales[k], L) for k in inside]
+        exps = [ld.local_exponents(mods[k], scales[k], L, offset) for k in inside]
         finite = np.concatenate([e[np.isfinite(e)] for e in exps]) if exps else np.array([])
         if finite.size < 2:
             return

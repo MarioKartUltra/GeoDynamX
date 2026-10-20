@@ -74,6 +74,11 @@ Q_WARM = (235, 95, 60)
 #: the current scale, xsmurf's own default) is the default; sup (``hd_cmax``, the running supremum
 #: over finer scales along the chain) is the option -- it flattens any part of the spectrum with
 #: h < 0 toward 0, so it is wrong where negative exponents are expected.
+#: Devices whose h-map is the leaders' local exponents: their eq-21 histogram is Cardo &
+#: Corvalán 2009's GMWLP (Turiel's single-resolution density formula on extrapolated exponents),
+#: a different target from the large-deviation routes across scales, and named as such.
+LEADERS_METHODS = ("wavelet_leaders", "cwt_leaders")
+
 TABLE_CHOICES = ("no-sup (std)", "sup (cmax)")
 #: What a source's tables are, by ``hd_kind``: partition functions over maxima lines (WTMM, box
 #: counting) or structure functions (moments over the projections, wavelet leaders). The words
@@ -178,11 +183,13 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                  log2_L: "float | None" = None, all_tables=None, filter_note: str = "",
                  extrema_mods=None, scales=None, dh_hist=None, dh_box=None,
                  source: str = "canonical (Arneodo WTMM)", sources=None, h_map=None,
-                 kind: str = "partition", tables: "dict | None" = None):
+                 kind: str = "partition", tables: "dict | None" = None, h_map_method: str = ""):
         #: What the tables are (``VOCABULARY``): names the window and its first family.
         self._kind = str(kind or "partition")
-        #: The h-map, for the box-counting construction on request.
+        #: The h-map, for the box-counting construction on request, and the device that made
+        #: it: a leaders device's h-map makes the eq-21 histogram Cardo & Corvalán's GMWLP.
         self._h_map = np.asarray(h_map) if h_map is not None else None
+        self._h_map_method = str(h_map_method or "")
         self._dh_legend_entries: list = []
         self._in_dh_legend: dict = {}
         #: The box-counting construction ``(h, D, dD)`` of an h-map result (eq. 20 across r).
@@ -597,9 +604,11 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                             for name in ("tau", "D", "h")}
         for name, curve in self._cum_curves.items():
             self._spectrum_plots[name].addItem(curve)
+        hist_name = ("GMWLP histogram (leaders)" if self._h_map_method in LEADERS_METHODS
+                     else "microcanonical histogram")
         self._dh_legend_entries = [
             (self._spectrum_curves["D"], lambda n=self._source: n),   # no self: no cycle
-            (self._dh_hist_curve, lambda: "microcanonical histogram"),
+            (self._dh_hist_curve, lambda n=hist_name: n),
             (self._dh_box_curve, lambda: "box-counting across r"),
             (self._cum_curves["D"], lambda: "cumulant spectrum")]
         if self._dh_box is not None:

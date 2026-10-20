@@ -34,8 +34,9 @@ class _Job(QtCore.QRunnable):
                       if e.get("weights") is not None else None)
             g = gaussian_ensemble(e["mods"], e["scales"], s["q"], s["gamma"], s["lo"], s["hi"],
                                   counts_per_scale=counts, length_px=s["L"],
-                                  reference_amplitude=s["amplitude"], cancel=self.cancel.is_set)
-            fit = generalized_legendre(g["tau"], s["q"], s["gamma"], s["h"])
+                                  reference_amplitude=s["amplitude"], delta_list=s["delta"],
+                                  cancel=self.cancel.is_set)
+            fit = generalized_legendre(g["tau"], s["q"], s["gamma"], s["h"], delta_list=s["delta"])
             result = {**fit, "ensemble": g, "settings": s}
         except Exception as exc:
             result = {"error": str(exc)}
@@ -65,17 +66,27 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         row.addWidget(self.apply_button)
         row.addWidget(self.cancel_button)
         row.addWidget(self._make_follow_check())
+        # Leonarduzzi et al. 2019 (18): the amplitude reference c₁,₀ from the data, unless set by hand.
+        self.auto_amplitude_check = QtWidgets.QCheckBox("c₁,₀ auto")
+        self.auto_amplitude_check.setChecked(True)
+        self.auto_amplitude_check.setToolTip("The amplitude the exponents are read against: the intercept of the "
+                                             "per-scale mean of ln|T| on ln(a/L) (Leonarduzzi et al. 2019), or the "
+                                             "log₂ reference spin when off")
+        row.addWidget(self.auto_amplitude_check)
         layout.addLayout(row)
         self.spins = {}
         a = np.asarray(next(iter(sets.values()))["scales"], float)
         lo, hi = (levels if levels and None not in levels else (np.log2(a).min(), np.log2(a).max()))
         grid = QtWidgets.QGridLayout()
-        specs = [("q min", -20., -200., 200., .5), ("q max", 20., -200., 200., .5),
+        # The narrow q with a sweep of the shift δ over the spectrum's support is Leonarduzzi et al.
+        # 2019 §III-C3's recipe; a wide q with few parabolas is their Fig. 2's unstable case.
+        specs = [("q min", -4., -200., 200., .5), ("q max", 4., -200., 200., .5),
                  ("Δq", .5, .01, 10., .1), ("γ min", 0., -256., 256., 1.),
                  ("γ max", 16., -256., 256., 1.), ("Δγ", 1., .01, 64., .5),
                  ("h min", -1., -100., 100., .1), ("h max", 2., -100., 100., .1),
-                 ("Δh", .025, .001, 1., .01), ("log₂a min", lo, -20., 30., .5),
-                 ("log₂a max", hi, -20., 30., .5),
+                 ("Δh", .025, .001, 1., .01), ("δ min", -1., -100., 100., .1),
+                 ("δ max", 2., -100., 100., .1), ("Δδ", .25, .01, 10., .05),
+                 ("log₂a min", lo, -20., 30., .5), ("log₂a max", hi, -20., 30., .5),
                  ("log₂L", float(log2_L) if log2_L is not None else np.log2(a.max())+2, -20., 50., 1.),
                  ("log₂ amplitude reference", 0., -100., 100., 1.)]
         for k, (label, value, minimum, maximum, step) in enumerate(specs):
@@ -90,8 +101,10 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             grid.addWidget(QtWidgets.QLabel(label), r, 2*c)
             grid.addWidget(spin, r, 2*c+1)
         layout.addLayout(grid)
-        self.note = QtWidgets.QLabel("Finite-grid generalized Legendre inversion; expand q/γ and compare scale windows. "
-                                   "A small algebraic residual does not validate a recovered spectrum.")
+        self.note = QtWidgets.QLabel("Finite-grid generalized Legendre inversion over (q, γ, δ), g = −γ(h − δ)² "
+                                   "(Leonarduzzi et al. 2019): keep q narrow and sweep δ over the spectrum's support; "
+                                   "compare scale windows. A small algebraic residual does not validate a recovered "
+                                   "spectrum.")
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
         self.plot = zoom_plot()
@@ -110,6 +123,9 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         for label in ("log₂a min", "log₂a max"):
             self.spins[label].valueChanged.connect(lambda _v: self._publish_range(
                 self.spins["log₂a min"].value(), self.spins["log₂a max"].value()))
+        self.spins["log₂ amplitude reference"].setEnabled(False)
+        self.auto_amplitude_check.toggled.connect(
+            lambda on: (self.spins["log₂ amplitude reference"].setEnabled(not on), self._mark_pending()))
         self.source_combo.currentTextChanged.connect(self._mark_pending)
         self.resize(840, 700)
         from dynamix.shell.window_fit import fit_to_screen
@@ -160,15 +176,17 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             q = moment_grid(v["q min"], v["q max"], v["Δq"], max_points=501)
             g = moment_grid(v["γ min"], v["γ max"], v["Δγ"], max_points=129)
             h = moment_grid(v["h min"], v["h max"], v["Δh"], max_points=4001)
-            if q.size*g.size > 16384:
-                raise ValueError("q/γ grid exceeds 16384 pairs; widen increments")
+            d = moment_grid(v["δ min"], v["δ max"], v["Δδ"], max_points=129)
+            if q.size*g.size*d.size > 65536:
+                raise ValueError("q/γ/δ grid exceeds 65536 triples; widen increments")
             if v["log₂a max"] <= v["log₂a min"]:
                 raise ValueError("scale maximum must exceed minimum")
         except ValueError as exc:
             self.readout.setText(str(exc))
             return
-        settings = {"q": q, "gamma": g, "h": h, "lo": v["log₂a min"], "hi": v["log₂a max"],
-                    "L": 2**v["log₂L"], "amplitude": 2**v["log₂ amplitude reference"]}
+        settings = {"q": q, "gamma": g, "h": h, "delta": d, "lo": v["log₂a min"], "hi": v["log₂a max"],
+                    "L": 2**v["log₂L"],
+                    "amplitude": "auto" if self.auto_amplitude_check.isChecked() else 2**v["log₂ amplitude reference"]}
         self._last_name = f"{self._source} · {self.source_combo.currentText()}, generalized spectrum"
         job = _Job(self._generation, self._sets[self.source_combo.currentText()], settings)
         job.signals.done.connect(self._completed)
@@ -197,8 +215,12 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
                      "valid": bool(np.isfinite(result["D"]).any()), "window": (result["settings"]["lo"], result["settings"]["hi"])}
         r2 = g["tau_r2"][np.isfinite(g["tau_r2"])]
         quality = f"min partition R² {r2.min():.3f}" if r2.size else "partition R² unavailable"
-        self.readout.setText(f"{g['n_scales']} scales · {quality} · {b.sum()}/{b.size} grid-boundary minima "
-                             "(dots). Negative values retained; finite-grid bounds do not prove occupied h.")
+        d = g["delta"]
+        self.readout.setText(f"{g['n_scales']} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
+                             f"c₁,₀ = log₂ {g['reference_amplitude']:.3g} = {np.log2(g['reference_amplitude']):.2f}"
+                             f"{'' if result['settings']['amplitude'] == 'auto' else ' (set by hand)'} · "
+                             f"{b.sum()}/{b.size} grid-boundary minima (dots). Negative values retained; "
+                             "finite-grid bounds do not prove occupied h.")
         self.fitChanged.emit(self._fit)
 
     def closeEvent(self, event):
