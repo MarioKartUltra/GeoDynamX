@@ -84,3 +84,29 @@ def test_fixed_grid_controls_apply_and_invalid_settings_retract_the_fit(qtbot):
     assert published[-1]["valid"] is False
     assert "distinct" in window.readout.text()
     assert all(curve.xData is None or len(curve.xData) == 0 for curve in window.curves)
+
+
+def test_the_prefactor_intercept_is_on_by_default_and_the_profiles_join_the_fixed_sweep(qtbot):
+    """Leonarduzzi et al. 2019 (18)–(19): c₁,₀ comes off every exponent unless the switch is
+    off; in the fixed sweep the leaders profiles of Bastin, Esser and Jaffard 2016 draw beside
+    the density, the increasing one never falling, and the fit carries both."""
+    sets, h, D = _per_scale_set()
+    window = LargeDeviationsWindow(sets, log2_L=7.0)
+    qtbot.addWidget(window)
+    assert window.prefactor_check.isChecked()
+    fit = window.current_fit()
+    assert "intercept" in fit and "c₁,₀" in window.readout.text()
+    window.prefactor_check.setChecked(False)
+    assert window.current_fit()["intercept"] == 0.0 and "c₁,₀" not in window.readout.text()
+    window.prefactor_check.setChecked(True)
+    assert not window.profiles_check.isEnabled()                       # adaptive bins: no profiles
+    window.rule_combo.setCurrentText(LD_RULES[1])
+    assert window.profiles_check.isEnabled() and not window.profiles_check.isChecked()
+    assert all(c.xData is None or c.xData.size == 0 for c in window.profile_curves)
+    window.profiles_check.setChecked(True)
+    fit = window.current_fit()
+    assert fit["D_plus"].size and fit["D_minus"].size and "θ" in window.readout.text()
+    plus_x, plus_y = window.profile_curves[0].getData()          # drawn on the narrowest ε
+    assert plus_x.size and np.isfinite(plus_y).any() and fit["profiles_eps"] == 0.025
+    window.profiles_check.setChecked(False)
+    assert "D_plus" not in window.current_fit()

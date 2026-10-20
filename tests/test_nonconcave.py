@@ -129,9 +129,59 @@ def test_empty_levels_and_amplitude_units_have_explicit_consistent_behavior():
     scales = np.array([2., 4., 8., 16.])
     mods = [np.array([s**.4, 2*s**.7]) for s in scales]
     mods[1] = np.array([])
-    a = gaussian_ensemble(mods, scales, [-1, 0, 1], [0, 2], 1, 4, length_px=64.)
+    a = gaussian_ensemble(mods, scales, [-1, 0, 1], [0, 2], 1, 4, length_px=64., reference_amplitude=1.0)
     b = gaussian_ensemble([1000*m for m in mods], scales, [-1, 0, 1], [0, 2], 1, 4,
                           length_px=64., reference_amplitude=1000)
     assert a["n_scales"] == 3
     np.testing.assert_allclose(a["tau"], b["tau"], atol=1e-12)
     assert np.isfinite(a["tau"]).all()
+
+
+# ------------------------------------------ the shift δ and the automatic amplitude reference
+
+def test_the_shift_delta_is_a_third_axis_and_the_inversion_takes_its_infimum():
+    """Leonarduzzi et al. 2019 (26): g = −γ(h − δ)², the weight (a/L)^{q h + γ(h−δ)²}, and
+    the spectrum as the infimum over (q, γ, δ) of q h + γ(h − δ)² − τ. On an exact monofractal
+    (every cell h₀, cells ∝ (a/L)^{−d}) τ is q h₀ + γ(h₀ − δ)² − d for every pair, so the
+    inversion returns d at h₀ whatever the shift; without ``delta_list`` the tables are the
+    two-axis ones they were."""
+    h0, d = 0.6, 1.0
+    mods = [np.full(1000, (a / L) ** h0) for a in SCALES]
+    counts = [np.full(1000, (a / L) ** (-d) / 1000) for a in SCALES]
+    q, g, dl = np.linspace(-2, 2, 5), np.array([0.0, 1.0, 4.0]), np.array([0.0, 0.3, 0.6, 0.9])
+    e = gaussian_ensemble(mods, SCALES, q, g, 3, 8, counts_per_scale=counts, length_px=L,
+                          delta_list=dl, reference_amplitude=1.0)
+    assert e["tau"].shape == (5, 3, 4) and e["delta"].tolist() == dl.tolist()
+    expect = q[:, None, None] * h0 + g[None, :, None] * (h0 - dl[None, None, :]) ** 2 - d
+    np.testing.assert_allclose(e["tau"], expect, atol=1e-6)
+    np.testing.assert_allclose(e["h"], h0, atol=1e-6)
+    grid = np.linspace(0.3, 0.9, 7)
+    fit = generalized_legendre(e["tau"], q, g, grid, delta_list=dl)
+    assert fit["D"][3] == pytest.approx(d, abs=1e-6) and fit["delta_star"].shape == (7,)
+    flat = gaussian_ensemble(mods, SCALES, q, g, 3, 8, counts_per_scale=counts, length_px=L,
+                             reference_amplitude=1.0)
+    assert flat["tau"].shape == (5, 3)
+    np.testing.assert_allclose(flat["tau"], e["tau"][:, :, 0], atol=1e-9)
+    # the family of shifted parabolas is a tighter bound than δ = 0 alone (Theorem 1): never
+    # above it, equal where the spectrum lives
+    alone = generalized_legendre(flat["tau"], q, g, grid)["D"]
+    assert np.all(fit["D"] <= alone + 1e-9) and alone[3] == pytest.approx(d, abs=1e-6)
+    assert np.any(fit["D"] < alone - 0.1)
+
+
+def test_the_automatic_reference_amplitude_is_the_intercept_and_takes_an_amplitude_out():
+    """Leonarduzzi et al. 2019 (18): the regression intercept c₁,₀ of the per-scale mean of
+    log₂L is the amplitude the exponents are measured against; ``reference_amplitude="auto"``
+    divides by 2^{c₁,₀}, so an amplitude on every modulus changes no table."""
+    mods, counts, h = _sample(_f_dip)
+    q, g = np.linspace(-2, 2, 9), np.array([0.0, 2.0, 8.0])
+    base = gaussian_ensemble(mods, SCALES, q, g, 3, 8, counts_per_scale=counts, length_px=L,
+                             reference_amplitude="auto")
+    moved = gaussian_ensemble([m * 8.0 for m in mods], SCALES, q, g, 3, 8, counts_per_scale=counts,
+                              length_px=L, reference_amplitude="auto")
+    assert moved["reference_amplitude"] == pytest.approx(8.0 * base["reference_amplitude"])
+    for key in ("h", "D", "tau", "h2"):
+        np.testing.assert_allclose(moved[key], base[key], atol=1e-9)
+    raw = gaussian_ensemble([m * 8.0 for m in mods], SCALES, q, g, 3, 8, counts_per_scale=counts,
+                            length_px=L, reference_amplitude=1.0)
+    assert not np.allclose(raw["D"][:, 1:], base["D"][:, 1:], atol=1e-3)     # the amplitude leaks at γ > 0

@@ -844,3 +844,14 @@ def test_the_fitter_publishes_its_fit_in_the_shared_schema_on_every_refit(qtbot)
     np.testing.assert_allclose(fit["hull"]["D"], spectra.legendre_dh(fit["q"], expect["tau"])["D"], equal_nan=True)
     np.testing.assert_allclose(fit["cq"], spectra.specific_heat(fit["q"], expect["tau"]), equal_nan=True)
     assert window.published_fit()["name"] == fit["name"]
+
+
+def test_the_dh_legend_names_the_gmwlp_for_a_leaders_h_map(qtbot):
+    h = np.linspace(0.2, 0.8, 7)
+    D, dD = 2 - 5 * (h - 0.5) ** 2, np.full(7, 0.05)
+    window = MultifractalWindow(*_pair(), dh_hist=(h, D, dD), h_map_method="wavelet_leaders")
+    qtbot.addWidget(window)
+    assert "GMWLP histogram (leaders)" in window._dh_legend_names()
+    plain = MultifractalWindow(*_pair(), dh_hist=(h, D, dD))
+    qtbot.addWidget(plain)
+    assert "microcanonical histogram" in plain._dh_legend_names()

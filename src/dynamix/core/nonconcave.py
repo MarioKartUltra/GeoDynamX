@@ -10,8 +10,14 @@ per-scale coefficients (WTMM chain maxima, leaders):
 - :func:`kink_flags` -- the jump in the finite-difference h(q) = dτ/dq, with the D(h) interval the
   envelope bridges there;
 - :func:`gaussian_ensemble` -- the generalised (Gaussian) canonical ensemble by direct
-  Boltzmann-weight fits, no Legendre transform: W_i ∝ |T_i|^q exp(γ (ln|T_i|)² / ln(a/L)), whose
-  saddle f'(h) = q + 2γh is a minimum for 2γ > f''(h), so γ reaches points inside the dip.
+  Boltzmann-weight fits, no Legendre transform: W_i ∝ |T_i|^q exp(γ (ln|T_i| − δ ln(a/L))² / ln(a/L)),
+  i.e. (a/L)^{q h_i + γ (h_i − δ)²}, whose saddle f'(h) = q + 2γ(h − δ) is a minimum for
+  2γ > f''(h), so γ reaches points inside the dip. The shift δ is Leonarduzzi, Abry, Wendt,
+  Jaffard and Touchette 2019 (26), g = −γ(h − δ)²: T&B's γ and theirs are the same number (the
+  minus signs of 2^{−j(qφ − g)} cancel); a narrow q with a sweep of δ over the spectrum's
+  support is their recipe (§III-C3), the wide q being unstable. Their (18)–(19) also take the
+  amplitude out with c₁,₀, the intercept of the per-scale mean of ln|T| against ln(a/L):
+  ``reference_amplitude="auto"``.
 
 Scales are in pixels; ``L`` (``length_px``) is the integral scale, so ``ln(a/L) < 0`` plays the
 part of T&B's small ε and h_i ≈ ln|T_i| / ln(a/L). A coefficient's amplitude C biases h_i by
@@ -32,31 +38,43 @@ def _slopes(x: np.ndarray, Y: np.ndarray) -> np.ndarray:
 
 def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min: float,
                       log2_a_max: float, *, counts_per_scale=None,
-                      length_px: float | None = None, reference_amplitude: float = 1.0,
-                      cancel=None) -> dict:
-    """h, D, ⟨h²⟩ and τ on the (q, γ) grid by direct Boltzmann-weight fits over the scales whose
-    log2 a lies in ``[log2_a_min, log2_a_max]``.
+                      length_px: float | None = None, reference_amplitude="auto",
+                      delta_list=None, cancel=None) -> dict:
+    """h, D, ⟨(h − δ)²⟩ and τ on the (q, γ) grid, or the (q, γ, δ) grid when ``delta_list`` is
+    given, by direct Boltzmann-weight fits over the scales whose log2 a lies in
+    ``[log2_a_min, log2_a_max]``.
 
     Per scale a, with T_i the positive finite coefficients (``counts_per_scale``, when given, is
-    each one's multiplicity) and x = ln(a/L): W_i = |T_i|^q exp(γ (ln|T_i|)²/x) / Z. Then, as
-    slopes against ln a: h = Σ W ln|T|, D = Σ W ln W, ⟨h²⟩ = Σ W (ln|T|)²/x, τ = ln Z. Per scale
-    Σ W ln W = q Σ W ln|T| + γ Σ W (ln|T|)²/x − ln Z exactly, so ``residual`` = D − (q h + γ ⟨h²⟩
-    − τ) is round-off. This identity does not validate the spectrum: weighted means can mix
-    disjoint populations. Use :func:`generalized_legendre` for the generalized inversion.
-    ``reference_amplitude`` divides the input before taking logarithms; change it with the
-    measurement units. Empty levels are omitted. γ = 0 is the standard direct fit (Arneodo). Returns ``{"q", "gamma", "h",
-    "D", "h2", "tau", "residual"}`` with ``(n_q, n_gamma)`` tables; NaN when fewer than two scales
-    fall in the window."""
+    each one's multiplicity) and x = ln(a/L): W_i = |T_i|^q exp(γ (ln|T_i| − δx)²/x) / Z. Then,
+    as slopes against ln a: h = Σ W ln|T|, D = Σ W ln W, ⟨(h−δ)²⟩ = Σ W (ln|T| − δx)²/x, τ = ln Z.
+    Per scale Σ W ln W = q Σ W ln|T| + γ Σ W (ln|T| − δx)²/x − ln Z exactly, so ``residual`` =
+    D − (q h + γ h2 − τ) is round-off. This identity does not validate the spectrum: weighted
+    means can mix disjoint populations. Use :func:`generalized_legendre` for the generalized
+    inversion. ``reference_amplitude`` divides the input before taking logarithms: a number in
+    the measurement's units, or ``"auto"``, 2^{c₁,₀}, the intercept of the per-scale mean of
+    ln|T| against x over the window's scales (Leonarduzzi et al. 2019 (18)); the one used is
+    returned. Empty levels are omitted. γ = 0 is the standard direct fit (Arneodo). Returns
+    ``{"q", "gamma", "delta", "h", "D", "h2", "tau", "residual", "reference_amplitude"}`` with
+    ``(n_q, n_gamma)`` tables, ``(n_q, n_gamma, n_delta)`` when ``delta_list`` is given; NaN when
+    fewer than two scales fall in the window."""
     q = np.asarray(q_list, dtype=np.float64)
     gam = np.asarray(gamma_list, dtype=np.float64)
     a = np.asarray(scales_px, dtype=np.float64)
-    reference_amplitude = float(reference_amplitude)
+    with_delta = delta_list is not None
+    dl = np.asarray([0.0] if delta_list is None else delta_list, dtype=np.float64)
+    if dl.ndim != 1 or dl.size == 0 or not np.isfinite(dl).all():
+        raise ValueError("delta must be a nonempty finite grid")
     if a.ndim != 1 or a.size == 0 or not np.all(np.isfinite(a) & (a > 0)) or np.unique(a).size != a.size:
         raise ValueError("scales must be distinct, finite and positive")
     if len(mods_per_scale) != a.size or (counts_per_scale is not None and len(counts_per_scale) != a.size):
         raise ValueError("one coefficient set and multiplicity set per scale is required")
-    if reference_amplitude <= 0 or not np.isfinite(reference_amplitude):
-        raise ValueError("reference amplitude must be finite and positive")
+    auto_reference = isinstance(reference_amplitude, str)
+    if auto_reference and reference_amplitude != "auto":
+        raise ValueError("reference amplitude must be a positive number or 'auto'")
+    if not auto_reference:
+        reference_amplitude = float(reference_amplitude)
+        if reference_amplitude <= 0 or not np.isfinite(reference_amplitude):
+            raise ValueError("reference amplitude must be finite and positive")
     if q.ndim != 1 or gam.ndim != 1 or q.size == 0 or gam.size == 0 or not np.isfinite(q).all() or not np.isfinite(gam).all():
         raise ValueError("q and gamma must be nonempty finite grids")
     L = float(length_px) if length_px is not None else 4.0 * float(a.max())
@@ -71,67 +89,88 @@ def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min:
             raise ValueError("multiplicity shape must match the coefficients")
         ok = np.isfinite(m) & (m > 0) & np.isfinite(c) & (c > 0)
         if ok.any():
-            samples[k] = np.log(m[ok]) - np.log(reference_amplitude), np.log(c[ok])
+            samples[k] = np.log(m[ok]), np.log(c[ok])
     keep = [k for k in keep if k in samples]
-    shape = (q.size, gam.size)
+    if auto_reference:
+        # c₁,₀: the intercept of the multiplicity-weighted mean of ln|T| against ln(a/L).
+        xs = [np.log(a[k] / L) for k in keep]
+        means = [float((np.exp(ln_c) * ln_t).sum() / np.exp(ln_c).sum()) for ln_t, ln_c in (samples[k] for k in keep)]
+        reference_amplitude = float(np.exp(np.polyfit(xs, means, 1)[1])) if len(keep) >= 2 else 1.0
+    samples = {k: (ln_t - np.log(reference_amplitude), ln_c) for k, (ln_t, ln_c) in samples.items()}
+    shape = (q.size, gam.size, dl.size)
+    squeeze = (lambda t: t[..., 0]) if not with_delta else (lambda t: t)
     if len(keep) < 2:
         nan = np.full(shape, np.nan)
-        return {"q": q, "gamma": gam, "h": nan, "D": nan.copy(), "h2": nan.copy(),
-                "tau": nan.copy(), "residual": nan.copy(), "tau_r2": nan.copy(),
-                "n_scales": len(keep), "scales": a[keep],
-                "log_partition": np.full(shape + (len(keep),), np.nan)}
+        return {"q": q, "gamma": gam, "delta": dl, "h": squeeze(nan), "D": squeeze(nan.copy()),
+                "h2": squeeze(nan.copy()), "tau": squeeze(nan.copy()), "residual": squeeze(nan.copy()),
+                "tau_r2": squeeze(nan.copy()), "n_scales": len(keep), "scales": a[keep],
+                "log_partition": squeeze(np.full(shape + (len(keep),), np.nan)),
+                "reference_amplitude": reference_amplitude}
     S_h, S_D, S_h2, ln_Z = (np.empty(shape + (len(keep),)) for _ in range(4))
+    qq = np.repeat(q, gam.size * dl.size)
+    gg = np.tile(np.repeat(gam, dl.size), q.size)
+    dd = np.tile(dl, q.size * gam.size)
     for j, k in enumerate(keep):
         ln_t, ln_c = samples[k]
         x = np.log(a[k] / L)
-        qq = np.repeat(q, gam.size)
-        gg = np.tile(gam, q.size)
         batch = max(1, 1_000_000 // ln_t.size)
         for start in range(0, qq.size, batch):
             if cancel is not None and cancel():
                 raise InterruptedError("generalized ensemble cancelled")
             stop = min(start+batch, qq.size)
-            lw = ln_c + qq[start:stop, None]*ln_t + gg[start:stop, None]*(ln_t*ln_t/x)
+            shifted = ln_t[None, :] - dd[start:stop, None] * x          # ln|T| − δ x
+            lw = ln_c + qq[start:stop, None]*ln_t + gg[start:stop, None]*(shifted*shifted/x)
             top = lw.max(axis=-1, keepdims=True)
             log_z = top[:, 0] + np.log(np.exp(lw-top).sum(axis=-1))
             w = np.exp(lw-log_z[:, None])
             S_h.reshape(-1, len(keep))[start:stop, j] = (w*ln_t).sum(axis=-1)
             S_D.reshape(-1, len(keep))[start:stop, j] = (w*(lw-log_z[:, None]-ln_c)).sum(axis=-1)
-            S_h2.reshape(-1, len(keep))[start:stop, j] = (w*(ln_t*ln_t/x)).sum(axis=-1)
+            S_h2.reshape(-1, len(keep))[start:stop, j] = (w*(shifted*shifted/x)).sum(axis=-1)
             ln_Z.reshape(-1, len(keep))[start:stop, j] = log_z
     la = np.log(a[keep])
     h, D, h2, tau = (_slopes(la, S) for S in (S_h, S_D, S_h2, ln_Z))
-    residual = D - (q[:, None] * h + gam[None, :] * h2 - tau)
+    residual = D - (q[:, None, None] * h + gam[None, :, None] * h2 - tau)
     predicted = ln_Z.mean(axis=-1, keepdims=True) + tau[..., None] * (la-la.mean())
     ss = ((ln_Z-ln_Z.mean(axis=-1, keepdims=True))**2).sum(axis=-1)
     with np.errstate(invalid="ignore", divide="ignore"):
         r2 = 1-((ln_Z-predicted)**2).sum(axis=-1)/ss
-    return {"q": q, "gamma": gam, "h": h, "D": D, "h2": h2, "tau": tau, "residual": residual,
-            "tau_r2": r2, "log_partition": ln_Z, "scales": a[keep], "n_scales": len(keep)}
+    return {"q": q, "gamma": gam, "delta": dl, "h": squeeze(h), "D": squeeze(D), "h2": squeeze(h2),
+            "tau": squeeze(tau), "residual": squeeze(residual), "tau_r2": squeeze(r2),
+            "log_partition": squeeze(ln_Z), "scales": a[keep], "n_scales": len(keep),
+            "reference_amplitude": reference_amplitude}
 
 
-def generalized_legendre(tau, q_list, gamma_list, h_grid):
-    """Finite-grid Touchette–Beck (28): inf(q h + gamma h² − tau).
+def generalized_legendre(tau, q_list, gamma_list, h_grid, delta_list=None):
+    """Finite-grid Touchette–Beck (28), with Leonarduzzi et al. 2019's shift: the infimum over
+    (q, γ, δ) of q h + γ (h − δ)² − τ(q, γ, δ) (their Theorem 1: over a dense family of shifted
+    and dilated g the infimum is the large-deviation spectrum). ``tau`` is ``(n_q, n_gamma)`` with
+    no ``delta_list`` (δ = 0, the Gaussian ensemble as before) or ``(n_q, n_gamma, n_delta)``.
 
     This is an upper estimate on a bounded grid, not proof that a sampled h is
-    occupied. ``boundary`` marks minima at q/gamma limits (gamma=0 is allowed).
+    occupied. ``boundary`` marks minima at q/gamma/delta limits (gamma=0 is allowed).
     Negative values are retained; clipping them would hide unsupported regions.
     """
     q, g, h = (np.asarray(v, dtype=float) for v in (q_list, gamma_list, h_grid))
+    dl = np.asarray([0.0] if delta_list is None else delta_list, dtype=float)
     t = np.asarray(tau, dtype=float)
-    if t.shape != (q.size, g.size) or min(q.size, g.size, h.size) == 0:
-        raise ValueError("tau shape must match nonempty q/gamma grids")
-    if any(v.ndim != 1 or not np.isfinite(v).all() for v in (q, g, h)):
-        raise ValueError("q, gamma and h grids must be finite vectors")
-    D, qi, gi = np.full(h.size, np.nan), np.zeros(h.size, int), np.zeros(h.size, int)
+    if t.ndim == 2:
+        t = t[:, :, None]
+    if t.shape != (q.size, g.size, dl.size) or min(q.size, g.size, dl.size, h.size) == 0:
+        raise ValueError("tau shape must match nonempty q/gamma/delta grids")
+    if any(v.ndim != 1 or not np.isfinite(v).all() for v in (q, g, h, dl)):
+        raise ValueError("q, gamma, delta and h grids must be finite vectors")
+    D = np.full(h.size, np.nan)
+    qi, gi, di = (np.zeros(h.size, int) for _ in range(3))
     for k, hk in enumerate(h):
-        v = q[:, None]*hk + g[None, :]*hk**2 - t
+        v = q[:, None, None]*hk + g[None, :, None]*(hk - dl[None, None, :])**2 - t
         if np.isfinite(v).any():
-            i, j = np.unravel_index(np.nanargmin(v), v.shape)
-            D[k], qi[k], gi[k] = v[i, j], i, j
+            i, j, m = np.unravel_index(np.nanargmin(v), v.shape)
+            D[k], qi[k], gi[k], di[k] = v[i, j, m], i, j, m
     boundary = ((q[qi] == q.min()) | (q[qi] == q.max()) | (g[gi] == g.max()) |
                 ((g[gi] == g.min()) & (g.min() != 0)))
-    return {"h": h, "D": D, "q_star": q[qi], "gamma_star": g[gi], "boundary": boundary}
+    if dl.size > 1:
+        boundary |= (dl[di] == dl.min()) | (dl[di] == dl.max())
+    return {"h": h, "D": D, "q_star": q[qi], "gamma_star": g[gi], "delta_star": dl[di], "boundary": boundary}
 
 
 def kink_flags(q_list, tau, *, factor: float = 4.0, floor: float = 0.02) -> list:

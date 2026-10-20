@@ -54,7 +54,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import chain_groups, spectra
 from dynamix.shell.gc_guard import weak_method
-from dynamix.shell.multifractal_window import (_SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
+from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
                                                 WheelAxisViewBox, add_zero_lines)
 from dynamix.shell.theme import current
 
@@ -73,7 +73,7 @@ class SpectrumWindow(QtWidgets.QDialog):
 
     def __init__(self, hd_std: "dict | None" = None, hd_cmax: "dict | None" = None, *,
                  chains: "list | None" = None, scales=None, h_map=None,
-                 h_map_estimator: str = "", eta_seed: float = 0.0,
+                 h_map_estimator: str = "", h_map_method: str = "", eta_seed: float = 0.0,
                  forward_note: str = "", min_chain_len: int = 2,
                  log2_L: "float | None" = None, parent=None, all_tables=None,
                  filter_note: str = "", dh_curves=None, gh_field=None,
@@ -139,6 +139,13 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._compute_hist()
             if self._hist is not None:
                 self._hist_label = "microcanonical histogram (eq. 21)"
+                if str(h_map_method or "") in LEADERS_METHODS:
+                    # Cardo & Corvalán 2009: Turiel's density formula on the leaders' extrapolated
+                    # exponents, at one resolution; the across-scale D_LD lives in the Large
+                    # deviations window and the box counting.
+                    r0 = self._r0_rel() or 1.0 / np.sqrt(np.asarray(h_map).size)
+                    self._hist_label = (f"GMWLP histogram (Cardo & Corvalán; the leaders' local exponents, "
+                                        f"eq. 21 at r₀ = {r0:.2g})")
                 if h_map_estimator == "punctual":
                     # Pont/Turiel/Perez-Vicente 2006: the single-scale estimator linearizes
                     # the right tail; only multiscale methods resolve it.

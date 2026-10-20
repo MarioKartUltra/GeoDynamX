@@ -94,3 +94,15 @@ def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_
     np.testing.assert_allclose(cw._fit_items[new_name]["tau"].getData()[1], lc.current_fit()["tau"])
     win._on_structure_button_clicked()                                       # a fresh window replaces the old
     assert win._structure_window is not sf
+
+
+def test_a_leaders_result_opens_the_construction_window_with_the_gmwlp_label(win, qtbot):
+    result = _leaders_result()
+    result["record"]["method"] = "wavelet_leaders"
+    win._active_result = result
+    win._refresh_samples_buttons()
+    win._refresh_dh_button()
+    win._on_dh_button_clicked()
+    cw = win._spectrum_construction_window
+    qtbot.addWidget(cw)
+    assert cw._hist_label.startswith("GMWLP histogram")

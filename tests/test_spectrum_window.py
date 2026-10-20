@@ -433,3 +433,16 @@ def test_the_methods_published_fits_are_drawn_on_the_four_panels_and_named(qtbot
     window.set_fits([other])
     assert list(window._fit_items) == ["L1 · log-cumulants"]
     assert "L1 · leaders" not in [name for _item, name in window._in_legend["order"]]
+
+
+def test_a_leaders_h_map_is_the_gmwlp_and_its_histogram_says_so(qtbot):
+    """The eq-21 histogram of a leaders device's h-map is Cardo & Corvalán's GMWLP, Turiel's
+    single-resolution density formula on extrapolated exponents: the label names it and its r₀;
+    a projection device's h-map keeps the microcanonical label."""
+    h_map = np.random.default_rng(0).normal(0.5, 0.1, (64, 64)).astype(np.float32)
+    window = SpectrumWindow(h_map=h_map, h_map_method="cwt_leaders")
+    qtbot.addWidget(window)
+    assert window._hist_label.startswith("GMWLP histogram (Cardo & Corvalán") and "r₀" in window._hist_label
+    plain = SpectrumWindow(h_map=h_map, h_map_method="holder_map")
+    qtbot.addWidget(plain)
+    assert plain._hist_label.startswith("microcanonical histogram")
