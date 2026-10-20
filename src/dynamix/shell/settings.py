@@ -102,6 +102,25 @@ def devices_dir() -> Path:
     return settings_path().parent / "devices"
 
 
+def scratch_dir() -> Path:
+    """Where a result too large for memory lives (a figure's memory-mapped signed CWT stack): a
+    ``scratch`` folder beside the settings file, created on demand, emptied by
+    :func:`sweep_scratch` at every start."""
+    path = settings_path().parent / "scratch"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def sweep_scratch() -> None:
+    """Remove every file in :func:`scratch_dir`: a result's file goes with its window, and this
+    takes what a crash or a still-mapped file on Windows left behind."""
+    for child in scratch_dir().iterdir():
+        try:
+            child.unlink()
+        except OSError:
+            pass
+
+
 def load_settings() -> Settings:
     try:
         d = json.loads(settings_path().read_text(encoding="utf-8"))

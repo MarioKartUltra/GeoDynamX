@@ -35,6 +35,21 @@ TOOLS = {
 _SCALE_COLORS = ((220, 220, 220), (132, 180, 220), (220, 180, 125), (165, 205, 160),
                  (200, 155, 200), (210, 165, 155))
 _SYMBOLS = ("d", "t", "s", "o", "+", "x")
+#: Bytes of working set (sixteen per sample per scale: the complex spectrum, the filtered
+#: spectrum and the signed values) above which the signed scalar CWT stack is written scale by
+#: scale into a memory-mapped file in the scratch folder beside the settings file.
+SIGNED_STACK_BUDGET = 512 * 1024 ** 2
+
+
+def _release(result) -> None:
+    """Remove a result's memory-mapped stack file, when it has one. Windows refuses while the
+    map is open; the start-up sweep takes it then."""
+    name = getattr((result or {}).get("signed"), "filename", None)
+    if name:
+        try:
+            Path(name).unlink()
+        except OSError:
+            pass
 
 
 class _Signals(QtCore.QObject):
@@ -342,6 +357,7 @@ class DirectionalFigure(QtWidgets.QWidget):
         self._cancel.set()
         self._identity = identity
         self.data = data or FigureData(result, field, offset)
+        _release(self._computed)
         self._spectra = self._computed = self._computed_state = None
         self._seed = True
         for fit in self.fitplots:
@@ -832,12 +848,27 @@ class DirectionalFigure(QtWidgets.QWidget):
                 raise ValueError("Select a single native raster band for the scalar CWT")
             if not np.isfinite(values).all():
                 raise ValueError("Scalar CWT PDFs need finite source pixels; select a complete ROI or inpaint first")
-            if values.size*len(scales)*16>512*1024**2:
-                raise ValueError("Signed CWT exceeds the 512 MiB figure budget; fork a smaller ROI first")
             wavelet = self.wavelet.currentText()
             def scalar(cancel):
                 from dynamix.core.wtmm_backend import cwt2d_scalar
-                return {"kind":"scalar", "scales":scales, "signed":cwt2d_scalar(values,scales,wavelet=wavelet,signed=True)["signed"]}
+                if values.size*len(scales)*16 <= SIGNED_STACK_BUDGET:
+                    signed = cwt2d_scalar(values,scales,wavelet=wavelet,signed=True)["signed"]
+                else:
+                    import uuid
+                    from dynamix.shell.settings import scratch_dir
+                    path = scratch_dir()/f"signed-{uuid.uuid4().hex}.npy"
+                    signed = np.lib.format.open_memmap(path, mode="w+", dtype=np.float32,
+                                                       shape=(len(scales), *values.shape))
+                    try:
+                        for i,a in enumerate(scales):
+                            if cancel.is_set(): raise InterruptedError("Cancelled")
+                            signed[i] = cwt2d_scalar(values,[a],wavelet=wavelet,signed=True)["signed"][0]
+                        signed.flush()
+                    except BaseException:
+                        del signed
+                        path.unlink(missing_ok=True)
+                        raise
+                return {"kind":"scalar", "scales":scales, "signed":signed}
             return scalar
         pairs = self._parse_pairs()
         samples = d.samples(self.population.currentData())
@@ -886,6 +917,7 @@ class DirectionalFigure(QtWidgets.QWidget):
         if error:
             self.readout.setText(error)
             return
+        _release(self._computed)
         self._computed = result
         if result["kind"]=="fourier":
             self._spectra = result["identity"],result["spectra"]
@@ -938,7 +970,8 @@ class DirectionalFigure(QtWidgets.QWidget):
                     self._series(p,(edges[:-1]+edges[1:])/2,y,i,f"a={scale:g}",density=True)
                 p.setLabel("bottom","W / aᴴ" if axis else "signed W")
                 p.setLabel("left","ln normalized density")
-            self.readout.setText("Signed scalar coefficients · dense CWT samples · no gradient direction inferred")
+            where = " · stack memory-mapped in the scratch folder" if isinstance(result["signed"], np.memmap) else ""
+            self.readout.setText("Signed scalar coefficients · dense CWT samples · no gradient direction inferred"+where)
 
     def render_state(self):
         state = {"tool":self.kind,"context":self.data.context() if self.data else {},
@@ -981,4 +1014,5 @@ class DirectionalFigure(QtWidgets.QWidget):
 
     def closeEvent(self,event):
         self._cancel.set()
+        _release(self._computed)
         super().closeEvent(event)

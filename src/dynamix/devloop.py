@@ -122,7 +122,7 @@ _DEPENDS_ON = {
     "components_window": ("theme", ),
     "figure_data": (),
     "slope_plot": ("theme",),
-    "directional_figures": ("figure_data", "slope_plot", "theme", "window_fit"),
+    "directional_figures": ("figure_data", "slope_plot", "theme", "window_fit", "settings"),
     "anisotropy_window": ("window_fit", "theme", ),
     "curve_window": ("window_fit", "theme", ),
     "layers_panel": ("gc_guard", ),
