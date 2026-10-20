@@ -185,3 +185,47 @@ def test_the_automatic_reference_amplitude_is_the_intercept_and_takes_an_amplitu
     raw = gaussian_ensemble([m * 8.0 for m in mods], SCALES, q, g, 3, 8, counts_per_scale=counts,
                             length_px=L, reference_amplitude=1.0)
     assert not np.allclose(raw["D"][:, 1:], base["D"][:, 1:], atol=1e-3)     # the amplitude leaks at γ > 0
+
+
+def _leaders_samples():
+    from test_structure_functions_window import _samples
+    return _samples(H=0.5, J=5, n=64)
+
+
+def test_the_generalized_table_is_the_ordinary_table_at_gamma_zero():
+    """At γ = 0 the generalized weights are |T|^q with the cell multiplicities: the table in the
+    partition schema is leaders.tables's, entry for entry, with the reference amplitude at one."""
+    from dynamix.core import leaders
+    samples = _leaders_samples()
+    q = np.arange(-2.0, 4.01, 0.5)
+    plain = leaders.tables(samples, q)["leaders"]
+    general = leaders.generalized_table(samples, "leaders", q, 0.0, 0.0, reference_amplitude=1.0)
+    for key in ("tau_qa", "h_qa", "D_qa", "N_a", "log2_scales"):
+        np.testing.assert_allclose(general[key], plain[key], atol=1e-9, equal_nan=True)
+    assert general["set"] == "leaders" and general["gamma"] == 0.0 and general["delta"] == 0.0
+    assert leaders.generalized_table({**samples, "dyadic": True}, "leaders", q, 0.0, 0.0)["dyadic"] is True
+
+
+def test_the_generalized_table_s_slopes_are_the_gaussian_ensemble_s():
+    """For γ > 0 the table's per-scale log2 Z are the ensemble's ln Z in log2 units: fitted over
+    the same window they give the ensemble's τ(q, γ), h and D; the per-scale identity
+    D = q h + γ h2 − τ holds; δ moves the table."""
+    from dynamix.core import leaders
+    from dynamix.core.nonconcave import gaussian_ensemble
+    samples = _leaders_samples()
+    q = np.arange(-2.0, 2.01, 0.5)
+    gamma, L, lo, hi = 3.0, 64.0, 1.0, 5.0
+    table = leaders.generalized_table(samples, "leaders", q, gamma, 0.0, length_px=L, reference_amplitude=1.0)
+    fit = leaders.structure_fit(table, lo, hi)
+    sets = samples["sets"]["leaders"]
+    flat = [np.asarray(v)[m] for v, m in zip(sets["values"], sets["valid"])]
+    counts = [np.full(x.size, float(n) / x.size) for n, x in zip(samples["cells"], flat)]
+    g = gaussian_ensemble(flat, samples["scales"], q, [gamma], lo, hi, counts_per_scale=counts,
+                          length_px=L, reference_amplitude=1.0)
+    np.testing.assert_allclose(fit["tau"], g["tau"][:, 0], atol=1e-9)
+    np.testing.assert_allclose(fit["h"], g["h"][:, 0], atol=1e-9)
+    np.testing.assert_allclose(fit["D"], g["D"][:, 0], atol=1e-9)
+    identity = q[:, None] * table["h_qa"] + gamma * table["h2_qa"] - table["tau_qa"]
+    np.testing.assert_allclose(table["D_qa"], identity, atol=1e-9)
+    shifted = leaders.generalized_table(samples, "leaders", q, gamma, 0.3, length_px=L, reference_amplitude=1.0)
+    assert not np.allclose(shifted["tau_qa"], table["tau_qa"])

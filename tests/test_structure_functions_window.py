@@ -181,3 +181,24 @@ def test_the_fit_modes_run_the_focus_regression_on_the_same_table(qtbot):
     plain = StructureFunctionsWindow(_samples(), levels=(1, 5))
     qtbot.addWidget(plain)
     assert not plain.fit_combo.isEnabled()
+
+
+def test_gamma_and_delta_turn_the_table_into_the_generalized_structure_functions(qtbot):
+    """γ ≠ 0 swaps the table for Leonarduzzi's generalized one at (γ, δ) with the field extent as
+    L, the fit is named for them, the Legendre routes carry +γ(h − δ)² back, and γ = 0 is the
+    ordinary table again."""
+    from dynamix.core import leaders, spectra
+    window = StructureFunctionsWindow(_samples(), levels=(1, 5), log2_L=6.0)
+    qtbot.addWidget(window)
+    plain = window._table()
+    window.gamma_spin.setValue(2.0)
+    window.delta_spin.setValue(0.5)
+    fit = window._fit
+    assert fit["generalized"] == {"gamma": 2.0, "delta": 0.5} and fit["name"].endswith("structure functions, γ = 2 δ = 0.5")
+    expected = leaders.generalized_table(_samples(), "leaders", window._q_list(), 2.0, 0.5, length_px=64.0)
+    np.testing.assert_allclose(window._table()["tau_qa"], expected["tau_qa"], equal_nan=True)
+    hull = spectra.legendre_dh(fit["q_list"], fit["tau"])
+    np.testing.assert_allclose(fit["hull"]["D"], hull["D"] + 2.0 * (hull["h"] - 0.5) ** 2)
+    assert "generalized γ = 2" in window.readout.text() if hasattr(window, "readout") else True
+    window.gamma_spin.setValue(0.0)
+    assert window._table() is plain and window._fit["generalized"] is None

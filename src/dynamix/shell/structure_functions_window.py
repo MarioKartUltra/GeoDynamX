@@ -100,6 +100,26 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             spin.setKeyboardTracking(False)
             spin.valueChanged.connect(lambda _v: self._refit(rebuild=True))
             controls.addWidget(spin)
+        # Leonarduzzi et al. 2019's generalized structure functions (Touchette & Beck at δ = 0): γ
+        # the quadratic penalty, δ its centre; γ = 0 is the ordinary table.
+        controls.addWidget(QtWidgets.QLabel("γ"))
+        self.gamma_spin = QtWidgets.QDoubleSpinBox()
+        self.gamma_spin.setRange(-256.0, 256.0)
+        self.gamma_spin.setDecimals(2)
+        self.gamma_spin.setSingleStep(1.0)
+        self.gamma_spin.setToolTip("Generalized structure functions: the weight |T|^q 2^{j γ (φ − δ)²} per leader "
+                                   "(Leonarduzzi et al. 2019; Touchette & Beck at δ = 0); 0 is the ordinary table")
+        self.gamma_spin.valueChanged.connect(lambda _v: self._refit(rebuild=True))
+        controls.addWidget(self.gamma_spin)
+        controls.addWidget(QtWidgets.QLabel("δ"))
+        self.delta_spin = QtWidgets.QDoubleSpinBox()
+        self.delta_spin.setRange(-100.0, 100.0)
+        self.delta_spin.setDecimals(3)
+        self.delta_spin.setSingleStep(0.1)
+        self.delta_spin.setToolTip("The centre of the quadratic penalty, a local exponent; with a narrow q a sweep of "
+                                   "δ over the spectrum's support reaches its far parts (Leonarduzzi et al. 2019 §III-C3)")
+        self.delta_spin.valueChanged.connect(lambda _v: self._refit(rebuild=True))
+        controls.addWidget(self.delta_spin)
         controls.addWidget(QtWidgets.QLabel("Weights"))
         self.weights_combo = QtWidgets.QComboBox()
         self.weights_combo.addItems(list(WEIGHTS))
@@ -229,12 +249,22 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
 
         return moment_grid(lo, hi, step)
 
+    def _generalized(self) -> tuple:
+        """``(γ, δ)`` of the generalized structure functions; ``(0, δ)`` is the ordinary table."""
+        return float(self.gamma_spin.value()), float(self.delta_spin.value())
+
     def _table(self) -> dict:
         name = self.set_combo.currentData()
-        key = (name, tuple(self._q_list()))
+        gamma, delta = self._generalized()
+        key = (name, tuple(self._q_list()), gamma, delta if gamma else 0.0)
         if key not in self._tables:
-            self._tables[key] = leaders.tables({**self._samples, "sets": {name: self._samples["sets"][name]}},
-                                               self._q_list())[name]
+            if gamma:
+                length = 2.0 ** self._log2_L if self._log2_L is not None else None
+                self._tables[key] = leaders.generalized_table(self._samples, name, self._q_list(), gamma, delta,
+                                                              length_px=length)
+            else:
+                self._tables[key] = leaders.tables({**self._samples, "sets": {name: self._samples["sets"][name]}},
+                                                   self._q_list())[name]
         return self._tables[key]
 
     def _on_spins(self) -> None:
@@ -264,11 +294,20 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         if mode != "naive":
             fit = self._focus_fit(table, fit, lo, hi, mode, d)
         label = self.set_combo.currentText()
+        gamma, delta = self._generalized()
         fit["set"] = label
         fit["kind"] = "structure functions"
-        fit["name"] = f"{self._source} · {label}, {fit['kind']}" if self._source else f"{label}, {fit['kind']}"
+        fit["generalized"] = {"gamma": gamma, "delta": delta} if gamma else None
+        tag = f", γ = {gamma:g} δ = {delta:g}" if gamma else ""
+        fit["name"] = (f"{self._source} · {label}, {fit['kind']}{tag}" if self._source
+                       else f"{label}, {fit['kind']}{tag}")
+        # The Legendre routes of a generalized τ carry the penalty back: L_g(h) = ζ_g*(h) − g(h),
+        # g = −γ(h − δ)² (Leonarduzzi et al. 2019 (23); Touchette & Beck's f(α) at fixed γ).
         fit["hull"] = spectra.legendre_dh(fit["q_list"], fit["tau"])
         fit["legendre_local"] = spectra.legendre_local(fit["q_list"], fit["tau"])
+        if gamma:
+            for route in (fit["hull"], fit["legendre_local"]):
+                route["D"] = route["D"] + gamma * (route["h"] - delta) ** 2
         fit["cq"] = spectra.specific_heat(fit["q_list"], fit["tau"])
         fit["q"] = fit["q_list"]
         self._fit = fit
@@ -350,6 +389,9 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         parts = [f"{fit['set']} · log₂a {lo:.2f}–{hi:.2f} ({len(fit['levels'])} levels) · {fit['weights']} weights"]
         if fit.get("focus") and fit["focus"].get("branch") not in (None, "unavailable"):
             parts.append(f"focus {fit['focus']['branch']} at log₂a = {fit['focus']['x0']:.2f}")
+        if fit.get("generalized"):
+            g = fit["generalized"]
+            parts.append(f"generalized γ = {g['gamma']:g}, δ = {g['delta']:g}: the Legendre routes carry +γ(h − δ)²")
         if np.isclose(q[at[2.0]], 2.0) and np.isfinite(fit["zeta"][at[2.0]]):
             parts.append(f"ζ(2) = {fit['zeta'][at[2.0]]:.3f} ± {fit['zeta_err'][at[2.0]]:.3f}")
         if np.isclose(q[at[1.0]], 1.0) and np.isfinite(fit["h"][at[1.0]]):

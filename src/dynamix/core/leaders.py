@@ -349,6 +349,28 @@ def structure_table(samples: dict, set_name: str) -> dict:
     return table
 
 
+def generalized_table(samples: dict, set_name: str, q_list, gamma: float, delta: float = 0.0, *,
+                      length_px: float | None = None, reference_amplitude="auto") -> dict:
+    """One set's generalized structure functions (Leonarduzzi et al. 2019; Touchette & Beck at
+    δ = 0) in the partition schema, at one (γ, δ): the set's cells per sample as the
+    multiplicities, so at γ = 0 this is :func:`tables`' table entry for entry
+    (:func:`dynamix.core.nonconcave.generalized_partition_table`)."""
+    from dynamix.core.nonconcave import generalized_partition_table
+    s = samples["sets"][set_name]
+    flat = _flatten(s["values"], s["valid"])
+    cells = s.get("cells", samples["cells"])
+    counts = [np.full(x.size, float(n) / max(x.size, 1)) for n, x in zip(cells, flat)]
+    table = generalized_partition_table(flat, samples["scales"], q_list, gamma, delta, counts_per_scale=counts,
+                                        length_px=length_px, reference_amplitude=reference_amplitude)
+    if s.get("positive_only"):
+        rows = table["q_list"] <= 0
+        for k in ("tau_qa", "h_qa", "h2_qa", "D_qa", "sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
+            table[k][rows] = np.nan
+    table["set"] = set_name
+    table["dyadic"] = bool(samples.get("dyadic"))
+    return table
+
+
 def structure_fit(table: dict, j_min: int, j_max: int, *, weights=None, gamma: float = 0.0,
                   frame: str = "original", d: int = 2) -> dict:
     """The scaling exponents off one structure-function table over the levels ``j_min..j_max``

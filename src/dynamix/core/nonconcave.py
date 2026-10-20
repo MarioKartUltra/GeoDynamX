@@ -140,6 +140,93 @@ def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min:
             "reference_amplitude": reference_amplitude}
 
 
+def generalized_partition_table(mods_per_scale, scales_px, q_list, gamma: float, delta: float = 0.0, *,
+                                counts_per_scale=None, length_px: float | None = None,
+                                reference_amplitude="auto", chunk: int = 1 << 18) -> dict:
+    """The generalized structure functions of Leonarduzzi et al. 2019 (20)–(21) in the partition
+    schema the fitters read, one (γ, δ) at a time. Per scale a, with x = ln(a/L), the generalized
+    weight of a coefficient is P_i = c_i |T_i|^q exp(γ (ln|T_i| − δx)²/x) (Touchette & Beck's
+    ε^{qα + γα²} at δ = 0, c_i its multiplicity, the cells per sample); ``tau_qa`` = log2 Σ P,
+    ``h_qa`` = Σ W ln|T| / ln 2, ``h2_qa`` = Σ W (ln|T| − δx)²/x / ln 2 and ``D_qa`` = Σ W log2(W/c),
+    which is q h + γ h2 − τ per scale exactly, with W = P / Σ P; the slopes against log2 a are the
+    ensemble's τ(q, γ), h and D (:func:`gaussian_ensemble`), and at γ = 0 the table is the
+    ordinary one. ``reference_amplitude`` as in :func:`gaussian_ensemble` (``"auto"``: c₁,₀ over
+    every scale given). The σ columns follow :func:`dynamix.core.microcanonical.partition_tables`
+    with P in place of |T|^q. Every scale given is tabulated; the fitter chooses its window."""
+    q = np.asarray(q_list, dtype=np.float64)
+    a = np.asarray(scales_px, dtype=np.float64)
+    if a.ndim != 1 or a.size == 0 or not np.all(np.isfinite(a) & (a > 0)) or np.unique(a).size != a.size:
+        raise ValueError("scales must be distinct, finite and positive")
+    if len(mods_per_scale) != a.size or (counts_per_scale is not None and len(counts_per_scale) != a.size):
+        raise ValueError("one coefficient set and multiplicity set per scale is required")
+    L = float(length_px) if length_px is not None else 4.0 * float(a.max())
+    if not np.isfinite(L) or np.any(a >= L):
+        raise ValueError(f"every scale must lie below the integral scale L = {L}")
+    gamma, delta = float(gamma), float(delta)
+    samples = {}
+    for k in range(a.size):
+        m = np.asarray(mods_per_scale[k], dtype=np.float64).ravel()
+        c = np.ones_like(m) if counts_per_scale is None else np.asarray(counts_per_scale[k], dtype=np.float64).ravel()
+        if c.shape != m.shape:
+            raise ValueError("multiplicity shape must match the coefficients")
+        ok = np.isfinite(m) & (m > 0) & np.isfinite(c) & (c > 0)
+        if ok.any():
+            samples[k] = np.log(m[ok]), c[ok]
+    if isinstance(reference_amplitude, str):
+        if reference_amplitude != "auto":
+            raise ValueError("reference amplitude must be a positive number or 'auto'")
+        keep = sorted(samples)
+        xs = [np.log(a[k] / L) for k in keep]
+        means = [float((c * ln_t).sum() / c.sum()) for ln_t, c in (samples[k] for k in keep)]
+        reference_amplitude = float(np.exp(np.polyfit(xs, means, 1)[1])) if len(keep) >= 2 else 1.0
+    reference_amplitude = float(reference_amplitude)
+    if reference_amplitude <= 0 or not np.isfinite(reference_amplitude):
+        raise ValueError("reference amplitude must be finite and positive")
+    ln2 = np.log(2.0)
+    n_q, n_sc = q.size, a.size
+    tau, h, h2, D = (np.full((n_q, n_sc), np.nan) for _ in range(4))
+    s_tau, s_h, s_D = (np.full((n_q, n_sc), np.nan) for _ in range(3))
+    N_a = np.zeros(n_sc)
+    for k, (ln_t, c) in samples.items():
+        ln_t = ln_t - np.log(reference_amplitude)
+        x = np.log(a[k] / L)
+        n = ln_t.size
+        Z, ZL, ZL2, ZS, Z2 = (np.zeros(n_q) for _ in range(5))
+        top = None
+        for start in range(0, n, chunk):
+            t = ln_t[start:start + chunk]
+            lc = np.log(c[start:start + chunk])
+            s2 = (t - delta * x) ** 2 / x
+            lw = lc[None, :] + q[:, None] * t[None, :] + gamma * s2[None, :]
+            if top is None:                      # one stabiliser per q over the whole scale
+                top = lw.max(axis=1)
+            w = np.exp(lw - top[:, None])
+            Z += w.sum(axis=1)
+            ZL += (w * t[None, :]).sum(axis=1)
+            ZL2 += (w * t[None, :] ** 2).sum(axis=1)
+            ZS += (w * s2[None, :]).sum(axis=1)
+            Z2 += (w * w).sum(axis=1)
+        log_z = top + np.log(Z)                   # ln Σ P
+        n_eff = float(n)                          # the valid samples, as the ordinary table counts
+        N_a[k] = n_eff
+        tau[:, k] = log_z / ln2
+        h[:, k] = ZL / Z / ln2
+        h2[:, k] = ZS / Z / ln2
+        D[:, k] = q * h[:, k] + gamma * h2[:, k] - tau[:, k]
+        mean_q = Z / n
+        var_pix = np.maximum(Z2 / n - mean_q ** 2, 0.0)
+        s_sv = np.sqrt(var_pix / n_eff) / np.maximum(mean_q * ln2, 1e-300)
+        s_tau[:, k] = np.sqrt(s_sv ** 2 + (1.0 / np.sqrt(n_eff) / ln2) ** 2)
+        n_tilted = np.where(Z2 > 0, Z * Z / np.maximum(Z2, 1e-300), 1.0)
+        var_logm = np.maximum(ZL2 / np.maximum(Z, 1e-300) - (ZL / np.maximum(Z, 1e-300)) ** 2, 0.0)
+        s_h[:, k] = np.sqrt(var_logm / np.maximum(n_tilted, 1.0)) / ln2
+        s_D[:, k] = np.sqrt(q ** 2 * s_h[:, k] ** 2 + s_tau[:, k] ** 2)
+    return {"q_list": q, "scales": a, "log2_scales": np.log2(a), "N_a": N_a,
+            "tau_qa": tau, "h_qa": h, "h2_qa": h2, "D_qa": D,
+            "sigma_tau_qa": s_tau, "sigma_h_qa": s_h, "sigma_D_qa": s_D,
+            "gamma": gamma, "delta": delta, "reference_amplitude": reference_amplitude}
+
+
 def generalized_legendre(tau, q_list, gamma_list, h_grid, delta_list=None):
     """Finite-grid Touchette–Beck (28), with Leonarduzzi et al. 2019's shift: the infimum over
     (q, γ, δ) of q h + γ (h − δ)² − τ(q, γ, δ) (their Theorem 1: over a dense family of shifted
