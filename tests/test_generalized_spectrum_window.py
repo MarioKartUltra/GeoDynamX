@@ -86,3 +86,26 @@ def test_the_log_scale_diagrams_and_tau_sit_beside_the_spectrum_for_a_chosen_gam
     dots = [it for it in w.diagram_plot.listDataItems() if it.opts.get("symbol")]
     np.testing.assert_allclose(dots[0].getData()[1], g["log_partition"][0, n_g - 1, di, :] / np.log(2.0))
     assert w.diagram_plot.getAxis("left").labelText.startswith("log₂ Z")
+
+
+def test_the_spectrum_line_stops_at_the_grid_boundary_and_leaves_those_points_as_dots(qtbot):
+    """A minimum that sits on the q, γ or δ grid boundary is a bound, never a value: the drawn
+    spectrum connects the interior minima only, and the boundary ones stay as loose dots (the
+    drawing contract, on a landed result built by hand)."""
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    h = np.linspace(0.0, 1.0, 5)
+    D = np.array([-1.0, 0.5, 1.0, 0.5, -1.0])
+    boundary = np.array([True, False, False, False, True])
+    ensemble = {"q": np.array([-1.0, 0.0, 1.0]), "gamma": np.array([0.0, 1.0]), "delta": np.array([0.0]),
+                "scales": scales[:3], "n_scales": 3, "tau_r2": np.ones((3, 2, 1)), "reference_amplitude": 1.0,
+                "tau": np.zeros((3, 2, 1)), "log_partition": np.zeros((3, 2, 1, 3))}
+    result = {"h": h, "D": D, "boundary": boundary, "q_star": np.zeros(5), "gamma_star": np.zeros(5),
+              "delta_star": np.zeros(5), "settings": {"lo": 1.0, "hi": 3.0, "amplitude": 1.0}, "ensemble": ensemble}
+    w._completed(w._generation, result)
+    _x, y = w.curve.getData()
+    assert np.isnan(y[boundary]).all() and np.isfinite(y[~boundary]).all()
+    dots_x, _dots_y = w.boundary_points.getData()
+    assert dots_x.size == 2 and w.curve.opts["connect"] == "finite"

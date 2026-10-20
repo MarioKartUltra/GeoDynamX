@@ -125,7 +125,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.plot = self._glw.addPlot(row=0, col=0, viewBox=WheelAxisViewBox())     # wheel: x; Shift: y
         self.plot.setLabel("bottom", "h")
         self.plot.setLabel("left", "generalized spectrum upper estimate")
-        self.curve = self.plot.plot(pen=pg.mkPen(current().ink, width=2))
+        self.curve = self.plot.plot(pen=pg.mkPen(current().ink, width=2), connect="finite")
         self.boundary_points = self.plot.plot(pen=None, symbol="o", symbolSize=4)
         self.diagram_plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())
         self.diagram_plot.setLabel("bottom", "log₂ a")
@@ -274,8 +274,11 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         if g["n_scales"] < 3:
             self.readout.setText("At least three nonempty scales are required for a spectrum fit.")
             return
-        self.curve.setData(result["h"], result["D"])
+        # A minimum on the grid's boundary is a bound, never a value: the line connects the
+        # interior minima only, the boundary ones stay as loose dots (Touchette & Beck's floor
+        # outside [h_min, h_max] is where those would fall with an unbounded grid).
         b = result["boundary"] & np.isfinite(result["D"])
+        self.curve.setData(result["h"], np.where(b, np.nan, result["D"]))
         self.boundary_points.setData(result["h"][b], result["D"][b])
         self._fit = {**result, "name": self._last_name, "kind": "generalized spectrum",
                      "valid": bool(np.isfinite(result["D"]).any()), "window": (result["settings"]["lo"], result["settings"]["hi"])}
