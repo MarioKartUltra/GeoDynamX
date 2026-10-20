@@ -198,8 +198,13 @@ class CwtLeaders:
         cells = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
 
         lo, hi = float(params["fit_min"]), float(params["fit_max"])
+        # The default range: discs of at least 3 px and at least 16 independent discs (the dyadic
+        # device's floor); an explicit range is taken as given.
         fit = [j for j in range(sup_from, len(scales))
-               if (radii[j] >= 3.0 if lo <= 0 else scales[j] >= lo) and (hi <= 0 or scales[j] <= hi)]
+               if (radii[j] >= 3.0 and cells[j] >= 16.0 if lo <= 0 else scales[j] >= lo)
+               and (hi <= 0 or scales[j] <= hi)]
+        if lo <= 0 and any(cells[j] < 16.0 for j in range(sup_from, len(scales))):
+            warnings.append("scales with fewer than 16 independent discs are outside the default fit range")
         if len(fit) < 2:
             warnings.append("fewer than two scales in the fit range: no h-map")
             h_map = np.full(values.shape, np.nan, dtype=np.float32)
