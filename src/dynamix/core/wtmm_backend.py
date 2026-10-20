@@ -2834,7 +2834,8 @@ def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None
 
 
 def cwt2d_scalar(image, scales, *, wavelet: str = "gaussian", pad: int = 32,
-                 pad_mode: str = "reflect", params: "dict | None" = None, fft=None) -> dict:
+                 pad_mode: str = "reflect", params: "dict | None" = None, fft=None,
+                 signed: bool = False) -> dict:
     """The scalar transform W(a, x) = (f ∗ θ_a)(x) of the smoother θ itself on the WTMM's padded
     torus (spec 30 §3.2, ``operator = none``): the even analysing wavelets g2 and q-g2 through the
     Mexican smoothers, the mass kernels through the Gaussians. Same padding, grid and engine as
@@ -2855,11 +2856,15 @@ def cwt2d_scalar(image, scales, *, wavelet: str = "gaussian", pad: int = 32,
     complex_dtype = np.result_type(real, np.complex64)
     image_fft = fft.fft2(padded.astype(complex_dtype))
     mod = np.zeros((len(scales), ny, nx), dtype=real)
+    signed_values = np.empty_like(mod) if signed else None
     for i, a in enumerate(scales):
         filt = theta_hat(wavelet, params, kx * a, ky * a).astype(complex_dtype)
         conv = np.asarray(fft.ifft2(image_fft * filt))
-        mod[i] = np.abs(conv.real.astype(real))[crop]
-    return {"mod": mod}
+        values = conv.real.astype(real)[crop]
+        mod[i] = np.abs(values)
+        if signed_values is not None:
+            signed_values[i] = values
+    return {"mod": mod, "signed": signed_values} if signed else {"mod": mod}
 
 
 def _save_scalar(path, cwt: dict) -> None:

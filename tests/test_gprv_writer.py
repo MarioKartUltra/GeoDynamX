@@ -71,6 +71,22 @@ def _export_chains(path, result, field):
 _WTMM = ("wtmm2d", {"n_oct": 2, "n_voice": 4, "precision": "f64"})
 
 
+def test_figure_record_keeps_sample_population_and_manual_endpoints(builtin, tmp_path):
+    from dynamix.engine.gprv_export import write_record
+    fft_policy.configure("fftw",64)
+    project,layer,field = _project(tmp_path,[_WTMM])
+    result = resolve(layer,field,Cache()).result
+    out = tmp_path / "figure.png"
+    out.write_bytes(b"figure render")
+    recipe = {"population":"wtmm", "projection":"schmidt", "scales":[1,2,4],
+              "fit":{"method":"manual", "endpoints":[[1,5],[3,1]], "slope":-2}}
+    path = write_record(project,layer,out,export="figure_png",result=result,
+                        print_params={"figure":recipe})
+    record = json.loads(path.read_text(encoding="utf-8"))
+    assert gprv.check(path.read_bytes()) == []
+    assert record["processStep"][-1]["processingInformation"]["runTimeParameters"]["figure"] == recipe
+
+
 def _strings(obj):
     if isinstance(obj, dict):
         for v in obj.values():

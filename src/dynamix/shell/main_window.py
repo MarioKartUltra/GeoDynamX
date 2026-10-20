@@ -1613,10 +1613,19 @@ class MainWindow(QtWidgets.QMainWindow):
         spectrum_lay.addWidget(self._generalized_button)
         # WTMMM angle statistics (Arneodo, Decoster & Roux 2000): P_a(A) across scales, the
         # gradient plane, M per angle sector -- pixel frame or bearings.
-        self._anisotropy_button = QtWidgets.QPushButton("Directional roughness (WTMMM)…")
-        self._anisotropy_button.clicked.connect(self._on_anisotropy_button_clicked)
+        self._anisotropy_button = QtWidgets.QPushButton("Scale and direction figures…")
+        from dynamix.shell.directional_figures import TOOLS
+        figure_menu = QtWidgets.QMenu(self._anisotropy_button)
+        for kind, title in TOOLS.items():
+            action = figure_menu.addAction(title + "…")
+            action.triggered.connect(lambda _checked=False, kind=kind: self._open_directional_figure(kind))
+        figure_menu.addSeparator()
+        figure_menu.addAction("Legacy combined view…", self._on_anisotropy_button_clicked)
+        self._anisotropy_button.setMenu(figure_menu)
+        self._figure_windows = {}
+        self._figure_data = None
         self._anisotropy_window: AnisotropyWindow | None = None
-        spectrum_lay.addWidget(self._anisotropy_button)
+        self.right_panel.add_section("Figures", self._anisotropy_button)
         # The curves a tool publishes (model.curves): the Periodic extension's power spectrum
         # with its band limit, the measures against β, the lineal path.
         self._curves_button = QtWidgets.QPushButton("Curves…")
@@ -3416,6 +3425,7 @@ both ``Canvas`` signals report the
             "Topology": has_chains or bool(self._topology_rows_shown),
             "Skeleton": has_chains,
             "Spectrum": tables or res.get("h_map") is not None or has_ext,
+            "Figures": single or has_ext,
             "Decomposition": self._decomposition_of(res) is not None,
             "Inpainting": bool(res.get("_hists")),
             "Transect": raster,
@@ -3428,15 +3438,16 @@ both ``Canvas`` signals report the
         window the active result (with its ROI offset, for bearings)."""
         result = self._active_result
         ok = bool(result) and bool(result.get("extrema"))
-        self._anisotropy_button.setEnabled(ok)
+        self._anisotropy_button.setEnabled(ok or self.field is not None)
         self._anisotropy_button.setToolTip(
-            "WTMMM statistics — P_a(A) across scales, the gradient plane, M per angle sector "
-            "(Arnéodo, Decoster & Roux 2000); the directional Hurst exponents from the components' "
-            "collapse, the anisotropy against scale, the cut spectra (Khalil et al. 2006)" if ok else
-            "Needs a WTMM result with per-scale maxima on the active layer")
+            "Focused scale and direction figures. Direction views use landed WTMM samples; "
+            "Fourier spectra and signed scalar coefficients can be computed from a native raster band.")
         win = self._anisotropy_window
         if ok and win is not None and win.isVisible():
             self._feed_anisotropy(win)
+        for figure in getattr(self, "_figure_windows", {}).values():
+            if figure.isVisible():
+                self._feed_anisotropy(figure)
 
     def _active_curves(self) -> tuple:
         """``(curves, title)`` the active layer's last tool publishes for what is on screen: its
@@ -3492,9 +3503,60 @@ both ``Canvas`` signals report the
         fitter = self._multifractal_window
         fit_window = (tuple(float(v) for v in fitter._region.getRegion())
                       if fitter is not None and fitter.isVisible() else None)
+        from dynamix.shell.directional_figures import DirectionalFigure
+        extra = {}
+        if isinstance(win, DirectionalFigure):
+            from dynamix.shell.figure_data import FigureData
+            identity = (id(result), id(self.field))
+            if self._figure_data is None or self._figure_data[0] != identity:
+                self._figure_data = (identity, FigureData(result, self.field, offset))
+            extra["data"] = self._figure_data[1]
+            if not win.pin.isChecked() or win.data is None:
+                win.provenance_context = (self.project, self.layer, self._layer_input(self.layer) if self.layer else FIELD,
+                                          self._racks_of(self.layer) if self.layer else None, result)
         win.set_result(result, self.field, offset=offset,
                        scale_idx=int(self.transport.slider.value()), fit_window=fit_window,
-                       directional=self._directional_readings())
+                       directional=self._directional_readings(), **extra)
+
+    def _open_directional_figure(self, kind) -> None:
+        from dynamix.shell.directional_figures import DirectionalFigure
+        if kind not in self._figure_windows:
+            figure = DirectionalFigure(kind, self)
+            figure.samplesSelected.connect(self._highlight_figure_samples)
+            figure.figureExported.connect(lambda path, state, figure=figure: self._write_figure_provenance(figure, path, state))
+            self._figure_windows[kind] = figure
+        figure = self._figure_windows[kind]
+        self._feed_anisotropy(figure)
+        figure.show()
+        figure.raise_()
+
+    def _write_figure_provenance(self, figure, path, state):
+        from dynamix.engine.gprv_export import write_record
+        context = figure.provenance_context
+        if context is None or context[1] is None:
+            figure.readout.setText("Figure and settings saved; no landed layer for a provenance record")
+            return
+        project, layer, layer_input, racks, result = context
+        try:
+            # The settings sidecar holds array outcomes; the record carries the render recipe.
+            recipe = {k:v for k,v in state.items() if k not in ("outcomes",)}
+            record = write_record(project,layer,path,export="figure_png",layer_input=layer_input,
+                                  racks=racks,result=result,print_params={"figure":recipe})
+        except (ValueError, ImportError, OSError) as exc:
+            figure.readout.setText(f"Figure and settings saved; provenance record unavailable: {exc}")
+        else:
+            figure.readout.setText(f"Figure, settings and {Path(record).name} saved")
+
+    def _highlight_figure_samples(self, selection) -> None:
+        import pyqtgraph as pg
+        from dynamix.shell.theme import current
+        if selection.get("source_identity") != id(self._figure_data[1].result):
+            return
+        if not hasattr(self, "_figure_selection_item"):
+            self._figure_selection_item = pg.ScatterPlotItem(size=9, pen=pg.mkPen(current().selection_accent), brush=None)
+            self.canvas.view.addItem(self._figure_selection_item)
+        row, col = selection["offset"]
+        self._figure_selection_item.setData(np.asarray(selection["x"])+col, np.asarray(selection["y"])+row)
 
     def _directional_readings(self) -> list:
         """``[(layer name, η(2, e₁)/2, η(2, e₂)/2)]`` from every landed Directional scaling

@@ -156,7 +156,8 @@ EXTRACTED = {
 #: wavelet_profiles: every wavelet's section and its λ* (the bandpass peak wavelength), the
 #: scale bar's and the physical scale axis's one authority; the per-family constants are
 #: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
-NEW_MODULES = ["units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
+NEW_MODULES = ["figure_fits", "figure_samples", "orientation_net", "space_scale",
+              "units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product", "chaining",
               "tensor_wtmm", "partition_tables",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton", "wavelet_profiles",

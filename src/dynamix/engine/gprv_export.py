@@ -48,6 +48,7 @@ DISTRIBUTION = "geodynamix-beta"
 #: The exports that write a record: the export id (``export/<id>`` is the print step's
 #: identifier), the print step's description and the output name the steps before it carry.
 EXPORTS = {
+    "figure_png": ("Scientific figure with explicit sample, scale, fit and projection parameters.", "figure"),
     "chains_npz": ("Export of the chain product (horizontal and vertical chains) as the "
                    "EQSelect-compatible schema-v4 npz.", "chains"),
     "derived_npz": ("Export of the derived raster as an npz (values, axes, frame).", "raster"),

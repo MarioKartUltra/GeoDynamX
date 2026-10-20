@@ -265,7 +265,7 @@ def modulus_collapse(mods, scales, H: float, q_list, log2_a_min: float, log2_a_m
             "usable": np.isfinite(spread) & (spread <= float(tolerance)), "scales": a[keep]}
 
 
-def cut_spectra(values, *, low_modes: int = 2, top_fraction: float = 0.25) -> dict:
+def cut_spectra(values, *, low_modes: int = 2, top_fraction: float = 0.25, window: str = "hann") -> dict:
     """The directional power spectra of a field's one-dimensional cuts (Khalil et al. Fig. 9):
     the Hann-windowed power of every row averaged (the x-cuts, against k_x) and of every column
     (the y-cuts, against k_y), each with β = −slope of log2 S against log2 k over the modes from
@@ -276,6 +276,9 @@ def cut_spectra(values, *, low_modes: int = 2, top_fraction: float = 0.25) -> di
     from dynamix.core.daf import radial_spectrum
     from dynamix.core.fft_policy import double
 
+    if window not in ("hann", "rectangular"):
+        raise ValueError("cut window must be hann or rectangular")
+
     v = np.asarray(values, dtype=np.float64)
     finite = np.isfinite(v)
     v = np.where(finite, v, v[finite].mean() if finite.any() else 0.0) - (v[finite].mean() if finite.any() else 0.0)
@@ -283,7 +286,7 @@ def cut_spectra(values, *, low_modes: int = 2, top_fraction: float = 0.25) -> di
 
     def cuts(arr):
         n = arr.shape[1]
-        win = np.hanning(n)[None, :]
+        win = (np.hanning(n) if window == "hann" else np.ones(n))[None, :]
         power = np.abs(np.asarray(fft.rfft(arr * win, axis=1))) ** 2
         power = power.mean(axis=0) / (win ** 2).sum()
         k = np.fft.rfftfreq(n)
@@ -308,4 +311,5 @@ def cut_spectra(values, *, low_modes: int = 2, top_fraction: float = 0.25) -> di
     return {"k_x": kx, "S_x": sx, "beta_x": bx, "beta_x_se": sex, "window_x": win_x,
             "k_y": ky, "S_y": sy, "beta_y": by, "beta_y_se": sey, "window_y": win_y,
             "k_r": kr, "S_r": sr, "beta_r": -br, "beta_r_se": ser,
+            "window_r": (float(kr[sel_r][0]), float(kr[sel_r][-1])) if sel_r.size else (np.nan, np.nan),
             "log2_power": log2_power}
