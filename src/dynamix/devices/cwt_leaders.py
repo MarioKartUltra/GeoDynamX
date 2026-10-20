@@ -23,6 +23,11 @@ from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
+#: The moment orders of the structure-function table a leaders result carries for the Partition
+#: functions window: the WTMM's own default q grid (q_min −3, q_max 6, step ½).
+TABLE_Q = np.round(np.arange(-3.0, 6.0 + 1e-9, 0.5), 6)
+HD_SOURCE = "structure functions over the CWT leaders"
+
 _WTMM = {p.name: p for p in WTMM2D.params}
 _LADDER = ("n_oct", "n_voice", "a_min", "fracint_alpha")
 _MAXIMA = ("thresh", "detector", "tie_rule", "interpolate")
@@ -274,14 +279,25 @@ class CwtLeaders:
             "cwt_cache_hits": sorted(stage["cache_hits"]), "maxima_cache_hits": sorted(maxima_hits),
             "warnings": warnings,
         }
+        samples = {"scales": scales, "cells": cells, "d": 2, "fit_range": fit_range, "sets": sets}
+        hd = self._structure_table(samples)
         return {
             "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [], "scales": scales,
             "params": dict(params),
-            "samples": {"scales": scales, "cells": cells, "d": 2, "fit_range": fit_range, "sets": sets},
+            "samples": samples, "hd_std": hd, "hd_cmax": hd, "hd_source": HD_SOURCE, "hd_kind": "structure",
             "_leaders": leaders, "_p_leaders": p_leaders, "_valid": valid, "_radii": radii,
             "_frame": getattr(field, "frame", None), "_shape": tuple(values.shape),
             "record": record, "warnings": warnings,
         }
+
+    @staticmethod
+    def _structure_table(samples: dict) -> dict:
+        """The leaders' structure functions in the partition schema the Partition functions
+        window fits (spec 30 §5.7), at the WTMM's default moment orders so a leaders layer and a
+        default WTMM run compare on one q grid; the Structure functions window keeps reading the
+        samples themselves at its own orders."""
+        from dynamix.core.leaders import tables
+        return tables(samples, TABLE_Q)["cwt-leaders"]
 
     def compute_roi(self, window, core_rect, params: dict, *, info=None, progress=None, cancel=None,
                     stage_cache=None) -> dict:
@@ -303,6 +319,7 @@ class CwtLeaders:
             sets["cwt-p-leaders"] = {"values": [res["_p_leaders"][j] for j in range(len(res["scales"]))],
                                      "valid": res["_valid"]}
         res["samples"] = dict(res["samples"], cells=cells, sets=sets)
+        res["hd_std"] = res["hd_cmax"] = self._structure_table(res["samples"])
         res["record"] = dict(res["record"], n_eff=n_eff, cells=cells)
         res["_shape"] = (h, w)
         return res

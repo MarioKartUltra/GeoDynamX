@@ -69,3 +69,28 @@ def test_the_raster_tab_draws_the_disc_at_the_scale_shown(qtbot, clean_registry)
     xs, ys = (np.asarray(a, dtype=float) for a in win.canvas.disc_item.getData())
     assert xs.size == 73
     np.testing.assert_allclose(np.hypot(xs - 48.0, ys - 48.0), radii[0], atol=1e-6)
+
+
+def test_a_leaders_layer_opens_the_partition_functions_window(qtbot, clean_registry):
+    """The Partition functions button reads a leaders result's structure tables: enabled, named
+    for what it holds, and the fitter opens on them."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.shell.main_window import MainWindow
+    register_builtin_devices()
+    v = fbm2d(96, 0.5, seed=12)
+    field = RasterField(name="tables", values=v, frame=LocalFrame(), x_axis=np.arange(96.0), y_axis=np.arange(96.0))
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    win.load_field(field, "/nonexistent/tables.npz")
+    params = defaults_for(get_device("cwt_leaders"))
+    params.update({"wavelet": "gaussian", "n_oct": 3, "a_min": 1.0, "edge": "reflect", "p": 0.0})
+    desc = [{"device": "cwt_leaders", "params": params}]
+    win.strips.set_steps(desc, field=win.field)
+    with qtbot.waitSignal(win.resolved, timeout=120000):
+        win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=120000)
+    assert win._spectrum_button.isEnabled() and win._spectrum_button.text() == "Structure functions…"
+    assert win._dh_button.isEnabled()
+    win._on_spectrum_button_clicked()
+    assert win._multifractal_window is not None

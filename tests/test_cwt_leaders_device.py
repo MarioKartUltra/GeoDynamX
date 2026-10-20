@@ -258,3 +258,26 @@ def test_p_leaders_read_the_hurst_exponent_and_the_record_carries_eta_and_h_min(
     assert rec["eta_p"] == pytest.approx(2 * H, abs=0.15)
     assert np.isfinite(rec["h_min"]) and rec["finite_resolution_factor"][-1] > 1.0
     assert "η(2) =" in dev.reading(res, _params(dev, p=2.0))
+
+
+def test_the_result_carries_structure_tables_for_the_partition_functions_window(clean_registry):
+    """A leaders result opens the Partition functions window like the moment route's: its
+    samples become one structure-function table in the partition schema at the WTMM's default
+    moment orders (the same grid a default WTMM run fits), the same table under both keys."""
+    import numpy as np
+    from conftest import fbm2d, make_field
+    from dynamix.core.leaders import tables
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+
+    register_builtin_devices()
+    dev = get_device("cwt_leaders")
+    params = dict(defaults_for(dev), wavelet="gaussian", n_oct=3, a_min=1.0, edge="reflect", p=0.0)
+    res = dev.compute(make_field(fbm2d(96, 0.5, seed=12)), params)
+    assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"]
+    assert "leaders" in res["hd_source"]
+    q = np.arange(-3.0, 6.0 + 1e-9, 0.5)
+    expected = tables(res["samples"], q)["cwt-leaders"]
+    np.testing.assert_allclose(res["hd_std"]["q_list"], q)
+    np.testing.assert_allclose(res["hd_std"]["tau_qa"], expected["tau_qa"], equal_nan=True)
+    np.testing.assert_allclose(res["hd_std"]["log2_scales"], np.log2(res["scales"]))
