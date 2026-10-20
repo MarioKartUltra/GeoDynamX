@@ -507,6 +507,12 @@ class WTMM2D:
         # positions ride alongside the untouched integer support.
         # Default off = byte-identical pipeline.
         Param("interpolate", ParamKind.BOOL, default=False, label="Interpolate"),
+        # The sign of the scalar transform (operator none) at each maximum, carried per maximum
+        # as ``sign``: the gradient maxima have none, so each is read back on the transform of
+        # the smoother itself at its own position and scale; the canvas colours the H-chains by
+        # it. A second transform stack on the first run, in the stage store after.
+        Param("sign", ParamKind.BOOL, default=False, label="Sign", level="advanced",
+              keyed_at_default=False),
         # The detection method. "nms" = bilinear non-maxima suppression (the historical DynamiX
         # behavior, xsmurf's wtmm2d/Malandain path); "follow" = kappa zero-crossing with the
         # kappa'<0 gate (xsmurf's scalar-2D historical default, dynamix.core.follow2d).
@@ -638,6 +644,13 @@ class WTMM2D:
         # Carry the field's own axes through so filters and views can convert pixels to physical
         # units without reaching back to the source.
         res = dict(res)
+        if params.get("sign"):
+            from dynamix.core.wtmm_backend import run_cwt_stage
+            signed = run_cwt_stage(field, backend_params, operator="none", progress=progress,
+                                   cancel=cancel, stage_cache=stage_cache)["signed"]
+            res["extrema"] = [
+                dict(layer, sign=np.sign(signed[j][layer["y"], layer["x"]]).astype(np.int8))
+                for j, layer in enumerate(res["extrema"])]
         res["_integration_order"] = applied_order(field)
         res["_integration_history"] = list(field.provenance.get("fractional_integration", [])) if hasattr(field, "provenance") else []
         if fell_back and "_edge" not in res:

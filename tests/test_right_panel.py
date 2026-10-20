@@ -299,13 +299,14 @@ def test_set_style_values_syncs_combo_swatches_and_checkbox_without_emitting(qtb
     w.right_panel.styleChanged.connect(lambda name, value: received.append((name, value)))
     style = {"opacity": 1.0, "point_size": 3.0, "line_width": 1.0, "colormap": "plasma",
              "color_hchain": "#112233", "color_vtrail": "#445566", "color_extrema": "#778899",
-             "show_trails": True}
+             "color_hchain_neg": "#aabbcc", "show_trails": True}
 
     w.right_panel.set_style_values(style)
 
     assert received == []
     assert w.right_panel.cmap_combo.currentText() == "plasma"
     assert "#112233" in w.right_panel._swatch_buttons["color_hchain"].styleSheet()
+    assert "#aabbcc" in w.right_panel._swatch_buttons["color_hchain_neg"].styleSheet()
     assert "#445566" in w.right_panel._swatch_buttons["color_vtrail"].styleSheet()
     assert "#778899" in w.right_panel._swatch_buttons["color_extrema"].styleSheet()
     assert w.right_panel.trails_check.isChecked() is True

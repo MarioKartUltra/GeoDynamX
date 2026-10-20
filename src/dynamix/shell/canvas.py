@@ -106,6 +106,9 @@ _CLICK_MAX_TRAVEL_PX = 3.0
 #: strings: The chrome-literal grep matches `#rrggbb` text and font-family names, not tuples.
 EXTREMA_COLOR = (200, 200, 200)     # isolated extrema (line_id == -1): light gray
 HCHAIN_COLOR = (235, 235, 235)      # H-chain polylines: white-ish
+HCHAIN_NEG_COLOR = (90, 160, 255)    # the H-chain vertices and pixels whose scalar transform is
+#                                      negative when the WTMM's Sign knob marked the maxima; the
+#                                      positive ones keep the H-chain and maxima colours
 VTRAIL_COLOR = (255, 160, 40)       # V-chain drift trails: amber family (the default theme's; the
                                     # pen reads theme.current().amber at construction and
                                     # Canvas.apply_theme_roles re-tints it on a theme change)
@@ -358,6 +361,42 @@ def _hline_base_geometry(base: dict, shape, runs=None):
     return hx, hy, vert_pos
 
 
+def hline_vertex_indices(ext: dict, shape) -> np.ndarray:
+    """The positions into ``ext``'s arrays along every ordered H-line run at one scale, runs
+    separated by ``-1``: the vertex order :func:`hline_polylines` draws, as indices, so a
+    per-maximum channel (``sign``) reads along the drawn lines."""
+    ny, nx = shape
+    x = np.asarray(ext["x"], dtype=np.int64)
+    y = np.asarray(ext["y"], dtype=np.int64)
+    line_id = np.asarray(ext["line_id"], dtype=np.int64)
+    if x.size == 0:
+        return np.empty(0, dtype=np.int64)
+    grid = np.full(ny * nx, -1, dtype=np.int64)
+    grid[y * nx + x] = np.arange(x.size, dtype=np.int64)
+    # Private-symbol coupling: `_order_lines` is a PRIVATE name in core, and core is a VERBATIM
+    # copy of EQSelect (never modify EQSelect, copies stay verbatim). A future re-copy
+    # that renames this helper breaks canvas here too, and nothing in core's public surface warns
+    # of it (topology/wtmm.py carries the same coupling, at its own call site).
+    order, seg, starts = _order_lines(x, y, line_id, grid, nx, ny)
+    if order.size == 0:
+        return np.empty(0, dtype=np.int64)
+    parts: list[np.ndarray] = []
+    sep = np.array([-1], dtype=np.int64)
+    for li in range(len(starts) - 1):
+        sl = order[starts[li]:starts[li + 1]]
+        if sl.size == 0:
+            continue
+        run_breaks = np.nonzero(np.diff(seg[starts[li]:starts[li + 1]]))[0] + 1
+        for walk in np.split(sl, run_breaks):
+            if walk.size == 0:
+                continue
+            parts.append(np.asarray(walk, dtype=np.int64))
+            parts.append(sep)
+    if not parts:
+        return np.empty(0, dtype=np.int64)
+    return np.concatenate(parts[:-1])                           # drop the trailing separator
+
+
 def hline_polylines(ext: dict, shape) -> tuple[np.ndarray, np.ndarray]:
     """NaN-separated x/y arrays over every ordered H-line run at one scale.
 
@@ -369,46 +408,16 @@ def hline_polylines(ext: dict, shape) -> tuple[np.ndarray, np.ndarray]:
     a NaN row, so one ``PlotDataItem`` with ``connect="finite"`` renders every H-line at this
     scale in a single draw call without stitching unrelated runs together.
     """
-    ny, nx = shape
-    x = np.asarray(ext["x"], dtype=np.int64)
-    y = np.asarray(ext["y"], dtype=np.int64)
-    line_id = np.asarray(ext["line_id"], dtype=np.int64)
+    idx = hline_vertex_indices(ext, shape)
+    if idx.size == 0:
+        return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
     # The walk runs on the INTEGER support (grid adjacency is what orders a line); the DRAWN
     # vertices prefer the subpixel channels when the interpolate knob stamped them.
-    xd = np.asarray(ext.get("x_sub", x), dtype=np.float64)
-    yd = np.asarray(ext.get("y_sub", y), dtype=np.float64)
-    empty = (np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64))
-    if x.size == 0:
-        return empty
-
-    grid = np.full(ny * nx, -1, dtype=np.int64)
-    grid[y * nx + x] = np.arange(x.size, dtype=np.int64)
-    # Private-symbol coupling: `_order_lines` is a PRIVATE name in core, and core is a VERBATIM
-    # copy of EQSelect (never modify EQSelect, copies stay verbatim). A future re-copy
-    # that renames this helper breaks canvas here too, and nothing in core's public surface warns
-    # of it (topology/wtmm.py carries the same coupling, at its own call site).
-    order, seg, starts = _order_lines(x, y, line_id, grid, nx, ny)
-    if order.size == 0:
-        return empty
-
-    xs: list[np.ndarray] = []
-    ys: list[np.ndarray] = []
-    nan = np.array([np.nan])
-    for li in range(len(starts) - 1):
-        sl = order[starts[li]:starts[li + 1]]
-        if sl.size == 0:
-            continue
-        run_breaks = np.nonzero(np.diff(seg[starts[li]:starts[li + 1]]))[0] + 1
-        for walk in np.split(sl, run_breaks):
-            if walk.size == 0:
-                continue
-            xs.append(xd[walk])
-            ys.append(yd[walk])
-            xs.append(nan)
-            ys.append(nan)
-    if not xs:
-        return empty
-    return np.concatenate(xs[:-1]), np.concatenate(ys[:-1])       # drop the trailing separator
+    xd = np.asarray(ext.get("x_sub", ext["x"]), dtype=np.float64)
+    yd = np.asarray(ext.get("y_sub", ext["y"]), dtype=np.float64)
+    on = idx >= 0
+    at = np.maximum(idx, 0)
+    return np.where(on, xd[at], np.nan), np.where(on, yd[at], np.nan)
 
 
 def cap_polylines(x, y, max_lines):
@@ -876,6 +885,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         self.hchain_item = pg.PlotDataItem(pen=pg.mkPen(HCHAIN_COLOR), connect="finite")
         self.hchain_item.setVisible(False)
         self.view.addItem(self.hchain_item)
+        self.hchain_neg_item = pg.PlotDataItem(pen=pg.mkPen(HCHAIN_NEG_COLOR), connect="finite")
+        self.hchain_neg_item.setVisible(False)
+        self.view.addItem(self.hchain_neg_item)
 
         self.vtrail_item = pg.PlotDataItem(pen=pg.mkPen(rgb(current().amber)), connect="finite")
         self.vtrail_item.setVisible(False)
@@ -926,6 +938,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._maxima_visible = True
         self._show_isolated = False       # isolated maxima: the Display toggle
         self._color_extrema = tuple(EXTREMA_COLOR)
+        self._color_hchain_neg = HCHAIN_NEG_COLOR
         self._maxima_masks = None          # the last result's maxima, for a repaint
 
         # The point-layer scatter overlay -- one array-fed ScatterPlotItem, shown only
@@ -1352,11 +1365,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._overlay_opacity = float(opacity)
         self._overlay_line_width = float(line_width)
         for item in (self.extrema_item, self.extrema_raster_item, self.isolated_raster_item, self.arrow_item,
-                     self.hchain_item, self.vtrail_item, self.seam_item, self.ghost_item,
+                     self.hchain_item, self.hchain_neg_item, self.vtrail_item, self.seam_item, self.ghost_item,
                      *self._group_items.values()):
             item.setOpacity(float(opacity))
         self.extrema_item.setSize(float(point_size))
-        for item in (self.hchain_item, self.vtrail_item, self.seam_item, self.ghost_item,
+        for item in (self.hchain_item, self.hchain_neg_item, self.vtrail_item, self.seam_item, self.ghost_item,
                      *self._group_items.values()):
             pen = item.opts["pen"]
             pen = pg.mkPen(pen)
@@ -1571,7 +1584,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         rgba[..., 3] = np.where(finite & np.isfinite(shade), 255.0, 0.0)
         item.setImage(rgba.astype(np.uint8).transpose(1, 0, 2), levels=None)
 
-    def set_overlay_colors(self, hchain: str, vtrail: str, extrema: str) -> None:
+    def set_overlay_colors(self, hchain: str, vtrail: str, extrema: str,
+                           hchain_neg: "str | None" = None) -> None:
         """Per-layer overlay palette (``ui.color_hchain``/``ui.color_vtrail``/``ui.color_extrema``), each a hex color string -- rebuilds ``hchain_item``'s and ``vtrail_item``'s
         pens and ``extrema_item``'s brush, preserving whatever line width
         ``set_display_style`` last recorded (``self._overlay_line_width``) exactly the way a
@@ -1586,6 +1600,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         pen = pg.mkPen(hchain)
         pen.setWidthF(self._overlay_line_width)
         self.hchain_item.setPen(pen)
+        if hchain_neg is not None:
+            pen = pg.mkPen(hchain_neg)
+            pen.setWidthF(self._overlay_line_width)
+            self.hchain_neg_item.setPen(pen)
+            self._color_hchain_neg = tuple(pg.mkColor(hchain_neg).getRgb()[:3])
         pen = pg.mkPen(vtrail)
         pen.setWidthF(self._overlay_line_width)
         self.vtrail_item.setPen(pen)
@@ -1603,15 +1622,19 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.isolated_raster_item.setVisible(self._maxima_visible and self._show_isolated)
 
     def _paint_maxima_rasters(self) -> None:
-        """The two maxima rasters from the last result's masks, in the extrema colour."""
+        """The two maxima rasters from the last result's masks, in the extrema colour; the
+        on-line pixels whose maximum the Sign knob marked negative in the negative colour."""
         if self._maxima_masks is None:
             return
-        (ny_r, nx_r), (on_y, on_x), (iso_y, iso_x), rect = self._maxima_masks
+        (ny_r, nx_r), (on_y, on_x), (iso_y, iso_x), rect, on_sign = self._maxima_masks
         r, g, b = self._color_extrema
-        for item, (ys, xs) in ((self.extrema_raster_item, (on_y, on_x)),
-                               (self.isolated_raster_item, (iso_y, iso_x))):
+        for item, (ys, xs), sign in ((self.extrema_raster_item, (on_y, on_x), on_sign),
+                                     (self.isolated_raster_item, (iso_y, iso_x), None)):
             rgba = np.zeros((ny_r, nx_r, 4), dtype=np.ubyte)
             rgba[ys, xs] = (r, g, b, 255)
+            if sign is not None:
+                neg = sign < 0
+                rgba[ys[neg], xs[neg]] = (*self._color_hchain_neg, 255)
             item.setImage(rgba.transpose(1, 0, 2), autoLevels=False)
             item.setRect(rect)
         self._apply_maxima_visibility()
@@ -1863,6 +1886,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.arrow_item.setData([], [])
         self._last_arrows = None
         self.hchain_item.setData([], [])
+        self.hchain_neg_item.setData([], [])
         self.vtrail_item.setData([], [])
         self.seam_item.setData([], [])
         self.ghost_item.setData([], [])
@@ -2441,9 +2465,24 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # below. The selection fast path (sel_geom) already caps itself.
         h_kept = h_total = 0
         hx_pre, hy_pre = hx, hy                  # pre-cap: the raster overlay has no point cost
+        hx_neg = hy_neg = np.empty(0, dtype=np.float64)
+        vertex_sign = None
+        signs = ext.get("sign")
+        if signs is not None and sel_geom is None and result.get("_ext_base") is None:
+            # The WTMM's Sign knob marked each maximum: the runs split where the sign flips, the
+            # negative vertices on their own item (and, below, their own pixel colour).
+            idx = self._cached_geometry("hline_idx", ext, lambda: hline_vertex_indices(ext, shape))
+            vertex_sign = np.where(idx >= 0, np.asarray(signs)[np.maximum(idx, 0)], 0)
+            hx_neg = np.where(vertex_sign < 0, hx, np.nan)
+            hy_neg = np.where(vertex_sign < 0, hy, np.nan)
+            hx, hy = np.where(vertex_sign > 0, hx, np.nan), np.where(vertex_sign > 0, hy, np.nan)
         if sel_geom is None:
             hx, hy, h_kept, h_total = cap_polylines(hx, hy, self.draw_cap)
+            if np.isfinite(hx_neg).any():
+                hx_neg, hy_neg, kept_neg, total_neg = cap_polylines(hx_neg, hy_neg, self.draw_cap)
+                h_kept, h_total = h_kept + kept_neg, h_total + total_neg
         self.hchain_item.setData(hx + max_col, hy + max_row)
+        self.hchain_neg_item.setData(hx_neg + max_col, hy_neg + max_row)
 
         # The raster-pixel extrema overlay: the same visible truth the polylines
         # carried, in pixel form on the result's own grid. Members from the drawn H-line
@@ -2453,12 +2492,15 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # The maxima as pixel masks (on an H-line, isolated), painted in the extrema colour
         # by _paint_maxima_rasters -- a recolour repaints them without a new result.
         on_y = on_x = np.empty(0, dtype=np.int64)
+        on_sign = None
         if len(hx_pre):
             fin = np.isfinite(hx_pre) & np.isfinite(hy_pre)
             mx = np.rint(np.asarray(hx_pre)[fin]).astype(np.int64)
             my = np.rint(np.asarray(hy_pre)[fin]).astype(np.int64)
             ok = (mx >= 0) & (mx < nx_r) & (my >= 0) & (my < ny_r)
             on_y, on_x = my[ok], mx[ok]
+            if vertex_sign is not None:
+                on_sign = vertex_sign[fin][ok]
         iso_y = iso_x = np.empty(0, dtype=np.int64)
         if ext_x[iso].size:
             dx_i = np.asarray(ext_x[iso], dtype=np.int64)
@@ -2466,7 +2508,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             ok = (dx_i >= 0) & (dx_i < nx_r) & (dy_i >= 0) & (dy_i < ny_r)
             iso_y, iso_x = dy_i[ok], dx_i[ok]
         self._maxima_masks = ((ny_r, nx_r), (on_y, on_x), (iso_y, iso_x),
-                              QtCore.QRectF(max_col - 0.5, max_row - 0.5, nx_r, ny_r))
+                              QtCore.QRectF(max_col - 0.5, max_row - 0.5, nx_r, ny_r), on_sign)
         self._paint_maxima_rasters()
 
         # Split by `tags` -- see the docstring above for why. `chain.get("tags")` is absent on

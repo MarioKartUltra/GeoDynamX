@@ -2868,11 +2868,12 @@ def cwt2d_scalar(image, scales, *, wavelet: str = "gaussian", pad: int = 32,
 
 
 def _save_scalar(path, cwt: dict) -> None:
-    np.savez_compressed(path, mod=np.asarray(cwt["mod"]))
+    np.savez_compressed(path, signed=np.asarray(cwt["signed"]))
 
 
 def _load_scalar(path) -> dict:
-    return {"mod": np.load(path)["mod"]}
+    loaded = np.load(path)
+    return {"signed": loaded["signed"]} if "signed" in loaded.files else {"mod": loaded["mod"]}
 
 
 def run_cwt_stage(field, params: dict, *, operator: str = "gradient", out_dir=None, backend=None,
@@ -2882,7 +2883,9 @@ def run_cwt_stage(field, params: dict, *, operator: str = "gradient", out_dir=No
     :func:`run_wtmm2d` runs (the plain-nms variant), so a WTMM run on the same field with the
     same front-end knobs, or a leaders run after it, recomputes nothing; with ``"none"`` the
     stage is :func:`cwt2d_scalar` under a key carrying the operator. Returns ``{"mod", "scales",
-    "cache_hits", "operator"}``; ``mod`` is the lifted modulus ``(n_scales, ny, nx)``."""
+    "cache_hits", "operator", "signed"}``; ``mod`` is the lifted modulus ``(n_scales, ny, nx)``
+    and ``signed`` the scalar transform itself, unlifted, with ``"none"`` (``None`` with
+    ``"gradient"``): the stage keeps the signed values and derives the modulus."""
     if operator not in ("gradient", "none"):
         raise ValueError(f"unknown operator {operator!r}; expected 'gradient' or 'none'")
     resolved = _resolve_wtmm2d_params(params)
@@ -2913,15 +2916,20 @@ def run_cwt_stage(field, params: dict, *, operator: str = "gradient", out_dir=No
         cwt_key["operator"] = "none"
 
         def compute():
-            return cwt2d_scalar(field.values, scales, wavelet=resolved["wavelet"],
-                                pad=resolved["pad"], pad_mode=resolved["pad_mode"],
-                                params=resolved["smoother_params"])
+            return {"signed": cwt2d_scalar(field.values, scales, wavelet=resolved["wavelet"],
+                                           pad=resolved["pad"], pad_mode=resolved["pad_mode"],
+                                           params=resolved["smoother_params"],
+                                           signed=True)["signed"]}
         save_fn, load_fn = _save_scalar, _load_scalar
     _ck()
     cwt = _cached_stage("cwt", cwt_key, out_dir, field.name, compute, save_fn, load_fn,
                         cache_hits, progress, backend=backend, stage_cache=stage_cache, ck=_ck)
+    signed = cwt.get("signed")
+    if signed is not None:
+        cwt = {"mod": np.abs(signed)}
     cwt = _apply_fracint2d(cwt, scales, resolved["fracint_alpha"])
-    return {"mod": cwt["mod"], "scales": scales, "cache_hits": cache_hits, "operator": operator}
+    return {"mod": cwt["mod"], "signed": signed, "scales": scales, "cache_hits": cache_hits,
+            "operator": operator}
 
 
 def run_wtmm2d_preview(field, params: dict, *, backend=None) -> dict:

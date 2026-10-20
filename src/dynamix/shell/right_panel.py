@@ -30,7 +30,7 @@ import numpy as np
 from dynamix.core.stretch import STRETCHES
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from dynamix.shell.canvas import EXTREMA_COLOR, HCHAIN_COLOR, VTRAIL_COLOR
+from dynamix.shell.canvas import EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, VTRAIL_COLOR
 from dynamix.shell.knob_widgets import make_control
 from dynamix.shell.knobs import control_spec
 
@@ -64,6 +64,7 @@ def _hex(rgb: tuple[int, int, int]) -> str:
 #: key (matches ``_display_style_of``'s dict and ``ui.<name>`` tag), button label, canvas default.
 _SWATCH_SPECS = (
     ("color_hchain", "H-chains", HCHAIN_COLOR),
+    ("color_hchain_neg", "H-chains (−)", HCHAIN_NEG_COLOR),
     ("color_vtrail", "V-chains", VTRAIL_COLOR),
     ("color_extrema", "Maxima", EXTREMA_COLOR),
 )
@@ -72,6 +73,9 @@ _SWATCH_SPECS = (
 _SWATCH_TIPS = {
     "color_hchain": "H-chains: the modulus maxima (WTMM) at the current scale, linked along "
                     "each maxima line",
+    "color_hchain_neg": "H-chains (−): the maxima whose scalar transform (the smoother's own, "
+                        "operator none) is negative there, when the WTMM's Sign knob marks them; "
+                        "the positive ones keep the H-chains and Maxima colours",
     "color_vtrail": "V-chains: the maxima of the modulus along the H-chains (WTMMM), followed "
                     "from scale to scale",
     "color_extrema": "Maxima: the modulus-maxima pixels at the current scale; the isolated ones "

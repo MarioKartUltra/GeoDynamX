@@ -103,7 +103,8 @@ from dynamix.shell.controller import SELECTION_MODE_CYCLE, CommandController
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
-from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, POINTS_COLOR, VTRAIL_COLOR,
+from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
+                                  VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
 from dynamix.shell.inpaint_window import InpaintHistogramsWindow
@@ -307,6 +308,7 @@ def _hex_to_rgb(text: str) -> tuple[int, int, int]:
 
 
 _DEFAULT_COLOR_HCHAIN = _hex(HCHAIN_COLOR)
+_DEFAULT_COLOR_HCHAIN_NEG = _hex(HCHAIN_NEG_COLOR)
 _DEFAULT_COLOR_VTRAIL = _hex(VTRAIL_COLOR)
 _DEFAULT_COLOR_EXTREMA = _hex(EXTREMA_COLOR)
 #: The point-layer scatter's own preference key, riding the identical
@@ -333,6 +335,7 @@ def _display_style_of(layer) -> dict:
     tags = layer.tags if layer is not None else {}
     out["colormap"] = tags.get("ui.colormap") or _DEFAULT_COLORMAP
     for name, default in (("color_hchain", _DEFAULT_COLOR_HCHAIN),
+                          ("color_hchain_neg", _DEFAULT_COLOR_HCHAIN_NEG),
                           ("color_vtrail", _DEFAULT_COLOR_VTRAIL),
                           ("color_extrema", _DEFAULT_COLOR_EXTREMA),
                           ("color_points", _DEFAULT_COLOR_POINTS)):
@@ -2454,7 +2457,8 @@ class MainWindow(QtWidgets.QMainWindow):
                                           line_width=style["line_width"])
             self.canvas.set_colormap(style["colormap"])
             self.canvas.set_overlay_colors(style["color_hchain"], style["color_vtrail"],
-                                           style["color_extrema"])
+                                           style["color_extrema"],
+                                           hchain_neg=style["color_hchain_neg"])
             self.canvas.set_show_trails(style["show_trails"])
             self.canvas.set_show_isolated(style["show_isolated"])
             self.canvas.set_arrow_mode(style["arrows"])
@@ -3415,6 +3419,7 @@ both ``Canvas`` signals report the
             "reconstruct": res.get("h_map") is not None,
             "swatches": has_ext or has_chains,
             "swatch:color_hchain": has_lines, "swatch:color_vtrail": has_chains,
+            "swatch:color_hchain_neg": has_lines and any("sign" in e for e in ext),
             "swatch:color_extrema": has_ext,
             "trails": has_chains,
             "arrows": has_ext and "arg" in ext[0],
