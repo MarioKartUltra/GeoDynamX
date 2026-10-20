@@ -123,8 +123,9 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
     #
     # multifractal_window.py joins it too: its plot background/inks
     # resolve through theme directly (the canvas.py precedent), so a theme edit must rebuild it.
-    # wavelet_bar.py, map_view.py, anisotropy_window.py, curve_window.py and components_window.py read theme roles
-    # the same way, and map_view hosts a canvas, so they join the widening in leaf-to-window order.
+    # wavelet_bar.py, map_view.py, skeleton_dialog.py, anisotropy_window.py, curve_window.py and
+    # components_window.py read theme roles the same way, and map_view hosts a canvas, so they join
+    # the widening in leaf-to-window order.
     assert devloop.modules_to_reload({"theme"}) == [
             "dynamix.shell.theme",
             "dynamix.shell.canvas",
@@ -133,6 +134,7 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
             "dynamix.shell.inspector",
             "dynamix.shell.right_panel",
             "dynamix.shell.view_dialog",
+            "dynamix.shell.skeleton_dialog",
             "dynamix.shell.multifractal_window",
             "dynamix.shell.spectrum_window",
             "dynamix.shell.structure_functions_window",
@@ -183,6 +185,7 @@ def test_devloop_scan_detects_a_touched_file_and_resolves_its_dependents():
             "dynamix.shell.inspector",
             "dynamix.shell.right_panel",
             "dynamix.shell.view_dialog",
+            "dynamix.shell.skeleton_dialog",
             "dynamix.shell.multifractal_window",
             "dynamix.shell.spectrum_window",
             "dynamix.shell.structure_functions_window",

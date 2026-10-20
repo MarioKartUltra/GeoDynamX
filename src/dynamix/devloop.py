@@ -180,25 +180,21 @@ _DEPENDS_ON = {
     # ``dynamix.topology.codes``, no other ``dynamix.shell.*`` module), same shape as
     # "layer_panel" above.
     "topology_panel": (),
-    # The "Skeleton plot…" dialog -- self-contained (only
-    # ``dynamix.core.chain_stats``, no other ``dynamix.shell.*`` module -- see
-    # ``skeleton_dialog.py``'s own module docstring, "Highlight color" section, for why it does
-    # NOT import ``theme``), same shape as "topology_panel" above.
-    "skeleton_dialog": (),
+    # The "Skeleton plot…" dialog -- a pyqtgraph figure on the theme's ground with the shared
+    # wheel gesture, fitted to the screen; ``dynamix.core.chain_stats`` outside the shell.
+    "skeleton_dialog": ("plot_zoom", "theme", "window_fit"),
     # The transect list -- self-contained (only
     # ``dynamix.model.project`` for the ``TransectRecord`` dataclass, no other ``dynamix.shell.*``
     # module), same shape as "topology_panel"/"skeleton_dialog" above.
     "transect_panel": (),
     # The transect profile dialog -- self-contained (only
     # ``dynamix.core.transect``, no ``dynamix.shell.*`` module -- see the module's own "Accent
-    # color" docstring section for why it does NOT import ``theme``, the identical reasoning
-    # skeleton_dialog.py already gives for its own highlight color), same shape as
-    # "topology_panel"/"skeleton_dialog"/"transect_panel" above.
+    # color" docstring section for why it does NOT import ``theme``), same shape as
+    # "topology_panel"/"transect_panel" above.
     "profile_dialog": (),
     # The interactive multifractal-spectrum window -- imports ``theme``
-    # for its background/inks (the ``canvas.py`` precedent, unlike skeleton_dialog/profile_dialog
-    # whose single-color needs didn't earn the edge) plus ``dynamix.core.spectra``; no other
-    # ``dynamix.shell.*`` module.
+    # for its background/inks (the ``canvas.py`` precedent) plus ``dynamix.core.spectra``; no
+    # other ``dynamix.shell.*`` module.
     "multifractal_window": ("plot_zoom", "theme", "window_fit", ),
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
