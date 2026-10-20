@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 import pyqtgraph as pg
+
+from dynamix.shell.plot_zoom import zoom_plot
 from PySide6 import QtCore, QtWidgets
 
 __all__ = ["InpaintHistogramsWindow"]
@@ -31,9 +33,9 @@ class InpaintHistogramsWindow(QtWidgets.QWidget):
         bar.addWidget(self.note, 1)
         outer.addLayout(bar)
         plots = QtWidgets.QHBoxLayout()
-        self.eta_plot = pg.PlotWidget(title="ln|η| = ln|c| − ln|p|: inside vs clear")
+        self.eta_plot = zoom_plot(title="ln|η| = ln|c| − ln|p|: inside vs clear")
         self.eta_plot.addLegend(offset=(-5, 5))
-        self.amp_plot = pg.PlotWidget(title="ln|c|: inside vs clear")
+        self.amp_plot = zoom_plot(title="ln|c|: inside vs clear")
         self.amp_plot.addLegend(offset=(-5, 5))
         plots.addWidget(self.eta_plot, 1)
         plots.addWidget(self.amp_plot, 1)

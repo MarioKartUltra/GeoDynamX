@@ -27,6 +27,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.devices.decompose import format_group, parse_group
 from dynamix.shell.theme import current
+from dynamix.shell.plot_zoom import WheelAxisViewBox
 
 __all__ = ["ComponentsWindow", "thumbnail"]
 
@@ -116,7 +117,7 @@ class ComponentsWindow(QtWidgets.QDialog):
 
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
-        self._wplot = self._glw.addPlot(row=0, col=0)
+        self._wplot = self._glw.addPlot(row=0, col=0)                  # both-axes zoom: aspect locked
         self._wplot.setTitle("w-correlation")
         self._wplot.invertY(True)
         self._wplot.setAspectLocked(True)
@@ -130,7 +131,7 @@ class ComponentsWindow(QtWidgets.QDialog):
         self._wreading = QtWidgets.QLabel(" ")
         self._wreading.setStyleSheet(f"color: {current().ink_muted};")
         self._glw.scene().sigMouseMoved.connect(self._on_mouse_moved)
-        self._splot = self._glw.addPlot(row=1, col=0)
+        self._splot = self._glw.addPlot(row=1, col=0, viewBox=WheelAxisViewBox())
         self._splot.setLogMode(y=True)
         self._splot.setLabel("bottom", "component")
         self._scurve = pg.PlotDataItem(pen=pg.mkPen(current().ink_muted), symbol="o",

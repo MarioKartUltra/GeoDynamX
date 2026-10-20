@@ -36,6 +36,7 @@ from dynamix.core.anisotropy import (SECTOR_LABELS, angle_pdf, anisotropy_vs_sca
                                      modulus_hurst, modulus_pdfs, sector_modulus_pdfs, wtmmm_by_scale)
 from dynamix.core.orientation import Frame, from_arg, grid_to_true, to_azimuth
 from dynamix.shell.theme import RESTRAINED_DARK
+from dynamix.shell.plot_zoom import zoom_plot
 
 __all__ = ["AnisotropyWindow", "ESTIMATORS"]
 
@@ -134,35 +135,35 @@ class AnisotropyWindow(QtWidgets.QWidget):
         outer.addWidget(self.readout)
 
         row1 = QtWidgets.QHBoxLayout()
-        self.pdf_plot = pg.PlotWidget(title="P_a(A) across scales")
+        self.pdf_plot = zoom_plot(title="P_a(A) across scales")
         self.pdf_plot.addLegend(offset=(-5, 5))
-        self.plane_plot = pg.PlotWidget(title="WTMMM in the gradient plane")
+        self.plane_plot = pg.PlotWidget(title="WTMMM in the gradient plane")          # both-axes zoom: aspect locked
         self.plane_plot.setAspectLocked(True)
-        self.sector_plot = pg.PlotWidget(title="pdf of log2 M per angle sector")
+        self.sector_plot = zoom_plot(title="pdf of log2 M per angle sector")
         self.sector_plot.addLegend(offset=(-5, 5))
         for w in (self.pdf_plot, self.plane_plot, self.sector_plot):
             row1.addWidget(w, 1)
         outer.addLayout(row1, 1)
 
         row2 = QtWidgets.QHBoxLayout()
-        self.comp_plots = [pg.PlotWidget(title="ln P_a(T_ψ1)"), pg.PlotWidget(title="ln P_a(T_ψ2)")]
-        self.collapse_plots = [pg.PlotWidget(title="ln P_a(T_ψ1) rescaled by a^H_x"),
-                               pg.PlotWidget(title="ln P_a(T_ψ2) rescaled by a^H_y")]
+        self.comp_plots = [zoom_plot(title="ln P_a(T_ψ1)"), zoom_plot(title="ln P_a(T_ψ2)")]
+        self.collapse_plots = [zoom_plot(title="ln P_a(T_ψ1) rescaled by a^H_x"),
+                               zoom_plot(title="ln P_a(T_ψ2) rescaled by a^H_y")]
         for w in self.comp_plots + self.collapse_plots:
             w.addLegend(offset=(-5, 5))
             row2.addWidget(w, 1)
         outer.addLayout(row2, 1)
 
         row3 = QtWidgets.QHBoxLayout()
-        self.mod_plot = pg.PlotWidget(title="P_a(M) across scales")
+        self.mod_plot = zoom_plot(title="P_a(M) across scales")
         self.mod_plot.addLegend(offset=(-5, 5))
-        self.qcollapse_plot = pg.PlotWidget(title="a^−qH M^q P_a(M)")
+        self.qcollapse_plot = zoom_plot(title="a^−qH M^q P_a(M)")
         self.qcollapse_plot.addLegend(offset=(-5, 5))
-        self.height_plot = pg.PlotWidget(title="P_a(A) peak / isotropic")
-        self.angle_plot = pg.PlotWidget(title="P_a(A) peak angle")
-        self.spectra_plot = pg.PlotWidget(title="cut spectra")
+        self.height_plot = zoom_plot(title="P_a(A) peak / isotropic")
+        self.angle_plot = zoom_plot(title="P_a(A) peak angle")
+        self.spectra_plot = zoom_plot(title="cut spectra")
         self.spectra_plot.addLegend(offset=(-5, 5))
-        self.power_plot = pg.PlotWidget(title="2-D power (log2)")
+        self.power_plot = pg.PlotWidget(title="2-D power (log2)")          # both-axes zoom: aspect locked
         self.power_plot.setAspectLocked(True)
         self.power_plot.hideAxis("bottom")
         self.power_plot.hideAxis("left")

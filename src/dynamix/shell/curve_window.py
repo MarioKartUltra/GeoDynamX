@@ -14,6 +14,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.shell.theme import current
+from dynamix.shell.plot_zoom import zoom_plot
 
 __all__ = ["CurveWindow"]
 
@@ -38,7 +39,7 @@ class CurveWindow(QtWidgets.QWidget):
         bar.addWidget(self.logx_check)
         bar.addWidget(self.logy_check)
         outer.addLayout(bar)
-        self.plot = pg.PlotWidget()
+        self.plot = zoom_plot()
         self.plot.setBackground(current().ground)
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         for side in ("bottom", "left"):           # plain decimals, never an "(x0.001)" prefix

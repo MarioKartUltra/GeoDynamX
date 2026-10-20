@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core.nonconcave import gaussian_ensemble, generalized_legendre
 from dynamix.core.partition_tables import moment_grid
 from dynamix.shell.theme import current
+from dynamix.shell.plot_zoom import zoom_plot
 
 
 class _Signals(QtCore.QObject):
@@ -91,7 +92,7 @@ class GeneralizedSpectrumWindow(QtWidgets.QDialog):
                                    "A small algebraic residual does not validate a recovered spectrum.")
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
-        self.plot = pg.PlotWidget()
+        self.plot = zoom_plot()
         self.plot.setLabel("bottom", "h")
         self.plot.setLabel("left", "generalized spectrum upper estimate")
         self.curve = self.plot.plot(pen=pg.mkPen(current().ink, width=2))

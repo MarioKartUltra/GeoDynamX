@@ -9,6 +9,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core.figure_fits import manual_slope, range_fit
 from dynamix.shell.theme import current
+from dynamix.shell.plot_zoom import zoom_plot
 
 
 class SlopePlot(QtWidgets.QWidget):
@@ -48,7 +49,7 @@ class SlopePlot(QtWidgets.QWidget):
             self.endpoints.append(spin)
         layout.addWidget(self.numeric)
         self.numeric.hide()
-        self.plot = pg.PlotWidget(title=title)
+        self.plot = zoom_plot(title=title)
         self.plot.setBackground(current().ground)
         self.plot.setMinimumSize(230, 200)
         layout.addWidget(self.plot, 1)
