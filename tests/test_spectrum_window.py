@@ -269,14 +269,14 @@ def test_the_legend_lists_only_what_is_drawn_and_names_the_source(qtbot):
     assert names[0] == "moments over the projections (Turiel 2006, M method)"
     assert "microcanonical histogram (eq. 21)" in names
     for absent in ("gradient histogram (GH)", "box-counting across r (eq. 20)",
-                   "dominant chains", "non-dominant chains", "Legendre hull of fitted τ(q)"):
+                   "dominant chains", "non-dominant chains", "D**(h): concave envelope of fitted τ(q)"):
         assert absent not in names
     window.gh_check.setChecked(True)
     assert "gradient histogram (GH)" in _legend_names(window._plot)
     window.gh_check.setChecked(False)
     assert "gradient histogram (GH)" not in _legend_names(window._plot)
     window._hull_check.setChecked(True)
-    assert "Legendre hull of fitted τ(q)" in _legend_names(window._plot)
+    assert "D**(h): concave envelope of fitted τ(q)" in _legend_names(window._plot)
     # the histogram as points, the way the paper draws it
     assert window._hist_curve.opts["symbol"] == "o" and window._hist_curve.opts["pen"] is None
 
@@ -424,9 +424,9 @@ def test_the_methods_published_fits_are_drawn_on_the_four_panels_and_named(qtbot
     np.testing.assert_allclose(items["D"].getData()[0], 0.5)
     assert items["tau"] in window.method_plots["tau"].listDataItems() and items["D"] in window._plot.listDataItems()
     names = [name for _item, name in window._in_legend["order"]]
-    assert "L1 · leaders" in names and "L1 · leaders (Legendre of τ)" not in names   # hulls wait for the switch
+    assert "L1 · leaders" in names and "L1 · leaders (D**, envelope)" not in names   # hulls wait for the switch
     window._hull_check.setChecked(True)
-    assert "L1 · leaders (Legendre of τ)" in [name for _item, name in window._in_legend["order"]]
+    assert "L1 · leaders (D**, envelope)" in [name for _item, name in window._in_legend["order"]]
     other = {**fit, "name": "L1 · log-cumulants", "tau": 0.4 * q - 2, "hull": None}
     window.set_fits([{**fit, "tau": 0.6 * q - 2}, other])
     np.testing.assert_allclose(window._fit_items["L1 · leaders"]["tau"].getData()[1], 0.6 * q - 2)
@@ -541,3 +541,31 @@ def test_the_local_cubic_legendre_draws_on_its_switch(qtbot):
     assert any("local cubic" in name for _item, name in window._in_legend["order"])
     window._local_check.setChecked(False)
     assert window._local_curve.getData()[0] is None or window._local_curve.getData()[0].size == 0
+
+
+def test_the_kink_geometry_draws_the_tangents_and_the_chord_and_reads_the_departure(qtbot):
+    """Touchette & Beck 2006 Figs. 2 and 3 on the construction: the window's own τ(q), h(q) and
+    c(q) sit on the method panels, the two one-sided tangents at q_c on τ(q), the envelope's
+    chord across (h_l, h_h) on D(h) once D** is asked for, and a published generalized spectrum
+    is read against the envelope for where it leaves it."""
+    from test_multifractal_window import _hd_q
+    q = np.arange(-3.0, 3.01, 0.5)
+    hd = _hd_q(q, np.where(q < 0, 0.8 * q, 0.3 * q))
+    window = SpectrumWindow(hd, hd)
+    qtbot.addWidget(window)
+    fit = window.current_fit()
+    np.testing.assert_allclose(window._own_items["tau"].getData()[1], fit["tau"])
+    assert window._tangent_left.isVisible() and window._tangent_right.isVisible()
+    xl, yl = window._tangent_left.getData()
+    assert abs((yl[1] - yl[0]) / (xl[1] - xl[0]) - 0.8) < 1e-6
+    xr, yr = window._tangent_right.getData()
+    assert abs((yr[1] - yr[0]) / (xr[1] - xr[0]) - 0.3) < 1e-6
+    assert not window._chord.isVisible()
+    window._hull_check.setChecked(True)
+    assert window._chord.isVisible()
+    np.testing.assert_allclose(window._chord.getData()[0], [0.3, 0.8], atol=1e-6)
+    assert "h_l = 0.300" in window._kink_label.toPlainText() and "h_h = 0.800" in window._kink_label.toPlainText()
+    h = np.linspace(0.2, 0.9, 71)
+    window.set_fits([{"name": "gen", "kind": "generalized spectrum", "h": h,
+                      "D": np.where((h >= 0.4) & (h <= 0.7), -5.0, 5.0)}])
+    assert "leaves D** on (0.40, 0.70)" in window._kink_label.toPlainText()

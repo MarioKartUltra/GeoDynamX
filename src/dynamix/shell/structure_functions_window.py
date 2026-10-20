@@ -210,7 +210,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.plots["D"].addItem(self._d_line)
         legend = self.plots["D"].addLegend(offset=(10, -10))          # bottom left: the points sit top right
         legend.addItem(self._curves["D"], "tilted means (eqs. 12, 13)")
-        legend.addItem(self._hull, "Legendre of ζ")
+        legend.addItem(self._hull, "D**(h), Legendre of ζ")
         self.readout = QtWidgets.QLabel("")
         self.readout.setProperty("reading", "true")
         self.readout.setWordWrap(True)

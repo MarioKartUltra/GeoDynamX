@@ -617,3 +617,25 @@ def test_legendre_local_keeps_a_kink_the_hull_turns_into_a_chord():
     hull = spectra.legendre_dh(q, tau)
     assert abs(hull["h"].min() - 0.3) < 1e-9 and abs(hull["h"].max() - 0.8) < 1e-9 and hull["D"].min() < -0.5
     assert spectra.legendre_local(q[:4], tau[:4])["h"].size == 0        # fewer than 2m + 1 points
+
+
+def test_kink_interval_reads_the_one_sided_slopes_at_the_kink():
+    """Touchette & Beck 2006 Fig. 3: τ with slope 0.8 below q_c = 0 and 0.3 above has the two
+    one-sided derivatives h_h = 0.8 and h_l = 0.3, the ends of the open interval on which the
+    spectrum lies below its envelope; a smooth τ has no interval."""
+    q = np.arange(-3.0, 3.01, 0.5)
+    tau = np.where(q < 0, 0.8 * q, 0.3 * q)
+    got = spectra.kink_interval(q, tau)
+    assert abs(got["q_c"]) < 1e-9 and abs(got["tau_c"]) < 1e-9
+    assert abs(got["h_h"] - 0.8) < 1e-9 and abs(got["h_l"] - 0.3) < 1e-9
+    assert spectra.kink_interval(q, 0.5 * q - 0.05 * q * q) is None
+
+
+def test_envelope_departure_finds_where_the_generalized_spectrum_leaves_the_envelope():
+    h = np.round(np.linspace(0.0, 1.0, 101), 6)
+    envelope = np.ones_like(h)
+    generalized = np.where((h >= 0.4) & (h <= 0.7), 0.6, 1.0)
+    lo, hi = spectra.envelope_departure(h, envelope, h, generalized)
+    assert abs(lo - 0.4) < 1e-9 and abs(hi - 0.7) < 1e-9
+    assert spectra.envelope_departure(h, envelope, h, envelope) is None
+    assert spectra.envelope_departure(h, envelope, h[::10], generalized[::10]) == (0.4, 0.7)

@@ -220,6 +220,55 @@ def legendre_local(q_list, tau, *, m: int = 2, order: int = 3) -> dict:
     return {"q": qs, "h": hs, "D": qs * hs - taus, "tau_fit": taus}
 
 
+def kink_interval(q_list, tau, *, q_c: "float | None" = None) -> "dict | None":
+    """The nonconcave interval off a kink in τ(q) (Touchette & Beck 2006, Figs. 2 and 3): the
+    two one-sided derivatives at q_c, h_h = τ′(q_c⁻) on the left and h_l = τ′(q_c⁺) on the
+    right, are the ends of the open interval (h_l, h_h) on which the true spectrum lies below
+    its concave envelope D**(h), the envelope's straight chord of slope q_c across it. The kink
+    is the largest of :func:`dynamix.core.nonconcave.kink_flags` unless ``q_c`` names one;
+    ``None`` without a kink. Returns ``{"q_c", "tau_c", "h_l", "h_h"}``, τ_c interpolated at q_c."""
+    from dynamix.core.nonconcave import kink_flags
+    q = np.asarray(q_list, dtype=np.float64)
+    t = np.asarray(tau, dtype=np.float64)
+    finite = np.isfinite(q) & np.isfinite(t)
+    q, t = q[finite], t[finite]
+    order = np.argsort(q)
+    q, t = q[order], t[order]
+    flags = kink_flags(q, t)
+    if not flags:
+        return None
+    if q_c is None:
+        flag = max(flags, key=lambda f: f["jump"])
+    else:
+        flag = min(flags, key=lambda f: abs(f["q"] - float(q_c)))
+    at = float(flag["q"])
+    return {"q_c": at, "tau_c": float(np.interp(at, q, t)), "h_l": float(flag["h_lo"]), "h_h": float(flag["h_hi"])}
+
+
+def envelope_departure(h_env, D_env, h_gen, D_gen, *, tol: float = 0.02) -> "tuple | None":
+    """Where a generalized spectrum lies below the concave envelope: the extremes of the h at
+    which ``D_gen`` falls more than ``tol`` under the envelope read at those h, the envelope's
+    (h_l, h_h) by the other route (:func:`kink_interval` reads it off τ); ``None`` where it
+    never does. The envelope is interpolated on the generalized grid inside its own range."""
+    h_e = np.asarray(h_env, dtype=np.float64)
+    d_e = np.asarray(D_env, dtype=np.float64)
+    ok = np.isfinite(h_e) & np.isfinite(d_e)
+    h_e, d_e = h_e[ok], d_e[ok]
+    order = np.argsort(h_e)
+    h_e, d_e = h_e[order], d_e[order]
+    h_g = np.asarray(h_gen, dtype=np.float64)
+    d_g = np.asarray(D_gen, dtype=np.float64)
+    if h_e.size < 2 or h_g.size == 0:
+        return None
+    inside = np.isfinite(h_g) & np.isfinite(d_g) & (h_g >= h_e.min()) & (h_g <= h_e.max())
+    env_at = np.interp(h_g[inside], h_e, d_e)
+    below = d_g[inside] < env_at - float(tol)
+    if not below.any():
+        return None
+    where = h_g[inside][below]
+    return float(where.min()), float(where.max())
+
+
 def _lnq_side_fit(lnq: np.ndarray, tau: np.ndarray):
     """OLS of tau against ln q for one side; ``(slope, intercept, r2)`` or NaNs below 2 pts."""
     if lnq.size < 2:

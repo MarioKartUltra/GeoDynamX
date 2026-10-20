@@ -197,7 +197,7 @@ class SpectrumWindow(QtWidgets.QDialog):
                 action.toggled.connect(lambda _on, n=name: self._apply_shown(n))
                 self._show_actions[name] = action
                 self._legend_entries.append((items["D"], lambda n=name: n))
-                self._legend_entries.append((items["hull"], lambda n=name: f"{n} (Legendre of τ)"))
+                self._legend_entries.append((items["hull"], lambda n=name: f"{n} (D**, envelope)"))
             items = self._fit_items[name]
             if fit.get("q") is not None:                 # a D(h)-only method (large deviations) has no q
                 q = np.asarray(fit["q"], dtype=np.float64)
@@ -210,6 +210,8 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._apply_shown(name, sync=False)
         self._fits = wanted
         self._sync_legend()
+        if hasattr(self, "_chord"):
+            self._update_kink_geometry()
 
     def _apply_shown(self, name: str, *, sync: bool = True) -> None:
         """One published spectrum's items on or off (its Show action), the hull also behind the
@@ -335,7 +337,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._frame_combo.currentTextChanged.connect(lambda _t: self._recompute())
         controls.addWidget(self._frame_combo)
 
-        self._hull_check = QtWidgets.QCheckBox("Legendre hull (τ)")
+        self._hull_check = QtWidgets.QCheckBox("D**(h), concave envelope (Legendre of τ)")
         self._hull_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self._hull_check)
         self._local_check = QtWidgets.QCheckBox("Legendre (local cubic, xsmurf)")
@@ -530,6 +532,26 @@ class SpectrumWindow(QtWidgets.QDialog):
             # ends would make it span a larger view, without end.
             self._plot.addItem(item, ignoreBounds=True)
         self._plot.getViewBox().sigXRangeChanged.connect(lambda *_a: self._update_tangent())
+        # The window's own fit on the method panels, in the ink, under the published ones.
+        self._own_items = {k: pg.PlotDataItem(pen=pg.mkPen(current().ink, width=1.6), connect="finite")
+                           for k in ("tau", "h", "cq")}
+        for k, item in self._own_items.items():
+            self.method_plots[k].addItem(item)
+        # Touchette & Beck 2006 Figs. 2 and 3: the two one-sided tangents of τ at q_c, slopes h_h
+        # (left) and h_l (right), and on D(h) the envelope's chord of slope q_c across (h_l, h_h),
+        # the open interval on which the spectrum lies below D**.
+        muted = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
+        self._tangent_left = pg.PlotDataItem(pen=muted, connect="finite")
+        self._tangent_right = pg.PlotDataItem(pen=muted, connect="finite")
+        self._kink_label = pg.TextItem(anchor=(0, 1), color=current().ink_muted)
+        for item in (self._tangent_left, self._tangent_right, self._kink_label):
+            item.setVisible(False)
+            self.method_plots["tau"].addItem(item, ignoreBounds=True)
+        self._chord = pg.PlotDataItem(pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine, width=2.4),
+                                      symbol="o", symbolSize=7, symbolPen=None, symbolBrush=current().ink_muted,
+                                      connect="finite")
+        self._chord.setVisible(False)
+        self._plot.addItem(self._chord, ignoreBounds=True)
 
         muted = pg.mkPen(current().ink_muted)
         self._d_line = pg.InfiniteLine(
@@ -578,7 +600,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._kink_bands: list = []
         self._legend_entries = [
             (self._canon_curve, lambda n=self._source: n),           # no self: no cycle
-            (self._hull_curve, lambda: "Legendre hull of fitted τ(q)"),
+            (self._hull_curve, lambda: "D**(h): concave envelope of fitted τ(q)"),
             (self._local_curve, lambda: "Legendre of fitted τ(q), local cubic (xsmurf legendre2)"),
             (self._hist_curve, weak_method(self._hist_curve_name)),
             (self._gh_curve, lambda: "gradient histogram (GH)"),
@@ -745,6 +767,10 @@ class SpectrumWindow(QtWidgets.QDialog):
             D = np.asarray(self._fit["D"])
             finite = np.isfinite(h) & np.isfinite(D)
             self._canon_curve.setData(h[finite], D[finite])
+            q_own = np.asarray(self._fit["q_list"], dtype=np.float64)
+            self._own_items["tau"].setData(q_own, np.asarray(self._fit["tau"], dtype=np.float64))
+            self._own_items["h"].setData(q_own, np.asarray(self._fit["h"], dtype=np.float64))
+            self._own_items["cq"].setData(q_own, spectra.specific_heat(q_own, self._fit["tau"]))
             h_err = np.asarray(self._fit["h_err"])[finite]
             D_err = np.asarray(self._fit["D_err"])[finite]
             self._canon_err.setData(
@@ -768,6 +794,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         for name in self._fit_items:                            # every hull follows the one switch
             self._apply_shown(name, sync=False)
         self._update_tangent()
+        self._update_kink_geometry()
         self._update_grouping()
         self._update_hist_items()
         self._update_ensemble()
@@ -858,6 +885,36 @@ class SpectrumWindow(QtWidgets.QDialog):
             band.setToolTip(f"kink at q* = {k['q']:.2f}: h jumps {k['h_lo']:.2f} → {k['h_hi']:.2f}")
             self._plot.addItem(band)
             self._kink_bands.append(band)
+
+    def _update_kink_geometry(self) -> None:
+        """The two one-sided tangents at q_c on τ(q), the envelope's chord across (h_l, h_h) on
+        D(h) when D** is drawn, and the reading, with where a published generalized spectrum
+        leaves the envelope by the other route."""
+        fit = getattr(self, "_fit", None)
+        got = spectra.kink_interval(fit["q_list"], fit["tau"]) if fit is not None else None
+        for item in (self._tangent_left, self._tangent_right, self._kink_label, self._chord):
+            item.setVisible(got is not None)
+        if got is None:
+            return
+        q = np.asarray(fit["q_list"], dtype=np.float64)
+        span = np.array([np.nanmin(q), np.nanmax(q)])
+        self._tangent_left.setData(span, got["tau_c"] + got["h_h"] * (span - got["q_c"]))
+        self._tangent_right.setData(span, got["tau_c"] + got["h_l"] * (span - got["q_c"]))
+        text = f"q_c = {got['q_c']:g}: h_h = {got['h_h']:.3f} (left slope), h_l = {got['h_l']:.3f} (right slope)"
+        hull = spectra.legendre_dh(q, fit["tau"])
+        if hull["h"].size >= 2 and self._hull_check.isChecked():
+            ends = np.array([got["h_l"], got["h_h"]])
+            self._chord.setData(ends, np.interp(ends, hull["h"], hull["D"]))
+        else:
+            self._chord.setVisible(False)
+        for f in self._fits.values():
+            if f.get("kind") == "generalized spectrum" and f.get("h") is not None and f.get("D") is not None:
+                left = spectra.envelope_departure(hull["h"], hull["D"], f["h"], f["D"])
+                if left is not None:
+                    text += f" · the generalized spectrum leaves D** on ({left[0]:.2f}, {left[1]:.2f})"
+                break
+        self._kink_label.setText(text)
+        self._kink_label.setPos(got["q_c"], got["tau_c"])
 
     def _update_tangent(self) -> None:
         """The tangent at the phase transition off the current fit, drawn across the view."""
