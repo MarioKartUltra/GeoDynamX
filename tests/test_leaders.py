@@ -545,3 +545,25 @@ def test_each_log_cumulant_regresses_on_its_own_range_with_the_cascade_sign():
     assert np.isnan(cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 1, 1)["c"])
     two = cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 2, 1)
     assert two["n"] == 2 and two["c"] == pytest.approx(0.3) and np.isnan(two["sigma"])
+
+
+def test_the_structure_fit_checks_jaffards_sobolev_condition_on_zeta():
+    """Jaffard 1997 Part I (3.6): for q ≥ p > 0 any wavelet scaling function satisfies
+    (ζ(q) − ζ(p)) / (q − p) ≥ (ζ(p) − d) / p (the Sobolev embeddings between the L^{p,s}); a fitted
+    ζ that violates it is numerically wrong whatever produced it. The fit reports the smallest
+    margin over the consecutive positive orders and whether the condition holds."""
+    q = np.array([-1.0, 0.0, 0.5, 1.0, 2.0, 3.0])
+    H = 0.4
+    fbm = L.sobolev_condition(q, q * H, d=2)              # margins 2/p, the smallest at p = 2
+    assert fbm["holds"] and fbm["margin"] == pytest.approx(1.0) and fbm["at_q"] == 2.0
+    # ζ = qH for q ≤ 1 then flat: the chord slope 0 against (ζ(1) − 2)/1 = H − 2 < 0 still holds …
+    assert L.sobolev_condition(q, np.where(q <= 1, q * H, H), d=2)["holds"]
+    # … a ζ that drops faster than the Sobolev line allows fails: ζ(2) = ζ(1) − 3 gives a chord of −3
+    # against (ζ(1) − 2)/1 = −1.6
+    bad = np.where(q <= 1, q * H, q * H - 3.0 * (q - 1))
+    res = L.sobolev_condition(q, bad, d=2)
+    assert not res["holds"] and res["at_q"] == 1.0 and res["margin"] < 0
+    # a structure fit carries it
+    r = L.run_leaders(fbm2d(256, 0.5, seed=1), scale_min=4, scale_max=32, wse_rule="fixed")
+    fit = L.structure_fit(_tables(r)["leaders"], 2, 5)
+    assert fit["sobolev"]["holds"]
