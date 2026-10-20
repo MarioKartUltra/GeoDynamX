@@ -17,6 +17,7 @@ from dynamix.core.orientation import Orientation, Frame
 from dynamix.shell.figure_data import FigureData
 from dynamix.shell.slope_plot import SlopePlot
 from dynamix.shell.theme import current
+from dynamix.shell.plot_zoom import zoom_plot
 
 TOOLS = {
     "distributions": "WTMM distributions",
@@ -193,7 +194,7 @@ class DirectionalFigure(QtWidgets.QWidget):
             self.fitplots.append(w)
             p = w.plot
         else:
-            p = w = pg.PlotWidget(title=title)
+            p = w = zoom_plot(title=title)
             p.setMinimumSize(220, 190)
         p.setBackground(current().ground)
         p.addLegend(offset=(6, 6))

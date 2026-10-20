@@ -94,7 +94,7 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: against every `from dynamix.shell...` import in the package) -- a runtime topological sort
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
-    "gc_guard", "theme", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
+    "gc_guard", "theme", "plot_zoom", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
     "point_import", "units", "settings",
     "window_fit", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "map_view", "inspector", "roi_panel",
@@ -111,6 +111,7 @@ _MODULE_ORDER = (
 _DEPENDS_ON = {
     "gc_guard": (),
     "theme": (),
+    "plot_zoom": (),
     "docks": (),
     "commands": (),
     "controller": (),
@@ -118,13 +119,13 @@ _DEPENDS_ON = {
     "fork_dialog": (),
     "sends_dialog": ("bus_dialog", ),
     "bus_dialog": (),
-    "inpaint_window": (),
-    "components_window": ("theme", ),
+    "inpaint_window": ("plot_zoom", ),
+    "components_window": ("plot_zoom", "theme", ),
     "figure_data": (),
-    "slope_plot": ("theme",),
-    "directional_figures": ("figure_data", "slope_plot", "theme", "window_fit"),
-    "anisotropy_window": ("window_fit", "theme", ),
-    "curve_window": ("window_fit", "theme", ),
+    "slope_plot": ("plot_zoom", "theme",),
+    "directional_figures": ("plot_zoom", "figure_data", "slope_plot", "theme", "window_fit"),
+    "anisotropy_window": ("plot_zoom", "window_fit", "theme", ),
+    "curve_window": ("plot_zoom", "window_fit", "theme", ),
     "layers_panel": ("gc_guard", ),
     "map_view": ("canvas", "units", "wavelet_bar", "theme", ),
     "wavelet_bar": ("canvas", "theme", "units", ),
@@ -198,7 +199,7 @@ _DEPENDS_ON = {
     # for its background/inks (the ``canvas.py`` precedent, unlike skeleton_dialog/profile_dialog
     # whose single-color needs didn't earn the edge) plus ``dynamix.core.spectra``; no other
     # ``dynamix.shell.*`` module.
-    "multifractal_window": ("theme", "window_fit", ),
+    "multifractal_window": ("plot_zoom", "theme", "window_fit", ),
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
     # core.spectra/core.chain_groups/core.microcanonical.
@@ -208,7 +209,7 @@ _DEPENDS_ON = {
     "structure_functions_window": ("theme", "multifractal_window", "window_fit", ),
     "log_cumulants_window": ("theme", "multifractal_window", "window_fit", ),
     "large_deviations_window": ("theme", "multifractal_window", "window_fit", ),
-    "generalized_spectrum_window": ("theme", "window_fit", ),
+    "generalized_spectrum_window": ("plot_zoom", "theme", "window_fit", ),
     # The 3-D surface-source dialog -- pure Qt, self-contained (the
     # topology_panel/transect_panel shape).
     "surface_dialog": (),

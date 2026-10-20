@@ -59,6 +59,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import spectra
 from dynamix.shell.theme import current
+from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported for the fitting windows)
 
 __all__ = ["MultifractalWindow"]
 
@@ -83,15 +84,6 @@ VOCABULARY = {"partition": ("Partition functions", "log₂ Z(q,a)"),
 def vocabulary(kind) -> tuple:
     """``(window title, label of the first family)`` for ``kind`` (partition by default)."""
     return VOCABULARY.get(str(kind or "partition"), VOCABULARY["partition"])
-
-
-class WheelAxisViewBox(pg.ViewBox):
-    """The wheel zooms the x axis; with Shift held, the y axis."""
-
-    def wheelEvent(self, ev, axis=None):
-        if axis is None:
-            axis = 1 if bool(ev.modifiers() & QtCore.Qt.ShiftModifier) else 0
-        super().wheelEvent(ev, axis)
 
 
 def add_zero_lines(plot) -> tuple:
