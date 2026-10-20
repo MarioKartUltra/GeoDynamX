@@ -116,3 +116,54 @@ def test_hline_length_reads_its_line_count_and_range():
     assert HLineLength().data_hints(res, {"min_len": 1, "max_len": 0})["min_len"] == (2.0, 3.0, 2.0)
     # no product / no lines -> honest "run the transform", never a crash
     assert "run the transform" in HLineLength().reading({}, {"min_len": 1, "max_len": 0})
+
+
+def test_hline_runs_equal_the_per_line_walk_and_cost_one_pass():
+    """The ordered runs of every H-line at a scale, split where the walk restarts, computed in
+    one pass over the ordering instead of one numpy split per line (the per-line loop cost a
+    second per run on a 1024² field with 58 000 lines). The reference is the per-line form."""
+    import numpy as np
+    from dynamix.core.hlines import hline_runs
+    from dynamix.core.wtmm_backend import _order_lines
+
+    def reference(ext, shape):
+        x = np.asarray(ext["x"], dtype=np.int64); y = np.asarray(ext["y"], dtype=np.int64)
+        line_id = np.asarray(ext["line_id"], dtype=np.int64)
+        ny, nx = shape
+        grid = np.full(ny * nx, -1, dtype=np.int64); grid[y * nx + x] = np.arange(x.size)
+        order, seg, starts = _order_lines(x, y, line_id, grid, nx, ny)
+        runs = []
+        for li in range(len(starts) - 1):
+            sl = order[starts[li]:starts[li + 1]]
+            if sl.size == 0:
+                continue
+            breaks = np.nonzero(np.diff(seg[starts[li]:starts[li + 1]]))[0] + 1
+            runs.extend(w for w in np.split(sl, breaks) if w.size >= 2)
+        return runs
+
+    rng = np.random.default_rng(3)
+    ny, nx = 96, 128
+    # lines: random walks on the grid, plus singletons and a branching line
+    xs, ys, ids = [], [], []
+    lid = 0
+    for _ in range(40):
+        x0, y0 = rng.integers(2, nx - 2), rng.integers(2, ny - 2)
+        n = rng.integers(2, 30)
+        px, py = [x0], [y0]
+        for _k in range(n - 1):
+            dx, dy = rng.integers(-1, 2), rng.integers(-1, 2)
+            nxp, nyp = min(max(px[-1] + dx, 0), nx - 1), min(max(py[-1] + dy, 0), ny - 1)
+            if (nxp, nyp) != (px[-1], py[-1]):
+                px.append(nxp); py.append(nyp)
+        xs += px; ys += py; ids += [lid] * len(px); lid += 1
+    for _ in range(15):
+        xs.append(int(rng.integers(0, nx))); ys.append(int(rng.integers(0, ny))); ids.append(-1)
+    ext = {"x": np.asarray(xs), "y": np.asarray(ys), "line_id": np.asarray(ids)}
+    # duplicates on the grid: keep the first occurrence of a pixel
+    _, keep = np.unique(ext["y"] * nx + ext["x"], return_index=True)
+    ext = {k: v[np.sort(keep)] for k, v in ext.items()}
+    got, want = hline_runs(ext, (ny, nx)), reference(ext, (ny, nx))
+    assert len(got) == len(want) > 10
+    for a, b in zip(got, want):
+        np.testing.assert_array_equal(a, b)
+    assert hline_runs({"x": [], "y": [], "line_id": []}, (ny, nx)) == []

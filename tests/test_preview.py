@@ -95,3 +95,40 @@ def test_the_preview_notice_goes_when_the_full_stack_lands(qtbot, clean_registry
     qtbot.waitUntil(lambda: win._thread is None, timeout=60000)
     assert any("preview" in m.lower() for m in shown)            # the preview did show
     assert "preview" not in win.statusBar().currentMessage().lower()
+
+
+def test_a_layer_that_last_ran_fast_gets_no_preview(qtbot, clean_registry, monkeypatch):
+    """The finest-scale preview is its own run before the full resolve (0.7 s of a 3.6 s knob
+    change on a 1024² field). A layer with no history gets it; one whose last full compute landed
+    under ``PREVIEW_AFTER_MS`` gets none, since the full result arrives before the preview would
+    have been worth a look; one that ran long gets it back."""
+    from dynamix.devices import register_builtin_devices
+    from dynamix.shell import main_window as mw
+    from dynamix.shell.main_window import DEMO_CHAIN, PREVIEW_AFTER_MS, MainWindow
+
+    register_builtin_devices()
+    previews = []
+
+    class Recording(mw.ResolveWorker):
+        def __init__(self, *args, preview=False, **kwargs):
+            previews.append(preview)
+            super().__init__(*args, preview=preview, **kwargs)
+
+    monkeypatch.setattr(mw, "ResolveWorker", Recording)
+    win = MainWindow(steps=DEMO_CHAIN)
+    qtbot.addWidget(win)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win.load_field(RasterField.load_npz(FIXTURE), FIXTURE)
+    qtbot.waitUntil(lambda: win._thread is None, timeout=60000)
+    assert previews == [True]                                  # no history yet
+    assert win.layer.layer_id in win._last_run_ms              # the landing recorded its time
+    win._last_run_ms[win.layer.layer_id] = PREVIEW_AFTER_MS / 2
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._start_worker()
+    qtbot.waitUntil(lambda: win._thread is None, timeout=60000)
+    assert previews[-1] is False
+    win._last_run_ms[win.layer.layer_id] = PREVIEW_AFTER_MS * 2
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._start_worker()
+    qtbot.waitUntil(lambda: win._thread is None, timeout=60000)
+    assert previews[-1] is True

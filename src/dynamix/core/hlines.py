@@ -28,11 +28,15 @@ def hline_runs(ext: dict, shape) -> list[np.ndarray]:
     grid = np.full(ny * nx, -1, dtype=np.int64)
     grid[y * nx + x] = np.arange(x.size, dtype=np.int64)
     order, seg, starts = _order_lines(x, y, line_id, grid, nx, ny)
-    runs: list[np.ndarray] = []
-    for li in range(len(starts) - 1):
-        sl = order[starts[li]:starts[li + 1]]
-        if sl.size == 0:
-            continue
-        breaks = np.nonzero(np.diff(seg[starts[li]:starts[li + 1]]))[0] + 1
-        runs.extend(walk for walk in np.split(sl, breaks) if walk.size >= 2)   # a line needs an edge
-    return runs
+    order = np.asarray(order, dtype=np.int64)
+    seg = np.asarray(seg)
+    starts = np.asarray(starts, dtype=np.int64)
+    if order.size == 0:
+        return []
+    # One pass over the whole ordering: a run breaks where the walk restarts (``seg`` changes)
+    # and at every line's start; ``np.split`` once on the sorted union, then keep the walks
+    # with an edge. Per line this was three numpy calls times tens of thousands of lines.
+    breaks = np.nonzero(seg[1:] != seg[:-1])[0] + 1
+    cuts = np.unique(np.concatenate([breaks, starts[(starts > 0) & (starts < order.size)]]))
+    bounds = np.concatenate([[0], cuts, [order.size]])
+    return [order[i:j] for i, j in zip(bounds[:-1], bounds[1:]) if j - i >= 2]      # a line needs an edge

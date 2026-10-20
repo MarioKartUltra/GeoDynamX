@@ -191,6 +191,10 @@ _SELECTION_MODE_CYCLE = SELECTION_MODE_CYCLE
 
 #: The status line while a finest-scale preview is on the canvas and the full stack still computes.
 _PREVIEW_NOTICE = "preview (finest scale) — computing full stack…"
+#: A finest-scale preview is its own run before the full resolve (0.7 s of a 3.6 s knob change
+#: on a 1024² field). A layer whose last full compute landed under this gets none: the full
+#: result is on the canvas before the preview would have been worth a look.
+PREVIEW_AFTER_MS = 2000.0
 _PANEL_WIDTH = 220          # left zone's default splitter width -- a first-run
                             # hint only; the boundary drags freely and Settings.splitter_sizes
                             # overrides this the moment the user has ever moved it
@@ -1191,6 +1195,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # never actually redispatched", which is exactly the failure this guards against.
         self._active_pending: str | None = None
         self._t0 = 0.0
+        self._last_run_ms: dict = {}        # layer_id -> its last full compute's wall time
         self._stage = ""                    # last progress stage, for the close-during-compute
         self._closing = False
         self._syncing = False               # re-ranging the transport, not a user scrub
@@ -8697,9 +8702,12 @@ both ``Canvas`` signals report the
         if is_active:
             self._set_transform_states("computing")
         # Finest-scale preview (progressive-compute design §3) only for the ACTIVE layer's own
-        # compute -- the one whose canvas the user is waiting on. A background
-        # arrangement-queue layer gets no preview (nobody is staring at a blank canvas for it).
-        worker = ResolveWorker(layer, field, self.cache, layer.source_id, preview=is_active,
+        # compute -- the one whose canvas the user is waiting on -- and only when its last full
+        # compute took long enough for a preview to be worth its own run (``PREVIEW_AFTER_MS``).
+        # A background arrangement-queue layer gets no preview (nobody is staring at a blank
+        # canvas for it).
+        worker = ResolveWorker(layer, field, self.cache, layer.source_id,
+                               preview=is_active and self._wants_preview(layer),
                                prelude=prelude, level=shown_level(layer))
         # BOUND METHODS ONLY (worker.py's documented trap): Qt can only place a call on the GUI
         # thread if the receiver is a QObject it can ask for a thread affinity.
@@ -8712,6 +8720,10 @@ both ``Canvas`` signals report the
         self._thread = worker.start()
         self._stopped_sig = None              # an explicit dispatch reopens the stop gate
         self._stop_btn.setVisible(True)
+
+    def _wants_preview(self, layer) -> bool:
+        last = self._last_run_ms.get(layer.layer_id)
+        return last is None or last >= PREVIEW_AFTER_MS
 
     def _set_transform_states(self, state: str) -> None:
         if self.strips is None:
@@ -8807,6 +8819,7 @@ both ``Canvas`` signals report the
         # can re-resolve against it (committed transforms + live filters) without a recompute.
         self._committed_chain = self._dispatched_chain
         elapsed_ms = (time.perf_counter() - self._t0) * 1000.0
+        self._last_run_ms[dispatched_layer_id] = elapsed_ms
         self._set_compute_reading(f"{elapsed_ms:.0f} ms")
         if not isinstance(renderable.result, dict):
             # A chain ending on a field-producing transform (noise) resolves to a FIELD, not a

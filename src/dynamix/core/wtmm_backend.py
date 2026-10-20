@@ -532,39 +532,14 @@ TIE_RULES = ("asymmetric", "strict", "keep_both")
 _NEAREST_AXIS = 0.9995
 
 
-def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
-                       radius: int = 0, grid=None, real_block=None, real_origin=(0, 0),
-                       tie_rule: str = "asymmetric") -> dict:
-    """Single-scale NMS modulus maxima -- the core shared by both entry points.
-
-    :meth:`PythonWTMMBackend.extrema2d` calls this once per scale, and
-    :meth:`_XsmShim.wtmm2d` calls it once for the single scale it is handed, so
-    the xsmurf-shim path and the public 2D pipeline detect extrema with the
-    exact same code (see the ``extrema2d`` docstring for the algorithm).
-
-    Parameters
-    ----------
-    mod, arg : (ny, nx) array
-        Wavelet-gradient modulus and angle (rad) at ONE scale.
-    thresh : float
-        Fraction of ``mod.max()`` below which extrema are dropped.
-    invalid : (ny, nx) bool array or None
-        Originally-NaN mask; when given (and non-empty) it is dilated by
-        ``radius`` pixels (8-connectivity) and the covered extrema are dropped.
-    radius : int
-        Dilation radius in pixels, normally ``ceil(scale)``.
-    grid : (2, ny, nx) float array or None
-        Precomputed ``np.mgrid`` row/column coordinates; built on demand when
-        ``None`` (``extrema2d`` builds it once and reuses it across scales).
-    tie_rule : str
-        One of :data:`TIE_RULES`.
-
-    Returns
-    -------
-    dict
-        ``{"x", "y" (int64), "mod", "arg" (float64), "line_id" (int64)}``.
-    """
-    from scipy.ndimage import binary_dilation, label, map_coordinates
+def _nms_peaks_scale(mod, arg, *, invalid=None, radius: int = 0, grid=None, real_block=None,
+                     real_origin=(0, 0), tie_rule: str = "asymmetric") -> tuple:
+    """The threshold-free half of :func:`_nms_extrema_scale`: the NMS peak mask with the
+    invalid dilation and the data block applied, and the modulus maximum the threshold is
+    a fraction of. The two interpolations per pixel here are the extrema stage's cost, so a
+    threshold change keeps these in the stage store and only re-thresholds and re-labels
+    them (:func:`_extrema_from_peaks`)."""
+    from scipy.ndimage import binary_dilation, map_coordinates
 
     if tie_rule not in TIE_RULES:
         raise ValueError(f"unknown tie_rule {tie_rule!r}; expected one of {TIE_RULES}")
@@ -606,12 +581,11 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
         peak = (m > fore) & (m >= back)
     else:
         peak = (m > fore) & (m > back)
-    mask = peak & (m >= thresh * mmax)
     if real_block is not None:
-        mask[:r0, :] = False
-        mask[r0 + rows:, :] = False
-        mask[:, :c0] = False
-        mask[:, c0 + cols:] = False
+        peak[:r0, :] = False
+        peak[r0 + rows:, :] = False
+        peak[:, :c0] = False
+        peak[:, c0 + cols:] = False
 
     if invalid is not None and invalid.any():
         # 8-connectivity (full 3x3) structuring element so each iteration grows
@@ -621,8 +595,17 @@ def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
         # diamond (L1) footprint scipy's default cross gives.
         dilated = (binary_dilation(invalid, structure=np.ones((3, 3)), iterations=radius)
                    if radius > 0 else invalid)
-        mask &= ~dilated
+        peak &= ~dilated
 
+    return peak, float(mmax)
+
+
+def _extrema_from_peaks(mod, arg, peak, mmax: float, thresh: float) -> dict:
+    """The thresholded, labelled extrema of one scale from its detected peaks."""
+    from scipy.ndimage import label
+    m = np.asarray(mod, dtype=np.float64)
+    a = np.asarray(arg, dtype=np.float64)
+    mask = peak & (m >= thresh * mmax)
     labels, n_labels = label(mask, structure=np.ones((3, 3)))
     y_idx, x_idx = np.nonzero(mask)
     line_id = labels[y_idx, x_idx].astype(np.int64)
@@ -788,6 +771,44 @@ class _XsmShim:
         from dynamix.core.chain_stats import _chain_ols_holder
 
         return [{"h": _chain_ols_holder(ch)} for ch in chains]
+
+
+def _nms_extrema_scale(mod, arg, *, thresh: float = 1e-3, invalid=None,
+                       radius: int = 0, grid=None, real_block=None, real_origin=(0, 0),
+                       tie_rule: str = "asymmetric") -> dict:
+    """Single-scale NMS modulus maxima -- the core shared by both entry points.
+
+    :meth:`PythonWTMMBackend.extrema2d` calls this once per scale, and
+    :meth:`_XsmShim.wtmm2d` calls it once for the single scale it is handed, so
+    the xsmurf-shim path and the public 2D pipeline detect extrema with the
+    exact same code (see the ``extrema2d`` docstring for the algorithm).
+
+    Parameters
+    ----------
+    mod, arg : (ny, nx) array
+        Wavelet-gradient modulus and angle (rad) at ONE scale.
+    thresh : float
+        Fraction of ``mod.max()`` below which extrema are dropped.
+    invalid : (ny, nx) bool array or None
+        Originally-NaN mask; when given (and non-empty) it is dilated by
+        ``radius`` pixels (8-connectivity) and the covered extrema are dropped.
+    radius : int
+        Dilation radius in pixels, normally ``ceil(scale)``.
+    grid : (2, ny, nx) float array or None
+        Precomputed ``np.mgrid`` row/column coordinates; built on demand when
+        ``None`` (``extrema2d`` builds it once and reuses it across scales).
+    tie_rule : str
+        One of :data:`TIE_RULES`.
+
+    Returns
+    -------
+    dict
+        ``{"x", "y" (int64), "mod", "arg" (float64), "line_id" (int64)}``.
+    """
+    peak, mmax = _nms_peaks_scale(mod, arg, invalid=invalid, radius=radius, grid=grid,
+                                  real_block=real_block, real_origin=real_origin,
+                                  tie_rule=tie_rule)
+    return _extrema_from_peaks(mod, arg, peak, mmax, thresh)
 
 
 def _load_wtmm_ebsd_module(name: str):
@@ -1094,8 +1115,9 @@ class PythonWTMMBackend:
 
     def extrema2d(self, cwt: dict, scales, *, thresh: float = 1e-3,
                    field: "np.ndarray | None" = None, real_block=None, real_origin=(0, 0),
-                   tie_rule: str = "asymmetric") -> list:
-        """Per-scale non-maximum-suppression (NMS) modulus maxima.
+                   tie_rule: str = "asymmetric", peaks=None) -> list:
+        """Per-scale non-maximum-suppression (NMS) modulus maxima. With ``peaks`` (what
+        :meth:`peaks2d` returned for the same stack) only the threshold and the labelling run.
 
         For each scale, a pixel is kept when its modulus beats its
         bilinearly-interpolated neighbours one step along the (unit)
@@ -1155,11 +1177,30 @@ class PythonWTMMBackend:
 
         # The per-scale detection itself lives in `_nms_extrema_scale`, which the
         # `_XsmShim.wtmm2d` single-scale entry point shares verbatim.
+        if peaks is not None:
+            return [_extrema_from_peaks(mod_stack[s], arg_stack[s], peak, mmax, thresh)
+                    for s, (peak, mmax) in enumerate(peaks)]
         return [
             _nms_extrema_scale(mod_stack[s], arg_stack[s], thresh=thresh,
                                 invalid=invalid, radius=int(np.ceil(scales[s])),
                                 grid=grid, real_block=real_block, real_origin=real_origin,
                                 tie_rule=tie_rule)
+            for s in range(n_sc)
+        ]
+
+    def peaks2d(self, cwt: dict, scales, *, field: "np.ndarray | None" = None, real_block=None,
+                real_origin=(0, 0), tie_rule: str = "asymmetric") -> list:
+        """The threshold-free half of :meth:`extrema2d`: per scale the ``(peak mask, modulus
+        maximum)`` pair a threshold scrub keeps in the stage store."""
+        mod_stack = np.asarray(cwt["mod"], dtype=np.float64)
+        arg_stack = np.asarray(cwt["arg"], dtype=np.float64)
+        n_sc, ny, nx = mod_stack.shape
+        invalid = None if field is None else ~np.isfinite(np.asarray(field))
+        grid = np.mgrid[0:ny, 0:nx].astype(np.float64)
+        return [
+            _nms_peaks_scale(mod_stack[s], arg_stack[s], invalid=invalid,
+                             radius=int(np.ceil(scales[s])), grid=grid, real_block=real_block,
+                             real_origin=real_origin, tie_rule=tie_rule)
             for s in range(n_sc)
         ]
 
@@ -2426,6 +2467,33 @@ def _apply_fracint2d(cwt: dict, scales, fracint_alpha: float) -> dict:
     return dict(cwt, mod=lifted)
 
 
+def _freeze(value) -> None:
+    """Mark every array inside a stage result read-only, in place: the numbers become the
+    store's, and an in-place write downstream raises instead of corrupting the next hit."""
+    if isinstance(value, np.ndarray):
+        value.setflags(write=False)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _freeze(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _freeze(v)
+
+
+def _own_structure(value):
+    """A stage result handed out of the in-memory store: its dicts, lists and tuples copied (a
+    downstream annotation or ``pop`` edits its own structure), its frozen arrays shared. A
+    deep copy of the maxima and chains cost half a second per knob change on a 1024² field;
+    this costs the containers of some hundred thousand chain entries, a few hundredths."""
+    if isinstance(value, dict):
+        return {k: _own_structure(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_own_structure(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_own_structure(v) for v in value)
+    return value
+
+
 def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, load_fn,
                   cache_hits, progress, *, backend, stage_cache, ck):
     """One cacheable stage behind both the in-memory store (``stage_cache``, keyed on the
@@ -2434,8 +2502,6 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
     scalar pipeline and the CWT leaders' stage runner (:func:`run_cwt_stage`)."""
     # The engine owns the store. The backend/precision are part of this in-memory
     # identity even though the historical on-disk format predates those settings.
-    import copy
-
     memory_key = None
     if stage_cache is not None:
         from dynamix.core import fft_policy
@@ -2450,9 +2516,10 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
             cache_hits.add(stage)
             if progress is not None:
                 progress(stage, 1.0)
-            # Line ordering and output annotations can mutate maxima/chains. Keep
-            # their saved stages isolated; the large CWT arrays are only read.
-            return result if stage == "cwt" else copy.deepcopy(result)
+            # Line ordering and output annotations edit the maxima's and chains' dicts: the
+            # store's structure stays its own, the arrays are shared read-only; the large CWT
+            # arrays are only read.
+            return result if stage == "cwt" else _own_structure(result)
 
     def checked_compute():
         result = compute_fn()
@@ -2465,9 +2532,13 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
                             save_fn, load_fn, cache_hits, progress)
     ck()
     if memory_key is not None:
-        stage_cache[memory_key] = result if stage == "cwt" else copy.deepcopy(result)
+        if stage != "cwt":
+            _freeze(result)
+        stage_cache[memory_key] = result
         if hasattr(stage_cache, "set_context"):
             stage_cache.set_context(memory_key, stage_context)
+        if stage != "cwt":
+            result = _own_structure(result)
     return result
 
 
@@ -2583,9 +2654,20 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
                 from dynamix.core import edges as _edges
                 found = _edges.drop_outside(found, real_block, real_origin)
             return found
+        peaks = None
+        if stage_cache is not None and hasattr(backend, "peaks2d"):
+            # The detection is the stage's cost and the threshold is not in it: a threshold
+            # scrub keeps the detected peaks in the store and re-thresholds them.
+            peaks_key = {k: v for k, v in extrema_key.items() if k not in ("thresh", "interpolate")}
+            peaks = _cached_stage(
+                "peaks", peaks_key, None, field.name,
+                lambda: backend.peaks2d(cwt, scales, field=field.values, real_block=real_block,
+                                        real_origin=real_origin, tie_rule=resolved["tie_rule"]),
+                None, None, cache_hits, progress, backend=backend, stage_cache=stage_cache,
+                ck=_ck)
         ext = backend.extrema2d(cwt, scales, thresh=resolved["thresh"], field=field.values,
                                 real_block=real_block, real_origin=real_origin,
-                                tie_rule=resolved["tie_rule"])
+                                tie_rule=resolved["tie_rule"], peaks=peaks)
         if resolved["interpolate"]:
             # Parabolic refinement along the gradient (dynamix.core.subpixel): the refined
             # MODULUS replaces ``mod`` -- it feeds chaining and Z(q,a), the xsmurf follow /
