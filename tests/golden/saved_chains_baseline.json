@@ -156,6 +156,12 @@
     1735.1408313810825
    ]
   },
+  "cwt_leaders": {
+   "chains": 0,
+   "h_map": 0.0,
+   "levels": [],
+   "mod": []
+  },
   "daf_smoothing": {
    "field": -94127.6921793688
   },

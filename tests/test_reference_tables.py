@@ -116,7 +116,7 @@ def test_the_outputs_table_lists_the_band_and_per_level_rows(make_tables, builti
         assert rf"\texttt{{{name}}}" in text, name
     assert r"\texttt{snapshots}" not in text
     per_level = [line for line in text.splitlines() if line.endswith("& yes \\\\")]
-    assert len(per_level) == 23                 # mz_edges 2, dwt2d 4, band_recon 3, holder 4, wavelet_ridge 3,
+    assert len(per_level) == 25                 # cwt_leaders 2, mz_edges 2, dwt2d 4, band_recon 3, holder 4, wavelet_ridge 3,
     #                                           # wavelet_leaders 4
 
 

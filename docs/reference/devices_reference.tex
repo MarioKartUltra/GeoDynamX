@@ -971,6 +971,35 @@ oscillation ratio $\log_2(\ell/\ell^w)$ (0 at a cusp, large at a chirp when the 
 $3\lambda$). The record carries the bank, the levels, $\gamma$, $p$, the window schedule, the
 edge used and the border, the registration, the counts and the admissibility.
 
+\subsection{\tool{CWT leaders}{cwt\_leaders} --- Jaffard's leaders on the WTMM's continuous transform}
+
+The leader at a point and a scale $a$ is the supremum of the lifted modulus over the scale-space
+cylinder: every finer scale, within the disc of radius $R(a) = k\,c\,a$, where $c$ is the analysing
+kernel's 99\,\% energy radius per unit scale (\texttt{energy}, measured once from the kernel;
+\texttt{radius\_k} the multiple, 1 by default). It is the continuous form of the $3\lambda$ leader
+of the DWT pyramid (Jaffard 1994, Lemma 1; Jaffard, Lashermes \& Abry 2006), positive everywhere, so
+negative moments are finite, and it covers the plane, not the maxima skeleton. The front end is the
+WTMM's own: the smoother (\texttt{wavelet} and its knobs), the ladder (\texttt{n\_oct},
+\texttt{n\_voice}, one voice per octave by default, \texttt{a\_min}), the lift
+\texttt{fracint\_alpha} applied to each scale's modulus before the supremum, and the edge handling,
+so the transform stage is shared with \tool{WTMM 2-D}{wtmm2d}. \texttt{operator} chooses the
+analysing kernel: the gradient of the smoother (the WTMM's modulus, the shared stage) or the
+smoother itself, which makes the Mexican smoothers the even wavelets $g_2$ and $q$-$g_2$ and the
+Gaussians zero-order mass kernels for nonnegative fields. \texttt{measure} chooses what is
+covered: every pixel (the leaders) or the WTMM's maxima only, Jaffard's repair of the
+wavelet-maxima method, one maximum per cell of radius $R(a)$, read from the shared extrema stage
+with the WTMM's \texttt{thresh}, \texttt{detector}, \texttt{tie\_rule} and \texttt{interpolate}.
+\texttt{sup\_from} names the finest octave admitted to the supremum, a check that fine-scale noise
+does not propagate up. \texttt{p} adds the p-leaders, the $p$-mean over the same cylinder (0 turns
+them off). No fit happens here: the sample sets (every valid pixel; \texttt{sample\_stride} thins
+them to a lattice for very large fields, with the independent-disc count $N_{\mathrm{eff}} =
+A/\pi R^2$ carried for the error bars) go to the Structure functions, Log-cumulants and Large
+deviations windows, and the h-map is each pixel's slope of $\log_2 L$ against $\log_2 a$ over the
+fit range (\texttt{fit\_min}, \texttt{fit\_max}; 0 is the ladder minus the scales whose disc is
+under 3 px), which also seeds the windows. Lazy outputs \texttt{leader} and \texttt{p\_leader}
+show $\log_2$ of either at the scale shown, with its radius in the reading; \texttt{show} picks
+the raster drawn.
+
 \subsection{\tool{Directional scaling functions}{directional\_scaling} --- the directional formalism on the hyperbolic DWT}
 The directional thermodynamic formalism of Ben Slimane et al.\ 2019 on the hyperbolic (fully
 separable) wavelet coefficients of a band: the anisotropic scaling function $\eta_\alpha(p)$ on an

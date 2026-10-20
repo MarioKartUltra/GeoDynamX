@@ -20,7 +20,7 @@ __all__ = ["has_sample_sets", "sample_sets"]
 
 #: Set name in the ``Samples`` contract -> its label on a menu.
 LABELS = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE leaders",
-          "coefficients": "coefficients"}
+          "coefficients": "coefficients", "cwt-leaders": "CWT leaders", "cwt-p-leaders": "CWT p-leaders"}
 
 
 def _flat(values, valid) -> list:
