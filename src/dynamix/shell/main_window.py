@@ -2865,10 +2865,20 @@ off / z from this layer's own values / z from another loaded
         self._sync_composite_panel()
         self._refresh_panel_relevance()
 
-    def _default_composite(self, nc: int) -> dict:
-        return {"r": 0 if nc >= 1 else None, "g": 1 if nc >= 2 else None,
+    def _default_composite(self, nc: int, dtype=None) -> dict:
+        """The first three bands as R, G, B. A stack whose file stores unsigned integers (a
+        colour picture) opens at its own full range, so it reads as the file shows it; any
+        other stack at the per-band percent stretch."""
+        spec = {"r": 0 if nc >= 1 else None, "g": 1 if nc >= 2 else None,
                 "b": 2 if nc >= 3 else None, "solo": [], "mute": [],
                 "stretch": "percent", "stretch_pct": 2.0, "stretch_k": 2.0}
+        try:
+            kind = np.dtype(dtype).kind if dtype else ""
+        except TypeError:
+            kind = ""
+        if kind == "u":
+            spec.update(stretch="linear", range=[0, int(np.iinfo(np.dtype(dtype)).max)])
+        return spec
 
     def _sync_composite_panel(self, field=None) -> None:
         """Show the Composite section iff the displayed field (``field``, default the active
@@ -2892,9 +2902,9 @@ off / z from this layer's own values / z from another loaded
                 spec = json.loads(raw)
             except ValueError:
                 spec = None
-        if not isinstance(spec, dict):
-            spec = self._default_composite(nc)
         prov = getattr(field, "provenance", {}) or {}
+        if not isinstance(spec, dict):
+            spec = self._default_composite(nc, prov.get("dtype"))
         if prov.get("bus"):
             names = [" · ".join(str(n).split(" · ")[-2:]) for n in prov.get("bands") or []]
         else:
@@ -3922,12 +3932,27 @@ both ``Canvas`` signals report the
         self.load_field(RasterField.from_file(path), path, inert=True)
         self.layer.name = name                  # load_field names a layer by its file's stem
         self.layer_list.set_layer_name(self.layer.layer_id, name)
+        self._inherit_composite(origin_layer_id)
         if vectors:
             self._set_recipe(["derived_vectors"], [{"_path": str(path)}])
             self.layer.chain = self._chain()
             self._snapshot_recipe()
             self._build_strips()
             self._start_worker()
+
+    def _inherit_composite(self, origin_layer_id: "int | None") -> None:
+        """A derivative forked with every band of its origin draws with the origin's mix: the
+        ``ui.composite`` tag rides over when the band counts agree, so a refined picture opens
+        looking like the picture it came from."""
+        origin = next((l for l in self.project.layers if l.layer_id == origin_layer_id), None)
+        raw = origin.tags.get("ui.composite") if origin is not None else None
+        if not raw or self.layer is None:
+            return
+        mine = np.asarray(getattr(self._fields.get(self.layer.layer_id, self.field), "values", np.empty(0)))
+        theirs = np.asarray(getattr(self._fields.get(origin.layer_id), "values", np.empty(0)))
+        if mine.ndim == 3 and theirs.ndim == 3 and mine.shape[-1] == theirs.shape[-1]:
+            self.layer.tags["ui.composite"] = raw
+            self._sync_composite_panel()
 
     def _on_save_derivative(self, source_id: str) -> None:
         """"Save derivative as…" on a TEMPORARY derivative: its file is copied where the user
@@ -10102,7 +10127,8 @@ both ``Canvas`` signals report the
             spec = json.loads(raw) if raw else None
         except ValueError:
             spec = None
-        return spec if isinstance(spec, dict) else self._default_composite(int(values.shape[-1]))
+        return spec if isinstance(spec, dict) else self._default_composite(
+            int(values.shape[-1]), (getattr(field, "provenance", None) or {}).get("dtype"))
 
     def _bus_plane(self, layer, n):
         """Channel ``n`` of a bus layer as a 2-D field, or ``None`` until its sends can be

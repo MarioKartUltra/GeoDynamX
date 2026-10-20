@@ -147,3 +147,61 @@ def test_the_composite_stretch_is_saved_with_the_layer_and_is_not_the_display_on
     stored = json.loads(master.tags["ui.composite"])
     assert stored["stretch"] == "bipolar" and win.canvas._composite["stretch"] == "bipolar"
     assert master.tags.get("ui.stretch") != "bipolar"       # the Display control is untouched
+
+
+def test_a_byte_picture_opens_at_its_own_range_and_keeps_it_through_the_mixer(window):
+    """A stack whose file stores bytes (a colour picture) composites at linear 0..255, so it
+    reads as the file shows it: the bytes come back within a count. The mixer's round trip
+    keeps that range."""
+    import json
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    win = window
+    win._start_worker = lambda: None
+    rgb = np.zeros((6, 7, 3))
+    rgb[..., 0] = np.linspace(10, 200, 7)[None, :]
+    rgb[..., 1] = 90.0
+    rgb[..., 2] = np.linspace(255, 0, 6)[:, None]
+    f = RasterField(name="picture", values=rgb, frame=LocalFrame(), x_axis=np.arange(7.0),
+                    y_axis=np.arange(6.0), provenance={"bands": ["R", "G", "B"], "dtype": "uint8"})
+    win.load_field(f, "mem:picture")
+    spec = win.canvas._composite
+    assert spec["stretch"] == "linear" and spec["range"] == [0, 255]
+    shown = _composite_rgba(rgb, spec).transpose(1, 0, 2)[..., :3].astype(float)
+    assert np.abs(shown - rgb).max() <= 1.0
+    win.composite_panel._rows[1][1].setChecked(True)            # solo G through the mixer
+    stored = json.loads(win.layer.tags["ui.composite"])
+    assert stored["solo"] == [1] and stored["range"] == [0, 255]
+    other = RasterField(name="floats", values=rgb / 255.0, frame=LocalFrame(), x_axis=np.arange(7.0),
+                        y_axis=np.arange(6.0), provenance={"bands": ["a", "b", "c"]})
+    win.load_field(other, "mem:floats")
+    assert win.canvas._composite["stretch"] == "percent" and "range" not in win.canvas._composite
+
+
+def test_a_derivative_with_every_band_inherits_the_origins_mix(window, tmp_path):
+    """A refined picture forked from a stack opens drawing with the stack's own composite."""
+    import json
+    from dynamix.core.derivative import write_derivative
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+
+    win = window
+    win._start_worker = lambda: None
+    rgb = np.random.default_rng(2).random((6, 7, 3)) * 255.0
+    f = RasterField(name="picture", values=rgb, frame=LocalFrame(), x_axis=np.arange(7.0),
+                    y_axis=np.arange(6.0), provenance={"bands": ["R", "G", "B"], "dtype": "uint8"})
+    win.load_field(f, "mem:picture")
+    origin = win.layer
+    win.composite_panel._rows[2][2].setChecked(True)            # mute B on the origin
+    mix = win.layer.tags["ui.composite"]
+    assert json.loads(mix)["mute"] == [2]
+    path = str(tmp_path / "refined.npz")
+    write_derivative(path, bands=[("R", rgb[..., 0]), ("G", rgb[..., 1]), ("B", rgb[..., 2])],
+                     frame=f.frame, x_axis=f.x_axis, y_axis=f.y_axis, name="refined",
+                     provenance={"derived": {"from_layer": "picture"}})
+    win._open_derivative(path, name="refined", temporary=True, nest_under=None, vectors=False,
+                         origin_layer_id=origin.layer_id)
+    assert win.layer is not origin
+    assert win.layer.tags["ui.composite"] == mix
+    assert win.canvas._composite["mute"] == [2]

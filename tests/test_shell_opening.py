@@ -379,3 +379,34 @@ def test_a_colour_image_opens_as_a_band_stack_and_a_grey_one_as_a_field(tmp_path
     Image.fromarray(np.full((8, 10), 7, dtype=np.uint8)).save(tmp_path / "grey.png")
     grey = open_field(str(tmp_path / "grey.png"))
     assert grey.values.shape == (8, 10) and grey.is_scalar and "bands" not in grey.provenance
+
+
+def test_a_colour_image_opens_as_a_three_band_byte_stack(tmp_path):
+    """A PNG, a JPEG or a plain 3-band TIFF with no metadata keeps its three channels as a band
+    stack named for them, and records the byte sample type the Composite mixer opens at; a
+    greyscale image stays a single field."""
+    from PIL import Image
+
+    rgb = np.zeros((20, 30, 3), dtype=np.uint8)
+    rgb[..., 0] = np.linspace(0, 255, 30)[None, :]
+    rgb[..., 1] = 90
+    rgb[..., 2] = np.linspace(255, 0, 20)[:, None]
+    for ext in ("png", "jpg"):
+        path = tmp_path / f"colour.{ext}"
+        Image.fromarray(rgb, "RGB").save(path)
+        field = open_field(str(path))
+        assert np.asarray(field.values).shape == (20, 30, 3)
+        assert field.provenance["bands"] == ["R", "G", "B"] and field.provenance["dtype"] == "uint8"
+    np.testing.assert_array_equal(open_field(str(tmp_path / "colour.png")).values, rgb.astype(float))
+    tif = tmp_path / "colour.tif"
+    with rasterio.open(tif, "w", driver="GTiff", height=20, width=30, count=3, dtype="uint8",
+                       photometric="RGB") as dst:
+        dst.write(np.moveaxis(rgb, -1, 0))
+    field = open_field(str(tif))
+    assert np.asarray(field.values).shape == (20, 30, 3)
+    assert field.provenance["bands"] == ["red", "green", "blue"] and field.provenance["dtype"] == "uint8"
+    np.testing.assert_array_equal(field.values, rgb.astype(float))
+    grey = tmp_path / "grey.png"
+    Image.fromarray(rgb[..., 1], "L").save(grey)
+    field = open_field(str(grey))
+    assert np.asarray(field.values).shape == (20, 30) and field.provenance["dtype"] == "uint8"

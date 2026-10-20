@@ -121,3 +121,11 @@ def test_bipolar_keeps_an_all_negative_field_below_mid_and_all_zero_at_mid():
     out = stretch(np.array([-3.0, -2.0, -1.0]), "bipolar", percent=0.0)
     assert np.all(out <= 0.5) and out[0] == 0.0
     assert np.all(stretch(np.zeros(4), "bipolar") == 0.5)
+
+
+def test_linear_honours_explicit_limits():
+    """``limits`` fix the linear range (a byte image's own 0..255), so a picture whose channels do
+    not reach the ends is not stretched to them."""
+    v = np.array([10.0, 128.0, 200.0])
+    np.testing.assert_allclose(stretch(v, "linear", limits=(0, 255)), v / 255.0)
+    np.testing.assert_allclose(stretch(v, "linear"), [0.0, 118.0 / 190.0, 1.0])

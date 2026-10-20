@@ -233,6 +233,9 @@ def open_field(path: str, *, max_pixels: int = 64_000_000, window_size: int = 40
         field = RasterField.from_file(resolved, components=True)
         if np.ndim(field.values) == 3:
             field.provenance["bands"] = ["R", "G", "B"]
+        dtype = _image_dtype(resolved)
+        if dtype:
+            field.provenance["dtype"] = dtype
         return field
     return RasterField.from_file(resolved)
 
@@ -269,6 +272,24 @@ def _grid_picture_if_too_big(resolved: str, subdataset, max_pixels: int):
     if count > 1:
         pic.provenance["bands"] = count            # picture shows band 1 of the stack
     return pic
+
+
+def _image_dtype(path) -> "str | None":
+    """The sample type a plain image stores, from its header alone: ``uint8`` for the 8-bit
+    modes, ``uint16`` for 16-bit greys, None when Pillow cannot say. The Composite mixer opens a
+    byte picture at its own 0..255."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            mode = im.mode
+    except Exception:
+        return None
+    if mode in ("1", "L", "P", "RGB", "RGBA", "LA", "CMYK", "YCbCr"):
+        return "uint8"
+    if mode in ("I;16", "I;16B", "I;16L"):
+        return "uint16"
+    return None
 
 
 def _stamp_source(field, resolved: str, height: int, width: int):

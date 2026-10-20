@@ -7,19 +7,29 @@ import dataclasses
 
 import numpy as np
 
-from dynamix.model.contracts import COMPONENTS, FIELD, RECEIVED
+from dynamix.model.contracts import COMPONENTS, FIELD, RECEIVED, STACK
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 from dynamix.model.origin import FIRST_PARTY
 
 
-def _values(field):
+def _values(field, *, stack=False):
+    """The field's finite values: 2-D, or ``(ny, nx, nc)`` too when ``stack`` (a tool that
+    works band by band)."""
     if isinstance(field, dict) or not hasattr(field, "values"):
         raise ValueError("this preparation tool needs a field before the analysing transform")
     x = np.asarray(field.values, dtype=np.float64)
-    if x.ndim != 2 or not np.isfinite(x).all():
-        raise ValueError("a finite single-band field is required; fill nodata explicitly first")
+    if x.ndim not in ((2, 3) if stack else (2,)) or not np.isfinite(x).all():
+        raise ValueError(("a finite field or band stack" if stack else "a finite single-band field")
+                         + " is required; fill nodata explicitly first")
     return x
+
+
+def _per_band(x, fn):
+    """``fn`` over a 2-D array, or over each band of ``(ny, nx, nc)`` with the results stacked."""
+    if x.ndim == 2:
+        return fn(x)
+    return np.stack([fn(x[..., b]) for b in range(x.shape[-1])], axis=-1)
 
 
 def _clone(field, values, method, record):
@@ -49,7 +59,7 @@ class DyadicInterpolation(_Key):
     label = "Dyadic interpolation (DD4)"
     origin = dataclasses.replace(FIRST_PARTY, citation="Deslauriers & Dubuc, Interpolation dyadique, EPM/RT-87/22 (1987), classical four-point scheme")
     families = ("Data preparation",)
-    consumes, produces = ((FIELD,),), (RECEIVED,)
+    consumes, produces = ((FIELD,), (STACK,)), (RECEIVED,)
     capabilities = frozenset({"StripExtras"})
     params = (
         Param("levels", ParamKind.INT, default=1, min=1, max=8, soft_max=3, label="Refinements"),
@@ -59,16 +69,16 @@ class DyadicInterpolation(_Key):
     def compute(self, field, params, *, progress=None):
         from dynamix.core.interpolating import refine
 
-        x = _values(field)
+        x = _values(field, stack=True)
         if field.provenance.get("edges.filled"):
             raise ValueError("interpolate the native field before Periodic extension")
         axes = [np.asarray(field.x_axis, dtype=float), np.asarray(field.y_axis, dtype=float)]
         for a in axes:
             if a.size < 2 or not np.allclose(np.diff(a), a[1] - a[0], rtol=1e-8, atol=1e-12) or a[1] == a[0]:
                 raise ValueError("DD interpolation requires uniformly spaced source axes")
-        y = refine(x, params["levels"], edge=params["edge"])
+        y = _per_band(x, lambda band: refine(band, params["levels"], edge=params["edge"]))
         factor = 2 ** int(params["levels"])
-        record = {**params, "factor": factor, "source_shape": list(x.shape),
+        record = {**params, "factor": factor, "source_shape": list(x.shape[:2]),
                   "source_spacing": [float(a[1] - a[0]) for a in axes],
                   "retained_input_nodes": "row and column indices divisible by factor",
                   "derived_sampling": True}
@@ -99,7 +109,7 @@ class DAFSmoothing(_Key):
     label = "DAF low-pass"
     origin = dataclasses.replace(FIRST_PARTY, citation="Hermite DAF gain; Hoffman et al. (2000), Eq. 5; US6847737")
     families = ("Data preparation",)
-    consumes, produces = ((FIELD,),), (RECEIVED,)
+    consumes, produces = ((FIELD,), (STACK,)), (RECEIVED,)
     capabilities = frozenset({"FieldStage", "RegionAware", "StripExtras"})
     field_stage = True
     params = (
@@ -121,11 +131,11 @@ class DAFSmoothing(_Key):
     def compute(self, field, params, *, progress=None):
         from dynamix.core.disorder import filtered
 
-        x = _values(field)
+        x = _values(field, stack=True)
         if params["order"] % 2:
             raise ValueError("Hermite DAF order M must be even")
-        y = filtered(x, [lambda kx, ky: 1.], deriv="daf", M=params["order"],
-                     sigma_over_dx=params["sigma"], periodic=params["edge"] == "periodic")[0]
+        y = _per_band(x, lambda band: filtered(band, [lambda kx, ky: 1.], deriv="daf", M=params["order"],
+                                               sigma_over_dx=params["sigma"], periodic=params["edge"] == "periodic")[0])
         return _clone(field, y, self.name, {**params, "residual_rms": float(np.sqrt(np.mean((x-y)**2)))})
 
     def curves(self, result, field, params):

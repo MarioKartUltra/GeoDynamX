@@ -543,14 +543,18 @@ def _composite_rgba(stack, spec: dict):
     bands -- ONE solo draws that band grayscale in all three channels, several keep each in
     its assigned channel. ``stretch`` (a :data:`~dynamix.core.stretch.STRETCHES` mode, default
     ``percent``) with its ``stretch_pct`` / ``stretch_k`` is ONE choice for all channels, each
-    computed from its OWN band's statistics (the ENVI RGB convention). Alpha is 0 where no
-    used band is finite. Returns pyqtgraph's (x, y) orientation, uint8."""
+    computed from its OWN band's statistics (the ENVI RGB convention); ``range`` = (lo, hi)
+    fixes the ``linear`` limits instead (a byte image's 0..255). Alpha is 0 where no used band
+    is finite. Returns pyqtgraph's (x, y) orientation, uint8."""
     from dynamix.core.stretch import STRETCHES, stretch
 
     my, mx, nc = stack.shape
     mode = spec.get("stretch") if spec.get("stretch") in STRETCHES else "percent"
     pct = float(spec.get("stretch_pct", 2.0) if spec.get("stretch_pct") is not None else 2.0)
     k = float(spec.get("stretch_k", 2.0) if spec.get("stretch_k") is not None else 2.0)
+    rng = spec.get("range")
+    limits = (float(rng[0]), float(rng[1])) if mode == "linear" and isinstance(rng, (list, tuple)) \
+        and len(rng) == 2 and rng[1] > rng[0] else None
     solo = [b for b in (spec.get("solo") or []) if isinstance(b, int) and 0 <= b < nc]
     mute = {b for b in (spec.get("mute") or []) if isinstance(b, int)}
     assign = {c: spec.get(c) for c in ("r", "g", "b")}
@@ -558,7 +562,7 @@ def _composite_rgba(stack, spec: dict):
               for c, b in assign.items()}
 
     def norm(b):
-        return np.clip(np.nan_to_num(stretch(stack[..., b], mode, percent=pct, k=k),
+        return np.clip(np.nan_to_num(stretch(stack[..., b], mode, percent=pct, k=k, limits=limits),
                                      nan=0.0), 0.0, 1.0)
 
     zeros = np.zeros((my, mx))

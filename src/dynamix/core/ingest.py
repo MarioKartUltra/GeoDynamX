@@ -290,6 +290,11 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
         transform = src.transform
         crs = src.crs
         nodata = src.nodata
+        dtype = str(src.dtypes[0])
+        # The file's own band names: its descriptions, else GDAL's colour interpretation (a
+        # colour image reads red / green / blue), else the band number.
+        names = [desc or (ci.name if ci.name not in ("undefined", "gray", "grey") else "")
+                 or f"#{k}" for k, (desc, ci) in enumerate(zip(src.descriptions, src.colorinterp))]
     if nodata is not None:
         arr = np.where(arr == nodata, np.nan, arr)
     values = arr[0] if arr.shape[0] == 1 else np.moveaxis(arr, 0, -1)
@@ -323,7 +328,8 @@ def _load_gdal(p: Path, target: str, name: "str | None"):
         name=name or (f"{p.stem}:{sub_tail}" if sub_tail else p.stem),
         values=values, frame=frame, x_axis=x_axis, y_axis=y_axis, units=units,
         provenance={"source": str(p), "subdataset": (target if target != str(p) else None),
-                    "crs": str(crs) if crs is not None else None,
+                    "crs": str(crs) if crs is not None else None, "dtype": dtype,
+                    **({"bands": names} if values.ndim == 3 else {}),
                     **({} if georef else note)},
     )
 

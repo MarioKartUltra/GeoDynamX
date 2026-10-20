@@ -224,8 +224,11 @@ changes the dataset's identity, so a result computed on the fuller stack is reco
 \textbf{Composite.} A multiband dataset draws as an RGB composite. The \emph{Composite}
 section of the right panel lists the bands with a channel (R, G, B or none; each channel
 takes one band) and Solo / Mute buttons: mute drops a band's channel; one solo shows that
-band alone in grey; several solos keep each in its channel. Its \emph{Stretch} applies one
-type to all channels, each computed from its own band's values:
+band alone in grey; several solos keep each in its channel. A picture whose file stores
+bytes (a colour PNG, JPEG or plain TIFF opens as a stack named R, G, B) draws at linear
+0--255, so it reads as the file shows it, and a derivative forked with every band keeps
+the mix. Its \emph{Stretch} applies one type to all channels, each computed from its own
+band's values:
 
 \begin{longtable}{L M}
 \toprule Stretch & Mapping to $[0,1]$ \\ \midrule

@@ -22,10 +22,12 @@ def _scale(v: np.ndarray, lo: float, hi: float) -> np.ndarray:
     return np.clip((v - lo) / (hi - lo), 0.0, 1.0)
 
 
-def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.0) -> np.ndarray:
+def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.0,
+            limits=None) -> np.ndarray:
     """``values`` → floats in [0, 1] (NaN preserved) under ``mode``:
 
-    - ``linear``: min..max.
+    - ``linear``: min..max, or ``limits`` = (lo, hi) when given (a byte image's own 0..255, so
+      the picture reads as the file shows it).
     - ``percent``: the ``percent``-th .. ``100 - percent``-th percentiles, clipped.
     - ``stddev``: mean ± ``k``·σ, clipped.
     - ``log``: ``log1p`` over the range shifted to start at 0, then min..max -- lifts the dark end.
@@ -43,7 +45,8 @@ def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.
         return np.full(v.shape, np.nan)
     f = v[finite]
     if mode == "linear":
-        out = _scale(v, float(f.min()), float(f.max()))
+        lo, hi = (float(limits[0]), float(limits[1])) if limits is not None else (float(f.min()), float(f.max()))
+        out = _scale(v, lo, hi)
     elif mode == "percent":
         lo, hi = np.percentile(f, [percent, 100.0 - percent])
         out = _scale(v, float(lo), float(hi))

@@ -7,6 +7,7 @@ from conftest import make_field
 from dynamix.devices.interpolation import (DAFSmoothing, DyadicInterpolation,
                                            InterpolatingWaveletFilter, InterpolatingWavelets)
 from dynamix.model.device import defaults_for
+from dynamix.model.contracts import FIELD, STACK
 from dynamix.engine.cache import StageStore
 
 
@@ -106,3 +107,34 @@ def test_dd_on_saved_roi_uses_region_pixels_and_axes(clean_registry, edge):
     assert out.values.shape == (23, 29)
     np.testing.assert_array_equal(out.values[::2, ::2], field.values[3:15, 4:19])
     np.testing.assert_allclose(out.x_axis[::2], field.x_axis[4:19])
+
+
+def test_dyadic_interpolation_refines_each_band_of_a_stack():
+    """A colour picture (a band stack) refines band by band: the result is the stack of the
+    single-band refinements, on the refined grid, with the source shape recorded per plane."""
+    rng = np.random.default_rng(4)
+    stack = rng.random((12, 15, 3))
+    field = make_field(values=stack)
+    dev = DyadicInterpolation()
+    p = {**defaults_for(dev), "levels": 2}
+    out = dev.compute(field, p)
+    assert out.values.shape == (45, 57, 3)
+    for b in range(3):
+        single = dev.compute(make_field(values=stack[..., b]), p)
+        np.testing.assert_array_equal(out.values[..., b], single.values)
+    assert out.provenance["preprocessing"][-1]["source_shape"] == [12, 15]
+    assert (FIELD,) in DyadicInterpolation.consumes and (STACK,) in DyadicInterpolation.consumes
+
+
+def test_daf_smoothing_runs_band_by_band():
+    from dynamix.core import fft_policy
+
+    fft_policy.configure("pyfftw", 64)
+    x = np.broadcast_to(np.cos(2 * np.pi * np.arange(64) / 8), (32, 64))
+    stack = np.stack([3 + x, 1 + 2 * x], axis=-1)
+    dev = DAFSmoothing()
+    p = {**defaults_for(dev), "edge": "periodic", "sigma": 4.}
+    out = dev.compute(make_field(values=stack), p)
+    assert out.values.shape == (32, 64, 2)
+    for b in range(2):
+        np.testing.assert_allclose(out.values[..., b], dev.compute(make_field(values=stack[..., b]), p).values)

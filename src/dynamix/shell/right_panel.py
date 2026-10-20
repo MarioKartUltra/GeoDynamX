@@ -860,6 +860,7 @@ class CompositePanel(QtWidgets.QWidget):
         self._rows: list = []
         self._loading = False
         self._pct, self._k = 2.0, 2.0
+        self._range = None                   # explicit linear limits, when the spec fixes them
         self.stretch_combo.currentIndexChanged.connect(self._on_stretch_mode)
         self.stretch_value.valueChanged.connect(self._on_stretch_value)
         self._sync_value_box()
@@ -902,6 +903,8 @@ class CompositePanel(QtWidgets.QWidget):
                           else 2.0)
         self._k = float(spec.get("stretch_k", 2.0) if spec.get("stretch_k") is not None
                         else 2.0)
+        rng = spec.get("range")
+        self._range = [float(rng[0]), float(rng[1])] if isinstance(rng, (list, tuple)) and len(rng) == 2 else None
         mode_idx = self.stretch_combo.findData(spec.get("stretch") or "percent")
         self.stretch_combo.blockSignals(True)
         self.stretch_combo.setCurrentIndex(max(mode_idx, 0))
@@ -960,6 +963,8 @@ class CompositePanel(QtWidgets.QWidget):
         out = {"r": None, "g": None, "b": None, "solo": [], "mute": [],
                "stretch": self.stretch_combo.currentData(), "stretch_pct": self._pct,
                "stretch_k": self._k}
+        if self._range is not None and out["stretch"] == "linear":
+            out["range"] = list(self._range)
         for i, (combo, s_btn, m_btn) in enumerate(self._rows):
             text = combo.currentText()
             if text != "—":
