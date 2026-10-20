@@ -26,7 +26,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.shell.main_window import MainWindow
-from dynamix.shell.settings import load_settings
+from dynamix.shell.settings import load_settings, sweep_scratch
 from dynamix.shell.theme import RESTRAINED_DARK, Theme, apply_theme, load_theme
 
 #: How long ``--render`` waits for the first transform before grabbing anyway. Generous: this is a
@@ -82,6 +82,7 @@ def main(argv=None) -> int:
     from dynamix.shell import gc_guard
 
     gc_guard.install(app)                     # collections on the GUI thread only (gc_guard)
+    sweep_scratch()                           # a figure's stack file outlived its window or the app
     apply_theme(app, _theme_for(load_settings().theme))
     win = MainWindow()
     from dynamix.shell.window_fit import fit_to_screen
