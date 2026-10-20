@@ -132,6 +132,18 @@ class Smoother:
 
 # -- the Gaussian pair: the backend's own formulas, scale_units' own sections ------------------
 
+def theta_hat(name: str, params: "dict | None", sx, sy) -> np.ndarray:
+    """θ̂ of the smoother ``name`` at scaled wavenumbers ``s = k·a`` (cycles): the Gaussian
+    pair's closed forms as the backend writes them, else the registry's
+    (:meth:`Smoother.theta_hat`). The one place both the WTMM backend's scalar transform and the
+    CWT leaders' energy radius read a smoother from."""
+    if name == "gaussian":
+        return _gaussian_hat(np.asarray(sx), np.asarray(sy))
+    if name == "mexican":
+        return _mexican_hat(np.asarray(sx), np.asarray(sy))
+    return smoother(name, params).theta_hat(sx, sy)
+
+
 def _gaussian_hat(sx, sy):
     return np.exp(-(sx * sx + sy * sy))
 

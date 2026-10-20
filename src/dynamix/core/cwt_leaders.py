@@ -132,19 +132,6 @@ _RADII: dict = {}
 _SMOOTHER_KNOBS = ("alpha", "q", "beta")
 
 
-def _theta_hat(sx, sy, wavelet: str, params: dict):
-    """θ̂ of the smoother at scaled wavenumbers ``sx = kx·scale``: the two closed forms the
-    backend transcribes, else the registry's."""
-    if wavelet == "gaussian":
-        return np.exp(-(sx * sx + sy * sy))
-    if wavelet == "mexican":
-        k2 = sx * sx + sy * sy
-        return k2 * np.exp(-k2)
-    from dynamix.core.smoothers import smoother
-
-    return smoother(wavelet, params).theta_hat(sx, sy)
-
-
 def energy_radius(wavelet: str, operator: str, params: dict | None, energy: float = 0.99) -> float:
     """``c`` such that the disc of radius ``c × scale`` holds the fraction ``energy`` of ∫|ψ|² for
     the analysing kernel of the smoother ``wavelet`` under ``operator``: ``"gradient"``, the
@@ -160,6 +147,7 @@ def energy_radius(wavelet: str, operator: str, params: dict | None, energy: floa
     if operator not in ("gradient", "none"):
         raise ValueError(f"unknown operator {operator!r}; expected 'gradient' or 'none'")
     from dynamix.core import fft_policy
+    from dynamix.core.smoothers import theta_hat
     from dynamix.core.wtmm_backend import _build_wavelet_filters_numpy
 
     n, ref = 1024, 64.0                              # σ ≈ 14 px: resolved, and far from the edge
@@ -171,7 +159,7 @@ def energy_radius(wavelet: str, operator: str, params: dict | None, energy: floa
                                                dtype=np.float64)
         density = sum(np.abs(np.asarray(fft.ifft2(filters[name]))) ** 2 for name in ("dx", "dy"))
     else:
-        theta = _theta_hat(kx * ref, ky * ref, wavelet, dict(params or {})).astype(np.complex128)
+        theta = theta_hat(wavelet, dict(params or {}), kx * ref, ky * ref).astype(np.complex128)
         density = np.abs(np.asarray(fft.ifft2(theta))) ** 2
     x = f * n                                        # the kernel sits at index 0 and wraps
     r = np.hypot(*np.meshgrid(x, x)).ravel()
