@@ -20,6 +20,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core import large_deviation as ld
 from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color
 from dynamix.shell.theme import current
+from dynamix.shell.shared_range import SharedRangeFollower
 
 __all__ = ["LD_RULES", "LargeDeviationsWindow"]
 
@@ -28,7 +29,7 @@ LD_RULES = ("adaptive ε", "fixed ε sweep")
 H_GRID = np.linspace(-1.5, 2.5, 161)
 
 
-class LargeDeviationsWindow(QtWidgets.QDialog):
+class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
     """D_LD(h) off one sample set over a chosen scale window, under either bin rule."""
 
     #: The current curve, published on every change: ``name``, ``kind``, ``h``, ``D``.
@@ -55,8 +56,14 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
         return self._fit
 
     def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
-        self.lo_spin.setValue(float(log2_a_min))
-        self.hi_spin.setValue(float(log2_a_max))
+        """Both spins at once, one recount; the recount publishes the range unless it is being taken."""
+        for spin, v in ((self.lo_spin, log2_a_min), (self.hi_spin, log2_a_max)):
+            spin.blockSignals(True)
+            spin.setValue(float(v))
+            spin.blockSignals(False)
+        self._recompute()
+
+    _apply_scale_window = set_scale_window
 
     # -- ui ---------------------------------------------------------------------------------
     def _entry(self) -> dict:
@@ -98,6 +105,7 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
             spin.setValue(value)
             spin.valueChanged.connect(lambda _v: self._recompute())
             controls.addWidget(spin)
+        controls.addWidget(self._make_follow_check())
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -183,6 +191,7 @@ class LargeDeviationsWindow(QtWidgets.QDialog):
         scales = np.asarray(entry["scales"], dtype=np.float64)
         L = self._length_px(scales)
         lo, hi = sorted((float(self.lo_spin.value()), float(self.hi_spin.value())))
+        self._publish_range(lo, hi)
         rule = self.rule_combo.currentText()
         adaptive = rule == LD_RULES[0]
         for spin in (self.qmin_spin, self.qmax_spin, self.qstep_spin):

@@ -103,6 +103,7 @@ from dynamix.shell.controller import SELECTION_MODE_CYCLE, CommandController
 from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
+from dynamix.shell.shared_range import SharedScaleRange
 from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
                                   VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
@@ -1613,6 +1614,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._generalized_button.clicked.connect(self._on_generalized_button_clicked)
         self._generalized_window = None
         self._structure_window = self._cumulants_window = self._ld_window = None
+        # The hidden shared scale range the fitting windows shake hands over (shared_range).
+        self._shared_range = SharedScaleRange(self)
         #: The latest fit each fitting window published, by its name.
         self._published_fits: dict = {}
         spectrum_lay.addWidget(self._structure_button)
@@ -3378,6 +3381,7 @@ both ``Canvas`` signals report the
                                     kind=result.get("hd_kind", "partition"))
         self._multifractal_window = window
         window.fitChanged.connect(self._on_fit_published)
+        window.attach_shared_range(self._shared_range)
         self._on_fit_published(window.published_fit())
         # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
         # drive an open construction window; connected on whichever of the two opens second.
@@ -3672,6 +3676,7 @@ both ``Canvas`` signals report the
                      levels=_seed_levels(result),
                      source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a())
         window.fitChanged.connect(self._on_fit_published)
+        window.attach_shared_range(self._shared_range)
         setattr(self, attr, window)
         self._on_fit_published(window.current_fit())
         window.show()
@@ -3704,6 +3709,7 @@ both ``Canvas`` signals report the
         window = cls(sets, levels=_seed_levels(result), source=source,
                      parent=self, physical_of_log2a=self._physical_of_log2a(), **extra)
         window.fitChanged.connect(self._on_fit_published)
+        window.attach_shared_range(self._shared_range)
         setattr(self, attr, window)
         self._on_fit_published(window.current_fit())
         window.show()

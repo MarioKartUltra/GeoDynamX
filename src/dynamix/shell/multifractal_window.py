@@ -60,6 +60,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core import spectra
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported for the fitting windows)
+from dynamix.shell.shared_range import SharedRangeFollower
 
 __all__ = ["MultifractalWindow"]
 
@@ -156,7 +157,7 @@ class PhysicalLog2Axis(pg.AxisItem):
         return out
 
 
-class MultifractalWindow(QtWidgets.QDialog):
+class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     """Interactive canonical (Arneodo WTMM) spectrum fitter over ``hd_std``/``hd_cmax``."""
 
     #: Emitted on every re-fit with the current (log2_a_min, log2_a_max) -- the coupled-state
@@ -260,6 +261,8 @@ class MultifractalWindow(QtWidgets.QDialog):
     def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
         """Programmatic region set -- same path as a drag (fires the live re-fit)."""
         self._region.setRegion((log2_a_min, log2_a_max))
+
+    _apply_scale_window = set_scale_window
 
     # -- construction -----------------------------------------------------------------------
     def _current_hd(self) -> dict:
@@ -431,6 +434,7 @@ class MultifractalWindow(QtWidgets.QDialog):
                                        QtWidgets.QSizePolicy.Policy.Preferred)
         readouts.addWidget(self.kink_check)
         readouts.addWidget(self.gaussian_check)
+        readouts.addWidget(self._make_follow_check())
         readouts.addWidget(self._kink_label, 1)
         layout.addLayout(readouts)
 
@@ -1371,6 +1375,7 @@ class MultifractalWindow(QtWidgets.QDialog):
         finally:
             self._region_syncing = False
         self._refit()
+        self._publish_range(float(lo), float(hi))
 
     def _on_scene_clicked(self, ev) -> None:
         """Click-to-set q* (cell 49's gesture pair): the tau-vs-ln-q panel maps the click's x
