@@ -206,7 +206,7 @@ _DEPENDS_ON = {
     "structure_functions_window": ("theme", "shared_range", "multifractal_window", "window_fit", ),
     "log_cumulants_window": ("theme", "shared_range", "multifractal_window", "window_fit", ),
     "large_deviations_window": ("theme", "shared_range", "multifractal_window", "window_fit", ),
-    "generalized_spectrum_window": ("plot_zoom", "theme", "shared_range", "window_fit", ),
+    "generalized_spectrum_window": ("plot_zoom", "theme", "shared_range", "window_fit", "multifractal_window", ),
     # The 3-D surface-source dialog -- pure Qt, self-contained (the
     # topology_panel/transect_panel shape).
     "surface_dialog": (),

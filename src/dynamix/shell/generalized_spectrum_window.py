@@ -12,7 +12,8 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core.nonconcave import gaussian_ensemble, generalized_legendre
 from dynamix.core.partition_tables import moment_grid
 from dynamix.shell.theme import current
-from dynamix.shell.plot_zoom import zoom_plot
+from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color, add_zero_lines
+from dynamix.shell.plot_zoom import zoom_plot  # noqa: F401  (the source scan's marker; the panels take WheelAxisViewBox)
 from dynamix.shell.shared_range import SharedRangeFollower
 
 
@@ -107,12 +108,38 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
                                    "spectrum.")
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
-        self.plot = zoom_plot()
+        # What the inf is built from, beside it: for the γ and δ picked below, log₂ Z_g(q, a)
+        # against log₂ a per q with the fitted slope through the points (Leonarduzzi et al. 2019
+        # Fig. 3's log-scale diagrams), and τ_g(q) for every γ at that δ.
+        pick = QtWidgets.QHBoxLayout()
+        pick.addWidget(QtWidgets.QLabel("diagrams at γ"))
+        self.gamma_combo = QtWidgets.QComboBox()
+        pick.addWidget(self.gamma_combo)
+        pick.addWidget(QtWidgets.QLabel("δ"))
+        self.delta_combo = QtWidgets.QComboBox()
+        pick.addWidget(self.delta_combo)
+        pick.addStretch(1)
+        layout.addLayout(pick)
+        self._glw = pg.GraphicsLayoutWidget()
+        self._glw.setBackground(current().ground)
+        self.plot = self._glw.addPlot(row=0, col=0, viewBox=WheelAxisViewBox())     # wheel: x; Shift: y
         self.plot.setLabel("bottom", "h")
         self.plot.setLabel("left", "generalized spectrum upper estimate")
         self.curve = self.plot.plot(pen=pg.mkPen(current().ink, width=2))
         self.boundary_points = self.plot.plot(pen=None, symbol="o", symbolSize=4)
-        layout.addWidget(self.plot, 1)
+        self.diagram_plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())
+        self.diagram_plot.setLabel("bottom", "log₂ a")
+        self.diagram_plot.setLabel("left", "log₂ Z_g(q, a)")
+        self.tau_plot = self._glw.addPlot(row=0, col=2, viewBox=WheelAxisViewBox())
+        self.tau_plot.setLabel("bottom", "q")
+        self.tau_plot.setLabel("left", "τ_g(q)")
+        add_zero_lines(self.tau_plot)
+        for plot in (self.plot, self.diagram_plot, self.tau_plot):
+            for side in ("bottom", "left"):
+                plot.getAxis(side).enableAutoSIPrefix(False)
+        layout.addWidget(self._glw, 1)
+        self.gamma_combo.currentIndexChanged.connect(lambda _i: self._draw_diagrams())
+        self.delta_combo.currentIndexChanged.connect(lambda _i: self._draw_diagrams())
         self.readout = QtWidgets.QLabel("Choose controls and Compute. No transform is rerun.")
         self.readout.setWordWrap(True)
         layout.addWidget(self.readout)
@@ -127,9 +154,48 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.auto_amplitude_check.toggled.connect(
             lambda on: (self.spins["log₂ amplitude reference"].setEnabled(not on), self._mark_pending()))
         self.source_combo.currentTextChanged.connect(self._mark_pending)
-        self.resize(840, 700)
+        self.resize(1180, 700)
         from dynamix.shell.window_fit import fit_to_screen
-        fit_to_screen(self, 840, 700)
+        fit_to_screen(self, 1180, 700)
+
+    def _fill_pick(self, combo: QtWidgets.QComboBox, values) -> None:
+        """The grid's values on a picker, 0 picked when the grid holds it, else the first."""
+        combo.blockSignals(True)
+        combo.clear()
+        for v in values:
+            combo.addItem(f"{float(v):g}")
+        zero = [k for k, v in enumerate(values) if float(v) == 0.0]
+        combo.setCurrentIndex(zero[0] if zero else 0)
+        combo.blockSignals(False)
+
+    def _draw_diagrams(self) -> None:
+        fit = self._fit
+        if not fit or "ensemble" not in fit:
+            return
+        g = fit["ensemble"]
+        gi, di = max(self.gamma_combo.currentIndex(), 0), max(self.delta_combo.currentIndex(), 0)
+        q, x = np.asarray(g["q"], float), np.log2(np.asarray(g["scales"], float))
+        log2_z = np.asarray(g["log_partition"], float)[:, gi, di, :] / np.log(2.0)
+        tau = np.asarray(g["tau"], float)
+        self.diagram_plot.clear()
+        self.tau_plot.clear()
+        add_zero_lines(self.tau_plot)
+        for i in range(q.size):
+            hue = _q_color(i, q.size)
+            self.diagram_plot.addItem(pg.PlotDataItem(x, log2_z[i], pen=None, symbol="o", symbolSize=5,
+                                                      symbolPen=None, symbolBrush=hue))
+            slope = tau[i, gi, di]
+            if np.isfinite(slope) and np.isfinite(log2_z[i]).any():
+                ok = np.isfinite(log2_z[i])
+                intercept = float(log2_z[i][ok].mean() - slope * x[ok].mean())
+                ends = np.array([x.min(), x.max()])
+                self.diagram_plot.addItem(pg.PlotDataItem(ends, intercept + slope * ends,
+                                                          pen=pg.mkPen(hue, style=QtCore.Qt.DashLine, width=1.4)))
+        gammas = np.asarray(g["gamma"], float)
+        for k in range(gammas.size):
+            hue = _q_color(k, max(gammas.size, 2))
+            self.tau_plot.addItem(pg.PlotDataItem(q, tau[:, k, di], pen=pg.mkPen(hue, width=2.5 if k == gi else 1.0),
+                                                  name=f"γ = {gammas[k]:g}"))
 
     def current_fit(self):
         return self._fit
@@ -213,6 +279,9 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.boundary_points.setData(result["h"][b], result["D"][b])
         self._fit = {**result, "name": self._last_name, "kind": "generalized spectrum",
                      "valid": bool(np.isfinite(result["D"]).any()), "window": (result["settings"]["lo"], result["settings"]["hi"])}
+        self._fill_pick(self.gamma_combo, g["gamma"])
+        self._fill_pick(self.delta_combo, g["delta"])
+        self._draw_diagrams()
         r2 = g["tau_r2"][np.isfinite(g["tau_r2"])]
         quality = f"min partition R² {r2.min():.3f}" if r2.size else "partition R² unavailable"
         d = g["delta"]

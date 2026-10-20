@@ -54,3 +54,35 @@ def test_the_shift_and_the_automatic_reference_are_on_the_box_with_the_narrow_q_
     assert "c₁,₀" in w.readout.text() and "δ" in w.readout.text()
     w.auto_amplitude_check.setChecked(False)
     assert w.spins["log₂ amplitude reference"].isEnabled()
+
+
+def test_the_log_scale_diagrams_and_tau_sit_beside_the_spectrum_for_a_chosen_gamma_and_delta(qtbot):
+    """What the inf is built from: for the γ and δ picked from the grids, log₂ Z_g(q, a) against
+    log₂ a per q with the fitted slope τ_g(q, γ, δ) through the points, and τ_g(q) for every γ
+    at that δ, the picked one bold; picking another γ redraws both."""
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    w.spins["q min"].setValue(-2)
+    w.spins["q max"].setValue(2)
+    w.spins["Δq"].setValue(1.0)
+    w.spins["γ max"].setValue(2)
+    w.spins["Δδ"].setValue(1.0)
+    with qtbot.waitSignal(w.fitChanged, timeout=20000):
+        w.apply_button.click()
+    g = w.current_fit()["ensemble"]
+    n_q, n_g = g["q"].size, g["gamma"].size
+    assert w.gamma_combo.count() == n_g and w.delta_combo.count() == g["delta"].size
+    assert w.gamma_combo.currentText() == "0" and w.delta_combo.currentText() == "0"
+    dots = [it for it in w.diagram_plot.listDataItems() if it.opts.get("symbol")]
+    lines = [it for it in w.diagram_plot.listDataItems() if not it.opts.get("symbol")]
+    assert len(dots) == n_q and len(lines) == n_q
+    di = list(g["delta"]).index(0.0)                             # the picker sits on δ = 0
+    np.testing.assert_allclose(dots[0].getData()[0], np.log2(g["scales"]))
+    np.testing.assert_allclose(dots[0].getData()[1], g["log_partition"][0, 0, di, :] / np.log(2.0))
+    assert len(w.tau_plot.listDataItems()) == n_g
+    w.gamma_combo.setCurrentIndex(n_g - 1)
+    dots = [it for it in w.diagram_plot.listDataItems() if it.opts.get("symbol")]
+    np.testing.assert_allclose(dots[0].getData()[1], g["log_partition"][0, n_g - 1, di, :] / np.log(2.0))
+    assert w.diagram_plot.getAxis("left").labelText.startswith("log₂ Z")
