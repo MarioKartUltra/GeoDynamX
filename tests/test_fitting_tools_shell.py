@@ -71,6 +71,7 @@ def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_
     sf = win._structure_window
     qtbot.addWidget(sf)
     assert sf.windowTitle() == "Structure functions — layer · DWT sym4" and tuple(sf._region.getRegion()) == (2.0, 5.0)
+    assert sf._log2_L == 6.0 and sf.fit_combo.isEnabled()                   # the field extent reaches the focus modes
     sf_name = "layer · DWT sym4 · leaders, structure functions"
     assert list(win._published_fits) == [sf_name]
     win._on_cumulants_button_clicked()

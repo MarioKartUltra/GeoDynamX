@@ -144,3 +144,40 @@ def test_the_fit_carries_the_local_cubic_legendre_beside_the_hull(qtbot):
     local = window._fit["legendre_local"]
     assert local["h"].size == window._fit["q_list"].size - 4
     np.testing.assert_allclose(window._local.getData()[0], local["h"])
+
+
+def test_the_fit_modes_run_the_focus_regression_on_the_same_table(qtbot):
+    """naive, fixed focus and focus as in the Partition functions window: a focus mode replaces
+    the per-q slopes by the focus regression anchored at the field extent, ζ = τ + d and the
+    (3.6) check follow, the fit lines pass through the focus, and without the extent the
+    switch is off."""
+    from dynamix.core import spectra
+    window = StructureFunctionsWindow(_samples(), levels=(1, 5), log2_L=6.0)
+    qtbot.addWidget(window)
+    assert window.fit_combo.isEnabled() and window._fit.get("focus") is None
+    naive_tau = np.array(window._fit["tau"])
+    window.fit_combo.setCurrentText("fixed focus")
+    fit = window._fit
+    table = window._table()
+    expected = spectra.fit_spectra(table, 1.0, 5.0, eta=0.0, frame="original", fit_mode="fixed_focus", log2_L=6.0)
+    assert fit["focus"]["fit_mode"] == "fixed_focus" and fit["focus"]["branch"] != "unavailable"
+    np.testing.assert_allclose(fit["tau"], expected["tau"])
+    np.testing.assert_allclose(fit["zeta"], fit["tau"] + 2.0)
+    assert "holds" in fit["sobolev"] and not window.weights_combo.isEnabled()
+    assert not np.allclose(fit["tau"], naive_tau)
+    # The lines through the focus: at x0 every line reads q y0 + log2 N(x0).
+    q, x0, y0 = fit["q_list"], fit["focus"]["x0"], fit["focus"]["y0"]
+    gamma_q = 0.0
+    at_x0 = fit["tau_0"] + (fit["tau"] + gamma_q) * x0
+    x = np.asarray(table["log2_scales"], float)
+    n = np.asarray(table["N_a"], float)
+    alive = (x >= 1) & (x <= 5) & (n > 0)
+    s_n = fit["focus"]["s_N"]
+    log2n_x0 = s_n * x0 + (np.log2(n[alive]).mean() - s_n * x[alive].mean())
+    np.testing.assert_allclose(at_x0, q * y0 + log2n_x0, atol=1e-9)
+    assert len(window._fit_items) == np.isfinite(fit["tau"]).sum()
+    window.fit_combo.setCurrentText("naive")
+    assert window._fit.get("focus") is None and window.weights_combo.isEnabled()
+    plain = StructureFunctionsWindow(_samples(), levels=(1, 5))
+    qtbot.addWidget(plain)
+    assert not plain.fit_combo.isEnabled()

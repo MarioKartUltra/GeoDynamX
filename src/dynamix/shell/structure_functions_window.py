@@ -31,6 +31,10 @@ Q_DEFAULT = (-3.0, 6.0, 0.5)
 WEIGHTS = ("uniform", "counts n_j")
 
 
+#: The fit modes as the Partition functions window names them, and the core's own names.
+FIT_MODES = {"naive": "naive", "fixed focus": "fixed_focus", "focus": "focus"}
+
+
 class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
     """ζ(q), τ(q), h(q) and D(h) off one sample set, over a chosen fit range."""
 
@@ -39,7 +43,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
     fitChanged = QtCore.Signal(object)
 
     def __init__(self, samples: dict, *, gamma: float = 0.0, levels=None, source: str = "",
-                 parent=None, physical_of_log2a=None):
+                 parent=None, physical_of_log2a=None, log2_L=None):
         super().__init__(parent, QtCore.Qt.Window)
         self.setModal(False)
         self._samples = samples
@@ -47,6 +51,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._source = source
         self._physical = physical_of_log2a
         self._dyadic = bool(samples.get("dyadic"))      # a pyramid's levels: the axis reads j
+        self._log2_L = None if log2_L is None else float(log2_L)    # the focus anchor, the field extent
         self._tables: dict = {}
         self._fit: dict | None = None
         self._family_items: list = []
@@ -100,6 +105,15 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.weights_combo.addItems(list(WEIGHTS))
         self.weights_combo.currentIndexChanged.connect(lambda _i: self._refit())
         controls.addWidget(self.weights_combo)
+        controls.addWidget(QtWidgets.QLabel("Fit"))
+        self.fit_combo = QtWidgets.QComboBox()
+        self.fit_combo.addItems(list(FIT_MODES))
+        self.fit_combo.setEnabled(self._log2_L is not None)
+        self.fit_combo.setToolTip("naive: one slope per q over the window; fixed focus / focus: the focus regression "
+                                  "of the Partition functions window, anchored at the field extent"
+                                  if self._log2_L is not None else "The focus modes need the field's extent")
+        self.fit_combo.currentIndexChanged.connect(lambda _i: self._refit())
+        controls.addWidget(self.fit_combo)
         controls.addWidget(QtWidgets.QLabel("Frame"))
         self.frame_combo = QtWidgets.QComboBox()
         self.frame_combo.addItems(["original", "integrated"])
@@ -245,6 +259,10 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         d = int(self._samples.get("d", 2))
         fit = leaders.structure_fit(table, lo, hi, weights=weights, gamma=self._gamma,
                                     frame=self.frame_combo.currentText(), d=d)
+        mode = FIT_MODES[self.fit_combo.currentText()]
+        self.weights_combo.setEnabled(mode == "naive")
+        if mode != "naive":
+            fit = self._focus_fit(table, fit, lo, hi, mode, d)
         label = self.set_combo.currentText()
         fit["set"] = label
         fit["kind"] = "structure functions"
@@ -296,10 +314,42 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             self.family_plot.addItem(item)
             self._fit_items.append(item)
 
+    def _focus_fit(self, table: dict, naive: dict, lo: float, hi: float, mode: str, d: int) -> dict:
+        """The focus regression (:func:`spectra.fit_spectra`, Mukli's anchor at the field
+        extent) over the same table and window: τ, h, D and their errors replace the per-q
+        slopes, ζ = τ + d and the (3.6) check follow, and the fit lines pass through the focus,
+        their intercept from the focus point and the cell count's own line over the live
+        window. When the focus is unavailable (too few live scales) the naive fit stays and
+        the reading says why."""
+        focus = spectra.fit_spectra(table, lo, hi, eta=self._gamma, frame=self.frame_combo.currentText(),
+                                    fit_mode=mode, log2_L=float(self._log2_L))
+        info = focus["focus"]
+        fit = dict(naive, focus=info, weights="focus-regression")
+        if info.get("branch") == "unavailable":
+            fit["weights"] = f"{naive['weights']} weights; {self.fit_combo.currentText()} unavailable: {info.get('reason', '')}"
+            return fit
+        q = fit["q_list"]
+        for k in ("tau", "tau_err", "h", "h_err", "D", "D_err"):
+            fit[k] = np.asarray(focus[k], dtype=np.float64)
+        fit["zeta"], fit["zeta_err"] = fit["tau"] + d, fit["tau_err"]
+        fit["sobolev"] = leaders.sobolev_condition(q, fit["zeta"], d)
+        x = np.asarray(table["log2_scales"], dtype=np.float64)
+        n_a = np.asarray(table["N_a"], dtype=np.float64)
+        alive = (x >= lo) & (x <= hi) & (n_a > 0)
+        s_n = float(info["s_N"])
+        c_n = float(np.log2(n_a[alive]).mean() - s_n * x[alive].mean())
+        gamma = self._gamma if fit["frame"] == "original" else 0.0
+        slope = fit["tau"] + gamma * q                      # the integrated-frame slopes the panel shows
+        h_q = np.where(q != 0, (slope - s_n) / np.where(q != 0, q, 1.0), 0.0)
+        fit["tau_0"] = q * (float(info["y0"]) - h_q * float(info["x0"])) + c_n
+        return fit
+
     def _read(self, fit: dict, lo: float, hi: float) -> None:
         q = fit["q_list"]
         at = {v: int(np.argmin(np.abs(q - v))) for v in (0.0, 1.0, 2.0)}
         parts = [f"{fit['set']} · log₂a {lo:.2f}–{hi:.2f} ({len(fit['levels'])} levels) · {fit['weights']} weights"]
+        if fit.get("focus") and fit["focus"].get("branch") not in (None, "unavailable"):
+            parts.append(f"focus {fit['focus']['branch']} at log₂a = {fit['focus']['x0']:.2f}")
         if np.isclose(q[at[2.0]], 2.0) and np.isfinite(fit["zeta"][at[2.0]]):
             parts.append(f"ζ(2) = {fit['zeta'][at[2.0]]:.3f} ± {fit['zeta_err'][at[2.0]]:.3f}")
         if np.isclose(q[at[1.0]], 1.0) and np.isfinite(fit["h"][at[1.0]]):

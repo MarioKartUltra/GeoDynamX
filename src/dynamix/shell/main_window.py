@@ -3673,7 +3673,7 @@ both ``Canvas`` signals report the
         transform = "CWT" if (result.get("record") or {}).get("method") == "cwt_leaders" else "DWT"
         return f"{layer} · {transform} {params.get('wavelet', '')}".rstrip()
 
-    def _open_fitting_window(self, attr: str, cls) -> None:
+    def _open_fitting_window(self, attr: str, cls, **extra) -> None:
         result = self._active_result
         if not result or not isinstance(result.get("samples"), dict):
             return
@@ -3682,7 +3682,8 @@ both ``Canvas`` signals report the
             previous.close()
         window = cls(result["samples"], gamma=_eta_note_of(result)[0],
                      levels=_seed_levels(result),
-                     source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a())
+                     source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a(),
+                     **extra)
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         setattr(self, attr, window)
@@ -3694,7 +3695,8 @@ both ``Canvas`` signals report the
     def _on_structure_button_clicked(self) -> None:
         from dynamix.shell.structure_functions_window import StructureFunctionsWindow
 
-        self._open_fitting_window("_structure_window", StructureFunctionsWindow)
+        self._open_fitting_window("_structure_window", StructureFunctionsWindow,
+                                  log2_L=self._log2_extent(self._active_result or {}))
 
     def _on_cumulants_button_clicked(self) -> None:
         from dynamix.shell.log_cumulants_window import LogCumulantsWindow
