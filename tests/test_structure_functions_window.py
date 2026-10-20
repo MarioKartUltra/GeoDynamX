@@ -106,3 +106,11 @@ def test_the_readout_reports_jaffards_sobolev_condition_on_the_fitted_zeta(qtbot
     fit = window.current_fit()
     assert fit["sobolev"]["holds"]
     assert "(3.6) holds" in window.readout.text()
+
+
+def test_the_family_panel_draws_each_scale_as_a_dot_with_the_fit_line_through_them(qtbot):
+    window = StructureFunctionsWindow(_samples(), levels=(2, 5))
+    qtbot.addWidget(window)
+    assert window._family_items
+    assert all(it.opts["symbol"] == "o" and it.opts["pen"] is None for it in window._family_items)
+    assert window._fit_items and all(it.opts["pen"] is not None for it in window._fit_items)

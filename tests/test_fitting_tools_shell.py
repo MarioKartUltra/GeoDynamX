@@ -106,3 +106,18 @@ def test_a_leaders_result_opens_the_construction_window_with_the_gmwlp_label(win
     cw = win._spectrum_construction_window
     qtbot.addWidget(cw)
     assert cw._hist_label.startswith("GMWLP histogram")
+
+
+def test_a_landing_forgets_the_layer_s_published_fits_and_closes_its_stale_tools(win, qtbot):
+    """A fit is published under the layer it was fitted on; when that layer lands anew the fit
+    is forgotten and the tool windows opened on the previous result close, so a construction
+    opened next shows the new result only."""
+    win._active_result = _leaders_result()
+    win._refresh_samples_buttons()
+    win._on_structure_button_clicked()
+    qtbot.addWidget(win._structure_window)
+    name = "layer · DWT sym4 · leaders, structure functions"
+    assert list(win._published_fits) == [name] and win._published_fits[name]["layer_id"] is None
+    win._published_fits["other"] = {"name": "other", "layer_id": 7}
+    win._forget_layer_tools(None)
+    assert list(win._published_fits) == ["other"] and win._structure_window is None

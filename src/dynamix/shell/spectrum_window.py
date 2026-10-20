@@ -167,6 +167,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         alone; a name already drawn is redrawn, one no longer listed is removed."""
         wanted = {f["name"]: f for f in fits}
         for name in [n for n in self._fit_items if n not in wanted]:
+            self.show_menu.removeAction(self._show_actions.pop(name))
             gone = self._fit_items.pop(name).values()
             for item in gone:
                 self._plot.removeItem(item)
@@ -183,11 +184,18 @@ class SpectrumWindow(QtWidgets.QDialog):
                                              symbolPen=None, symbolBrush=hue)
                 items["hull"] = pg.PlotDataItem(pen=pg.mkPen(hue, width=1.0, style=QtCore.Qt.DashLine),
                                                 connect="finite")
+                # Outside the auto-range: a published fit (a log-cumulant extrapolation past a
+                # phase transition shoots far out) never sets the panels' extent.
                 for k in ("tau", "h", "cq"):
-                    self.method_plots[k].addItem(items[k])
-                self._plot.addItem(items["D"])
-                self._plot.addItem(items["hull"])
+                    self.method_plots[k].addItem(items[k], ignoreBounds=True)
+                self._plot.addItem(items["D"], ignoreBounds=True)
+                self._plot.addItem(items["hull"], ignoreBounds=True)
                 self._fit_items[name] = items
+                action = self.show_menu.addAction(name)
+                action.setCheckable(True)
+                action.setChecked(True)
+                action.toggled.connect(lambda _on, n=name: self._apply_shown(n))
+                self._show_actions[name] = action
                 self._legend_entries.append((items["D"], lambda n=name: n))
                 self._legend_entries.append((items["hull"], lambda n=name: f"{n} (Legendre of τ)"))
             items = self._fit_items[name]
@@ -199,8 +207,23 @@ class SpectrumWindow(QtWidgets.QDialog):
             items["D"].setData(np.asarray(fit["h"], dtype=np.float64), np.asarray(fit["D"], dtype=np.float64))
             hull = fit.get("hull")
             items["hull"].setData(np.asarray(hull["h"]) if hull else [], np.asarray(hull["D"]) if hull else [])
+            self._apply_shown(name, sync=False)
         self._fits = wanted
         self._sync_legend()
+
+    def _apply_shown(self, name: str, *, sync: bool = True) -> None:
+        """One published spectrum's items on or off (its Show action), the hull also behind the
+        hull switch."""
+        items = self._fit_items.get(name)
+        action = self._show_actions.get(name)
+        if items is None or action is None:
+            return
+        on = action.isChecked()
+        for k in ("tau", "h", "cq", "D"):
+            items[k].setVisible(on)
+        items["hull"].setVisible(on and self._hull_check.isChecked())
+        if sync:
+            self._sync_legend()
 
     def current_grouping(self) -> "np.ndarray | None":
         """The latest dominant/non-dominant membership, or None without chains."""
@@ -216,6 +239,11 @@ class SpectrumWindow(QtWidgets.QDialog):
         std, cmax = self._all_tables if checked else self._filtered_tables
         self._hd_by_choice = {"sup (cmax)": cmax, "no-sup (std)": std}
         self._recompute()
+
+    def set_frame(self, text: str) -> None:
+        """Follow the fitter's frame (``original`` / ``integrated``)."""
+        if text in ("original", "integrated"):
+            self._frame_combo.setCurrentText(text)
 
     def set_fit_mode(self, text: str) -> None:
         """Follow the fitter's fit mode (``naive`` / ``fixed focus`` / ``focus``); ignored
@@ -301,10 +329,23 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._eta_spin.setValue(eta_seed)
         self._eta_spin.valueChanged.connect(lambda _v: self._recompute())
         controls.addWidget(self._eta_spin)
+        # The frame the exponents read in: original takes the η lift back out, integrated keeps it.
+        self._frame_combo = QtWidgets.QComboBox()
+        self._frame_combo.addItems(["original", "integrated"])
+        self._frame_combo.currentTextChanged.connect(lambda _t: self._recompute())
+        controls.addWidget(self._frame_combo)
 
         self._hull_check = QtWidgets.QCheckBox("Legendre hull (τ)")
         self._hull_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self._hull_check)
+        # Show: each published spectrum on or off, on every panel.
+        self.show_button = QtWidgets.QToolButton()
+        self.show_button.setText("Show")
+        self.show_button.setPopupMode(QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.show_menu = QtWidgets.QMenu(self.show_button)
+        self.show_button.setMenu(self.show_menu)
+        self._show_actions: dict = {}
+        controls.addWidget(self.show_button)
 
         # The histogram construction's own controls, with an h-map to build it from.
         self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None
@@ -453,21 +494,21 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
-        self._plot = self._glw.addPlot(row=0, col=0, colspan=3, viewBox=WheelAxisViewBox())   # wheel: x; Shift: y
+        # Four panels: τ(q) top left, D(h) top right, h(q) bottom left, c(q) bottom right; the
+        # methods' published fits draw on all four (set_fits).
+        self._plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())   # wheel: x; Shift: y
         self._plot.setLabel("bottom", "h")
         self._plot.setLabel("left", "D(h)")
-        # The methods compared: their published τ(q), h(q) and c(q) under D(h) (set_fits).
         self.method_plots = {}
-        for col, (name, ylabel) in enumerate((("tau", "τ(q)"), ("h", "h(q)"), ("cq", "c(q) = −q² τ″"))):
-            plot = self._glw.addPlot(row=1, col=col, viewBox=WheelAxisViewBox())
+        for name, ylabel, (row, col) in (("tau", "τ(q)", (0, 0)), ("h", "h(q)", (1, 0)),
+                                         ("cq", "c(q) = −q² τ″", (1, 1))):
+            plot = self._glw.addPlot(row=row, col=col, viewBox=WheelAxisViewBox())
             plot.setLabel("bottom", "q")
             plot.setLabel("left", ylabel)
             plot.getAxis("left").enableAutoSIPrefix(False)
             add_zero_lines(plot)
             self.method_plots[name] = plot
         self._plot.getAxis("bottom").enableAutoSIPrefix(False)
-        self._glw.ci.layout.setRowStretchFactor(0, 3)
-        self._glw.ci.layout.setRowStretchFactor(1, 2)
         self._legend = self._plot.addLegend(offset=(10, 10))
         add_zero_lines(self._plot)
         # The D(h) tangent at the phase transition off the current fit (the automatic q_c of
@@ -674,7 +715,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             mode = {"naive": "naive", "fixed focus": "fixed_focus",
                     "focus": "focus"}[self._fitmode_combo.currentText()]
             self._fit = spectra.fit_spectra(
-                hd, lo, hi, eta=self._eta_spin.value(), frame="original",
+                hd, lo, hi, eta=self._eta_spin.value(), frame=self._frame_combo.currentText(),
                 fit_mode=mode, log2_L=self._log2_L if mode != "naive" else None)
             f = self._fit.get("focus")
             if f is None:
@@ -708,6 +749,8 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self._hull_curve.setData(hull["h"], hull["D"])
             else:
                 self._hull_curve.setData([], [])
+        for name in self._fit_items:                            # every hull follows the one switch
+            self._apply_shown(name, sync=False)
         self._update_tangent()
         self._update_grouping()
         self._update_hist_items()
@@ -850,7 +893,7 @@ class SpectrumWindow(QtWidgets.QDialog):
                                             min_chain_len=self._min_chain_len)
             table = tables[1] if sup else tables[0]
             fit = spectra.fit_spectra(table, lo, hi, eta=self._eta_spin.value(),
-                                      frame="original")
+                                      frame=self._frame_combo.currentText())
             h = np.asarray(fit["h"])
             D = np.asarray(fit["D"])
             finite = np.isfinite(h) & np.isfinite(D)

@@ -3286,7 +3286,10 @@ both ``Canvas`` signals report the
         self._spectrum_button.setEnabled(enabled)
         # The button names what the active result holds: partition functions over maxima lines,
         # or structure functions (the moment route, wavelet leaders).
-        title = vocabulary(result.get("hd_kind") if enabled else None)[0]
+        # A result with its own Structure functions window (the Samples contract) keeps this
+        # button's partition name, so the two tools read apart.
+        own_structure = isinstance(result.get("samples"), dict) if result else False
+        title = vocabulary(result.get("hd_kind") if enabled and not own_structure else None)[0]
         self._spectrum_button.setText(f"{title}…")
         self._spectrum_button.setToolTip(
             f"Open the interactive τ(q)/D(h) scale-window fitter over the {title.lower()}"
@@ -3382,6 +3385,7 @@ both ``Canvas`` signals report the
                                     sources=self._spectrum_sources(result),
                                     kind=result.get("hd_kind", "partition"))
         self._multifractal_window = window
+        self._tools_owner = self.layer.layer_id if self.layer is not None else None
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         self._on_fit_published(window.published_fit())
@@ -3663,9 +3667,11 @@ both ``Canvas`` signals report the
 
     def _samples_source(self) -> str:
         """What a fitting window is named for: the layer and the bank."""
-        params = (self._active_result or {}).get("params") or {}
+        result = self._active_result or {}
+        params = result.get("params") or {}
         layer = self.layer.name if self.layer is not None else "layer"
-        return f"{layer} · DWT {params.get('wavelet', '')}".rstrip()
+        transform = "CWT" if (result.get("record") or {}).get("method") == "cwt_leaders" else "DWT"
+        return f"{layer} · {transform} {params.get('wavelet', '')}".rstrip()
 
     def _open_fitting_window(self, attr: str, cls) -> None:
         result = self._active_result
@@ -3680,6 +3686,7 @@ both ``Canvas`` signals report the
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         setattr(self, attr, window)
+        self._tools_owner = self.layer.layer_id if self.layer is not None else None
         self._on_fit_published(window.current_fit())
         window.show()
         window.raise_()
@@ -3713,6 +3720,7 @@ both ``Canvas`` signals report the
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         setattr(self, attr, window)
+        self._tools_owner = self.layer.layer_id if self.layer is not None else None
         self._on_fit_published(window.current_fit())
         window.show()
         window.raise_()
@@ -3737,9 +3745,28 @@ both ``Canvas`` signals report the
         if fit.get("valid") is False:
             self._published_fits.pop(fit["name"], None)
         else:
+            fit["layer_id"] = self.layer.layer_id if self.layer is not None else None
             self._published_fits[fit["name"]] = fit
         win = self._spectrum_construction_window
         if win is not None and win.isVisible():
+            win.set_fits(list(self._published_fits.values()))
+
+    def _forget_layer_tools(self, layer_id) -> None:
+        """A layer landed anew or went: the fits its tools published under the previous result
+        are forgotten (a construction opened next shows the new result only) and the tool
+        windows opened on that result close, since they hold its tables and samples."""
+        stale = [k for k, f in self._published_fits.items() if f.get("layer_id") == layer_id]
+        for k in stale:
+            self._published_fits.pop(k)
+        if getattr(self, "_tools_owner", None) == layer_id:
+            for attr in ("_multifractal_window", "_spectrum_construction_window", "_structure_window",
+                         "_cumulants_window", "_ld_window", "_generalized_window"):
+                window = getattr(self, attr, None)
+                if window is not None:
+                    window.close()
+                    setattr(self, attr, None)
+        win = self._spectrum_construction_window
+        if stale and win is not None and win.isVisible():
             win.set_fits(list(self._published_fits.values()))
 
     def _on_dh_button_clicked(self) -> None:
@@ -3780,12 +3807,15 @@ both ``Canvas`` signals report the
             kind=result.get("hd_kind", "partition"), per_scale=sample_sets(result),
             fits=list(self._published_fits.values()))
         self._spectrum_construction_window = window
+        self._tools_owner = self.layer.layer_id if self.layer is not None else None
         if self._multifractal_window is not None:
             self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)
             self._multifractal_window.fitModeChanged.connect(window.set_fit_mode)
+            self._multifractal_window._frame_combo.currentTextChanged.connect(window.set_frame)
             fit_lo, fit_hi = self._multifractal_window._region.getRegion()
             window.set_scale_window(float(fit_lo), float(fit_hi))
             window.set_fit_mode(self._multifractal_window._fitmode_combo.currentText())
+            window.set_frame(self._multifractal_window._frame_combo.currentText())
         window.groupingChanged.connect(self._on_chain_grouping)
         window.broadcast_grouping()
         window.show()
@@ -8413,6 +8443,7 @@ both ``Canvas`` signals report the
         self._active_result_owner = self.layer.layer_id if self.layer is not None else None
         if self.layer is not None:
             self._landed_results[self.layer.layer_id] = result
+            self._forget_layer_tools(self.layer.layer_id)
         self.canvas.set_disc(self._leaders_disc())
         # The wavelet bars: the analysing wavelet of this landing's device at the level on
         # show. First, so the Transport's reading and the multifractal axis read the same λ*.

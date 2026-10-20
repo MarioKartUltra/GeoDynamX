@@ -90,7 +90,8 @@ def test_a_leaders_layer_opens_the_partition_functions_window(qtbot, clean_regis
     with qtbot.waitSignal(win.resolved, timeout=120000):
         win._on_chain_edited(desc)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=120000)
-    assert win._spectrum_button.isEnabled() and win._spectrum_button.text() == "Structure functions…"
+    # The leaders have their own Structure functions window, so this button keeps its name.
+    assert win._spectrum_button.isEnabled() and win._spectrum_button.text() == "Partition functions…"
     assert win._dh_button.isEnabled()
     win._on_spectrum_button_clicked()
     assert win._multifractal_window is not None

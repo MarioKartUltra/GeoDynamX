@@ -235,7 +235,9 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._family_items = []
         q, log2_s = table["q_list"], np.asarray(table["log2_scales"], dtype=np.float64)
         for i, row in enumerate(np.asarray(table["tau_qa"])):
-            item = pg.PlotDataItem(log2_s, row, pen=pg.mkPen(_q_color(i, len(q)), width=1.0), connect="finite")
+            # Each scale a dot; the fitted line through them is _draw_fit_lines's.
+            item = pg.PlotDataItem(log2_s, row, pen=None, symbol="o", symbolSize=5, symbolPen=None,
+                                   symbolBrush=_q_color(i, len(q)))
             self.family_plot.addItem(item)
             self._family_items.append(item)
 

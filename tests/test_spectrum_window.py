@@ -424,7 +424,9 @@ def test_the_methods_published_fits_are_drawn_on_the_four_panels_and_named(qtbot
     np.testing.assert_allclose(items["D"].getData()[0], 0.5)
     assert items["tau"] in window.method_plots["tau"].listDataItems() and items["D"] in window._plot.listDataItems()
     names = [name for _item, name in window._in_legend["order"]]
-    assert "L1 · leaders" in names and "L1 · leaders (Legendre of τ)" in names
+    assert "L1 · leaders" in names and "L1 · leaders (Legendre of τ)" not in names   # hulls wait for the switch
+    window._hull_check.setChecked(True)
+    assert "L1 · leaders (Legendre of τ)" in [name for _item, name in window._in_legend["order"]]
     other = {**fit, "name": "L1 · log-cumulants", "tau": 0.4 * q - 2, "hull": None}
     window.set_fits([{**fit, "tau": 0.6 * q - 2}, other])
     np.testing.assert_allclose(window._fit_items["L1 · leaders"]["tau"].getData()[1], 0.6 * q - 2)
@@ -446,3 +448,78 @@ def test_a_leaders_h_map_is_the_gmwlp_and_its_histogram_says_so(qtbot):
     plain = SpectrumWindow(h_map=h_map, h_map_method="holder_map")
     qtbot.addWidget(plain)
     assert plain._hist_label.startswith("microcanonical histogram")
+
+
+def test_published_hulls_follow_the_hull_checkbox(qtbot):
+    """A published fit's Legendre hull draws only while the construction's own hull is asked
+    for: the checkbox rules every hull on the panel."""
+    from dynamix.core import spectra
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    fit = window.current_fit()
+    q = np.asarray(fit["q_list"], dtype=np.float64)
+    window.set_fits([{"name": "other · std", "q": q, "tau": fit["tau"], "h": fit["h"], "D": fit["D"],
+                      "cq": spectra.specific_heat(q, fit["tau"]), "hull": spectra.legendre_dh(q, fit["tau"])}])
+    item = window._fit_items["other · std"]["hull"]
+    assert not item.isVisible()
+    window._hull_check.setChecked(True)
+    assert item.isVisible()
+    window._hull_check.setChecked(False)
+    assert not item.isVisible()
+
+
+def test_the_four_panels_sit_in_a_two_by_two_grid(qtbot):
+    """τ(q) top left, D(h) top right, h(q) bottom left, c(q) bottom right."""
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    grid = window._glw.ci
+    assert grid.getItem(0, 0) is window.method_plots["tau"] and grid.getItem(0, 1) is window._plot
+    assert grid.getItem(1, 0) is window.method_plots["h"] and grid.getItem(1, 1) is window.method_plots["cq"]
+
+
+def test_the_frame_switch_reads_the_exponents_in_the_integrated_frame(qtbot):
+    """With η on, the integrated frame keeps the lift: τ differs from the original frame's by η q."""
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    window._eta_spin.setValue(0.5)
+    original = window.current_fit()
+    window._frame_combo.setCurrentText("integrated")
+    integrated = window.current_fit()
+    assert original["frame"] == "original" and integrated["frame"] == "integrated"
+    q = np.asarray(original["q_list"], dtype=np.float64)
+    np.testing.assert_allclose(np.asarray(integrated["tau"]) - np.asarray(original["tau"]), 0.5 * q, atol=1e-9)
+    window.set_frame("original")
+    assert window._frame_combo.currentText() == "original"
+
+
+def test_published_fits_never_set_the_panels_extent(qtbot):
+    """A method's published fit (a log-cumulant extrapolation past a phase transition shoots far
+    out) draws without widening the view: the window's own curves set the range."""
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    q = np.arange(-2.0, 4.01, 0.5)
+    window.set_fits([{"name": "far", "q": q, "tau": 1e3 * q, "h": 1e3 * np.ones(q.size), "D": 1e3 * np.ones(q.size),
+                      "cq": 1e3 * np.ones(q.size), "hull": None}])
+    for plot in (window._plot, *window.method_plots.values()):
+        bounds = plot.getViewBox().childrenBounds()
+        assert bounds[1] is None or bounds[1][1] < 100
+
+
+def test_the_show_menu_hides_a_published_spectrum(qtbot):
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    q = np.arange(-2.0, 4.01, 0.5)
+    fit = {"name": "L1 · leaders", "q": q, "tau": 0.5 * q - 2, "h": np.full(q.size, 0.5), "D": np.full(q.size, 2.0),
+           "cq": np.zeros(q.size), "hull": {"h": np.array([0.4, 0.6]), "D": np.array([2.0, 2.0])}}
+    window.set_fits([fit])
+    window._hull_check.setChecked(True)
+    action = next(a for a in window.show_menu.actions() if a.text() == "L1 · leaders")
+    items = window._fit_items["L1 · leaders"]
+    assert action.isChecked() and all(items[k].isVisible() for k in ("tau", "h", "cq", "D", "hull"))
+    action.setChecked(False)
+    assert not any(items[k].isVisible() for k in ("tau", "h", "cq", "D", "hull"))
+    assert "L1 · leaders" not in [name for _item, name in window._in_legend["order"]]
+    action.setChecked(True)
+    assert items["D"].isVisible() and items["hull"].isVisible()
+    window.set_fits([])
+    assert not [a for a in window.show_menu.actions() if a.text() == "L1 · leaders"]

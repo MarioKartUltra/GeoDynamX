@@ -1104,7 +1104,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._update_gaussian()
         self._sync_dh_legend()
         self.scaleWindowChanged.emit(float(lo), float(hi))
-        self.fitChanged.emit(self.published_fit())
+        self._publish()
+
+    def _publish(self) -> None:
+        fit = self.published_fit()
+        self._last_published = fit["name"]
+        self.fitChanged.emit(fit)
 
     def published_fit(self) -> dict:
         """The current fit in the schema every method's fitting tool publishes."""
@@ -1401,6 +1406,10 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                 return
 
     def _on_table_changed(self, _text: str) -> None:
+        # One window, one published fit: the one under the previous table is retracted first.
+        previous = getattr(self, "_last_published", None)
+        if previous:
+            self.fitChanged.emit({"name": previous, "valid": False})
         self._rebuild_family()
         self._refit()
 

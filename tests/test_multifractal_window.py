@@ -855,3 +855,16 @@ def test_the_dh_legend_names_the_gmwlp_for_a_leaders_h_map(qtbot):
     plain = MultifractalWindow(*_pair(), dh_hist=(h, D, dD))
     qtbot.addWidget(plain)
     assert "microcanonical histogram" in plain._dh_legend_names()
+
+
+def test_a_table_change_retracts_the_fit_published_under_the_old_table(qtbot):
+    """One fitting window publishes one fit: switching the table retracts the one it published
+    under the other table before publishing the new one, so the construction window never
+    shows the same window twice."""
+    window = MultifractalWindow(*_pair())
+    qtbot.addWidget(window)
+    got = []
+    window.fitChanged.connect(got.append)
+    window._table_combo.setCurrentText("sup (cmax)")
+    assert got[0].get("valid") is False and got[0]["name"].endswith("no-sup (std)")
+    assert got[-1].get("valid", True) is not False and got[-1]["name"].endswith("sup (cmax)")
