@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The hidden shared scale range, a handshake between the fitting windows: no owner, any
 window's range change publishes, every window that follows takes it, last change wins, and
-each window detaches with its own switch (the author, 2026-10-19)."""
+each window detaches with its own switch."""
 from __future__ import annotations
 
 import numpy as np
