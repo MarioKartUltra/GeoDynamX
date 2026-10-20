@@ -166,11 +166,6 @@ def test_refusals_name_the_field_the_border_and_the_scale_that_fits(dev):
         dev.check(validate_params(dev, {"scale_min": 6, "scale_max": 32}))
     with pytest.raises(ValueError, match="at least three fitted levels"):
         dev.check(validate_params(dev, {"scale_min": 16, "scale_max": 32}))
-    small = make_field(fbm2d(128, 0.5, seed=1))
-    with pytest.raises(ValueError, match="128 × 128 px field .* fits three levels is 8 px"):
-        dev.compute(small, validate_params(dev, {"scale_min": 4, "scale_max": 32}))
-    with pytest.raises(ValueError, match="64 × 64 px field .* no scale_max fits"):
-        dev.compute(make_field(fbm2d(64, 0.5, seed=1)), validate_params(dev, {"scale_min": 4, "scale_max": 16}))
     with pytest.raises(ValueError, match="place it FIRST"):
         dev.compute({"h_map": None}, validate_params(dev, SMALL))
     with pytest.raises(ValueError, match="scalar 2-D field"):
@@ -247,3 +242,29 @@ def test_the_dyadic_result_carries_structure_tables_for_the_partition_functions_
     np.testing.assert_allclose(res["hd_std"]["q_list"], leaders.TABLE_Q)
     expected = leaders.tables(res["samples"], leaders.TABLE_Q)["p-leaders"]
     np.testing.assert_allclose(res["hd_std"]["tau_qa"], expected["tau_qa"], equal_nan=True)
+
+
+def test_thin_and_empty_coarse_levels_run_and_warn_instead_of_refusing(dev):
+    """The pyramid reaches every level; a fitted level that keeps fewer than 16 cells inside the
+    bank's border is thin, one with none carries no statistics, and both are warnings on the
+    result and a ⚠ on the scale knob, never a refusal."""
+    side = 128
+    field = make_field(fbm2d(side, 0.5, seed=1))
+    p = validate_params(dev, {"scale_min": 4, "scale_max": 32})
+    e = dwt.border_cells(p["wavelet"])
+    res = dev.compute(field, p)
+    for j in range(2, 6):
+        n = max(side // 2 ** j - 2 * e, 0) ** 2
+        named = [w for w in res["warnings"] if w.startswith(f"level {j} ")]
+        if n == 0:
+            assert any("no cells" in w for w in named), (j, res["warnings"])
+        elif n < 16:
+            assert any(f"{n} cells" in w and "fewer than 16" in w for w in named), (j, res["warnings"])
+        else:
+            assert not any("fewer than 16" in w or "no cells" in w for w in named)
+    assert "scale_max" in dev.knob_warnings(field, p) and "8 px" in dev.knob_warnings(field, p)["scale_max"]
+    roomy = make_field(fbm2d(256, 0.5, seed=1))                         # 16 px keeps 36 cells inside the border
+    assert dev.knob_warnings(roomy, validate_params(dev, {"scale_min": 4, "scale_max": 16})) == {}
+    assert dev.knob_warnings(None, p) == {}
+    tiny = dev.compute(make_field(fbm2d(64, 0.5, seed=1)), validate_params(dev, {"scale_min": 4, "scale_max": 16}))
+    assert any("no cells" in w for w in tiny["warnings"])

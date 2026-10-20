@@ -178,19 +178,30 @@ class WaveletLeaders:
         largest = max((2 ** j for j in range(3, 12) if side // 2 ** j - 2 * e >= 4), default=0)
         return fits, largest, e
 
+    def knob_warnings(self, field, params: dict) -> dict:
+        """The strip's ⚠ on the coarsest cell when a fitted level would keep fewer than 16 cells
+        inside the bank's border on this field; nothing before a field is loaded."""
+        values = getattr(field, "values", None)
+        if values is None or np.ndim(values) < 2 or not params:
+            return {}
+        try:
+            self.check(params)
+        except ValueError:
+            return {}
+        fits, largest, e = self._fits(filled_block(field) or np.shape(values)[:2], params, self._edge(field, params))
+        if fits:
+            return {}
+        where = (f"levels above {largest} px keep fewer than 16 cells inside {params['wavelet']}'s border of "
+                 f"{e} cells on this field; their moments are thin or empty" if largest else
+                 f"no level keeps 16 cells inside {params['wavelet']}'s border of {e} cells on this field")
+        return {"scale_max": where}
+
     def compute(self, field, params: dict, *, progress=None) -> dict:
         vals = field_values_2d(field, self.name)
         self.check(params)
         edge = self._edge(field, params)
         block, origin = filled_block(field), filled_origin(field)
-        fits, largest, e = self._fits(block or vals.shape, params, edge)
-        if not fits:
-            fit_note = (f"the largest scale_max that fits three levels is {largest} px" if largest
-                        else "no scale_max fits three levels")
-            raise ValueError(
-                f"wavelet_leaders: a {vals.shape[0]} × {vals.shape[1]} px field with {params['wavelet']}'s "
-                f"border of {e} cells leaves fewer than 16 cells on a level between {params['scale_min']} "
-                f"and {params['scale_max']} px; {fit_note}")
+        _fits, _largest, e = self._fits(block or vals.shape, params, edge)
         if params["dither"]:
             from dynamix.core.mz_edges import _dithered, measure_lsb
 
@@ -214,9 +225,19 @@ class WaveletLeaders:
                                 f"{adm['h_min']['integrated']:.2f}, η({params['p']:g}) "
                                 f"{adm['eta']['integrated']:.2f}); γ ≥ {adm[m]['suggested_gamma']:g} would clear it")
         rows, cols = block or vals.shape
+        # The pyramid reaches every level; a fitted level that keeps fewer than 16 cells inside
+        # the border is thin and one with none carries no statistics: warnings, never a refusal.
+        for j in range(j_min, J + 1):
+            n_j = int(run["valid_cells"]["leaders"][j - 1])
+            if n_j == 0:
+                warnings.append(f"level {j} ({2 ** j} px): no cells inside {params['wavelet']}'s border of {e} "
+                                "cells; the level carries no statistics")
+            elif n_j < 16:
+                warnings.append(f"level {j} ({2 ** j} px): {n_j} cells inside the border, fewer than 16; "
+                                "its moments are thin")
         for j in range(j_min, J + 1):
             inside = (rows // 2 ** j - 2 * e) * (cols // 2 ** j - 2 * e)
-            if run["valid_cells"]["leaders"][j - 1] < inside / 2:
+            if inside > 0 and run["valid_cells"]["leaders"][j - 1] < inside / 2:
                 warnings.append(f"level {j} ({2 ** j} px): more than half its cells touch non-finite pixels")
             if run["zero_cells"][j - 1] > 0.01 * max(run["valid_cells"]["leaders"][j - 1], 1):
                 warnings.append(f"level {j} ({2 ** j} px): {run['zero_cells'][j - 1]} leaders are exactly zero "

@@ -90,3 +90,12 @@ def test_the_edge_modes_reach_the_hyperbolic_coefficients(dev):
     p = validate_params(dev, {"scale_max": 32})
     res = dev.compute(ext, p)
     assert res["record"]["edge"] == {"asked": "auto", "used": "periodic"}
+
+
+def test_the_scale_knob_warns_when_a_level_keeps_too_few_cells(dev):
+    field = make_field(fbm2d(128, 0.5, seed=1))
+    p = validate_params(dev, {"scale_min": 4, "scale_max": 32})
+    assert "scale_max" in dev.knob_warnings(field, p)
+    roomy = make_field(fbm2d(256, 0.5, seed=1))
+    assert dev.knob_warnings(roomy, validate_params(dev, {"scale_min": 4, "scale_max": 16})) == {}
+    assert dev.knob_warnings(None, p) == {}

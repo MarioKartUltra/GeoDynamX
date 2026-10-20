@@ -114,6 +114,25 @@ class DirectionalScaling:
     def roi_margin(self, params: dict) -> int:
         return dwt.border_cells(params["wavelet"]) * int(params["scale_max"])
 
+    def knob_warnings(self, field, params: dict) -> dict:
+        """The strip's ⚠ on the coarsest cell when a level would keep fewer than 16 cells inside
+        the bank's border on this field (the same rule as the wavelet leaders)."""
+        values = getattr(field, "values", None)
+        if values is None or np.ndim(values) < 2 or not params:
+            return {}
+        try:
+            j_min, J = self._levels(params)
+        except ValueError:
+            return {}
+        e = 0 if self._edge(field, params) == "periodic" else dwt.border_cells(params["wavelet"])
+        side = min(int(n) for n in (filled_block(field) or np.shape(values)[:2]))
+        if all(side // 2 ** j - 2 * e >= 4 for j in range(j_min, J + 1)):
+            return {}
+        largest = max((2 ** j for j in range(3, 12) if side // 2 ** j - 2 * e >= 4), default=0)
+        return {"scale_max": (f"levels above {largest} px keep fewer than 16 cells inside {params['wavelet']}'s "
+                              f"border of {e} cells on this field" if largest else
+                              f"no level keeps 16 cells inside {params['wavelet']}'s border of {e} cells on this field")}
+
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         if name == "edge" and field is not None and value == "auto":
             used = self._edge(field, dict(params or {}, edge=value))

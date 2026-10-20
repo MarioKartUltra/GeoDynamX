@@ -33,7 +33,7 @@ __all__ = ["BANKS", "approximations", "atom_centroid", "battle_lemarie_filters",
            "registration", "require_pywt", "soft_threshold", "stationary", "stationary_inverse", "wavelet",
            "working_shape"]
 
-BANKS = ("sym4", "sym5", "sym6", "sym7", "sym8", "db4", "db5", "db6", "db7", "db8",
+BANKS = ("sym4", "sym5", "sym6", "sym7", "sym8", "db2", "db3", "db4", "db5", "db6", "db7", "db8",
          "coif4", "coif5", "coif6", "bl3")
 BANDS = ("approximation", "horizontal", "vertical", "diagonal")
 _NEEDS_PYWT = ("the DWT tools (dwt2d, inpaint, fill) need PyWavelets; install it with "

@@ -193,3 +193,11 @@ def test_importing_the_module_leaves_pywt_unimported():
     code = "import sys, dynamix.core.dwt; sys.exit(1 if 'pywt' in sys.modules else 0)"
     assert subprocess.run([sys.executable, "-c", code],
                           cwd=str(pathlib.Path(__file__).resolve().parent.parent)).returncode == 0
+
+
+def test_the_short_daubechies_banks_are_offered_with_narrower_borders():
+    """db2 and db3, the leaders literature's banks, have two and three vanishing moments and
+    atoms short enough to leave a coarser level inside the border than the order-four banks."""
+    assert "db2" in dwt.BANKS and "db3" in dwt.BANKS
+    assert dwt.border_cells("db2") < dwt.border_cells("sym4") and dwt.border_cells("db3") <= dwt.border_cells("sym4")
+    assert dwt.wavelet("db2").dec_len == 4 and dwt.wavelet("db3").dec_len == 6
