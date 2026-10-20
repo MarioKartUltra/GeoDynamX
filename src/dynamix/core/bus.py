@@ -117,6 +117,25 @@ def grid_pitch(field, base) -> tuple[float, float]:
     return py, px
 
 
+def grid_origin(field, base) -> tuple[float, float]:
+    """``(row, col)``: where ``field``'s first sample sits on ``base``'s native pixel grid, in
+    ``base``'s file-pixel indices, from the two fields' axes (a fork's own georeference against
+    the dataset it was forked from; a produced field's axes against the dataset's, which is
+    how a centred Periodic extension says that its raster starts half a gap before its data).
+    An ordinary ``base``'s axes start at its window, so the window is taken off to make the
+    indices file-absolute; a display picture's grid already is."""
+    from dynamix.roi.picture import file_pixel_grid
+
+    _ny, _nx, x0, dx, y0, dy, _crs = native_grid(base)
+    if file_pixel_grid(base) is None:
+        window = (getattr(base, "provenance", None) or {}).get("window") or {}
+        x0 -= int(window.get("col_off", 0)) * dx
+        y0 -= int(window.get("row_off", 0)) * dy
+    fx = np.asarray(field.x_axis, dtype=np.float64)
+    fy = np.asarray(field.y_axis, dtype=np.float64)
+    return (float(fy[0] - y0) / dy, float(fx[0] - x0) / dx)
+
+
 def grid_mismatch(a: tuple, b: tuple) -> "str | None":
     """Why grid ``b`` cannot share a bus with grid ``a`` (both :func:`native_grid` tuples), or
     ``None`` when they are the same grid."""
