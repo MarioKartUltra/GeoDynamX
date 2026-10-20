@@ -189,6 +189,37 @@ def legendre_dh(q_list, tau, n_h: int = 257) -> dict:
     return {"h": h, "D": D}
 
 
+def legendre_local(q_list, tau, *, m: int = 2, order: int = 3) -> dict:
+    """xsmurf's ``legendre2`` (Decoster 1999, ``tcl_library/legendre.tcl``): at every q with
+    ``m`` neighbours on each side, a polynomial of ``order`` through the 2m + 1 points around
+    it, h(q) the derivative of that local fit at q and τ_fit(q) its value, D = q h − τ_fit. A
+    moving window, never a global smooth, so a kink survives except within m steps of it:
+    the result sits between the hull (:func:`legendre_dh`, the concave envelope by theorem)
+    and the canonical parametric route, which never differentiates τ. xsmurf weights the
+    points by 0.005|τ| + 1e−5, near-uniform, and differentiates by a 0.001 step; here the
+    weights are uniform and the derivative is the fit's own. Returns ``{"q", "h", "D",
+    "tau_fit"}`` over the interior q, empty below 2m + 1 finite points."""
+    q = np.asarray(q_list, dtype=np.float64)
+    t = np.asarray(tau, dtype=np.float64)
+    finite = np.isfinite(q) & np.isfinite(t)
+    q, t = q[finite], t[finite]
+    by_q = np.argsort(q)
+    q, t = q[by_q], t[by_q]
+    n = q.size
+    if n < 2 * m + 1:
+        empty = np.zeros(0)
+        return {"q": empty, "h": empty, "D": empty, "tau_fit": empty}
+    qs, hs, taus = [], [], []
+    for i in range(m, n - m):
+        window = slice(i - m, i + m + 1)
+        poly = np.poly1d(np.polyfit(q[window] - q[i], t[window], min(order, 2 * m)))
+        qs.append(float(q[i]))
+        hs.append(float(poly.deriv()(0.0)))
+        taus.append(float(poly(0.0)))
+    qs, hs, taus = (np.asarray(v, dtype=np.float64) for v in (qs, hs, taus))
+    return {"q": qs, "h": hs, "D": qs * hs - taus, "tau_fit": taus}
+
+
 def _lnq_side_fit(lnq: np.ndarray, tau: np.ndarray):
     """OLS of tau against ln q for one side; ``(slope, intercept, r2)`` or NaNs below 2 pts."""
     if lnq.size < 2:

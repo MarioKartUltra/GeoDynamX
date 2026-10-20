@@ -167,6 +167,10 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._hull = pg.PlotDataItem(pen=pg.mkPen(current().amber, style=QtCore.Qt.DashLine, width=1.4),
                                      connect="finite")
         self.plots["D"].addItem(self._hull)
+        # xsmurf's local-cubic Legendre of the fitted τ(q) beside the hull (spectra.legendre_local).
+        self._local = pg.PlotDataItem(pen=pg.mkPen(current().amber, style=QtCore.Qt.DotLine, width=1.4),
+                                      connect="finite")
+        self.plots["D"].addItem(self._local)
         self._d_line = pg.InfiniteLine(angle=0, pos=float(self._samples.get("d", 2)), movable=False,
                                        pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine))
         self.plots["D"].addItem(self._d_line)
@@ -246,6 +250,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         fit["kind"] = "structure functions"
         fit["name"] = f"{self._source} · {label}, {fit['kind']}" if self._source else f"{label}, {fit['kind']}"
         fit["hull"] = spectra.legendre_dh(fit["q_list"], fit["tau"])
+        fit["legendre_local"] = spectra.legendre_local(fit["q_list"], fit["tau"])
         fit["cq"] = spectra.specific_heat(fit["q_list"], fit["tau"])
         fit["q"] = fit["q_list"]
         self._fit = fit
@@ -259,6 +264,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             self._curves[name].setData(x[ok], y[ok])
             self._err[name].setData(x=x[ok], y=y[ok], height=np.where(np.isfinite(err[ok]), 2 * err[ok], 0.0))
         self._hull.setData(fit["hull"]["h"], fit["hull"]["D"])
+        self._local.setData(fit["legendre_local"]["h"], fit["legendre_local"]["D"])
         self._read(fit, lo, hi)
         self.fitChanged.emit(fit)
 

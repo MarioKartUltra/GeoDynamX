@@ -588,3 +588,32 @@ def test_phase_transition_tangent_reaches_the_y_axis_at_D_minus_q_h():
     assert got["intercept"] == pytest.approx(D[i] - q_c * h[i])
     assert got["intercept"] == pytest.approx(-tau[i])     # Legendre: the tangent meets h = 0 at -tau(q_c)
     assert spectra.phase_transition_tangent(q, 0.6 * q - 0.1 * q * q, h, D) is None
+
+
+def test_legendre_local_of_a_quadratic_tau_is_exact_on_the_interior():
+    """xsmurf's legendre2: a cubic through the five points around each q reads a quadratic τ
+    exactly, so h = τ′ and D = q h − τ are the log-normal closed forms on every interior q."""
+    c0, c1, c2 = 2.0, 0.6, 0.15
+    q = np.arange(-4.0, 4.01, 0.25)
+    tau = -c0 + c1 * q - 0.5 * c2 * q * q
+    out = spectra.legendre_local(q, tau)
+    np.testing.assert_allclose(out["q"], q[2:-2])
+    np.testing.assert_allclose(out["h"], c1 - c2 * out["q"], atol=1e-9)
+    np.testing.assert_allclose(out["D"], c0 - (c1 - out["h"]) ** 2 / (2.0 * c2), atol=1e-9)
+    np.testing.assert_allclose(out["tau_fit"], tau[2:-2], atol=1e-9)
+
+
+def test_legendre_local_keeps_a_kink_the_hull_turns_into_a_chord():
+    """τ with slopes 0.3 below q = 0 and 0.8 above: more than m = 2 steps from the kink the
+    local fit reads the branch slopes and D = 0 exactly, the window straddling the kink smooths
+    it; the hull over the same q reads one chord between the two slopes, D negative between."""
+    q = np.arange(-4.0, 4.01, 0.5)
+    tau = np.where(q < 0, 0.3 * q, 0.8 * q)
+    out = spectra.legendre_local(q, tau)
+    far = np.abs(out["q"]) > 1.0
+    np.testing.assert_allclose(out["h"][far], np.where(out["q"][far] < 0, 0.3, 0.8), atol=1e-9)
+    np.testing.assert_allclose(out["D"][far], 0.0, atol=1e-9)
+    assert (np.abs(out["D"][~far]) > 1e-6).any()
+    hull = spectra.legendre_dh(q, tau)
+    assert abs(hull["h"].min() - 0.3) < 1e-9 and abs(hull["h"].max() - 0.8) < 1e-9 and hull["D"].min() < -0.5
+    assert spectra.legendre_local(q[:4], tau[:4])["h"].size == 0        # fewer than 2m + 1 points

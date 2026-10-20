@@ -338,6 +338,12 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._hull_check = QtWidgets.QCheckBox("Legendre hull (τ)")
         self._hull_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self._hull_check)
+        self._local_check = QtWidgets.QCheckBox("Legendre (local cubic, xsmurf)")
+        self._local_check.setToolTip("xsmurf's legendre2: a cubic through the five τ(q) points around each q, "
+                                     "h = its derivative there, D = q h − τ; a kink survives except within two "
+                                     "steps of it")
+        self._local_check.toggled.connect(lambda _c: self._recompute())
+        controls.addWidget(self._local_check)
         # Show: each published spectrum on or off, on every panel.
         self.show_button = QtWidgets.QToolButton()
         self.show_button.setText("Show")
@@ -540,6 +546,10 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._hull_curve = pg.PlotDataItem(
             pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DashLine, width=1.6), connect="finite")
         self._plot.addItem(self._hull_curve)
+        self._local_curve = pg.PlotDataItem(
+            pen=pg.mkPen(Q_WARM, style=QtCore.Qt.DotLine, width=1.6), symbol="o", symbolSize=3,
+            symbolPen=None, symbolBrush=Q_WARM, connect="finite")
+        self._plot.addItem(self._local_curve)
         self._hist_err = pg.ErrorBarItem(pen=pg.mkPen(Q_COLD), beam=0.0)
         self._plot.addItem(self._hist_err)
         # The histogram's bins as points, the way the paper draws them.
@@ -569,6 +579,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._legend_entries = [
             (self._canon_curve, lambda n=self._source: n),           # no self: no cycle
             (self._hull_curve, lambda: "Legendre hull of fitted τ(q)"),
+            (self._local_curve, lambda: "Legendre of fitted τ(q), local cubic (xsmurf legendre2)"),
             (self._hist_curve, weak_method(self._hist_curve_name)),
             (self._gh_curve, lambda: "gradient histogram (GH)"),
             (self._box_curve, lambda: "box-counting across r (eq. 20)"),
@@ -749,6 +760,11 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self._hull_curve.setData(hull["h"], hull["D"])
             else:
                 self._hull_curve.setData([], [])
+            if self._local_check.isChecked():
+                local = spectra.legendre_local(self._fit["q_list"], self._fit["tau"])
+                self._local_curve.setData(local["h"], local["D"])
+            else:
+                self._local_curve.setData([], [])
         for name in self._fit_items:                            # every hull follows the one switch
             self._apply_shown(name, sync=False)
         self._update_tangent()

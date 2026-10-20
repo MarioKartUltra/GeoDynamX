@@ -523,3 +523,21 @@ def test_the_show_menu_hides_a_published_spectrum(qtbot):
     assert items["D"].isVisible() and items["hull"].isVisible()
     window.set_fits([])
     assert not [a for a in window.show_menu.actions() if a.text() == "L1 · leaders"]
+
+
+def test_the_local_cubic_legendre_draws_on_its_switch(qtbot):
+    from dynamix.core import spectra
+    from test_multifractal_window import _hd_q
+    q = np.arange(-2.0, 2.01, 0.5)                        # nine orders: five-point windows exist
+    hd = _hd_q(q, 0.5 * q - 0.1 * q * q)
+    window = SpectrumWindow(hd, hd)
+    qtbot.addWidget(window)
+    assert window._local_curve.getData()[0] is None
+    window._local_check.setChecked(True)
+    fit = window.current_fit()
+    local = spectra.legendre_local(fit["q_list"], fit["tau"])
+    np.testing.assert_allclose(window._local_curve.getData()[0], local["h"])
+    np.testing.assert_allclose(window._local_curve.getData()[1], local["D"])
+    assert any("local cubic" in name for _item, name in window._in_legend["order"])
+    window._local_check.setChecked(False)
+    assert window._local_curve.getData()[0] is None or window._local_curve.getData()[0].size == 0

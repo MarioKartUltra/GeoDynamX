@@ -136,3 +136,11 @@ def test_a_dyadic_ladder_reads_j_on_the_scale_axis(qtbot):
     qtbot.addWidget(window)
     assert window.family_plot.getAxis("bottom").labelText == "j"
     assert window._scale_label.text() == "j"
+
+
+def test_the_fit_carries_the_local_cubic_legendre_beside_the_hull(qtbot):
+    window = StructureFunctionsWindow(_samples(), levels=(2, 5))
+    qtbot.addWidget(window)
+    local = window._fit["legendre_local"]
+    assert local["h"].size == window._fit["q_list"].size - 4
+    np.testing.assert_allclose(window._local.getData()[0], local["h"])
