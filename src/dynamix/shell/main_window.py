@@ -4509,8 +4509,17 @@ both ``Canvas`` signals report the
         from dynamix.core.bus import grid_pitch
 
         pitch = grid_pitch(result, self.field) if self.field is not None else (1.0, 1.0)
-        self.canvas.set_field(result, display_origin=self._display_origin(self.field),
-                              display_pitch=pitch)
+        # The produced field is placed by its own axes against the dataset's grid, as a fork is
+        # (a centred Periodic extension starts half a gap before its data; a refined grid at its
+        # pitch): the canvas adds the field's window itself, so the shift is what the axes say
+        # beyond it, on top of where the dataset is displayed.
+        shift = (0, 0)
+        if self.field is not None:
+            dr, dc = self._display_origin(self.field) or (0, 0)
+            r, c = self._grid_origin_px(result, self.field)
+            wr, wc = window_offset(result)
+            shift = (dr + r - wr, dc + c - wc)
+        self.canvas.set_field(result, display_origin=shift, display_pitch=pitch)
         values = np.asarray(result.values)
         self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
         self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
@@ -5327,18 +5336,17 @@ both ``Canvas`` signals report the
         (:meth:`_display_pitch`). ``None`` for any other field and for a fork whose source is
         not open or whose CRS differs. A fork off that grid by a fraction of a pixel is said on
         the status line."""
-        from dynamix.core.bus import native_grid
-
         base = self._fork_base(field)
         if base is None:
             return None
-        _ny, _nx, x0, dx, y0, dy, _crs = native_grid(base)
-        if file_pixel_grid(base) is None:            # an ordinary field: its axes start at its window
-            wr, wc = window_offset(base)
-            x0, y0 = x0 - wc * dx, y0 - wr * dy
-        fx = np.asarray(field.x_axis, dtype=np.float64)
-        fy = np.asarray(field.y_axis, dtype=np.float64)
-        row, col = (fy[0] - y0) / dy, (fx[0] - x0) / dx
+        return self._grid_origin_px(field, base)
+
+    def _grid_origin_px(self, field, base) -> tuple[int, int]:
+        """Where ``field``'s first sample sits on ``base``'s file pixels (``bus.grid_origin``),
+        rounded to a pixel; a fraction off the grid is said on the status line."""
+        from dynamix.core.bus import grid_origin
+
+        row, col = grid_origin(field, base)
         r, c = int(round(row)), int(round(col))
         if abs(row - r) > 1e-3 or abs(col - c) > 1e-3:
             self._notify(f"{field.name}: off its source's pixel grid by "

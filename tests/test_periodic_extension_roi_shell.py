@@ -62,3 +62,29 @@ def test_the_canvas_draws_a_result_on_the_extended_raster_back_on_the_data(qtbot
     canvas.set_field(extended)
     canvas.set_result(res, 0)
     assert canvas._draw_off == (0.0, 0.0)
+
+
+def test_a_centred_extension_lands_with_its_data_block_on_the_roi(qtbot, registered_builtins):
+    """The produced field's place on the canvas comes from its own axes against the dataset's
+    grid, as a fork's does: a centred extension starts half a gap before the ROI, so its raster
+    draws from there and the data block sits exactly on the ROI box (it drew from the ROI's
+    corner, the block half a gap down and right of the box, as the author saw)."""
+    from dynamix.shell.main_window import MainWindow
+
+    v = _smooth(160, seed=2)
+    field = RasterField(name="smooth", values=v, frame=LocalFrame(), x_axis=np.arange(160.0),
+                        y_axis=np.arange(160.0))
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    win.load_field(field, "/nonexistent/smooth.npz")
+    _save(win, row=20, col=30, h=96, w=96)
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        _drop(win, qtbot, "periodic_extension")
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
+    _layer_id, produced = win._active_field
+    stamp = produced.provenance["edges.filled"]
+    r0, c0 = stamp.get("row0", 0), stamp.get("col0", 0)
+    assert r0 > 0 and c0 > 0                                            # the centred layout
+    rect = win.canvas.image_item.mapRectToView(win.canvas.image_item.boundingRect())
+    assert (rect.x(), rect.y()) == (30 - c0 - 0.5, 20 - r0 - 0.5)
+    assert (rect.width(), rect.height()) == tuple(float(n) for n in produced.values.shape[::-1])
