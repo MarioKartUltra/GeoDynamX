@@ -2246,3 +2246,18 @@ def test_an_edited_theme_file_reloads_live(qtbot, stub_devices, tmp_path, monkey
         from PySide6 import QtWidgets
 
         apply_theme(QtWidgets.QApplication.instance(), RESTRAINED_DARK)
+
+
+def test_open_takes_several_files_at_once(window, tmp_path, monkeypatch):
+    """The Open dialog selects several files; each opens as its own dataset, in order, the last
+    one current."""
+    import shutil
+    from PySide6 import QtWidgets
+    first, second = tmp_path / "first.npz", tmp_path / "second.npz"
+    shutil.copy("tests/fixtures/kam_64.npz", first)
+    shutil.copy("tests/fixtures/kam_64.npz", second)
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames",
+                        staticmethod(lambda *a, **k: ([str(first), str(second)], "")))
+    window._on_open_clicked()
+    assert len(window.project.sources) == 2
+    assert window.field is not None and list(window.project.sources)[-1] == window.layer.source_id

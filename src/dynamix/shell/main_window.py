@@ -2351,11 +2351,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_open_clicked(self) -> None:
         # The file picker is the one dialog in this app, and it is the spec's "minimal file-open",
         # not an error or progress dialog -- those are the ones DESIGN.md forbids.
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+        # Several files at once: each opens as its own dataset, in order, the last one current.
+        paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self, "Open raster", "",
             "Raster, points or reference layers (*.npz *.npy *.tif *.tiff *.hdr *.zip *.png *.jpg "
             "*.csv *.shp *.lyr *.nc *.nc4 *.cdf *.h5 *.hdf5 *.he5 *.hdf)")
-        if path:
+        for path in paths:
             self.open_path(path)
 
     def _pick_container_grids(self, path: str) -> "list | None | bool":

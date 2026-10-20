@@ -146,11 +146,11 @@ def test_open_path_dispatches_csv_to_load_points(qtbot, window, tmp_path, monkey
 def test_open_button_filter_string_includes_csv(qtbot, window, monkeypatch):
     captured = {}
 
-    def fake_get_open_file_name(*args, **kwargs):
+    def fake_get_open_file_names(*args, **kwargs):
         captured["filter"] = args[3] if len(args) > 3 else kwargs.get("filter")
-        return "", ""
+        return [], ""
 
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileName", fake_get_open_file_name)
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getOpenFileNames", fake_get_open_file_names)
     window._on_open_clicked()
     assert "*.csv" in captured["filter"]
 
