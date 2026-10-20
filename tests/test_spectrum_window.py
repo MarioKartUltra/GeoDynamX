@@ -569,3 +569,18 @@ def test_the_kink_geometry_draws_the_tangents_and_the_chord_and_reads_the_depart
     window.set_fits([{"name": "gen", "kind": "generalized spectrum", "h": h,
                       "D": np.where((h >= 0.4) & (h <= 0.7), -5.0, 5.0)}])
     assert "leaves D** on (0.40, 0.70)" in window._kink_label.toPlainText()
+
+
+def test_the_kink_geometry_has_its_own_switch(qtbot):
+    """A nonconcave point has no supporting line (Touchette & Beck's point b), so the tangents,
+    the chord and the reading can be left out: one switch, on by default, hides them all."""
+    from test_multifractal_window import _hd_q
+    q = np.arange(-3.0, 3.01, 0.5)
+    window = SpectrumWindow(_hd_q(q, np.where(q < 0, 0.8 * q, 0.3 * q)), _hd_q(q, np.where(q < 0, 0.8 * q, 0.3 * q)))
+    qtbot.addWidget(window)
+    window._hull_check.setChecked(True)
+    assert window._geometry_check.isChecked() and window._tangent_left.isVisible() and window._chord.isVisible()
+    window._geometry_check.setChecked(False)
+    assert not any(it.isVisible() for it in (window._tangent_left, window._tangent_right, window._kink_label, window._chord))
+    window._geometry_check.setChecked(True)
+    assert window._tangent_left.isVisible() and window._chord.isVisible()

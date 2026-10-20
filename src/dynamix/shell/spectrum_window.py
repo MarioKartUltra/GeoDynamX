@@ -346,6 +346,15 @@ class SpectrumWindow(QtWidgets.QDialog):
                                      "steps of it")
         self._local_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self._local_check)
+        # A nonconcave point has no supporting line (Touchette & Beck's point b): the kink
+        # geometry can be left out.
+        self._geometry_check = QtWidgets.QCheckBox("kink geometry (tangents at q_c, chord)")
+        self._geometry_check.setChecked(True)
+        self._geometry_check.setToolTip("The two one-sided tangents of τ at q_c and the envelope's chord across "
+                                        "(h_l, h_h); leave them out where the kink is no phase transition, a "
+                                        "nonconcave point admits no supporting line")
+        self._geometry_check.toggled.connect(lambda _c: self._recompute())
+        controls.addWidget(self._geometry_check)
         # Show: each published spectrum on or off, on every panel.
         self.show_button = QtWidgets.QToolButton()
         self.show_button.setText("Show")
@@ -891,7 +900,8 @@ class SpectrumWindow(QtWidgets.QDialog):
         D(h) when D** is drawn, and the reading, with where a published generalized spectrum
         leaves the envelope by the other route."""
         fit = getattr(self, "_fit", None)
-        got = spectra.kink_interval(fit["q_list"], fit["tau"]) if fit is not None else None
+        wanted = fit is not None and self._geometry_check.isChecked()
+        got = spectra.kink_interval(fit["q_list"], fit["tau"]) if wanted else None
         for item in (self._tangent_left, self._tangent_right, self._kink_label, self._chord):
             item.setVisible(got is not None)
         if got is None:
