@@ -164,42 +164,81 @@ class CwtLeaders:
                 measured[i, y, x] = mod[i, y, x]
         leaders = core.cylinder_leaders(measured, radii, sup_from=sup_from)
 
+        # The admissibility of the coefficients over the admitted scales, against log2 a: h_min the
+        # slope of log2 max M (leaders need h_min > 0) and η(p) the slope of log2 mean M^p, the
+        # coefficient structure function Z̃(a, p) of Jaffard 1997 Part I (p-leaders need η(p) > 0).
         p = float(params["p"])
+        admitted = list(range(sup_from, len(scales)))
+        log2_a = np.log2(scales[sup_from:])
+        h_min, eta_p = float("nan"), float("nan")
+        with np.errstate(divide="ignore", invalid="ignore"):
+            if len(admitted) >= 2:
+                h_min = float(np.polyfit(log2_a, [np.log2(np.nanmax(mod[i])) for i in admitted], 1)[0])
+                if p > 0:
+                    eta_p = float(np.polyfit(log2_a, [np.log2(np.nanmean(mod[i].astype(np.float64) ** p))
+                                                      for i in admitted], 1)[0])
+        if h_min <= 0:
+            warnings.append(f"h_min = {h_min:.2f}: the field is not uniformly Hölder, the leaders need h_min > 0; "
+                            "a lift η would clear it")
+        if p > 0 and eta_p <= 0:
+            warnings.append(f"η({p:g}) = {eta_p:.2f}: the coefficients are not in L^{p:g} at this p, the p-leaders need "
+                            "η(p) > 0; a lift η would clear it")
+        # The p-leader: the disc mean of M^p at each admitted scale, summed over the scales up to the
+        # leader's own (the log-scale measure, one term per voice), divided by the finite-resolution
+        # factor (1 − 2^{−nη/v})/(1 − 2^{−η/v}) of Leonarduzzi, Wendt, Abry, Jaffard, Roux and Torres
+        # 2017 with η = η(p) and v the voices per octave, applied when η > 0: the partial geometric
+        # sum of a pure power law, so a^{ph} returns as itself however few scales are admitted.
+        # The transcription of the local L^p norm behind the T^p_α spaces (Jaffard and Melot 2005);
+        # no published CWT p-leader exists, and a mean over the scales is not a power law.
         p_leaders = None
+        factors = []
         if p > 0:
             p_leaders = np.full(mod.shape, np.nan, dtype=np.float32)
             acc = None
-            for j in range(sup_from, len(scales)):
+            voice = 1.0 / int(params["n_voice"])
+            for j in admitted:
                 term = np.where(np.isfinite(measured[j]), measured[j].astype(np.float64) ** p, np.nan)
                 acc = term if acc is None else np.where(np.isfinite(term), np.nan_to_num(acc) + term, acc)
                 total, count = core.disc_boxsum(acc, float(radii[j]))
+                n = j - sup_from + 1
+                factor = ((1.0 - 2.0 ** (-n * eta_p * voice)) / (1.0 - 2.0 ** (-eta_p * voice))
+                          if eta_p > 0 else 1.0)
+                factors.append(float(factor))
                 with np.errstate(divide="ignore", invalid="ignore"):
-                    mean = total / (count * (j - sup_from + 1))
+                    mean = total / (count * factor)
                 p_leaders[j] = np.where(count > 0, mean ** (1.0 / p), np.nan).astype(np.float32)
 
+        # The valid mask is the WTMM's own edge group: the disc sup over the frame is what the
+        # kernel computes, a mirrored coefficient is attenuated (the gradient's normal component
+        # suppressed, the tangential one boosted) and a sup forgives it, so reflect padding with
+        # no Border cut keeps every pixel; the Border cut's band at each scale is the same one
+        # that drops the WTMM's maxima (spec 30 §3.4).
         ny, nx = values.shape
+        borders = [0.0] * len(scales)
+        if backend["border_cut"] != "none":
+            from dynamix.core.edges import border_widths
+            borders = [float(b) for b in border_widths(
+                list(scales), backend["border_cut"], wavelet=backend["wavelet"],
+                smoother_params=backend["smoother_params"], eps=backend["edge_eps"],
+                pct=backend["border_pct"], k=backend["border_k"], scope=backend["border_scope"],
+                run_grid=max(ny, nx) + 2 * int(backend["pad"]))]
+        y, x = np.ogrid[:ny, :nx]
+        inside = np.minimum(np.minimum(y, ny - 1 - y), np.minimum(x, nx - 1 - x))
         valid = []
-        shrink = []
         for j in range(len(scales)):
             m = np.isfinite(leaders[j])
-            s = 0 if edge == "periodic" else int(math.ceil((1.0 + float(params["radius_k"])) * c * scales[j]))
-            if s > 0:
-                border = np.zeros_like(m)
-                if 2 * s < ny and 2 * s < nx:
-                    border[s:ny - s, s:nx - s] = True
-                m &= border
+            if borders[j] > 0:
+                m &= inside >= borders[j]
             if float(params["sample_stride"]) > 0:
                 stride = max(1, int(round(float(params["sample_stride"]) * radii[j])))
                 lattice = np.zeros_like(m)
                 lattice[::stride, ::stride] = True
                 m &= lattice
             valid.append(m)
-            shrink.append(s)
-        # The contract's cell count is the whole domain's independent discs, scaling as a^-2 as the
-        # dyadic device's cube count does (the valid masks do the excluding; the windows' +d law
-        # rests on it); the discs over the valid area, for the error bars, go to the record.
-        cells = [float(ny * nx) / max(math.pi * r * r, 1.0) for r in radii]
-        n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
+        # The cell count is the independent discs over the valid area, A_valid / πR²: on a full
+        # field the whole domain's discs, scaling as a^-2 as the dyadic device's cube count does;
+        # on the maxima measure the occupied discs, Jaffard's sum over occupied cells.
+        cells = n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
 
         lo, hi = float(params["fit_min"]), float(params["fit_max"])
         # The default range: discs of at least 3 px and at least 16 independent discs (the dyadic
@@ -226,10 +265,11 @@ class CwtLeaders:
             "ladder": {k: params[k] for k in ("n_oct", "n_voice", "a_min")}, "scales": scales.tolist(),
             "energy_radius_per_scale": c, "radius_k": float(params["radius_k"]), "radii_px": radii.tolist(),
             "energy": float(params["energy"]), "sup_from_octaves": int(params["sup_from"]),
-            "eta": float(params["fracint_alpha"]), "p": p,
-            "p_leader": "(mean over the cylinder of M^p)^(1/p), the mean over the admitted scales "
-                        "of the disc mean" if p > 0 else None,
-            "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "shrink_px": shrink},
+            "eta": float(params["fracint_alpha"]), "p": p, "h_min": h_min, "eta_p": eta_p,
+            "p_leader": "(sum over the admitted scales of the disc mean of M^p, over the finite-resolution "
+                        "factor)^(1/p)" if p > 0 else None,
+            "finite_resolution_factor": factors,
+            "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "borders_px": borders},
             "fit_range": fit_range, "sample_stride": float(params["sample_stride"]),
             "cwt_cache_hits": sorted(stage["cache_hits"]), "maxima_cache_hits": sorted(maxima_hits),
             "warnings": warnings,
@@ -256,8 +296,7 @@ class CwtLeaders:
         res["_valid"] = [v[cut] for v in res["_valid"]]
         for key in ("h_map", "r2_map"):
             res[key] = res[key][cut]
-        cells = [float(h * w) / max(math.pi * r * r, 1.0) for r in res["_radii"]]
-        n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(res["_valid"], res["_radii"])]
+        cells = n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(res["_valid"], res["_radii"])]
         sets = {"cwt-leaders": {"values": [res["_leaders"][j] for j in range(len(res["scales"]))],
                                 "valid": res["_valid"]}}
         if res["_p_leaders"] is not None:
@@ -294,8 +333,12 @@ class CwtLeaders:
                  f"N_eff {min(cells):.0f}–{max(cells):.0f}"]
         if rec["eta"]:
             parts.append(f"η {rec['eta']:g}")
+        if np.isfinite(rec["h_min"]):
+            parts.append(f"h_min = {rec['h_min']:.2f}")
         if rec["p"] > 0:
             parts.append(f"p = {rec['p']:g}")
+            if np.isfinite(rec["eta_p"]):
+                parts.append(f"η({rec['p']:g}) = {rec['eta_p']:.2f}")
         return " · ".join(parts + rec["warnings"])
 
     def view(self, result: dict, params: dict) -> dict:

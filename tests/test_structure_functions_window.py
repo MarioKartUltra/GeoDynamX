@@ -96,3 +96,13 @@ def test_gamma_enables_the_frame_choice_and_the_original_frame_takes_it_out(qtbo
     plain = StructureFunctionsWindow(_samples(), levels=(2, 5))
     qtbot.addWidget(plain)
     assert not plain.frame_combo.isEnabled()
+
+
+def test_the_readout_reports_jaffards_sobolev_condition_on_the_fitted_zeta(qtbot):
+    """Jaffard 1997 Part I (3.6), the consistency check every fitted ζ(q) must pass, is read
+    beside the fit: exact power laws hold it with the margin 2/p at the largest fitted p."""
+    window = StructureFunctionsWindow(_samples(), levels=(2, 5))
+    qtbot.addWidget(window)
+    fit = window.current_fit()
+    assert fit["sobolev"]["holds"]
+    assert "(3.6) holds" in window.readout.text()

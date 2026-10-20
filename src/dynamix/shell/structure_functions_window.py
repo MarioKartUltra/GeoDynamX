@@ -262,6 +262,10 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
         D = fit["hull"]["D"]
         if np.isfinite(D).any():
             parts.append(f"hull: h* = {fit['hull']['h'][np.nanargmax(D)]:.3f}, D* = {np.nanmax(D):.3f}")
+        s = fit.get("sobolev")
+        if s and np.isfinite(s["margin"]):
+            parts.append(f"Jaffard (3.6) holds (margin {s['margin']:+.2f} at p = {s['at_q']:g})" if s["holds"]
+                         else f"Jaffard (3.6) FAILS at p = {s['at_q']:g} (margin {s['margin']:+.2f}): the fit is wrong")
         if self._gamma:
             parts.append(f"γ = {self._gamma:g}, {fit['frame']} frame")
         self.readout.setText(" · ".join(parts))

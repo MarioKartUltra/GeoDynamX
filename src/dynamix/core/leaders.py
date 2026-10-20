@@ -38,7 +38,7 @@ from dynamix.core import dwt
 
 __all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
            "local_exponent", "oscillation", "paint", "partition_table", "pleaders", "run_leaders",
-           "sample_sets", "structure_fit", "tables", "valid_cells", "wse", "wse_schedule"]
+           "sample_sets", "sobolev_condition", "structure_fit", "tables", "valid_cells", "wse", "wse_schedule"]
 
 BANDS = ("horizontal", "vertical", "diagonal")
 METHODS = ("leaders", "p-leaders", "wse")
@@ -357,7 +357,29 @@ def structure_fit(table: dict, j_min: int, j_max: int, *, weights=None, gamma: f
         out["tau"] = out["tau"] - gamma * out["q_list"]
         out["h"] = out["h"] - gamma
     out["zeta"], out["zeta_err"] = out["tau"] + d, out["tau_err"]
+    out["sobolev"] = sobolev_condition(out["q_list"], out["zeta"], d)
     return out
+
+
+def sobolev_condition(q_list, zeta, d: int = 2) -> dict:
+    """Jaffard 1997 Part I (3.6): for q ≥ p > 0 any wavelet scaling function satisfies
+    (ζ(q) − ζ(p)) / (q − p) ≥ (ζ(p) − d) / p, the Sobolev embeddings between the L^{p,s}; a fitted
+    ζ that breaks it is numerically wrong whatever produced it. Over the consecutive positive
+    orders: ``margin`` the smallest chord slope less its bound, ``at_q`` the p where it is taken,
+    ``holds`` whether every margin is nonnegative (True with fewer than two positive orders)."""
+    q = np.asarray(q_list, dtype=np.float64)
+    z = np.asarray(zeta, dtype=np.float64)
+    keep = (q > 0) & np.isfinite(z)
+    q, z = q[keep], z[keep]
+    order = np.argsort(q)
+    q, z = q[order], z[order]
+    if q.size < 2:
+        return {"holds": True, "margin": float("nan"), "at_q": float("nan")}
+    chord = np.diff(z) / np.diff(q)
+    bound = (z[:-1] - d) / q[:-1]
+    margins = chord - bound
+    i = int(np.argmin(margins))
+    return {"holds": bool(np.all(margins >= 0.0)), "margin": float(margins[i]), "at_q": float(q[i])}
 
 
 def _weighted_slopes(x, w, Y, S) -> tuple:
