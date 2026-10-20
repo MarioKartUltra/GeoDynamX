@@ -49,9 +49,11 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
         self._family_items: list = []
         self._fit_items: list = []
         self.setWindowTitle(f"Structure functions — {source}" if source else "Structure functions")
-        J = len(samples["scales"])
-        self._span = (1.0, float(J))
-        lo, hi = levels if levels is not None else (1, J)
+        # The span is the set's own log2 scales: the pyramid's levels 1..J for a dyadic set, the
+        # ladder's log2 a for a continuous one.
+        log2_scales = np.log2(np.asarray(samples["scales"], dtype=np.float64))
+        self._span = (float(log2_scales[0]), float(log2_scales[-1]))
+        lo, hi = levels if levels is not None else self._span
         self._build_ui(float(lo), float(hi))
         self._refit()
 

@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+"""The CWT leaders' sample sets in the fitting windows (spec 30 §5.7): the Structure functions
+window lists them, seeds its range from the device's fit range, and its canonical estimator on
+fractional Brownian motion reads h = H and D = 2, the +d law under all-pixel sampling."""
+from __future__ import annotations
+
+import numpy as np
+import pytest
+
+from conftest import fbm2d
+from dynamix.core.frames import LocalFrame
+from dynamix.core.rasterfield import RasterField
+
+
+@pytest.fixture
+def leaders_result(clean_registry):
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for
+
+    register_builtin_devices()
+    dev = clean_registry["cwt_leaders"]
+    params = defaults_for(dev)
+    params.update({"wavelet": "gaussian", "n_oct": 4, "a_min": 1.0, "edge": "reflect", "p": 2.0})
+    v = fbm2d(512, 0.5, seed=11)
+    field = RasterField(name="fbm", values=v, frame=LocalFrame(), x_axis=np.arange(512.0), y_axis=np.arange(512.0))
+    return dev.compute(field, params)
+
+
+def test_the_structure_functions_window_fits_the_leaders_with_the_plus_d_law(qtbot, leaders_result):
+    from dynamix.shell.structure_functions_window import StructureFunctionsWindow
+
+    samples = leaders_result["samples"]
+    lo, hi = (float(np.log2(a)) for a in samples["fit_range"])     # the window's axis is log2 a
+    window = StructureFunctionsWindow(samples, levels=(lo, hi), source="CWT")
+    qtbot.addWidget(window)
+    names = [window.set_combo.itemText(i) for i in range(window.set_combo.count())]
+    assert names == ["CWT leaders", "CWT p-leaders"]
+    assert tuple(window._region.getRegion()) == pytest.approx((lo, hi))
+    fit = window.current_fit()
+    q = np.asarray(fit["q"])
+    at = lambda value: int(np.argmin(np.abs(q - value)))       # noqa: E731
+    assert fit["h"][at(0.0)] == pytest.approx(0.5, abs=0.1)
+    assert fit["D"][at(0.0)] == pytest.approx(2.0, abs=0.15)
+    assert fit["tau"][at(2.0)] == pytest.approx(2 * 0.5 - 2, abs=0.25)

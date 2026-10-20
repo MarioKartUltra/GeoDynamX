@@ -195,15 +195,19 @@ class CwtLeaders:
                 m &= lattice
             valid.append(m)
             shrink.append(s)
-        cells = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
+        # The contract's cell count is the whole domain's independent discs, scaling as a^-2 as the
+        # dyadic device's cube count does (the valid masks do the excluding; the windows' +d law
+        # rests on it); the discs over the valid area, for the error bars, go to the record.
+        cells = [float(ny * nx) / max(math.pi * r * r, 1.0) for r in radii]
+        n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
 
         lo, hi = float(params["fit_min"]), float(params["fit_max"])
         # The default range: discs of at least 3 px and at least 16 independent discs (the dyadic
         # device's floor); an explicit range is taken as given.
         fit = [j for j in range(sup_from, len(scales))
-               if (radii[j] >= 3.0 and cells[j] >= 16.0 if lo <= 0 else scales[j] >= lo)
+               if (radii[j] >= 3.0 and n_eff[j] >= 16.0 if lo <= 0 else scales[j] >= lo)
                and (hi <= 0 or scales[j] <= hi)]
-        if lo <= 0 and any(cells[j] < 16.0 for j in range(sup_from, len(scales))):
+        if lo <= 0 and any(n_eff[j] < 16.0 for j in range(sup_from, len(scales))):
             warnings.append("scales with fewer than 16 independent discs are outside the default fit range")
         if len(fit) < 2:
             warnings.append("fewer than two scales in the fit range: no h-map")
@@ -225,7 +229,7 @@ class CwtLeaders:
             "eta": float(params["fracint_alpha"]), "p": p,
             "p_leader": "(mean over the cylinder of M^p)^(1/p), the mean over the admitted scales "
                         "of the disc mean" if p > 0 else None,
-            "n_eff": cells, "edge": {"used": edge, "padding": padding, "shrink_px": shrink},
+            "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "shrink_px": shrink},
             "fit_range": fit_range, "sample_stride": float(params["sample_stride"]),
             "cwt_cache_hits": sorted(stage["cache_hits"]), "maxima_cache_hits": sorted(maxima_hits),
             "warnings": warnings,
@@ -252,14 +256,15 @@ class CwtLeaders:
         res["_valid"] = [v[cut] for v in res["_valid"]]
         for key in ("h_map", "r2_map"):
             res[key] = res[key][cut]
-        cells = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(res["_valid"], res["_radii"])]
+        cells = [float(h * w) / max(math.pi * r * r, 1.0) for r in res["_radii"]]
+        n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(res["_valid"], res["_radii"])]
         sets = {"cwt-leaders": {"values": [res["_leaders"][j] for j in range(len(res["scales"]))],
                                 "valid": res["_valid"]}}
         if res["_p_leaders"] is not None:
             sets["cwt-p-leaders"] = {"values": [res["_p_leaders"][j] for j in range(len(res["scales"]))],
                                      "valid": res["_valid"]}
         res["samples"] = dict(res["samples"], cells=cells, sets=sets)
-        res["record"] = dict(res["record"], n_eff=cells)
+        res["record"] = dict(res["record"], n_eff=n_eff, cells=cells)
         res["_shape"] = (h, w)
         return res
 
@@ -277,7 +282,7 @@ class CwtLeaders:
             raster = np.where(result["_valid"][idx], np.log2(stack[idx]), np.nan).astype(np.float32)
         return {"raster": raster, "diag": {"level": idx, "scale_px": float(result["scales"][idx]),
                                            "radius_px": float(result["_radii"][idx]),
-                                           "n_eff": float(result["samples"]["cells"][idx])}}
+                                           "n_eff": float(result["record"]["n_eff"][idx])}}
 
     def reading(self, result: dict, params: dict) -> str:
         rec = result["record"]

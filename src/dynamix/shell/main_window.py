@@ -624,6 +624,19 @@ def _read_shape(layer, field) -> tuple[int, int]:
     return native_shape(field)
 
 
+def _seed_levels(result: dict):
+    """The log2-scale range a fitting window opens with: the dyadic levels a leaders record
+    names (``record["levels"]``: j_min, J), else the ``fit_range`` in scale pixels a sample set
+    carries (the CWT leaders'), else the window's own default."""
+    levels = (result.get("record") or {}).get("levels") or {}
+    if levels:
+        return (levels.get("j_min"), levels.get("J"))
+    fit_range = (result.get("samples") or {}).get("fit_range") if isinstance(result.get("samples"), dict) else None
+    if fit_range and all(np.isfinite(fit_range)) and min(fit_range) > 0:
+        return tuple(float(np.log2(a)) for a in fit_range)
+    return None
+
+
 def _workflow_reading_field(layer, field):
     """A metadata-only view for knob readings on a native ROI or display overview.
 
@@ -3573,9 +3586,8 @@ both ``Canvas`` signals report the
         previous = getattr(self, attr)
         if previous is not None:
             previous.close()
-        levels = (result.get("record") or {}).get("levels") or {}
         window = cls(result["samples"], gamma=_eta_note_of(result)[0],
-                     levels=(levels.get("j_min"), levels.get("J")) if levels else None,
+                     levels=_seed_levels(result),
                      source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a())
         window.fitChanged.connect(self._on_fit_published)
         setattr(self, attr, window)
@@ -3604,11 +3616,10 @@ both ``Canvas`` signals report the
         previous = getattr(self, attr)
         if previous is not None:
             previous.close()
-        levels = (result.get("record") or {}).get("levels") or {}
         source = self.layer.name if self.layer is not None else "layer"
         if isinstance(result.get("samples"), dict):
             source = self._samples_source()
-        window = cls(sets, levels=(levels.get("j_min"), levels.get("J")) if levels else None, source=source,
+        window = cls(sets, levels=_seed_levels(result), source=source,
                      parent=self, physical_of_log2a=self._physical_of_log2a(), **extra)
         window.fitChanged.connect(self._on_fit_published)
         setattr(self, attr, window)

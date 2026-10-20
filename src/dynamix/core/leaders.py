@@ -296,7 +296,7 @@ def _flatten(per_level: list, valid: list) -> list:
             for m, v in zip(per_level, valid)]
 
 
-def partition_table(per_level: list, valid: list, q_list, cells, *,
+def partition_table(per_level: list, valid: list, q_list, cells, *, scales=None,
                     positive_only: bool = False) -> dict:
     """The structure functions of one quantity in the partition schema the fitter reads:
     ``tau_qa`` = log2 of the mean of M^q over the valid cells of each level times the field's
@@ -308,7 +308,10 @@ def partition_table(per_level: list, valid: list, q_list, cells, *,
     from dynamix.core.microcanonical import partition_tables
 
     samples = _flatten(per_level, valid)
-    scales = 2.0 ** np.arange(1, len(per_level) + 1)
+    # The set's own scales when the contract carries them (a continuous ladder); the dyadic
+    # 2^j of the pyramid's levels otherwise.
+    scales = (np.asarray(scales, dtype=np.float64) if scales is not None
+              else 2.0 ** np.arange(1, len(per_level) + 1))
     table = partition_tables(samples, scales, np.asarray(q_list, dtype=np.float64), d=0.0)
     with np.errstate(divide="ignore"):
         shift = np.array([np.log2(float(n) / max(x.size, 1)) for n, x in zip(cells, samples)])
@@ -325,6 +328,7 @@ def tables(samples: dict, q_list) -> dict:
     """One structure-function table (:func:`partition_table`) per set of the ``Samples`` contract
     (:mod:`dynamix.model.contracts`), at the moment orders ``q_list``."""
     return {name: partition_table(s["values"], s["valid"], q_list, s.get("cells", samples["cells"]),
+                                  scales=samples.get("scales"),
                                   positive_only=bool(s.get("positive_only", False)))
             for name, s in samples["sets"].items()}
 
