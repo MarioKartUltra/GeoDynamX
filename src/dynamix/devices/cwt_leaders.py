@@ -177,29 +177,37 @@ class CwtLeaders:
                     mean = total / (count * (j - sup_from + 1))
                 p_leaders[j] = np.where(count > 0, mean ** (1.0 / p), np.nan).astype(np.float32)
 
+        # The valid mask is the WTMM's own edge group: the disc sup over the frame is what the
+        # kernel computes, a mirrored coefficient is attenuated (the gradient's normal component
+        # suppressed, the tangential one boosted) and a sup forgives it, so reflect padding with
+        # no Border cut keeps every pixel; the Border cut's band at each scale is the same one
+        # that drops the WTMM's maxima (spec 30 §3.4).
         ny, nx = values.shape
+        borders = [0.0] * len(scales)
+        if backend["border_cut"] != "none":
+            from dynamix.core.edges import border_widths
+            borders = [float(b) for b in border_widths(
+                list(scales), backend["border_cut"], wavelet=backend["wavelet"],
+                smoother_params=backend["smoother_params"], eps=backend["edge_eps"],
+                pct=backend["border_pct"], k=backend["border_k"], scope=backend["border_scope"],
+                run_grid=max(ny, nx) + 2 * int(backend["pad"]))]
+        y, x = np.ogrid[:ny, :nx]
+        inside = np.minimum(np.minimum(y, ny - 1 - y), np.minimum(x, nx - 1 - x))
         valid = []
-        shrink = []
         for j in range(len(scales)):
             m = np.isfinite(leaders[j])
-            s = 0 if edge == "periodic" else int(math.ceil((1.0 + float(params["radius_k"])) * c * scales[j]))
-            if s > 0:
-                border = np.zeros_like(m)
-                if 2 * s < ny and 2 * s < nx:
-                    border[s:ny - s, s:nx - s] = True
-                m &= border
+            if borders[j] > 0:
+                m &= inside >= borders[j]
             if float(params["sample_stride"]) > 0:
                 stride = max(1, int(round(float(params["sample_stride"]) * radii[j])))
                 lattice = np.zeros_like(m)
                 lattice[::stride, ::stride] = True
                 m &= lattice
             valid.append(m)
-            shrink.append(s)
-        # The contract's cell count is the whole domain's independent discs, scaling as a^-2 as the
-        # dyadic device's cube count does (the valid masks do the excluding; the windows' +d law
-        # rests on it); the discs over the valid area, for the error bars, go to the record.
-        cells = [float(ny * nx) / max(math.pi * r * r, 1.0) for r in radii]
-        n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
+        # The cell count is the independent discs over the valid area, A_valid / πR²: on a full
+        # field the whole domain's discs, scaling as a^-2 as the dyadic device's cube count does;
+        # on the maxima measure the occupied discs, Jaffard's sum over occupied cells.
+        cells = n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(valid, radii)]
 
         lo, hi = float(params["fit_min"]), float(params["fit_max"])
         # The default range: discs of at least 3 px and at least 16 independent discs (the dyadic
@@ -229,7 +237,7 @@ class CwtLeaders:
             "eta": float(params["fracint_alpha"]), "p": p,
             "p_leader": "(mean over the cylinder of M^p)^(1/p), the mean over the admitted scales "
                         "of the disc mean" if p > 0 else None,
-            "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "shrink_px": shrink},
+            "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "borders_px": borders},
             "fit_range": fit_range, "sample_stride": float(params["sample_stride"]),
             "cwt_cache_hits": sorted(stage["cache_hits"]), "maxima_cache_hits": sorted(maxima_hits),
             "warnings": warnings,
@@ -256,8 +264,7 @@ class CwtLeaders:
         res["_valid"] = [v[cut] for v in res["_valid"]]
         for key in ("h_map", "r2_map"):
             res[key] = res[key][cut]
-        cells = [float(h * w) / max(math.pi * r * r, 1.0) for r in res["_radii"]]
-        n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(res["_valid"], res["_radii"])]
+        cells = n_eff = [float(v.sum()) / max(math.pi * r * r, 1.0) for v, r in zip(res["_valid"], res["_radii"])]
         sets = {"cwt-leaders": {"values": [res["_leaders"][j] for j in range(len(res["scales"]))],
                                 "valid": res["_valid"]}}
         if res["_p_leaders"] is not None:

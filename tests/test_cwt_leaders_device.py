@@ -175,3 +175,67 @@ def test_sup_from_and_radius_k_do_not_move_zeta_beyond_its_error(dev):
     wide = _zeta(dev.compute(f, _params(dev, radius_k=2.0)), (1.0, 2.0))
     for q in (1.0, 2.0):
         assert abs(cut[q] - base[q]) < 0.1 and abs(wide[q] - base[q]) < 0.1, (q, base, cut, wide)
+
+
+# ----------------------------------------------------------- the edge rule and the cell count
+
+
+def _step(n: int) -> np.ndarray:
+    """A single step edge down the middle column of an n-square: one line of maxima."""
+    return (np.arange(n)[None, :] >= n // 2).astype(np.float64) * np.ones((n, 1))
+
+
+def test_the_valid_mask_is_the_wtmms_own_edge_group_with_no_shrink(dev):
+    """Under reflect padding with no Border cut every pixel carries a leader at every scale: the
+    disc sup over the frame is what the kernel computes, a mirrored coefficient is attenuated and
+    a sup forgives it, so no validity shrink of R(a) + the reach is taken off the border. The
+    cell count is then the whole domain's discs, A / πR², and equals N_eff."""
+    res = dev.compute(_field(fbm2d(64, 0.5, seed=9)), _params(dev, n_oct=3))
+    assert all(v.all() for v in res["_valid"])
+    assert "shrink_px" not in res["record"]["edge"]
+    for j, r in enumerate(res["_radii"]):
+        assert res["samples"]["cells"][j] == pytest.approx(64 * 64 / max(np.pi * r * r, 1.0))
+        assert res["record"]["n_eff"][j] == pytest.approx(res["samples"]["cells"][j])
+
+
+def test_the_border_cut_knob_restores_the_conservative_mask(dev):
+    """The Border cut of the WTMM's edge group masks the leaders as it drops the WTMM's maxima:
+    a pixel is valid when its distance to every edge is at least the cut's width at that scale
+    (``k × scale`` with k = 2, per scale, here)."""
+    res = dev.compute(_field(fbm2d(64, 0.5, seed=9)),
+                      _params(dev, n_oct=3, border_cut="k_scale", border_k=2.0, border_scope="per_scale"))
+    y, x = np.mgrid[:64, :64]
+    inside = np.minimum.reduce([x, y, 63 - x, 63 - y])
+    for j, a in enumerate(res["scales"]):
+        np.testing.assert_array_equal(res["_valid"][j], inside >= 2.0 * a)
+    assert res["record"]["edge"]["borders_px"] == pytest.approx([2.0 * a for a in res["scales"]])
+
+
+def test_the_maxima_measure_counts_the_occupied_discs(dev):
+    """Jaffard's repaired WTMM sums over the occupied cells (Part II §7; Part I §5, one maximum
+    per interval of length a). On a single step edge the maxima are one line, the discs that hold
+    one tile a band of width 2R, so the count scales as a^−1 and τ(q) reads −1 at every q (the
+    modulus at a step is constant in a); the whole domain's discs would read −2."""
+    from dynamix.core import leaders
+
+    n = 256
+    res = dev.compute(_field(_step(n)), _params(dev, n_oct=4, measure="wtmm"))     # 7 … 56 px
+    for j, r in enumerate(res["_radii"]):
+        occupied = float(res["_valid"][j].sum())
+        assert 0 < occupied < 0.5 * n * n, (j, occupied)
+        assert res["samples"]["cells"][j] == pytest.approx(occupied / max(np.pi * r * r, 1.0))
+    table = leaders.tables(res["samples"], [0.0, 1.0, 2.0])["cwt-leaders"]
+    fit = leaders.structure_fit(table, 2.0, 6.0)
+    for q, tau in zip(fit["q_list"], fit["tau"]):
+        assert tau == pytest.approx(-1.0, abs=0.15), (q, tau, fit["tau"])
+
+
+def test_a_region_counts_its_own_occupied_discs(dev):
+    from dynamix.roi.runner import run_on_region
+
+    f = _field(_step(128), name="roi-maxima")
+    got = run_on_region([(dev, _params(dev, n_oct=3, measure="wtmm"))], f, (40, 44, 32, 36))
+    for j, r in enumerate(got["_radii"]):
+        occupied = float(got["_valid"][j].sum())
+        assert 0 < occupied < 32 * 36, (j, occupied)
+        assert got["samples"]["cells"][j] == pytest.approx(occupied / max(np.pi * r * r, 1.0))
