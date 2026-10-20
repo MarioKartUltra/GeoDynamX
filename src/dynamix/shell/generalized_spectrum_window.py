@@ -12,6 +12,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core.nonconcave import gaussian_ensemble, generalized_legendre
 from dynamix.core.partition_tables import moment_grid
 from dynamix.shell.theme import current
+from dynamix.shell.shared_range import SharedRangeFollower
 
 
 class _Signals(QtCore.QObject):
@@ -40,7 +41,7 @@ class _Job(QtCore.QRunnable):
         self.signals.done.emit(self.generation, result)
 
 
-class GeneralizedSpectrumWindow(QtWidgets.QDialog):
+class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
     fitChanged = QtCore.Signal(object)
 
     def __init__(self, sets, *, log2_L=None, levels=None, source="", parent=None,
@@ -62,6 +63,7 @@ class GeneralizedSpectrumWindow(QtWidgets.QDialog):
         self.cancel_button.setEnabled(False)
         row.addWidget(self.apply_button)
         row.addWidget(self.cancel_button)
+        row.addWidget(self._make_follow_check())
         layout.addLayout(row)
         self.spins = {}
         a = np.asarray(next(iter(sets.values()))["scales"], float)
@@ -104,6 +106,9 @@ class GeneralizedSpectrumWindow(QtWidgets.QDialog):
         self.cancel_button.clicked.connect(self._cancel)
         for spin in self.spins.values():
             spin.valueChanged.connect(self._mark_pending)
+        for label in ("log₂a min", "log₂a max"):
+            self.spins[label].valueChanged.connect(lambda _v: self._publish_range(
+                self.spins["log₂a min"].value(), self.spins["log₂a max"].value()))
         self.source_combo.currentTextChanged.connect(self._mark_pending)
         self.resize(840, 700)
         from dynamix.shell.window_fit import fit_to_screen
@@ -111,6 +116,21 @@ class GeneralizedSpectrumWindow(QtWidgets.QDialog):
 
     def current_fit(self):
         return self._fit
+
+    def _set_scale_spins(self, log2_a_min: float, log2_a_max: float) -> None:
+        for label, v in (("log₂a min", log2_a_min), ("log₂a max", log2_a_max)):
+            spin = self.spins[label]
+            spin.blockSignals(True)
+            spin.setValue(float(v))
+            spin.blockSignals(False)
+        self._mark_pending()
+
+    def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
+        """The scale window the next Compute runs over, published to the other fitting windows."""
+        self._set_scale_spins(log2_a_min, log2_a_max)
+        self._publish_range(float(log2_a_min), float(log2_a_max))
+
+    _apply_scale_window = _set_scale_spins
 
     def _mark_pending(self, *_):
         self._cancel()

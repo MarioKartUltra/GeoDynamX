@@ -21,6 +21,7 @@ from dynamix.core import leaders, spectra
 from dynamix.model.samples import LABELS
 from dynamix.shell.multifractal_window import PhysicalAxis, WheelAxisViewBox, _q_color, add_zero_lines
 from dynamix.shell.theme import current
+from dynamix.shell.shared_range import SharedRangeFollower
 
 __all__ = ["StructureFunctionsWindow"]
 
@@ -29,7 +30,7 @@ Q_DEFAULT = (-3.0, 6.0, 0.5)
 WEIGHTS = ("uniform", "counts n_j")
 
 
-class StructureFunctionsWindow(QtWidgets.QDialog):
+class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
     """ζ(q), τ(q), h(q) and D(h) off one sample set, over a chosen fit range."""
 
     #: The current fit, published on every change: ``name``, ``kind``, ``q``, ``tau``, ``h``,
@@ -63,7 +64,10 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
         return self._fit
 
     def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
+        """The user's path: the region moves, the fit follows and the range is published."""
         self._region.setRegion((float(log2_a_min), float(log2_a_max)))
+
+    _apply_scale_window = set_scale_window
 
     # -- ui ---------------------------------------------------------------------------------
     def _build_ui(self, lo: float, hi: float) -> None:
@@ -111,6 +115,7 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
             spin.setValue(seed)
             spin.valueChanged.connect(self._on_spins)
             controls.addWidget(spin)
+        controls.addWidget(self._make_follow_check())
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -194,6 +199,7 @@ class StructureFunctionsWindow(QtWidgets.QDialog):
                 spin.setValue(float(v))
                 spin.blockSignals(False)
         self._refit()
+        self._publish_range(float(lo), float(hi))
 
     def _refit(self, rebuild: bool = False) -> None:
         table = self._table()

@@ -22,6 +22,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core import spectra
 from dynamix.shell.multifractal_window import PhysicalAxis, WheelAxisViewBox
 from dynamix.shell.theme import current
+from dynamix.shell.shared_range import SharedRangeFollower
 
 __all__ = ["LogCumulantsWindow"]
 
@@ -33,7 +34,7 @@ _SUB = {1: "₁", 2: "₂", 3: "₃", 4: "₄"}
 Q_GRID = np.round(np.arange(-3.0, 6.001, 0.25), 6)
 
 
-class LogCumulantsWindow(QtWidgets.QDialog):
+class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
     """c₁..c₄ off one sample set, each over its own fit range."""
 
     #: The current expansion, published on every change: ``name``, ``kind``, ``cumulants``
@@ -69,6 +70,22 @@ class LogCumulantsWindow(QtWidgets.QDialog):
         """``[(log2_a_min, log2_a_max)]`` per order."""
         return [tuple(float(v) for v in r.getRegion()) for r in self.regions]
 
+    def _set_regions(self, log2_a_min: float, log2_a_max: float) -> None:
+        """Every order's region at once (the three take a shared range together), one re-fit."""
+        self._syncing = True
+        try:
+            for region in self.regions:
+                region.setRegion((float(log2_a_min), float(log2_a_max)))
+        finally:
+            self._syncing = False
+        self._refit()
+
+    def set_scale_window(self, log2_a_min: float, log2_a_max: float) -> None:
+        self._set_regions(log2_a_min, log2_a_max)
+        self._publish_range(float(log2_a_min), float(log2_a_max))
+
+    _apply_scale_window = _set_regions
+
     # -- ui ---------------------------------------------------------------------------------
     def _build_ui(self, lo: float, hi: float) -> None:
         from dynamix.shell.window_fit import fit_to_screen, remember_geometry
@@ -92,6 +109,7 @@ class LogCumulantsWindow(QtWidgets.QDialog):
         self.sync_check.setChecked(True)
         self.sync_check.toggled.connect(self._on_sync_toggled)
         controls.addWidget(self.sync_check)
+        controls.addWidget(self._make_follow_check())
         controls.addStretch(1)
         layout.addLayout(controls)
 
@@ -159,6 +177,7 @@ class LogCumulantsWindow(QtWidgets.QDialog):
                     region.setRegion((lo, hi))
             self._syncing = False
         self._refit()
+        self._publish_range(*self.regions[m - 1].getRegion())
 
     def _refit(self) -> None:
         C, scales = self._rows(), np.asarray(self._sets[self.set_combo.currentText()]["scales"], dtype=np.float64)
