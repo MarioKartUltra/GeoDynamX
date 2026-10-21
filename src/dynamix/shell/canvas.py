@@ -710,9 +710,19 @@ def wavelet_bar_scale_factor(theta: np.ndarray, psi: np.ndarray, target_height: 
     return float(target_height) / raw_span
 
 
+from dynamix.shell.session_timing import measure as _timed, enabled as _timing_enabled
+
+
 class Canvas(pg.GraphicsLayoutWidget):
     """Raster + vectorized WTMM overlay, one ``ViewBox``: image, H-chains, isolated extrema,
     optional V-chain trails, and two corner-anchored reading overlays (distance + wavelet)."""
+
+    @_timed("paint_ms")
+    def paintEvent(self, event):
+        if _timing_enabled():
+            stats = self.__dict__.setdefault("_session_timing", {})
+            stats["paint_count"] = stats.get("paint_count", 0) + 1
+        return super().paintEvent(event)
 
     #: Emitted after the camera moved and both corner overlays have been re-drawn. The window
     #: listens: the distance bar's LABEL is the one part of the reading this widget cannot

@@ -20,8 +20,11 @@ slot to something Qt can place, or accept that it runs here.
 from __future__ import annotations
 
 import threading
+import time
 
 from PySide6 import QtCore
+
+from dynamix.shell.session_timing import enabled as _timing_enabled
 
 from dynamix.core.wtmm_backend import ComputeCancelled
 from dynamix.engine import resolve
@@ -89,18 +92,25 @@ class ResolveWorker(QtCore.QObject):
         """The thread's entry point (connected to ``QThread.started``). Never lets an exception
         escape -- one always becomes ``error(str(exc))`` instead of an unhandled exception on a
         non-GUI thread, which Qt would otherwise just swallow silently."""
+        timing = _timing_enabled()
+        if timing:
+            self._session_timing = {}
         try:
             if self._preview and not self._cancel.is_set():
                 # Finest-scale-first (design §3): emit a cheap preview so the canvas shows the
                 # finest scale's lines almost immediately, then keep going for the full stack.
                 # A preview that isn't previewable (no leading wtmm2d) or that raises is simply
                 # skipped -- never a reason to fail or delay the real compute.
+                preview_start = time.perf_counter() if timing else 0.0
                 try:
                     prev = preview_resolve(self._layer, self._field, level=self._level)
                 except Exception:
                     prev = None
+                if timing:
+                    self._session_timing["preview_ms"] = (time.perf_counter() - preview_start) * 1000
                 if prev is not None and not self._cancel.is_set():
                     self.partial.emit(prev)
+            engine_start = time.perf_counter() if timing else 0.0
             if self._prelude:
                 from dynamix.core.bus import register_plane, shown_plane
 
@@ -125,6 +135,8 @@ class ResolveWorker(QtCore.QObject):
         except Exception as exc:
             self.error.emit(str(exc))
             return
+        if timing:
+            self._session_timing["engine_ms"] = (time.perf_counter() - engine_start) * 1000
         self.finished.emit(renderable)
 
 

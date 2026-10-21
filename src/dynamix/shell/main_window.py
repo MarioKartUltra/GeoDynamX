@@ -57,6 +57,9 @@ from pathlib import Path
 import numpy as np
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from dynamix.shell.session_timing import (measure as _timed, enabled as _timing_enabled,
+                                          fed as _timing_fed)
+
 from dynamix.core.stretch import STRETCHES
 from dynamix.core.frames import LocalFrame, frames_compatible
 from dynamix.core.pointset import read_csv_points
@@ -3501,6 +3504,7 @@ both ``Canvas`` signals report the
             "Needs a result whose tool publishes curves (a measure against β, a spectrum, the lineal path)")
         win = self._curve_window
         if ok and win is not None and win.isVisible():
+            _timing_fed(self, win)
             win.set_curves(curves, title)
 
     def _on_curves_button_clicked(self) -> None:
@@ -7042,6 +7046,7 @@ both ``Canvas`` signals report the
         self._last_renderables[source_id] = renderable
         inspector = self._inspectors.get(source_id)
         if inspector is not None:
+            _timing_fed(self, inspector)
             inspector.show_result(renderable, active=(layer is self.layer))
         self._refresh_inspector_statuses()
 
@@ -8222,6 +8227,7 @@ both ``Canvas`` signals report the
         self._sync_browser_states()
         self._sync_mask_outline()
 
+    @_timed("scale_tick_ms", report=True)
     def _on_scale_changed(self, idx: int) -> None:
         """The transport sets the active layer's shown level -- its ``ui.scale_idx`` tag -- and
         takes the filter path: ``resolve`` reduces the cached stack to that level before the
@@ -8334,6 +8340,7 @@ both ``Canvas`` signals report the
         keys = self._cache_keys_for(layer)
         return not keys or keys[-1] in self.cache
 
+    @_timed("resolve_ms", report=True, event="landing_ms")
     def _resolve_now(self, committed_chain=None) -> None:
         """Synchronous resolve on the GUI thread -- filters only, by construction.
 
@@ -8395,6 +8402,7 @@ both ``Canvas`` signals report the
                    if not self._bypassed[i] and not is_transform(get_device(self._names[i]))]
         return Chain(tuple(transforms + filters)).materialized()
 
+    @_timed("apply_ms", report=False)
     def _apply(self, renderable) -> None:
         """The ONE place a result reaches the screen.
 
@@ -8528,6 +8536,7 @@ both ``Canvas`` signals report the
                 # flip-back-to-raster branch redraws it then, from the same _active_result. When
                 # the canvas IS on screen, draw it now.
                 if self._center_stack.currentIndex() == 0:
+                    _timing_fed(self, self.canvas)
                     self.canvas.set_result(result, min(idx, len(layers) - 1))
                     self._canvas_overlay_dirty = False
                     # Draw cap honesty: when the canvas withheld chains
@@ -8842,7 +8851,11 @@ both ``Canvas`` signals report the
         if self._closing:
             self._show_waiting_title()
 
+    @_timed("landing_ms", report=True)
     def _on_finished(self, renderable) -> None:
+        if _timing_enabled():
+            self.__dict__.setdefault("_session_timing", {}).update(
+                getattr(self._worker, "_session_timing", {}))
         self._teardown_thread()
         # A Stop the run finished through (its transform never reads the cancel flag) is spent
         # here; left set, the next preempt's cancel would land as a user stop and drop its run.
@@ -9418,6 +9431,7 @@ both ``Canvas`` signals report the
                     queue.append(layer.layer_id)
             self._arr_queue = queue
             if self._arrangement is not None:
+                _timing_fed(self, self._arrangement)
                 self._arrangement.set_layers(entries)
             self._dispatch_next()
         finally:
@@ -10334,6 +10348,7 @@ both ``Canvas`` signals report the
                                      style=_display_style_of(self.layer))
             else:
                 content = self._row_content(rid)
+            _timing_fed(self, self.map_view)
             self.map_view.update_row(rid, content, opacity=opacity if visible else 0.0, z=z)
         picked = sorted(idx for (layer_id, idx) in self._group_palette.selection()
                         if layer_id == lid)

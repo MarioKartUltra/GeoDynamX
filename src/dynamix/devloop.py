@@ -94,7 +94,7 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: against every `from dynamix.shell...` import in the package) -- a runtime topological sort
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
-    "gc_guard", "theme", "plot_zoom", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
+    "session_timing", "gc_guard", "theme", "plot_zoom", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
     "point_import", "units", "settings",
     "window_fit", "shared_range", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "map_view", "inspector", "roi_panel",
@@ -133,7 +133,8 @@ _DEPENDS_ON = {
     "shared_range": (),
     "knobs": (),
     "knob_widgets": ("knobs",),
-    "worker": (),
+    "session_timing": (),
+    "worker": ("session_timing",),
     "opening": (),
     # CSV point-catalogue import -- self-contained (only
     # ``dynamix.core.pointset`` and PySide6 itself, no other ``dynamix.shell.*`` module).
@@ -146,7 +147,7 @@ _DEPENDS_ON = {
     # The rack editor dialog: the family tree (browser) and the zone's DeviceBox knobs.
     "rack_editor": ("browser", "workflow_zone"),
     "transport": ("gc_guard", ),
-    "canvas": ("theme", "units", "wavelet_bar", ),
+    "canvas": ("session_timing", "theme", "units", "wavelet_bar", ),
     # The per-source floating inspector HOSTS the existing Canvas and the
     # existing Transport (that reuse is the point of it -- see inspector.py's own docstring), so
     # both are real module-level imports and both already sit earlier in _MODULE_ORDER.
@@ -217,7 +218,7 @@ _DEPENDS_ON = {
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
+    "main_window": ("session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"
