@@ -584,3 +584,22 @@ def test_the_kink_geometry_has_its_own_switch(qtbot):
     assert not any(it.isVisible() for it in (window._tangent_left, window._tangent_right, window._kink_label, window._chord))
     window._geometry_check.setChecked(True)
     assert window._tangent_left.isVisible() and window._chord.isVisible()
+
+
+def test_construction_controls_wrap_inside_the_screen(qtbot):
+    from PySide6 import QtCore
+    from dynamix.shell.window_fit import fit_to_screen
+
+    window = SpectrumWindow(*_pair(), h_map=_h_map(), chains=_chains(np.arange(1, 5)),
+                            scales=np.arange(1, 5), log2_L=6)
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitExposed(window)
+    available = window.screen().availableGeometry()
+    assert window.width() <= available.width()
+    assert window.minimumSizeHint().width() < 750
+    fit_to_screen(window, 720, 700)
+    qtbot.wait(10)
+    assert window.width() <= min(720, available.width())
+    controls = window.layout().itemAt(0).layout()
+    assert controls.heightForWidth(600) > controls.heightForWidth(1200)

@@ -64,6 +64,68 @@ __all__ = ["SpectrumWindow"]
 MODE_LABELS = ("Top percentile", "log|M|^q at scale", "log|M|^q on sup (all scales)")
 
 
+class _WrappingLayout(QtWidgets.QLayout):
+    """Control rows wrap rather than imposing their combined width on the window."""
+
+    def __init__(self):
+        super().__init__()
+        self._items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(6)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return QtCore.Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._arrange(QtCore.QRect(0, 0, width, 0), dry=True)
+
+    def minimumSize(self):
+        size = QtCore.QSize()
+        for item in self._items:
+            if not item.isEmpty():
+                size = size.expandedTo(item.minimumSize())
+        return size
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._arrange(rect)
+
+    def _arrange(self, rect, dry=False):
+        x, y, height = rect.x(), rect.y(), 0
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            size = item.sizeHint()
+            width = min(size.width(), rect.width())
+            if x > rect.x() and x + width > rect.x() + rect.width():
+                x, y, height = rect.x(), y + height + self.spacing(), 0
+            item_height = (item.heightForWidth(width) if item.hasHeightForWidth()
+                           else size.height())
+            if not dry:
+                item.setGeometry(QtCore.QRect(x, y, width, item_height))
+            x += width + self.spacing()
+            height = max(height, item_height)
+        return y + height - rect.y()
+
+
 class SpectrumWindow(QtWidgets.QDialog):
     """D(h) construction: canonical points, optional Legendre hull, microcanonical histogram,
     and the dominant/non-dominant chain-group overlay."""
@@ -273,7 +335,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         has_hd = self._hd_by_choice is not None
 
-        controls = QtWidgets.QHBoxLayout()
+        controls = _WrappingLayout()
         self._table_label = QtWidgets.QLabel("Table")
         controls.addWidget(self._table_label)
         self._table_combo = QtWidgets.QComboBox()
@@ -305,6 +367,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._fitmode_combo.currentTextChanged.connect(lambda _t: self._recompute())
         controls.addWidget(self._fitmode_combo)
         self._focus_readout = QtWidgets.QLabel("")
+        self._focus_readout.setWordWrap(True)
         controls.addWidget(self._focus_readout)
 
         if has_hd:
@@ -404,8 +467,8 @@ class SpectrumWindow(QtWidgets.QDialog):
             w.setEnabled(has_hd)
 
         self._forward_label = QtWidgets.QLabel(forward_note)
+        self._forward_label.setWordWrap(True)
         self._forward_label.setStyleSheet(f"color: {current().ink_muted};")
-        controls.addStretch(1)
         controls.addWidget(self._forward_label)
         layout.addLayout(controls)
 
@@ -413,7 +476,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         # spectra need both the population and the q grid.
         self._group_controls: list[QtWidgets.QWidget] = []
         if self._chains is not None and has_hd and self._scales is not None:
-            group = QtWidgets.QHBoxLayout()
+            group = _WrappingLayout()
             group.addWidget(QtWidgets.QLabel("Group: scale"))
             # The chains' own scale ladder bounds the classification scale -- in a real result
             # it equals the tables' ladder, but the chains are the classification's authority.
@@ -458,7 +521,6 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._gcount_label = QtWidgets.QLabel("")
             self._gcount_label.setStyleSheet(f"color: {current().ink_muted};")
             group.addWidget(self._gcount_label)
-            group.addStretch(1)
             layout.addLayout(group)
             for w in (self._gscale_spin, self._gq_spin, self._gpct_spin, self._gthresh_spin,
                       self._gminlen_spin):
@@ -475,9 +537,10 @@ class SpectrumWindow(QtWidgets.QDialog):
         self.gaussian_check = self.gamma_max_spin = self.gamma_steps_spin = None
         self.kink_check = None
         self._gamma_readout = QtWidgets.QLabel("")
+        self._gamma_readout.setWordWrap(True)
         self._gamma_readout.setStyleSheet(f"color: {current().ink_muted};")
         if self._per_scale or has_hd:
-            beyond = QtWidgets.QHBoxLayout()
+            beyond = _WrappingLayout()
             if self._per_scale:
                 self.ld_source_combo = QtWidgets.QComboBox()         # the ensemble's set
                 self.ld_source_combo.addItems(list(self._per_scale))
@@ -505,7 +568,6 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self.kink_check = QtWidgets.QCheckBox("kinks")
                 self.kink_check.toggled.connect(lambda _c: self._recompute())
                 beyond.addWidget(self.kink_check)
-            beyond.addStretch(1)
             layout.addLayout(beyond)
 
         self._glw = pg.GraphicsLayoutWidget()
