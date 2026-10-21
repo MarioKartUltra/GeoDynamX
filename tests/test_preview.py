@@ -101,7 +101,7 @@ def test_a_layer_that_last_ran_fast_gets_no_preview(qtbot, clean_registry, monke
     """The finest-scale preview is its own run before the full resolve (0.7 s of a 3.6 s knob
     change on a 1024² field). A layer with no history gets it; one whose last full compute landed
     under ``PREVIEW_AFTER_MS`` gets none, since the full result arrives before the preview would
-    have been worth a look; one that ran long gets it back."""
+    have been worth a look, a three-second knob change included; one that ran long gets it back."""
     from dynamix.devices import register_builtin_devices
     from dynamix.shell import main_window as mw
     from dynamix.shell.main_window import DEMO_CHAIN, PREVIEW_AFTER_MS, MainWindow
@@ -123,6 +123,11 @@ def test_a_layer_that_last_ran_fast_gets_no_preview(qtbot, clean_registry, monke
     assert previews == [True]                                  # no history yet
     assert win.layer.layer_id in win._last_run_ms              # the landing recorded its time
     win._last_run_ms[win.layer.layer_id] = PREVIEW_AFTER_MS / 2
+    with qtbot.waitSignal(win.resolved, timeout=60000):
+        win._start_worker()
+    qtbot.waitUntil(lambda: win._thread is None, timeout=60000)
+    assert previews[-1] is False
+    win._last_run_ms[win.layer.layer_id] = 3000.0              # the preview would add a fifth to it
     with qtbot.waitSignal(win.resolved, timeout=60000):
         win._start_worker()
     qtbot.waitUntil(lambda: win._thread is None, timeout=60000)

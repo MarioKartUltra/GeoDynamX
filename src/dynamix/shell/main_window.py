@@ -195,10 +195,11 @@ _SELECTION_MODE_CYCLE = SELECTION_MODE_CYCLE
 
 #: The status line while a finest-scale preview is on the canvas and the full stack still computes.
 _PREVIEW_NOTICE = "preview (finest scale) — computing full stack…"
-#: A finest-scale preview is its own run before the full resolve (0.7 s of a 3.6 s knob change
-#: on a 1024² field). A layer whose last full compute landed under this gets none: the full
-#: result is on the canvas before the preview would have been worth a look.
-PREVIEW_AFTER_MS = 2000.0
+#: A finest-scale preview is its own run before the full resolve and adds its whole time to the
+#: knob change (0.7 s on a 1024² field, a fifth of a 3.5 s change). A layer whose last full
+#: compute landed under this gets none: a few seconds after the preview the full result replaces
+#: it, too soon for the early frame to repay the time it adds.
+PREVIEW_AFTER_MS = 4000.0
 _PANEL_WIDTH = 220          # left zone's default splitter width -- a first-run
                             # hint only; the boundary drags freely and Settings.splitter_sizes
                             # overrides this the moment the user has ever moved it
