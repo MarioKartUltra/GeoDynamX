@@ -5653,6 +5653,34 @@ both ``Canvas`` signals report the
             self._marked_keys[ident] = key
             self.cache.pin(key)
 
+    def _subtree(self, layer_id: int) -> list:
+        """``layer_id``'s layer and every layer grouped under it."""
+        out, stack = [], [layer_id]
+        while stack:
+            lid = stack.pop()
+            out += [l for l in self.project.layers if l.layer_id == lid]
+            stack += [l.layer_id for l in self.project.layers if l.parent_id == lid]
+        return out
+
+    def _freeze_pins_of(self, layers) -> set:
+        """The keys freeze pins for the frozen ones of ``layers``, their transform steps' and
+        their outputs' (:meth:`_on_freeze_toggled`, :meth:`_remember_output`); read while the
+        layers still exist."""
+        keys: set = set()
+        for layer in layers:
+            if _is_frozen(layer):
+                keys.update(self._cache_keys_for(layer))
+                keys.update(self._out_keys.get(layer.layer_id, ()))
+        return keys
+
+    def _release_pins(self, keys) -> None:
+        """Unpin ``keys``, a removed layer's freeze pins, except those a remaining frozen layer or a
+        marked level still holds: a pinned entry is never evicted, so a pin nothing resolves any
+        more would keep its result in memory for the session."""
+        held = set(self._marked_keys.values()) | self._freeze_pins_of(self.project.layers)
+        for key in set(keys) - held:
+            self.cache.unpin(key)
+
     def _release_marks(self, layer_id: int) -> None:
         """Unpin the marked-level keys of a layer that is gone, and release the analysis it
         showed to the cache's bounds."""
@@ -6370,9 +6398,10 @@ both ``Canvas`` signals report the
         """Locked refuses outright (a notice in the zone's reading label, nothing removed). A
         layer with children needs ONE confirmation before the cascade -- ``Project.remove_layer``
         will happily take out every descendant in one call, and that is exactly the action a
-        single click must not be allowed to do silently. Cache entries are never touched: freeze's
-        pins (if any) simply become pins on keys nothing will ever resolve again -- inert, not
-        wrong, and cheap to leave rather than thread a cascading unpin through this path too.
+        single click must not be allowed to do silently. The removed layers' cache entries stay
+        and age out under the cache's bounds; their freeze pins are released unless a remaining
+        frozen layer holds the same keys (:meth:`_release_pins`), and the window's own copy of
+        each one's last result goes with it.
 
         Bookkeeping is pruned BEFORE ``layer_list.remove_rows`` runs, not after:
         ``remove_rows`` blocks the panel's own signals for the removal itself, but pruning first
@@ -6397,6 +6426,7 @@ both ``Canvas`` signals report the
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
             if reply != QtWidgets.QMessageBox.Yes:
                 return
+        pins = self._freeze_pins_of(self._subtree(layer_id))
         removed_ids = self.project.remove_layer(layer_id, cascade=True)
         removed = set(removed_ids)
         active_removed = self.layer is not None and self.layer.layer_id in removed
@@ -6411,7 +6441,9 @@ both ``Canvas`` signals report the
             self._prod_memo.pop(rid, None)
             for key in [k for k in self._bus_plane_memo if k[0] == rid]:
                 self._bus_plane_memo.pop(key)
+            self._landed_results.pop(rid, None)
             self._release_marks(rid)
+        self._release_pins(pins)
         self.layer_list.remove_rows(removed_ids)
         self._reconcile_stack()
         # The 3-D view learns about removals too (the vector view kept
@@ -6575,6 +6607,7 @@ both ``Canvas`` signals report the
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         if reply != QtWidgets.QMessageBox.Yes:
             return
+        pins = self._freeze_pins_of(family)
         removed_ids = []
         for root in [l for l in family if l.parent_id is None]:
             removed_ids.extend(self.project.remove_layer(root.layer_id, cascade=True))
@@ -6591,7 +6624,9 @@ both ``Canvas`` signals report the
             self._prod_memo.pop(rid, None)
             for key in [k for k in self._bus_plane_memo if k[0] == rid]:
                 self._bus_plane_memo.pop(key)
+            self._landed_results.pop(rid, None)
             self._release_marks(rid)
+        self._release_pins(pins)
         self.layer_list.remove_rows(removed_ids)
         self.layer_list.remove_source_row(source_id)
         self._reconcile_stack()
