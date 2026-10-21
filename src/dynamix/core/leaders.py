@@ -472,9 +472,13 @@ def cumulants(table: dict, j_min: int, j_max: int, gamma: float) -> dict:
     return {"integrated": integrated, "original": original}
 
 
-def local_exponent(per_level: list, valid: list, j_min: int) -> tuple:
-    """Per cell of level ``j_min``, the slope of log2 M against the level over that cell and its
-    ancestors up to the coarsest level, with its R²; NaN where any level is invalid or zero."""
+def local_exponent(per_level: list, valid: list, j_min: int, *, min_levels: int = 3) -> tuple:
+    """Per cell of level ``j_min``, the slope of log2 M against the level over the levels of
+    the cell's chain (the cell and its ancestors up to the coarsest level) that are valid and
+    positive there, with its R² and the number of levels fitted; NaN below ``min_levels``. The
+    pointwise exponent is a fine-scale limit, so a cell near the edge, where only the finer
+    levels lie inside the border, is read off those; a cell with every level valid gets the
+    regression over the whole chain."""
     J = len(per_level)
     base = np.asarray(per_level[j_min - 1]).shape
     rows = []
@@ -484,14 +488,20 @@ def local_exponent(per_level: list, valid: list, j_min: int) -> tuple:
             y = np.where(v & (a > 0), np.log2(np.where(a > 0, a, 1.0)), np.nan)
         rows.append(paint(y, j - j_min, base))
     Y = np.stack(rows)
-    x = np.arange(j_min, J + 1, dtype=np.float64)
-    xm = x - x.mean()
-    ym = Y.mean(axis=0)
-    slope = np.tensordot(xm, Y - ym, axes=(0, 0)) / float(xm @ xm)
+    W = np.isfinite(Y)
+    n = W.sum(axis=0)
+    x = np.arange(j_min, J + 1, dtype=np.float64).reshape((-1,) + (1,) * len(base))
+    Y0 = np.where(W, Y, 0.0)
     with np.errstate(divide="ignore", invalid="ignore"):
-        res = Y - ym - slope[None] * xm.reshape((-1,) + (1,) * ym.ndim)
-        r2 = 1.0 - (res ** 2).sum(axis=0) / ((Y - ym) ** 2).sum(axis=0)
-    return slope, r2
+        xw = (W * x).sum(axis=0) / n
+        yw = Y0.sum(axis=0) / n
+        dx = np.where(W, x - xw, 0.0)
+        dy = np.where(W, Y0 - yw, 0.0)
+        slope = (dx * dy).sum(axis=0) / (dx * dx).sum(axis=0)
+        res = dy - slope * dx
+        r2 = 1.0 - (res ** 2).sum(axis=0) / (dy ** 2).sum(axis=0)
+    ok = n >= int(min_levels)
+    return np.where(ok, slope, np.nan), np.where(ok, r2, np.nan), n
 
 
 def paint(cells, level: int, shape, pad=None) -> np.ndarray:

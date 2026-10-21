@@ -89,7 +89,7 @@ def test_the_run_carries_the_three_readings_their_sample_sets_and_the_h_map(dev,
     assert res["hd_kind"] == "structure" and res["hd_std"] is res["hd_cmax"] and res["hd_std"]["set"] == "leaders"
     assert "_cumulants" not in res and "_directional" not in res
     rec = res["record"]
-    assert rec["levels"] == {"j_min": 2, "J": 5} and rec["border_cells"] == e and rec["wse"]["rule"] == "fixed"
+    assert (rec["levels"]["j_min"], rec["levels"]["J"]) == (2, 5) and rec["border_cells"] == e and rec["wse"]["rule"] == "fixed"
     assert rec["wse"]["schedule"][0] == [[0, 1.0], [1, 1.0]]
     assert any(r["band"] == "horizontal" and r["level"] == 4 and r["shift"] == [0, 1] for r in rec["registration"])
     assert "cumulants" not in rec and res["warnings"] == []
@@ -270,3 +270,26 @@ def test_thin_and_empty_coarse_levels_run_and_warn_instead_of_refusing(dev):
     assert dev.knob_warnings(None, p) == {}
     tiny = dev.compute(make_field(fbm2d(64, 0.5, seed=1)), validate_params(dev, {"scale_min": 4, "scale_max": 16}))
     assert any("no cells" in w for w in tiny["warnings"])
+
+
+def test_the_h_map_reaches_within_the_finest_levels_band_of_the_edge_and_says_how_many_levels(dev):
+    """On a 256² field at the defaults no cell has its whole chain inside sym4's border, yet the
+    map is finite wherever three levels are: 96 px square inside an 80-px band, with the result's
+    levels map reading 3 everywhere (the 32-px level's band is 160 px)."""
+    from conftest import fbm2d
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.model.device import defaults_for
+
+    n = 256
+    field = RasterField(name="fbm", values=fbm2d(n, 0.6, seed=2).astype(np.float32), frame=LocalFrame(),
+                        x_axis=np.arange(float(n)), y_axis=np.arange(float(n)))
+    p = dict(defaults_for(dev))
+    res = dev.compute(field, p)
+    fin = np.isfinite(res["h_map"])
+    rows = np.where(fin.any(axis=1))[0]
+    assert rows.min() == 80 and rows.max() == 175 and fin.mean() > 0.12
+    assert res["levels_map"].shape == res["h_map"].shape
+    assert res["levels_map"][80, 128] == 3 and res["levels_map"][128, 128] == 3
+    assert np.isnan(res["levels_map"][79, 128])
+    assert res["record"]["levels"]["used"] == {"min": 3, "max": 3}

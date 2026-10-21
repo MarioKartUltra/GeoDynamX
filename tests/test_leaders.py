@@ -252,7 +252,7 @@ def test_the_ribbon_identity_ties_the_two_dimensional_kernels_to_the_one_dimensi
 def test_local_exponent_reads_an_exact_pyramid_and_paint_tiles_the_cells():
     per_level = [np.full((16 // 2 ** (j - 1),) * 2, 2.0 ** (0.7 * j)) for j in range(1, 4)]
     valid = [np.ones(a.shape, bool) for a in per_level]
-    h, r2 = L.local_exponent(per_level, valid, 1)
+    h, r2, _n = L.local_exponent(per_level, valid, 1)
     assert h.shape == (16, 16) and np.allclose(h, 0.7) and np.allclose(r2, 1.0)
     valid[2][:] = False
     assert np.all(np.isnan(L.local_exponent(per_level, valid, 1)[0]))
@@ -567,3 +567,27 @@ def test_the_structure_fit_checks_jaffards_sobolev_condition_on_zeta():
     r = L.run_leaders(fbm2d(256, 0.5, seed=1), scale_min=4, scale_max=32, wse_rule="fixed")
     fit = L.structure_fit(_tables(r)["leaders"], 2, 5)
     assert fit["sobolev"]["holds"]
+
+
+def test_the_local_exponent_fits_the_levels_valid_at_each_cell():
+    """The pointwise exponent is a fine-scale limit: a cell near the edge, where only the finer
+    levels of its chain lie inside the border, is fitted over those levels (three at least) and
+    reports how many; a cell with every level valid gets the full-chain fit, unchanged."""
+    r = L.run_leaders(fbm2d(256, 0.6, seed=2), scale_min=4, scale_max=64)      # sym4: no cell has all five levels
+    h, r2, n = L.local_exponent(r["quantity"]["leaders"], r["valid"]["leaders"], r["j_min"])
+    assert h.shape == r2.shape == n.shape == r["quantity"]["leaders"][r["j_min"] - 1].shape
+    painted = L.paint(h, r["j_min"], (256, 256), pad=r["pad"])
+    rows = np.where(np.isfinite(painted).any(axis=1))[0]
+    assert rows.min() == 80 and rows.max() == 175                              # the 16-px level's band: 5 cells
+    levels = L.paint(n, r["j_min"], (256, 256), pad=r["pad"])
+    assert levels[80, 128] == 3 and levels[128, 128] == 3                       # the 32-px band is 160 px: three levels everywhere
+    assert np.isnan(painted[79, 128]) and np.isfinite(painted[80, 128])
+    # every level valid: the slope is the ordinary regression over the whole chain
+    full = L.run_leaders(fbm2d(1024, 0.6, seed=3), scale_min=4, scale_max=64)
+    hf, _, nf = L.local_exponent(full["quantity"]["leaders"], full["valid"]["leaders"], full["j_min"])
+    c = (nf == 5)
+    assert c.sum() > 0
+    ys = np.stack([L.paint(np.log2(q), j - full["j_min"], hf.shape) for j, q in enumerate(full["quantity"]["leaders"], 1) if j >= full["j_min"]])
+    x = np.arange(full["j_min"], full["levels"] + 1, dtype=float)
+    expect = np.polyfit(x, ys[:, c].reshape(x.size, -1), 1)[0]
+    np.testing.assert_allclose(hf[c], expect, atol=1e-9)

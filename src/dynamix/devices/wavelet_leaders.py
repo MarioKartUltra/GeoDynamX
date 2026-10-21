@@ -259,16 +259,19 @@ class WaveletLeaders:
                 warnings.append(f"level {j} ({2 ** j} px): {run['zero_cells'][j - 1]} leaders are exactly zero "
                                 "(quantised data); the dither knob perturbs by half a least significant bit")
                 break
-        h_cells = {m: (h.astype(np.float32), r2.astype(np.float32)) for m, (h, r2) in run["local"].items()}
+        h_cells = {m: (h.astype(np.float32), r2.astype(np.float32), n.astype(np.float32)) for m, (h, r2, n) in run["local"].items()}
         quantity = {m: [np.asarray(a, dtype=np.float32) for a in run["quantity"][m]] for m in leaders.METHODS}
         quantity["oscillation"] = [np.asarray(a, dtype=np.float32) for a in run["oscillation"]]
         mods = [np.asarray(a, dtype=np.float32) for a in run["coefficients"]]
         valid = {m: list(run["valid"][m]) for m in leaders.METHODS + ("coefficients",)}
         valid["oscillation"] = [a & b for a, b in zip(valid["leaders"], valid["wse"])]
         method = params["method"]
-        h_map, r2_map = self._paint(h_cells[method], j_min, vals.shape, run["pad"])
+        h_map, r2_map, levels_map = self._paint(h_cells[method], j_min, vals.shape, run["pad"])
+        used = levels_map[np.isfinite(levels_map)]
         record = {
-            "method": self.name, "wavelet": params["wavelet"], "levels": {"j_min": j_min, "J": J},
+            "method": self.name, "wavelet": params["wavelet"],
+            "levels": {"j_min": j_min, "J": J,
+                       "used": {"min": int(used.min()), "max": int(used.max())} if used.size else None},
             "grid": {"cell": 2 ** J, "phase": [int(v) for v in run["phase"]], "pad": [int(v) for v in run["pad"]]},
             "edge": {"asked": params["edge"], "used": edge, "border_cells": e,
                      "block": list(block) if block else None, "origin": list(origin)},
@@ -292,7 +295,7 @@ class WaveletLeaders:
         # Partition functions window opens on a leaders result like the CWT leaders'.
         hd = leaders.structure_table(samples, params["method"])
         return {
-            "h_map": h_map, "r2_map": r2_map, "chains": [], "extrema": [],
+            "h_map": h_map, "r2_map": r2_map, "levels_map": levels_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
             "samples": samples, "hd_std": hd, "hd_cmax": hd, "hd_kind": "structure",
             "hd_source": f"dyadic {params['method']}",
@@ -305,9 +308,12 @@ class WaveletLeaders:
 
     @staticmethod
     def _paint(cells, j_min: int, shape, pad=None) -> tuple:
-        h, r2 = cells
-        return (leaders.paint(h, j_min, shape, pad).astype(np.float32),
-                leaders.paint(r2, j_min, shape, pad).astype(np.float32))
+        """The h-map, its R² and the levels fitted per cell, painted over the cells; the levels
+        map is NaN where the h-map is."""
+        h, r2, n = cells
+        h_map = leaders.paint(h, j_min, shape, pad).astype(np.float32)
+        levels = np.where(np.isfinite(h_map), leaders.paint(n, j_min, shape, pad), np.nan).astype(np.float32)
+        return h_map, leaders.paint(r2, j_min, shape, pad).astype(np.float32), levels
 
     @staticmethod
     def _painted(cells, level: int, result: dict) -> np.ndarray:
@@ -331,10 +337,11 @@ class WaveletLeaders:
         views = result.setdefault("_views", {})
         if method not in views:
             j_min = int(result["record"]["levels"]["j_min"])
-            h_cells, r2_cells = result["_h_cells"][method]
+            h_cells, r2_cells, n_cells = result["_h_cells"][method]
             h_map = self._painted(h_cells, j_min, result)
             r2_map = self._painted(r2_cells, j_min, result)
-            views[method] = {**result, "h_map": h_map, "r2_map": r2_map,
+            levels_map = np.where(np.isfinite(h_map), self._painted(n_cells, j_min, result), np.nan).astype(np.float32)
+            views[method] = {**result, "h_map": h_map, "r2_map": r2_map, "levels_map": levels_map,
                              "params": {**result["params"], "method": method}}
         return views[method]
 
