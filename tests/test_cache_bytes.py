@@ -173,3 +173,31 @@ def test_settings_carry_the_analysis_result_bound_eight_by_default(tmp_path, mon
     path.write_text(json.dumps({"result_cache_entries": 0}), encoding="utf-8")
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(path))
     assert load_settings().result_cache_entries == 8
+
+
+def test_weighing_an_entry_never_builds_its_deferred_products():
+    """A result's partition tables and topology graph are built by their first reader; the
+    cache's weighing at insertion is not a reader: an unbuilt one weighs as one object, a built
+    one as what it holds."""
+    from dynamix.core.deferred import Deferred
+    from dynamix.engine.cache import OBJECT_BYTES, retained_nbytes
+    from dynamix.topology.model import DeferredTopology, TopologyModel
+
+    calls = []
+
+    def build_tables():
+        calls.append("tables")
+        return {"a": np.zeros(1000)}
+
+    def build_graph():
+        calls.append("graph")
+        m = TopologyModel()
+        m.add_node("n", "hchain")
+        return m
+
+    tables, graph = Deferred(build_tables), DeferredTopology(build_graph)
+    assert retained_nbytes({"hd_std": tables, "topology": graph}) == 3 * OBJECT_BYTES
+    assert calls == []
+    tables["a"]
+    assert retained_nbytes({"hd_std": tables}) == 3 * OBJECT_BYTES + 8000
+    assert calls == ["tables"]

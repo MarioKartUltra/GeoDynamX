@@ -60,6 +60,10 @@ def retained_nbytes(value) -> int:
         return OBJECT_BYTES + sum(retained_nbytes(v) for v in value)
     if isinstance(getattr(value, "values", None), np.ndarray):
         return OBJECT_BYTES + stage_nbytes(value)
+    if getattr(value, "built", True) is False:          # a deferred product: weighing it must not build it
+        return OBJECT_BYTES
+    if isinstance(value, Deferred):
+        return OBJECT_BYTES + sum(retained_nbytes(v) for v in value.values())
     own = getattr(value, "nbytes", None)
     return OBJECT_BYTES + (own if isinstance(own, int) else 0)
 
