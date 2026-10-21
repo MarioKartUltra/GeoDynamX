@@ -79,7 +79,7 @@ from dynamix.geo.placement import same_frame_family
 from dynamix.geo.vectors import read_shapefile, to_crs, to_field_pixels, to_lonlat
 from dynamix.model.chain import Chain, DeviceRef
 from dynamix.model.contracts import FIELD, StepState, fill_of, input_contract, step_states
-from dynamix.model.samples import has_sample_sets, sample_sets
+from dynamix.model.samples import has_sample_sets, histogram_h_map, sample_sets
 from dynamix.model import capabilities
 from dynamix.model.plugins import discover
 from dynamix.model.roles import band_devices, band_for_analyzer, consumer_producers, primary_analyzers
@@ -3338,7 +3338,7 @@ both ``Canvas`` signals report the
             source = {"name": f"{res.get('hd_source') or 'canonical (Arneodo WTMM)'} · {layer.name}",
                       "hd_std": res.get("hd_std"), "hd_cmax": res.get("hd_cmax")}
             if res.get("h_map") is not None:
-                h, D, dD, _counts = dh_histogram_errors(np.asarray(res["h_map"]))
+                h, D, dD, _counts = dh_histogram_errors(np.asarray(histogram_h_map(res)))
                 if h.size:
                     source["dh_hist"] = (h, D, dD)
             if source["hd_std"] is None and "dh_hist" not in source:
@@ -3382,13 +3382,13 @@ both ``Canvas`` signals report the
         if result.get("h_map") is not None:
             from dynamix.core.microcanonical import dh_histogram_errors
 
-            h, D, dD, _counts = dh_histogram_errors(np.asarray(result["h_map"]))
+            h, D, dD, _counts = dh_histogram_errors(np.asarray(histogram_h_map(result)))
             dh_hist = (h, D, dD) if h.size else None
         window = MultifractalWindow(hd_std, hd_cmax, eta_seed=eta_seed, forward_note=note,
                                     parent=self, physical_of_log2a=self._physical_of_log2a(),
                                     log2_L=self._log2_extent(result), all_tables=all_tables,
                                     filter_note=filter_note, extrema_mods=mods, scales=scales,
-                                    dh_hist=dh_hist, h_map=result.get("h_map"),
+                                    dh_hist=dh_hist, h_map=histogram_h_map(result),
                                     h_map_method=(result.get("record") or {}).get("method", ""),
                                     source=self._tables_source(result, "canonical (Arneodo WTMM)"),
                                     sources=self._spectrum_sources(result),
@@ -3818,7 +3818,7 @@ both ``Canvas`` signals report the
         if not result:
             return
         hd_std, hd_cmax, all_tables, filter_note = self._spectrum_tables(result)
-        h_map = result.get("h_map")
+        h_map = histogram_h_map(result)
         if (hd_std is None or hd_cmax is None) and h_map is None:
             return          # button disabled in this state -- defensive no-op
         params = result.get("params") or {}

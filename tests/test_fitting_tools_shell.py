@@ -216,3 +216,28 @@ def test_an_adaptive_large_deviation_fit_reaches_an_open_construction_window(win
     items = cw._fit_items[fit["name"]]
     np.testing.assert_allclose(items["D"].getData()[1], fit["D"])
     assert items["tau"].getData()[0] is None
+
+
+def test_the_histogram_windows_count_only_the_full_chain_cells_of_a_leaders_h_map(win, qtbot):
+    """The Partition functions and construction windows build the GMWLP histogram and the box
+    counting over the cells whose chain spans every fitted level; the edge cells fitted over the
+    finer levels alone are left out of both."""
+    result = _leaders_result()
+    result["record"]["method"] = "wavelet_leaders"
+    levels = np.full((64, 64), 3.0, dtype=np.float32)
+    levels[16:48, 16:48] = 4.0                                                # J − j_min + 1 = 4 levels
+    result["levels_map"] = levels
+    result["hd_std"] = result["hd_cmax"] = __import__("dynamix.core.leaders", fromlist=["x"]).structure_table(result["samples"], "leaders")
+    result["hd_kind"] = "structure"
+    win._active_result = result
+    win._refresh_samples_buttons()
+    win._refresh_dh_button()
+    win._on_dh_button_clicked()
+    cw = win._spectrum_construction_window
+    qtbot.addWidget(cw)
+    assert np.isfinite(cw._h_map).sum() == 32 * 32
+    win._refresh_spectrum_button()
+    win._on_spectrum_button_clicked()
+    mw = win._multifractal_window
+    qtbot.addWidget(mw)
+    assert np.isfinite(mw._h_map).sum() == 32 * 32

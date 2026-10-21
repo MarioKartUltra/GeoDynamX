@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["has_sample_sets", "sample_sets"]
+__all__ = ["has_sample_sets", "histogram_h_map", "sample_sets"]
 
 #: Set name in the ``Samples`` contract -> its label on a menu.
 LABELS = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE leaders",
@@ -48,6 +48,22 @@ def _maxima(result: dict) -> list:
     extrema = result.get("extrema") or []
     mods = [e["mod"] for e in extrema if isinstance(e, dict) and "mod" in e]
     return mods if mods and len(mods) == len(extrema) == len(result["scales"]) else []
+
+
+def histogram_h_map(result):
+    """The h-map the microcanonical histogram and the box counting read: a leaders result's
+    cells whose chain spans every fitted level (``levels_map`` at ``J − j_min + 1``), each point's
+    exponent being the regression across the dyadic levels there (Cardo and Corvalán 2009, the
+    GMWLP); the edge cells fitted over the finer levels alone stay on the canvas only. Another
+    tool's map, without a levels map, passes through unchanged; None without an h-map."""
+    if not isinstance(result, dict) or result.get("h_map") is None:
+        return None
+    h_map, levels = result["h_map"], result.get("levels_map")
+    window = ((result.get("record") or {}).get("levels") or {})
+    if levels is None or "J" not in window or "j_min" not in window:
+        return h_map
+    full = int(window["J"]) - int(window["j_min"]) + 1
+    return np.where(np.asarray(levels) == full, np.asarray(h_map), np.nan).astype(np.asarray(h_map).dtype)
 
 
 def has_sample_sets(result) -> bool:

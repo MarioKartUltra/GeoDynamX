@@ -73,3 +73,23 @@ def test_the_chains_are_judged_once_however_often_a_scale_tick_asks():
     assert len(looked) == len(result["chains"])
     assert has_sample_sets({**result, "chains": list(result["chains"])})    # another result
     assert len(looked) == 2 * len(result["chains"])
+
+
+def test_the_histogram_map_keeps_the_cells_whose_chain_spans_every_fitted_level():
+    """Cardo & Corvalán read each point's exponent off the regression across the dyadic levels:
+    the GMWLP histogram and the box counting take the cells fitted over every level of the
+    window, the h-map's edge cells fitted over the finer levels alone staying on the canvas
+    only. A map without a levels map (another tool's) passes through unchanged."""
+    from dynamix.model.samples import histogram_h_map
+
+    h = np.arange(16.0, dtype=np.float32).reshape(4, 4)
+    levels = np.array([[3, 3, 3, 3], [3, 5, 5, 3], [3, 5, 5, 3], [np.nan] * 4], dtype=np.float32)
+    result = {"h_map": h, "levels_map": levels, "record": {"levels": {"j_min": 2, "J": 6}}}
+    out = histogram_h_map(result)
+    assert np.isfinite(out).sum() == 4 and np.array_equal(out[1:3, 1:3], h[1:3, 1:3])
+    assert out is not h and np.array_equal(result["h_map"], h)                # the canvas's map untouched
+    plain = {"h_map": h}
+    assert histogram_h_map(plain) is h
+    assert histogram_h_map({}) is None
+    thin = {**result, "levels_map": np.full((4, 4), 3.0, dtype=np.float32)}
+    assert not np.isfinite(histogram_h_map(thin)).any()                      # no full chain: nothing to count
