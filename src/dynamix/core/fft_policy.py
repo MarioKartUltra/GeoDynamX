@@ -27,13 +27,14 @@ from __future__ import annotations
 import contextlib
 import functools
 import os
+import sys
 import threading
 
 import numpy as np
 
 __all__ = ["ENGINES", "PRECISIONS", "active", "bits", "configure", "configured_precision",
            "context", "double", "make", "note", "precision_note", "reset", "resolve", "scope_for",
-           "using", "observing", "observed", "include_observed"]
+           "using", "observing", "observed", "include_observed", "mlx_memory", "trim_mlx_cache"]
 
 ENGINES = ("auto", "mlx", "fftw")
 PRECISIONS = (32, 64)
@@ -381,6 +382,31 @@ def reset():
     _CONFIG = ("auto", 32)
     _BY_PRECISION.clear()
     _SCOPE.precision = None
+
+
+#: mlx's buffer cache past which a finished resolve hands it back to the system (1 GiB).
+MLX_CACHE_LIMIT = 1 << 30
+
+
+def mlx_memory() -> dict | None:
+    """mlx's allocator: ``{"active": bytes in live arrays, "cache": bytes of freed buffers it keeps
+    for reuse}``; ``None`` while mlx is not loaded, which off Apple Silicon is always."""
+    mx = sys.modules.get("mlx.core")
+    if mx is None:
+        return None
+    return {"active": int(mx.get_active_memory()), "cache": int(mx.get_cache_memory())}
+
+
+def trim_mlx_cache() -> bool:
+    """Hand mlx's cached buffers back to the system once they pass :data:`MLX_CACHE_LIMIT`; True
+    when it did. mlx keeps every freed buffer for reuse and a compute on the same field reuses
+    them, so below the limit the cache stays warm; a session of knob changes at 2048² otherwise
+    holds several GB of it."""
+    mx = sys.modules.get("mlx.core")
+    if mx is None or mx.get_cache_memory() <= MLX_CACHE_LIMIT:
+        return False
+    mx.clear_cache()
+    return True
 
 
 class _Following:

@@ -307,6 +307,10 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     the filters see one level carrying the stamps a ``scale_select`` step makes; the chains stay
     whole. With ``level`` given the steps are judged with ``level_view=True``, so a
     ``scale_select`` step the chain still holds does not apply and the stack is reduced once.
+
+    The analysis it lands is what ``layer`` shows (:meth:`Cache.mark_shown`), kept with its
+    upstream entries through the cache's bounds; past ``fft_policy.MLX_CACHE_LIMIT`` mlx's
+    buffer cache goes back to the system.
     """
     sid = source_identity(layer, source_id)
     layer_input = input_contract(field)
@@ -372,7 +376,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                     s if upstream is not None else None)
                 return execution.attach(value, _landed={"analysis_key": key, "filters": [], "level": None})
 
-            result = apply_view(device, cache.get_or_compute(key, _compute), params)
+            result = apply_view(device, cache.get_or_compute(key, _compute, upstream=upstream),
+                                params)
             if (roi_steps and isinstance(result, dict) and not result.get("_roi")
                     and hasattr(src, "values")):
                 # A transform after a region step that made a field (Periodic extension on an
@@ -420,6 +425,8 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
     if analysis[2] is not None:
         result = cache.landed_result(analysis[2], result, execution.recipe_identity(
             layer, layer_input, level=level, source=source_id))
+    cache.mark_shown(layer.layer_id, analysis[2])
+    fft_policy.trim_mlx_cache()
     return Renderable(
         layer_id=layer.layer_id,
         result=result,

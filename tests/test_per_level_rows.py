@@ -152,6 +152,19 @@ def test_the_window_cache_takes_its_byte_budget_from_settings(qtbot, builtins):
     assert w2.cache.max_bytes == 123_456_789
 
 
+def test_the_window_cache_takes_its_analysis_result_bound_from_settings(qtbot, builtins):
+    from dynamix.shell.main_window import MainWindow
+    from dynamix.shell.settings import update_settings
+
+    w = MainWindow(steps=())
+    qtbot.addWidget(w)
+    assert w.cache.max_results == 8
+    update_settings(result_cache_entries=3)
+    w2 = MainWindow(steps=())
+    qtbot.addWidget(w2)
+    assert w2.cache.max_results == 3
+
+
 def _mark(win, layer, name):
     """Trigger the row's "Mark level" action; returns the action's text."""
     menu = win.layer_list._build_output_context_menu(layer.layer_id, name)

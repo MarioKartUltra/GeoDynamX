@@ -1021,7 +1021,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plugin_results = discover(devices_dir())
         self.setWindowTitle(TITLE)
 
-        self.cache = Cache(max_bytes=load_settings().output_cache_bytes)
+        settings = load_settings()
+        self.cache = Cache(max_bytes=settings.output_cache_bytes,
+                           max_results=settings.result_cache_entries)
         self.project = Project(title=TITLE)
         self.field = None
         self.layer = None
@@ -5652,11 +5654,13 @@ both ``Canvas`` signals report the
             self.cache.pin(key)
 
     def _release_marks(self, layer_id: int) -> None:
-        """Unpin the marked-level keys of a layer that is gone."""
+        """Unpin the marked-level keys of a layer that is gone, and release the analysis it
+        showed to the cache's bounds."""
         for ident in [i for i in self._marked_keys if i[0] == layer_id]:
             key = self._marked_keys.pop(ident)
             if key not in self._marked_keys.values():
                 self.cache.unpin(key)
+        self.cache.mark_shown(layer_id, None)
 
     def _output_step_index(self) -> int | None:
         """The index (into ``_names``) of the active chain's step whose outputs the rows show:

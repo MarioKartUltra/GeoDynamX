@@ -17,6 +17,11 @@ from dynamix.topology.codes import KINDS, permitted
 DATASET = "dataset"
 FAMILIES = ("spatial", "derivation")   # "temporal" reserved
 
+#: Bytes one node or edge holds with its attribute values (the instance, its id strings, its anchor
+#: tuple): tracemalloc over the ``chain_topology`` graphs of 256² and 512² fBm fields measured 215
+#: and 216 B.
+ELEMENT_BYTES = 216
+
 
 @dataclasses.dataclass(frozen=True)
 class Node:
@@ -45,6 +50,11 @@ class TopologyModel:
     def __init__(self):
         self.nodes: dict[str, Node] = {}
         self.edges: list[Edge] = []
+
+    @property
+    def nbytes(self) -> int:
+        """An estimate of the bytes the graph holds: :data:`ELEMENT_BYTES` per node or edge."""
+        return ELEMENT_BYTES * (len(self.nodes) + len(self.edges))
 
     def add_node(self, node_id: str, kind: str, space_dim: int | None = None,
                  anchor: tuple = ()) -> Node:

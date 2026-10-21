@@ -293,3 +293,25 @@ except RuntimeError as exc:
                          timeout=120)
     assert run.returncode == 0, run.stderr[-500:]
     assert "raised:" in run.stdout and "metal::malloc" in run.stdout
+
+
+def test_mlx_returns_its_buffer_cache_only_past_the_limit(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    cached, cleared = [fb.MLX_CACHE_LIMIT], []
+    monkeypatch.setitem(sys.modules, "mlx.core", SimpleNamespace(
+        get_active_memory=lambda: 5, get_cache_memory=lambda: cached[0],
+        clear_cache=lambda: cleared.append(cached[0])))
+    assert fb.mlx_memory() == {"active": 5, "cache": fb.MLX_CACHE_LIMIT}
+    assert not fb.trim_mlx_cache() and cleared == []
+    cached[0] += 1
+    assert fb.trim_mlx_cache() and cleared == [fb.MLX_CACHE_LIMIT + 1]
+    assert fb.MLX_CACHE_LIMIT == 1 << 30
+
+
+def test_without_mlx_loaded_there_is_no_mlx_memory_to_report_or_trim(monkeypatch):
+    import sys
+
+    monkeypatch.delitem(sys.modules, "mlx.core", raising=False)
+    assert fb.mlx_memory() is None and fb.trim_mlx_cache() is False

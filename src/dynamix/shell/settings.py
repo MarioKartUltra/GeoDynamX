@@ -61,10 +61,15 @@ class Settings:
     #: ``opening.open_field``'s hard-coded ``max_pixels`` (~8000 x 8000; one float64 copy =
     #: 512 MB). Anything that is not a positive int falls back to 64M.
     open_max_pixels: int = 64_000_000
-    #: The engine cache's byte budget for computed raster outputs (``Cache.max_bytes``): past it
-    #: the least-recent unpinned output levels are evicted; a marked level is pinned and rides
-    #: above it. Anything that is not a positive int falls back to 2 GB.
+    #: The engine cache's byte budget (``Cache.max_bytes``): every unpinned entry counts, its
+    #: arrays and an estimate of its Python objects, and past it the least-recent are evicted; a
+    #: marked level is pinned and rides above it, and what a layer shows stays. Anything that is
+    #: not a positive int falls back to 2 GB.
     output_cache_bytes: int = 2_000_000_000
+    #: The engine cache's bound on unpinned analysis results (``Cache.max_results``): every
+    #: transform knob value mints new ones, and past it the least-recent are evicted; what a layer
+    #: shows stays. Anything that is not a positive int falls back to 8.
+    result_cache_entries: int = 8
     #: The level the under-sampling warning is judged against: η, the finest wavelet's energy beyond
     #: Nyquist (``dynamix.core.undersampling``). Applied at startup and from Settings > Under-sampling
     #: Warning Level; anything that is not a positive number falls back to 1e-3 (spec 19's level).
@@ -160,6 +165,7 @@ def load_settings() -> Settings:
         open_max_pixels=_positive_int(d.get("open_max_pixels"), 64_000_000),
         compute_precision=compute_precision,
         output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
+        result_cache_entries=_positive_int(d.get("result_cache_entries"), 8),
         eta_warn=_positive_float(d.get("eta_warn"), 1e-3),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
         theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
