@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
+import dataclasses
 import json
+import os
+
+import pytest
 
 from dynamix.shell.settings import (Settings, load_settings, save_settings, settings_path,
                                     update_settings)
@@ -45,6 +49,31 @@ def test_update_settings_preserves_other_fields(tmp_path, monkeypatch):
     out = update_settings(auto_run_wtmm=True)
     assert out.auto_run_wtmm is True
     assert load_settings().splitter_sizes == {"work": [1, 2, 3]}   # not clobbered
+
+
+def test_a_save_that_fails_before_the_swap_keeps_the_previous_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    save_settings(Settings(theme="light"))
+    before, files = (tmp_path / "s.json").read_bytes(), sorted(tmp_path.iterdir())
+
+    def fail(*_args):
+        raise OSError(28, "No space left on device")
+
+    with monkeypatch.context() as m, pytest.raises(OSError, match="No space left"):
+        m.setattr(os, "fsync", fail)
+        update_settings(theme="mid_grey")
+    assert (tmp_path / "s.json").read_bytes() == before
+    assert load_settings().theme == "light"
+    assert sorted(tmp_path.iterdir()) == files
+
+
+def test_a_save_writes_the_settings_as_indented_utf8_json(tmp_path, monkeypatch):
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(tmp_path / "s.json"))
+    s = Settings(footprint_folders=["/Données/rasters"])
+    save_settings(s)
+    reference = tmp_path / "reference.json"
+    reference.write_text(json.dumps(dataclasses.asdict(s), indent=2), encoding="utf-8")
+    assert (tmp_path / "s.json").read_bytes() == reference.read_bytes()
 
 
 def test_load_tolerates_garbage_new_fields(tmp_path, monkeypatch):

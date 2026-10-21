@@ -9,6 +9,8 @@ from __future__ import annotations
 import dataclasses, json, os, sys
 from pathlib import Path
 
+from dynamix.model.atomic_write import write_json_atomically
+
 #: The three legal values of ``MainWindow._center_view`` --
 #: restated here (not imported from ``main_window``, which imports Qt) so this module stays
 #: Qt-free per its own module docstring.
@@ -176,9 +178,10 @@ def _positive_float(value, default: float) -> float:
 
 
 def save_settings(s: Settings) -> None:
+    """Replace the settings file whole, so an interrupted save keeps the previous settings."""
     p = settings_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(dataclasses.asdict(s), indent=2), encoding="utf-8")
+    write_json_atomically(p, dataclasses.asdict(s))
 
 def update_settings(**changes) -> Settings:
     """Read-modify-write: the only sanctioned single-field write. A bare

@@ -50,6 +50,8 @@ class _GeometryMemory(QtCore.QObject):
         if event.type() == QtCore.QEvent.Type.Close and isinstance(watched, QtWidgets.QWidget):
             import json
 
+            from dynamix.model.atomic_write import write_json_atomically
+
             g = watched.geometry()
             try:
                 try:
@@ -60,7 +62,7 @@ class _GeometryMemory(QtCore.QObject):
                 memory[self._key] = [int(g.x()), int(g.y()), int(g.width()), int(g.height())]
                 data["window_geometry"] = memory
                 self._path.parent.mkdir(parents=True, exist_ok=True)
-                self._path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                write_json_atomically(self._path, data)
             except OSError:
                 pass
         return False

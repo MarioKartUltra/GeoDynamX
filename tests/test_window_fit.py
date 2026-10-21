@@ -4,6 +4,8 @@
 the user left it (dynamix.shell.window_fit)."""
 from __future__ import annotations
 
+import os
+
 import pytest
 from PySide6 import QtCore, QtWidgets
 
@@ -50,6 +52,27 @@ def test_remember_geometry_round_trips_through_the_settings_file(qtbot, tmp_path
     second.show()
     qtbot.wait(10)
     assert (second.width(), second.height()) == (420, 330)
+
+
+def test_a_geometry_save_that_fails_keeps_the_previous_settings_file(qtbot, tmp_path, monkeypatch):
+    path = tmp_path / "settings.json"
+    path.write_text('{\n  "theme": "light"\n}', encoding="utf-8")
+    before, files = path.read_bytes(), sorted(tmp_path.iterdir())
+    monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(path))
+
+    def fail(*_args):
+        raise OSError(28, "No space left on device")
+
+    w = QtWidgets.QWidget()
+    qtbot.addWidget(w)
+    remember_geometry(w, "fitter")
+    w.show()
+    qtbot.wait(10)
+    with monkeypatch.context() as m:
+        m.setattr(os, "replace", fail)
+        w.close()
+    assert path.read_bytes() == before
+    assert sorted(tmp_path.iterdir()) == files
 
 
 def test_the_floating_windows_open_narrower_than_a_laptop_screen(qtbot):

@@ -29,6 +29,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from dynamix.model.atomic_write import write_json_atomically
 from dynamix.model.project import EXT, FORMAT, SCHEMA, Project, SourceRef
 
 _CHUNK = 1 << 20
@@ -110,6 +111,9 @@ def save_project(project: Project, path) -> Path:
 
     Metadata is written back onto ``project`` rather than only into the payload, so ``created``
     marks when the document was first saved instead of being restamped by every save.
+
+    The file is replaced whole (:func:`~dynamix.model.atomic_write.write_json_atomically`): a save
+    that fails or is interrupted leaves the previously saved document as it was.
     """
     path = Path(path)
     if path.suffix != EXT:
@@ -132,7 +136,7 @@ def save_project(project: Project, path) -> Path:
     payload = project.to_payload()
     for entry in payload["sources"]:
         entry["path"] = _store_path(entry["path"], project_dir)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_json_atomically(path, payload)
     return path
 
 

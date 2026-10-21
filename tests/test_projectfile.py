@@ -377,6 +377,36 @@ def test_save_rejects_an_out_of_range_param_naming_the_layer(tmp_path, _registry
     assert not path.exists()
 
 
+def test_a_save_writes_the_payload_as_indented_utf8_json(tmp_path, _registry):
+    p, path, _ = _project_with_data(tmp_path)
+    save_project(p, path)
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    reference = tmp_path / "reference.json"
+    reference.write_text(json.dumps(stored, indent=2), encoding="utf-8")
+    assert path.read_bytes() == reference.read_bytes()
+    assert stored["sources"][0]["path"] == "data/dem.tif"
+
+
+def test_a_save_that_fails_before_the_swap_keeps_the_previous_project(tmp_path, _registry,
+                                                                     monkeypatch):
+    """The file is replaced whole, so the last saved document stays loadable byte for byte and
+    no temporary file is left beside it."""
+    p, path, _ = _project_with_data(tmp_path)
+    save_project(p, path)
+    before, files = path.read_bytes(), sorted(tmp_path.iterdir())
+    p.title = "renamed"
+
+    def fail(*_args):
+        raise OSError(28, "No space left on device")
+
+    with monkeypatch.context() as m, pytest.raises(OSError, match="No space left"):
+        m.setattr(os, "replace", fail)
+        save_project(p, path)
+    assert path.read_bytes() == before
+    assert open_project(path).title == "T"
+    assert sorted(tmp_path.iterdir()) == files
+
+
 def test_relocate_source_repoints_and_rehashes(tmp_path, _registry):
     """I5: missing_sources and changed_sources reported problems the model gave no way to fix,
     while SourceRef's docstring promised relocating a moved file was one edit."""
