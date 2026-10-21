@@ -28,10 +28,20 @@ def _flat(values, valid) -> list:
             for m, v in zip(values, valid)]
 
 
+#: The chains list :func:`_lines` judged last and its verdict. Every scale tick refreshes the
+#: buttons with a new result over the same list, and the judgement walks every chain.
+_judged: tuple = (None, False)
+
+
 def _lines(result: dict) -> list:
     """The chains whose moduli are recorded (a chain built by a stub carries none)."""
+    global _judged
     chains = result.get("chains") or []
-    return chains if chains and all(isinstance(ch, dict) and "mod" in ch for ch in chains) else []
+    seen, verdict = _judged
+    if chains is not seen:
+        verdict = bool(chains) and all(isinstance(ch, dict) and "mod" in ch for ch in chains)
+        _judged = (chains, verdict)
+    return chains if verdict else []
 
 
 def _maxima(result: dict) -> list:

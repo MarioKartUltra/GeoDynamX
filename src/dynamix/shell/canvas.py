@@ -797,6 +797,10 @@ class Canvas(pg.GraphicsLayoutWidget):
         # costs a rebuild, never a wrong picture.
         self._geom_cache: dict[tuple, tuple] = {}
         self._geom_refs: dict[tuple, object] = {}
+        # The drawn scales of the result on show (:meth:`_scale_drawing`): its recipe, and
+        # (level, row, draw cap) -> (the level's unfiltered layer, the drawing).
+        self._drawings_recipe = None
+        self._drawings: dict[tuple, tuple] = {}
         # Draw cap (EQSelect _TE_MAX): the selection fast path bounds
         # each family's drawn chains at this many, keeping the longest / most persistent.
         # ``cap_note`` is the honest "drawing X of Y" reading for whoever owns a status line --
@@ -1636,15 +1640,18 @@ a bounded gather of at most :attr:`draw_cap` chains per
         on-line pixels whose maximum the Sign knob marked negative in the negative colour."""
         if self._maxima_masks is None:
             return
-        (ny_r, nx_r), (on_y, on_x), (iso_y, iso_x), rect, on_sign = self._maxima_masks
-        r, g, b = self._color_extrema
-        for item, (ys, xs), sign in ((self.extrema_raster_item, (on_y, on_x), on_sign),
-                                     (self.isolated_raster_item, (iso_y, iso_x), None)):
+        (ny_r, nx_r), on, isolated, rect, on_sign = self._maxima_masks
+        # Each pixel's four bytes written as one uint32 at its flat position: a tenth of the time
+        # of a two-index scatter of a four-byte colour on a dense finest scale.
+        colour = np.array([*self._color_extrema, 255], dtype=np.ubyte).view(np.uint32)[0]
+        neg_colour = np.array([*self._color_hchain_neg, 255], dtype=np.ubyte).view(np.uint32)[0]
+        for item, flat, sign in ((self.extrema_raster_item, on, on_sign),
+                                 (self.isolated_raster_item, isolated, None)):
             rgba = np.zeros((ny_r, nx_r, 4), dtype=np.ubyte)
-            rgba[ys, xs] = (r, g, b, 255)
+            pixels = rgba.view(np.uint32).reshape(-1)
+            pixels[flat] = colour
             if sign is not None:
-                neg = sign < 0
-                rgba[ys[neg], xs[neg]] = (*self._color_hchain_neg, 255)
+                pixels[flat[sign < 0]] = neg_colour
             item.setImage(rgba.transpose(1, 0, 2), autoLevels=False)
             item.setRect(rect)
         self._apply_maxima_visibility()
@@ -2462,75 +2469,24 @@ a bounded gather of at most :attr:`draw_cap` chains per
         max_row, max_col = row_off + reg_dy * py, col_off + reg_dx * px    # where the maxima draw
 
         self._draw_arrows(result, scale_idx, max_row, max_col)
-        ext_x = np.asarray(ext["x"])
-        ext_y = np.asarray(ext["y"])
-        iso = np.asarray(ext["line_id"]) == -1
-        self.extrema_item.setData(x=ext_x[iso] * px + max_col, y=ext_y[iso] * py + max_row)
-
-        # The polyline helpers run in the RESULT's own coordinates (`hline_polylines` indexes a
+        # The geometry is built in the RESULT's own coordinates (`hline_polylines` indexes a
         # scratch grid of `shape`, which is the ROI's shape), so the translation is applied to
-        # what they return, never to what they are given. Both helpers are MEMOIZED on the input
-        # object's identity (:meth:`_cached_geometry`): results are cached and immutable by the
-        # zero-cache-miss law, and a scale scrub hands this method the SAME ext/chains objects out
-        # of the cached stack every time -- rebuilding their polylines per tick was the measured
-        # scrub cost (Python loop over every H-line). The offsets stay OUTSIDE the cache: an ROI result re-rendered after a
-        # window change keeps its geometry and re-adds the translation.
+        # what comes back, never to what goes in: an ROI result re-rendered after a window change
+        # keeps its geometry and re-adds the translation.
         sel_geom = self._selection_geometry(result, scale_idx)
-        if sel_geom is not None:
-            hx, hy = sel_geom[0]
-        elif (base := result.get("_ext_base")) is not None:
-            hx, hy = self._masked_hline_geometry(base, ext, shape, result.get("_ext_base_runs"))
-        else:
-            hx, hy = self._cached_geometry("hline", ext, lambda: hline_polylines(ext, shape))
-        # Draw cap: bound the H-line points handed to pyqtgraph -- without it a dense DEM finest
-        # scale pushes >1M points per redraw (~80 ms, profiled), enough to lag a scale/filter
-        # scrub well behind EQSelect. Longest lines kept; the shortfall becomes a status note
-        # below. The selection fast path (sel_geom) already caps itself.
-        h_kept = h_total = 0
-        hx_pre, hy_pre = hx, hy                  # pre-cap: the raster overlay has no point cost
-        hx_neg = hy_neg = np.empty(0, dtype=np.float64)
-        vertex_sign = None
-        signs = ext.get("sign")
-        if signs is not None and sel_geom is None and result.get("_ext_base") is None:
-            # The WTMM's Sign knob marked each maximum: the runs split where the sign flips, the
-            # negative vertices on their own item (and, below, their own pixel colour).
-            idx = self._cached_geometry("hline_idx", ext, lambda: hline_vertex_indices(ext, shape))
-            vertex_sign = np.where(idx >= 0, np.asarray(signs)[np.maximum(idx, 0)], 0)
-            hx_neg = np.where(vertex_sign < 0, hx, np.nan)
-            hy_neg = np.where(vertex_sign < 0, hy, np.nan)
-            hx, hy = np.where(vertex_sign > 0, hx, np.nan), np.where(vertex_sign > 0, hy, np.nan)
         if sel_geom is None:
-            hx, hy, h_kept, h_total = cap_polylines(hx, hy, self.draw_cap)
-            if np.isfinite(hx_neg).any():
-                hx_neg, hy_neg, kept_neg, total_neg = cap_polylines(hx_neg, hy_neg, self.draw_cap)
-                h_kept, h_total = h_kept + kept_neg, h_total + total_neg
+            drawing = self._scale_drawing(result, scale_idx, ext, shape)
+        else:
+            drawing = self._build_scale_drawing(result, ext, shape, sel_geom[0])
+        dots_x, dots_y, hx, hy, hx_neg, hy_neg, h_kept, h_total, on, isolated, on_sign = drawing
+        self.extrema_item.setData(x=dots_x * px + max_col, y=dots_y * py + max_row)
         self.hchain_item.setData(hx * px + max_col, hy * py + max_row)
         self.hchain_neg_item.setData(hx_neg * px + max_col, hy_neg * py + max_row)
-
-        # The raster-pixel extrema overlay: the same visible truth the polylines
-        # carried, in pixel form on the result's own grid. Members from the drawn H-line
-        # vertices (pre-cap), orphans from the iso dots; the rect places it under the ROI/
+        # The maxima as pixel masks, painted in the extrema colour by _paint_maxima_rasters (a
+        # recolour repaints them without a new result); the rect places them under the ROI/
         # window offset with the center registration the image itself uses.
         ny_r, nx_r = int(shape[0]), int(shape[1])
-        # The maxima as pixel masks (on an H-line, isolated), painted in the extrema colour
-        # by _paint_maxima_rasters -- a recolour repaints them without a new result.
-        on_y = on_x = np.empty(0, dtype=np.int64)
-        on_sign = None
-        if len(hx_pre):
-            fin = np.isfinite(hx_pre) & np.isfinite(hy_pre)
-            mx = np.rint(np.asarray(hx_pre)[fin]).astype(np.int64)
-            my = np.rint(np.asarray(hy_pre)[fin]).astype(np.int64)
-            ok = (mx >= 0) & (mx < nx_r) & (my >= 0) & (my < ny_r)
-            on_y, on_x = my[ok], mx[ok]
-            if vertex_sign is not None:
-                on_sign = vertex_sign[fin][ok]
-        iso_y = iso_x = np.empty(0, dtype=np.int64)
-        if ext_x[iso].size:
-            dx_i = np.asarray(ext_x[iso], dtype=np.int64)
-            dy_i = np.asarray(ext_y[iso], dtype=np.int64)
-            ok = (dx_i >= 0) & (dx_i < nx_r) & (dy_i >= 0) & (dy_i < ny_r)
-            iso_y, iso_x = dy_i[ok], dx_i[ok]
-        self._maxima_masks = ((ny_r, nx_r), (on_y, on_x), (iso_y, iso_x),
+        self._maxima_masks = ((ny_r, nx_r), on, isolated,
                               QtCore.QRectF(max_col - 0.5 * px, max_row - 0.5 * py, nx_r * px, ny_r * py),
                               on_sign)
         self._paint_maxima_rasters()
@@ -2559,7 +2515,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
             vx, vy, sx, sy, grouped_xy = self._cached_geometry("trails", chains, _split_trails)
         v_kept = v_total = 0
         if sel_geom is None:
-            vx, vy, v_kept, v_total = cap_polylines(vx, vy, self.draw_cap)
+            vx, vy, v_kept, v_total = self._cached_geometry(
+                f"trails_capped:{self.draw_cap}", chains,
+                lambda x=vx, y=vy: cap_polylines(x, y, self.draw_cap))
         self.vtrail_item.setData(vx * px + col_off, vy * py + row_off)
         # Honest "drawing N of M" when the cap withheld lines (never a silent truncation).
         notes = []
@@ -2589,6 +2547,96 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._update_roi_bounds(result, row_off, col_off)
         # The wavelet bar is the window's to feed (set_wavelet_profile, every landing): it
         # knows the device; _update_wavelet_bar's duo is no longer drawn.
+
+    def _scale_drawing(self, result: dict, scale_idx: int, ext: dict, shape) -> tuple:
+        """:meth:`_build_scale_drawing` for row ``scale_idx`` of ``result``, built once per scale
+        of the result on show, so a scrub back to a scale reads its drawing from a table.
+
+        A resolved result carries its recipe (``_landed``: the analysis key and the filters'
+        parameters, apart from the level), and a filter change hands over a new recipe and
+        empties the table. A drawing is kept with the level's unfiltered layer (``_ext_base``,
+        the cached transform's own object) and is read back only for that same object, so a
+        recomputed result is drawn afresh. A result without the recipe (a preview) is always
+        drawn afresh."""
+        landed = result.get("_landed")
+        if not isinstance(landed, dict):
+            return self._build_scale_drawing(result, ext, shape)
+        recipe = (landed.get("analysis_key"), landed.get("filters"))
+        if recipe != self._drawings_recipe:
+            self._drawings_recipe, self._drawings = recipe, {}
+        base = result.get("_ext_base")
+        anchor = ext if base is None else base
+        key = (int(result.get("_scale_idx", scale_idx)), scale_idx, self.draw_cap)
+        hit = self._drawings.get(key)
+        if hit is None or hit[0] is not anchor:
+            hit = self._drawings[key] = (anchor, self._build_scale_drawing(result, ext, shape))
+        return hit[1]
+
+    def _build_scale_drawing(self, result: dict, ext: dict, shape, sel_hxy=None) -> tuple:
+        """One scale's overlay in the result's own sample grid, before the display affine:
+        ``(dots_x, dots_y, hx, hy, hx_neg, hy_neg, h_kept, h_total, on, isolated, on_sign)``, the
+        isolated maxima as dots, the H-lines capped at :attr:`draw_cap` and split by sign with the
+        line counts the cap kept and found, and the flat pixel positions (``row * nx + col``) of
+        the maxima on an H-line and isolated. ``sel_hxy`` is the selection fast path's H
+        geometry, which caps itself.
+
+        The polyline helpers are memoized on their input object's identity
+        (:meth:`_cached_geometry`): results are cached and immutable by the zero-cache-miss law,
+        and a scale scrub hands over the SAME ext/chains objects out of the cached stack every
+        time."""
+        ext_x = np.asarray(ext["x"])
+        ext_y = np.asarray(ext["y"])
+        iso = np.asarray(ext["line_id"]) == -1
+        dots_x, dots_y = ext_x[iso], ext_y[iso]
+        if sel_hxy is not None:
+            hx, hy = sel_hxy
+        elif (base := result.get("_ext_base")) is not None:
+            hx, hy = self._masked_hline_geometry(base, ext, shape, result.get("_ext_base_runs"))
+        else:
+            hx, hy = self._cached_geometry("hline", ext, lambda: hline_polylines(ext, shape))
+        # Draw cap: bound the H-line points handed to pyqtgraph -- without it a dense DEM finest
+        # scale pushes >1M points per redraw (~80 ms, profiled), enough to lag a scale/filter
+        # scrub well behind EQSelect. Longest lines kept; the shortfall becomes a status note.
+        h_kept = h_total = 0
+        hx_pre, hy_pre = hx, hy                  # pre-cap: the raster overlay has no point cost
+        hx_neg = hy_neg = np.empty(0, dtype=np.float64)
+        vertex_sign = None
+        signs = ext.get("sign")
+        if signs is not None and sel_hxy is None and result.get("_ext_base") is None:
+            # The WTMM's Sign knob marked each maximum: the runs split where the sign flips, the
+            # negative vertices on their own item (and their own pixel colour).
+            idx = self._cached_geometry("hline_idx", ext, lambda: hline_vertex_indices(ext, shape))
+            vertex_sign = np.where(idx >= 0, np.asarray(signs)[np.maximum(idx, 0)], 0)
+            hx_neg = np.where(vertex_sign < 0, hx, np.nan)
+            hy_neg = np.where(vertex_sign < 0, hy, np.nan)
+            hx, hy = np.where(vertex_sign > 0, hx, np.nan), np.where(vertex_sign > 0, hy, np.nan)
+        if sel_hxy is None:
+            hx, hy, h_kept, h_total = cap_polylines(hx, hy, self.draw_cap)
+            if np.isfinite(hx_neg).any():
+                hx_neg, hy_neg, kept_neg, total_neg = cap_polylines(hx_neg, hy_neg, self.draw_cap)
+                h_kept, h_total = h_kept + kept_neg, h_total + total_neg
+
+        # The raster-pixel maxima: the same visible truth the polylines carry, in pixel form on
+        # the result's own grid. Members from the drawn H-line vertices (pre-cap), orphans from
+        # the iso dots.
+        ny_r, nx_r = int(shape[0]), int(shape[1])
+        on = np.empty(0, dtype=np.int64)
+        on_sign = None
+        if len(hx_pre):
+            fin = np.isfinite(hx_pre) & np.isfinite(hy_pre)
+            mx = np.rint(np.asarray(hx_pre)[fin]).astype(np.int64)
+            my = np.rint(np.asarray(hy_pre)[fin]).astype(np.int64)
+            ok = (mx >= 0) & (mx < nx_r) & (my >= 0) & (my < ny_r)
+            on = my[ok] * nx_r + mx[ok]
+            if vertex_sign is not None:
+                on_sign = vertex_sign[fin][ok]
+        isolated = np.empty(0, dtype=np.int64)
+        if dots_x.size:
+            dx_i = np.asarray(dots_x, dtype=np.int64)
+            dy_i = np.asarray(dots_y, dtype=np.int64)
+            ok = (dx_i >= 0) & (dx_i < nx_r) & (dy_i >= 0) & (dy_i < ny_r)
+            isolated = dy_i[ok] * nx_r + dx_i[ok]
+        return dots_x, dots_y, hx, hy, hx_neg, hy_neg, h_kept, h_total, on, isolated, on_sign
 
     def _draw_grouped_trails(self, grouped_xy: dict, col_off: int, row_off: int) -> None:
         """One :class:`pyqtgraph.PlotDataItem` per distinct committed-group color THIS result

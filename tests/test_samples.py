@@ -54,3 +54,22 @@ def test_the_samples_contract_flattens_over_the_valid_cells_with_the_count_facto
     assert sets["coefficients"]["weights"] == pytest.approx([64 / 192, 16 / 48])
     assert sample_sets({"params": {}}) == {} and sample_sets(None) == {}
     assert has_sample_sets({"scales": samples["scales"], "samples": samples})
+
+
+def test_the_chains_are_judged_once_however_often_a_scale_tick_asks():
+    """A scale tick hands the button refresh a new result dict over the same chains list; the walk
+    over every chain runs once per list."""
+    looked = []
+
+    class Chain(dict):
+        def __contains__(self, key):
+            looked.append(key)
+            return super().__contains__(key)
+
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    result = {"scales": scales, "chains": [Chain(c) for c in _chains(scales)], "extrema": []}
+    for level in range(4):
+        assert has_sample_sets({**result, "_scale_idx": level})
+    assert len(looked) == len(result["chains"])
+    assert has_sample_sets({**result, "chains": list(result["chains"])})    # another result
+    assert len(looked) == 2 * len(result["chains"])
