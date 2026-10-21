@@ -177,13 +177,17 @@ def _window_max(fine, depth: int, width: float, *, anchor="centre"):
     return out[tuple(slice(0, None, f) for _ in range(fine.ndim))]
 
 
-def valid_cells(coef: dict, margin: int, seam_margin: int = 0) -> list:
+def valid_cells(coef: dict, margin, seam_margin=0) -> list:
     """Per level, the cells that enter maps and statistics: inside the data's block at least
     ``margin`` cells from each of its edges, at least ``seam_margin`` cells from the working
     image's wrap (the seam a wrapped field of another period has there), and no cell with a
-    non-finite pixel within ``margin`` cells."""
+    non-finite pixel within ``margin`` cells. Either margin is one number for every level or one
+    per level."""
+    levels = len(coef["bad"])
+    margins = list(margin) if np.ndim(margin) else [margin] * levels
+    seams = list(seam_margin) if np.ndim(seam_margin) else [seam_margin] * levels
     out = []
-    for bad, block in zip(coef["bad"], coef["block"]):
+    for bad, block, margin, seam_margin in zip(coef["bad"], coef["block"], margins, seams):
         v = np.zeros(bad.shape, dtype=bool)
         window = [(max(lo + margin, seam_margin), min(hi - margin, n - seam_margin))
                   for (lo, hi), n in zip(block, bad.shape)]
@@ -542,7 +546,7 @@ def paint(cells, level: int, shape, pad=None) -> np.ndarray:
 def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max: int = 64,
                 gamma: float = 0.0, p: float = 2.0, wse_rule: str = "dumeur", wse_depth: int = 1,
                 wse_width: float = 1.0, wse_beta: float = 0.25, edge: str = "mirror",
-                origin=(0, 0), block=None, anchor=None, progress=None) -> dict:
+                origin=(0, 0), block=None, anchor=None, resolution_side=None, progress=None) -> dict:
     """The three quantities on one band (or 1-D signal): the pyramid to J = log2 ``scale_max``,
     the local exponent over the levels from log2 ``scale_min``, the admissibility, and the
     quantities and bare coefficients over their valid cells as ``samples`` (the ``Samples``
@@ -550,7 +554,9 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     (:data:`EDGE_MODES`); under ``periodic`` no border is lost. ``origin`` and ``block`` name
     the data's real block inside the field (a Periodic extension's output); ``anchor`` places the
     dyadic grid (:func:`coefficients`), and the returned ``pad`` is where the data starts in the
-    working image, what :func:`paint` crops from."""
+    working image, what :func:`paint` crops from. ``resolution_side`` is the N of the WSE's
+    resolution index j_r = log2 N − j, the data's smaller side by default; a region of a larger
+    file passes the file's, so its schedule is the whole file's."""
     J, j_min = _level_of(scale_max, "scale_max"), _level_of(scale_min, "scale_min")
     if j_min >= J:
         raise ValueError(f"leaders: scale_min {scale_min} px must be below scale_max {scale_max} px")
@@ -571,11 +577,15 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     seam = border if coef["seam"] else 0
     e_coef, seam_coef = max(e - 1, 0), max(seam - 1, 0)
     schedule = wse_schedule(J, rule=wse_rule, depth=wse_depth, width=wse_width, beta=wse_beta,
-                            log2_n=math.log2(min(coef["data_shape"])))
-    reach = 0 if edge == "periodic" and not coef["seam"] else max(math.ceil(w) for level in schedule for _, w in level)
+                            log2_n=math.log2(resolution_side or min(coef["data_shape"])))
+    # Each level's (θ, ω) window reaches its own number of cells sideways, so each level's WSE
+    # margin is its own reach.
+    reach = [0 if edge == "periodic" and not coef["seam"] else max(math.ceil(w) for _, w in level)
+             for level in schedule]
     valid = {"coefficients": valid_cells(coef, e_coef, seam_coef), "leaders": valid_cells(coef, e, seam),
              "p-leaders": valid_cells(coef, e, seam),
-             "wse": valid_cells(coef, e_coef + (reach if edge != "periodic" else 0), seam_coef + (reach if coef["seam"] else 0))}
+             "wse": valid_cells(coef, [e_coef + (r if edge != "periodic" else 0) for r in reach],
+                                [seam_coef + (r if coef["seam"] else 0) for r in reach])}
     adm = admissibility(coef, valid["coefficients"], j_min, p)
     eta = adm["eta"]["integrated"]
     quantity = {"leaders": leaders(coef),

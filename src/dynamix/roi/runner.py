@@ -331,12 +331,15 @@ def split_lines(level: dict) -> np.ndarray:
     return np.array([remap[int(v)] if v >= 0 else -1 for v in out], dtype=np.int64)
 
 
-def roi_margin_of(device, params) -> tuple[int, bool]:
+def roi_margin_of(device, params, field=None) -> tuple[int, bool]:
     """``(margin_px, declared)``: the device's own ``roi_margin(params)``, or ``(0, False)`` for a
-    plugin that declares none -- it still runs, on the ROI alone, and the result says so."""
+    plugin that declares none -- it still runs, on the ROI alone, and the result says so. A device
+    whose reach depends on the dataset (the WSE's resolution index) takes ``field`` too."""
     fn = getattr(device, "roi_margin", None)
     if fn is None:
         return 0, False
+    if field is not None and "field" in inspect.signature(fn).parameters:
+        return max(0, int(fn(params, field=field))), True
     return max(0, int(fn(params))), True
 
 
@@ -365,7 +368,7 @@ def run_on_region(steps, field, rect, *, progress=None, cancel=None, stage_cache
     margins, planning = [], []
     for d, p in steps:
         with fft_policy.observing() as calls:
-            margins.append(roi_margin_of(d, p))
+            margins.append(roi_margin_of(d, p, field=field))
         planning.append(calls)
     m = sum(mm for mm, _ok in margins)
     if any(getattr(d, "roi_whole_parent", lambda _p: False)(p) for d, p in steps):

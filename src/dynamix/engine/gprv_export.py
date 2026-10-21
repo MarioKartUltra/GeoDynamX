@@ -323,9 +323,11 @@ def record_for(project, layer, export_path, *, export: str, layer_input: str = F
             r, c, h, w = (int(v) for v in layer.tags["roi.window"].split(","))
             from dynamix.roi.runner import roi_margin_of
 
-            run["roi"] = {"window": [r, c, h, w],
-                          "margin": sum(roi_margin_of(d, p)[0] for d, p in region)}
             stamps = (result or {}).get("_roi") if isinstance(result, dict) else None
+            margin = (stamps or {}).get("margin")         # the halo the run read, when it says
+            run["roi"] = {"window": [r, c, h, w],
+                          "margin": int(margin) if margin is not None
+                          else sum(roi_margin_of(d, p)[0] for d, p in region)}
             if stamps:
                 outcome["roi"] = {key: stamps[key] for key in _HALO if key in stamps}
         processing = {"identifier": {"code": f"{device.name}/{output}", "codeSpace": CODE_SPACE},

@@ -575,7 +575,7 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
     if not roi_steps or roi_steps[-1][0].name != device.name:
         raise ValueError(f"{name}: the region's analysis is not {device.name}")
     row, col, h, w = (int(v) for v in layer.tags["roi.window"].split(","))
-    m = sum(roi_margin_of(d, p)[0] for d, p in roi_steps)
+    m = sum(roi_margin_of(d, p, field=field)[0] for d, p in roi_steps)
     analyzer, aparams = roi_steps[-1]
 
     def _window() -> dict:

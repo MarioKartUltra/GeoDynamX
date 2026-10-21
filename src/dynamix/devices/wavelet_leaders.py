@@ -127,11 +127,34 @@ class WaveletLeaders:
             raise ValueError(f"wavelet_leaders: at least three fitted levels: scale_min {params['scale_min']} "
                              f"px to scale_max {params['scale_max']} px spans {J - j_min + 1}")
 
-    def roi_margin(self, params: dict) -> int:
-        """What an ROI must read beyond its window: the bank's border in cells of the coarsest
-        level, plus one cell, the partial cell the window's grid may start with when it keeps the
-        field's cells."""
-        return (dwt.border_cells(params["wavelet"]) + 1) * int(params["scale_max"])
+    def roi_margin(self, params: dict, field=None) -> int:
+        """What an ROI must read beyond its window, plus one coarsest cell for the partial cell its
+        grid may start with when it keeps the file's cells: the leaders' bank border in coarsest
+        cells, or more for the WSE, whose level j reaches its own (θ, ω) width beyond the bank's
+        border less one, a reach that grows with the file's resolution index (``field``'s
+        dimensions; the field's own size when it carries none)."""
+        J = int(round(math.log2(int(params["scale_max"]))))
+        e = dwt.border_cells(params["wavelet"])
+        leaders_px = e * 2 ** J
+        side = self.resolution_side(field) if field is not None else None
+        if side is None and field is not None and getattr(field, "values", None) is not None:
+            side = float(min(np.shape(field.values)[:2]))
+        schedule = leaders.wse_schedule(J, rule=params["wse_rule"], depth=int(params["wse_depth"]),
+                                        width=float(params["wse_width"]), beta=float(params["wse_beta"]),
+                                        log2_n=math.log2(side) if side else 16.0)
+        wse_px = max((max(e - 1, 0) + max(math.ceil(w) for _, w in level)) * 2 ** j
+                     for j, level in enumerate(schedule, 1))
+        return max(leaders_px, wse_px) + 2 ** J
+
+    @staticmethod
+    def resolution_side(field):
+        """The N of the WSE's resolution index for a region of a larger file: the file's smaller
+        side, from the provenance a processing window carries; None for a field that is its own
+        dataset (its own size) or a reduced display picture."""
+        prov = getattr(field, "provenance", None) or {}
+        if not prov.get("window") or not prov.get("full_dims") or int(prov.get("display_stride", 1) or 1) > 1:
+            return None
+        return float(min(int(n) for n in prov["full_dims"]))
 
     @staticmethod
     def grid_anchor(field, scale_max: int):
@@ -227,7 +250,7 @@ class WaveletLeaders:
                   scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
                   wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
                   wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
-                  edge=edge, origin=origin, block=block)
+                  edge=edge, origin=origin, block=block, resolution_side=self.resolution_side(field))
         run = leaders.run_leaders(vals, **kw, anchor=self.grid_anchor(field, int(params["scale_max"])), progress=tick)
         j_min, J = run["j_min"], run["levels"]
         warnings = []

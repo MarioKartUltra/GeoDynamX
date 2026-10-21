@@ -273,11 +273,11 @@ def test_wavelet_leaders_lazy_outputs_paint_the_roi_not_the_window_corner(builti
 
     dev = builtins["wavelet_leaders"]
     params = _params(dev, scale_min=4, scale_max=16)
-    m = dev.roi_margin(params)
+    f = _field(n=1024)
+    m = dev.roi_margin(params, field=f)                    # the WSE's reach grows with the file
     assert m > 0
     h = w = 96
     roi = (m + 8, m + 8, h, w)
-    f = _field(n=2 * (m + 8) + h)
     got = run_on_region([(dev, params)], f, roi)
     window, _info = read_processing_window(f, roi, m)
     ref = dev.compute(window, params)

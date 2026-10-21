@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import sys
 
+import math
+
 import numpy as np
 import pytest
 
@@ -615,3 +617,25 @@ def test_pooled_sample_sets_average_the_grids_and_keep_one_grid_s_counts_and_sig
     plain = L.tables({**pooled, "sets": {"leaders": {k: v for k, v in pooled["sets"]["leaders"].items() if k != "pooled"}}}, q)["leaders"]
     np.testing.assert_allclose(t["sigma_tau_qa"], 2.0 * plain["sigma_tau_qa"], rtol=1e-10)
     np.testing.assert_allclose(t["N_a"], plain["N_a"] / 4.0, rtol=1e-10)
+
+
+def test_each_level_s_wse_margin_is_its_own_reach_and_the_resolution_index_can_be_the_file_s():
+    """The (θ, ω) window reaches j_r + D cells sideways at level j, j_r = log2 N − j: its valid
+    cells start that reach (plus the bank's border less one) inside the data's block at that
+    level, not the largest reach of any level; ``resolution_side`` sets N for a region of a larger
+    file, so the region's schedule is the whole file's."""
+    x = fbm2d(512, 0.5, seed=21)
+    r = L.run_leaders(x, scale_min=4, scale_max=32)
+    e_coef = max(r["border_cells"] - 1, 0)
+    checked = 0
+    for j, (v, sched) in enumerate(zip(r["valid"]["wse"], r["wse_schedule"]), 1):
+        if not v.any():                                    # a coarse level the reach empties on 512 px
+            continue
+        reach = max(math.ceil(w) for _, w in sched)
+        lo = r["block"][j - 1][0][0]
+        first = int(np.where(v.any(axis=1))[0].min())
+        assert first - lo == e_coef + reach, (j, first - lo, e_coef + reach)
+        checked += 1
+    assert checked >= 3
+    big = L.run_leaders(x, scale_min=4, scale_max=32, resolution_side=3000)
+    assert big["wse_schedule"] == L.wse_schedule(5, log2_n=math.log2(3000))

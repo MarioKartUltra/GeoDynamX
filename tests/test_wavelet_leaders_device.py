@@ -59,9 +59,10 @@ def test_the_tool_sits_in_regularity_and_produces_an_h_map(dev):
     keyed = keyed_params(dev, p)
     assert "method" not in keyed and "show" not in keyed                              # view-only
     assert {"wavelet", "scale_min", "scale_max", "gamma", "p", "wse_rule"} <= set(keyed)
-    # The bank's border in coarsest cells, plus the partial cell a region's grid may start with
-    # when it keeps the whole field's cells.
-    assert dev.roi_margin(p) == (dwt.border_cells("sym4") + 1) * 64
+    # A region reads the bank's border in coarsest cells, or the WSE's reach when wider (level j
+    # reaches j_r + D cells, j_r = log2 N − j: 5 cells at 64 px on a 1024-px field, beyond the
+    # border less one), plus the partial cell its grid may start with.
+    assert dev.roi_margin(p, field=make_field(np.zeros((1024, 1024)))) == (4 + 5) * 64 + 64
     assert dev.wavelet_profile(p, 16.0, 3).family == "sym4 ψ, level 4"
     assert dev.derived_reading("scale_min", 4, make_field(np.zeros((16, 16)))) is None
 
@@ -348,3 +349,30 @@ def test_a_per_level_output_travels_as_its_decimated_cell_grid(dev, field):
     cells = np.where(res["_valid"]["leaders"][3], np.log2(res["_quantity"]["leaders"][3]), np.nan)
     np.testing.assert_array_equal(raster, leaders.paint(cells, 4, (512, 512), pad=res["_pad"]).astype(np.float32))
     assert retained_nbytes(out) < raster.nbytes / 50
+
+
+def test_a_region_s_wse_is_complete_at_the_coarsest_level_and_equals_the_whole_field_s(dev):
+    """The region's halo covers the WSE's reach at the coarsest level and its resolution index is
+    the file's, so an interior region's (θ, ω)-leaders fill it at every level and equal the
+    whole field's there."""
+    from conftest import fbm2d
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.model.device import defaults_for
+    from dynamix.roi.runner import roi_margin_of, run_on_region
+
+    n = 1536
+    f = RasterField(name="fbm", values=fbm2d(n, 0.6, seed=8).astype(np.float32), frame=LocalFrame(),
+                    x_axis=np.arange(float(n)), y_axis=np.arange(float(n)))
+    f.provenance.update({"window": {"row_off": 0, "col_off": 0}, "full_dims": (n, n)})
+    p = {**defaults_for(dev), "scale_max": 32}
+    margin, _ok = roi_margin_of(dev, p, field=f)
+    assert margin == (4 + 7 + 1) * 32                                       # sym4: border 5 − 1, reach 7 at 32 px, one cell
+    full = dev.compute(f, p)
+    r0, c0, h, w = rect = (600, 600, 300, 300)
+    roi = run_on_region([(dev, p)], f, rect)
+    for level in range(1, 5):
+        whole = output_raster(dev.compute_output("wse", None, full, p, fetch=None, level=level))[r0:r0 + h, c0:c0 + w]
+        part = output_raster(dev.compute_output("wse", None, roi, p, fetch=None, level=level))
+        assert np.isfinite(part).all(), level
+        np.testing.assert_allclose(part, whole, rtol=1e-5, atol=1e-5)
