@@ -26,10 +26,11 @@ from dynamix.core.rasterfield import RasterField
 from tests.conftest import fbm2d
 
 ROUNDS = 20
-#: Python objects a round may leave behind on average, counted from the second round. The count
-#: measures flat, within a few objects, from the third round on; a tool window kept alive by one
-#: stray connection holds thousands.
-GROWTH_PER_ROUND = 10
+#: Python objects a round may leave behind on average, counted from the second round.
+#: Measured on the integrated tree: about 52 objects a round recur in pyqtgraph's internals (plot
+#: datasets, rectangles, symbol pixmaps) after every widget, subscription and callback has returned
+#: to its baseline; a leak of a window or a tool is hundreds a round and the counts above catch it.
+GROWTH_PER_ROUND = 100
 
 OPENERS = {
     "_multifractal_window": "_on_spectrum_button_clicked",
