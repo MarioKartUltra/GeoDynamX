@@ -9,9 +9,12 @@ orders, the fit range as a draggable region, and off that range ζ(q) by weighte
 h(q) and D(q) from the tilted means (their eqs. 12 and 13) and the Legendre transform of τ as
 the dashed hull on D(h). The pseudo-fractional integration γ the transform applied is taken back
 out in the original frame. Every change re-fits and publishes the fit (``fitChanged``) for the
-construction window, where the methods' spectra are compared.
+construction window, where the methods' spectra are compared; the fit is named for its source,
+set and kind, so a change of γ, δ, the moments or the range replaces it there.
 """
 from __future__ import annotations
+
+from collections import OrderedDict
 
 import numpy as np
 import pyqtgraph as pg
@@ -29,6 +32,8 @@ __all__ = ["StructureFunctionsWindow"]
 #: The moment orders' defaults, the WTMM's.
 Q_DEFAULT = (-3.0, 6.0, 0.5)
 WEIGHTS = ("uniform", "counts n_j")
+#: The tables kept, least recently used first out: a sweep of γ, δ or q computes one per value.
+TABLES_KEPT = 8
 
 
 #: The fit modes as the Partition functions window names them, and the core's own names.
@@ -38,7 +43,8 @@ FIT_MODES = {"naive": "naive", "fixed focus": "fixed_focus", "focus": "focus"}
 class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
     """ζ(q), τ(q), h(q) and D(h) off one sample set, over a chosen fit range."""
 
-    #: The current fit, published on every change: ``name``, ``kind``, ``q``, ``tau``, ``h``,
+    #: The current fit, published on every change: ``name`` (the source, the set and the kind,
+    #: the fit's identity), ``label`` (the name with γ and δ), ``kind``, ``q``, ``tau``, ``h``,
     #: ``D`` with their σ's, ``hull`` (the Legendre transform of τ), ``cq`` (the specific heat).
     fitChanged = QtCore.Signal(object)
 
@@ -52,7 +58,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._physical = physical_of_log2a
         self._dyadic = bool(samples.get("dyadic"))      # a pyramid's levels: the axis reads j
         self._log2_L = None if log2_L is None else float(log2_L)    # the focus anchor, the field extent
-        self._tables: dict = {}
+        self._tables: OrderedDict = OrderedDict()
         self._fit: dict | None = None
         self._family_items: list = []
         self._fit_items: list = []
@@ -257,7 +263,9 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         name = self.set_combo.currentData()
         gamma, delta = self._generalized()
         key = (name, tuple(self._q_list()), gamma, delta if gamma else 0.0)
-        if key not in self._tables:
+        if key in self._tables:
+            self._tables.move_to_end(key)
+        else:
             if gamma:
                 length = 2.0 ** self._log2_L if self._log2_L is not None else None
                 self._tables[key] = leaders.generalized_table(self._samples, name, self._q_list(), gamma, delta,
@@ -265,6 +273,8 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             else:
                 self._tables[key] = leaders.tables({**self._samples, "sets": {name: self._samples["sets"][name]}},
                                                    self._q_list())[name]
+            if len(self._tables) > TABLES_KEPT:
+                self._tables.popitem(last=False)
         return self._tables[key]
 
     def _on_spins(self) -> None:
@@ -298,9 +308,9 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         fit["set"] = label
         fit["kind"] = "structure functions"
         fit["generalized"] = {"gamma": gamma, "delta": delta} if gamma else None
-        tag = f", γ = {gamma:g} δ = {delta:g}" if gamma else ""
-        fit["name"] = (f"{self._source} · {label}, {fit['kind']}{tag}" if self._source
-                       else f"{label}, {fit['kind']}{tag}")
+        fit["name"] = (f"{self._source} · {label}, {fit['kind']}" if self._source
+                       else f"{label}, {fit['kind']}")
+        fit["label"] = fit["name"] + (f", γ = {gamma:g} δ = {delta:g}" if gamma else "")
         # The Legendre routes of a generalized τ carry the penalty back: L_g(h) = ζ_g*(h) − g(h),
         # g = −γ(h − δ)² (Leonarduzzi et al. 2019 (23); Touchette & Beck's f(α) at fixed γ).
         fit["hull"] = spectra.legendre_dh(fit["q_list"], fit["tau"])

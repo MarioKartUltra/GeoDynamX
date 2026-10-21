@@ -185,8 +185,9 @@ def test_the_fit_modes_run_the_focus_regression_on_the_same_table(qtbot):
 
 def test_gamma_and_delta_turn_the_table_into_the_generalized_structure_functions(qtbot):
     """γ ≠ 0 swaps the table for Leonarduzzi's generalized one at (γ, δ) with the field extent as
-    L, the fit is named for them, the Legendre routes carry +γ(h − δ)² back, and γ = 0 is the
-    ordinary table again."""
+    L, the fit keeps the name of the set and the kind and carries (γ, δ) in its label, the
+    Legendre routes carry +γ(h − δ)² back, and γ = 0 is the ordinary table again. The name is
+    the fit's identity, so a change of γ or δ replaces the fit wherever it is kept."""
     from dynamix.core import leaders, spectra
     window = StructureFunctionsWindow(_samples(), levels=(1, 5), log2_L=6.0)
     qtbot.addWidget(window)
@@ -194,7 +195,8 @@ def test_gamma_and_delta_turn_the_table_into_the_generalized_structure_functions
     window.gamma_spin.setValue(2.0)
     window.delta_spin.setValue(0.5)
     fit = window._fit
-    assert fit["generalized"] == {"gamma": 2.0, "delta": 0.5} and fit["name"].endswith("structure functions, γ = 2 δ = 0.5")
+    assert fit["generalized"] == {"gamma": 2.0, "delta": 0.5} and fit["name"] == "leaders, structure functions"
+    assert fit["label"] == "leaders, structure functions, γ = 2 δ = 0.5"
     expected = leaders.generalized_table(_samples(), "leaders", window._q_list(), 2.0, 0.5, length_px=64.0)
     np.testing.assert_allclose(window._table()["tau_qa"], expected["tau_qa"], equal_nan=True)
     hull = spectra.legendre_dh(fit["q_list"], fit["tau"])
@@ -202,3 +204,59 @@ def test_gamma_and_delta_turn_the_table_into_the_generalized_structure_functions
     assert "generalized γ = 2" in window.readout.text() if hasattr(window, "readout") else True
     window.gamma_spin.setValue(0.0)
     assert window._table() is plain and window._fit["generalized"] is None
+
+
+def _landed_tools(qtbot):
+    """The main window with a leaders result landed, its Structure functions window and a shown
+    construction window, wired as the app wires them."""
+    from dynamix.shell.main_window import MainWindow
+    from test_fitting_tools_shell import _leaders_result
+
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    win._active_result = _leaders_result()
+    win._on_structure_button_clicked()
+    win._on_dh_button_clicked()
+    sf, cw = win._structure_window, win._spectrum_construction_window
+    qtbot.addWidget(sf)
+    qtbot.addWidget(cw)
+    cw.show()
+    return win, sf, cw
+
+
+def test_a_gamma_sweep_replaces_the_one_published_fit_and_keeps_the_table_cache_small(qtbot, clean_registry):
+    """A hundred values of γ, then δ and the q grid, leave one fit under the set's name in the
+    main window and one curve set in the construction, its legend reading the live γ and δ; the
+    table cache keeps the latest few tables, and the published τ is the fit of a fresh
+    generalized table at the last γ."""
+    win, sf, cw = _landed_tools(qtbot)
+    name = "layer · DWT sym4 · leaders, structure functions"
+    for gamma in np.arange(1, 101) * 0.05:
+        sf.gamma_spin.setValue(gamma)
+        assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and list(cw._fit_items) == [name]
+    assert sf.gamma_spin.value() == 5.0
+    fresh = leaders.generalized_table(_samples(), "leaders", sf._q_list(), 5.0, 0.0, length_px=64.0)
+    expect = leaders.structure_fit(fresh, 2.0, 5.0, d=2)
+    np.testing.assert_allclose(win._published_fits[name]["tau"], expect["tau"], equal_nan=True)
+    np.testing.assert_allclose(cw._fit_items[name]["tau"].getData()[1], expect["tau"], equal_nan=True)
+    legend = [text for _item, text in cw._in_legend["order"]]
+    assert f"{name}, γ = 5 δ = 0" in legend and not any("γ = 4.95" in text for text in legend)
+    sf.delta_spin.setValue(0.5)
+    sf.qstep_spin.setValue(1.0)
+    assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and list(cw._fit_items) == [name]
+    assert list(win._published_fits[name]["q"]) == list(np.arange(-3.0, 6.01, 1.0))
+    assert f"{name}, γ = 5 δ = 0.5" in [text for _item, text in cw._in_legend["order"]]
+
+
+def test_another_set_publishes_its_own_fit_beside_the_first(qtbot, clean_registry):
+    """A set is part of the fit's identity: switching the set publishes a second fit beside the
+    first, the construction draws both, and a γ change on the new set leaves the first as it was."""
+    win, sf, cw = _landed_tools(qtbot)
+    first = "layer · DWT sym4 · leaders, structure functions"
+    tau = np.array(win._published_fits[first]["tau"])
+    sf.set_combo.setCurrentText("p-leaders")
+    second = "layer · DWT sym4 · p-leaders, structure functions"
+    sf.gamma_spin.setValue(1.0)
+    assert list(win._published_fits) == [first, second] and set(cw._fit_items) == {first, second}
+    np.testing.assert_allclose(cw._fit_items[first]["tau"].getData()[1], tau, equal_nan=True)
+    assert win._published_fits[second]["generalized"] == {"gamma": 1.0, "delta": 0.0}

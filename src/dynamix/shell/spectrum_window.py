@@ -48,6 +48,8 @@ one closed first, parented to the main window.
 """
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
@@ -224,9 +226,10 @@ class SpectrumWindow(QtWidgets.QDialog):
         return self._fit
 
     def set_fits(self, fits) -> None:
-        """The methods' published fits to draw on the four panels: each ``{"name", "q", "tau",
-        "h", "D", "cq", "hull"?}``, or ``{"name", "h", "D"}`` for a method that constructs D(h)
-        alone; a name already drawn is redrawn, one no longer listed is removed."""
+        """The methods' published fits to draw on the four panels: each ``{"name", "label"?, "q",
+        "tau", "h", "D", "cq", "hull"?}``, or ``{"name", "h", "D"}`` for a method that constructs
+        D(h) alone; a name already drawn is redrawn, one no longer listed is removed. The name is
+        the fit's identity; the legend reads the label when the tool gives one."""
         wanted = {f["name"]: f for f in fits}
         for name in [n for n in self._fit_items if n not in wanted]:
             self.show_menu.removeAction(self._show_actions.pop(name))
@@ -258,8 +261,9 @@ class SpectrumWindow(QtWidgets.QDialog):
                 action.setChecked(True)
                 action.toggled.connect(lambda _on, n=name: self._apply_shown(n))
                 self._show_actions[name] = action
-                self._legend_entries.append((items["D"], lambda n=name: n))
-                self._legend_entries.append((items["hull"], lambda n=name: f"{n} (D**, envelope)"))
+                label_of = weak_method(self._fit_label)
+                self._legend_entries.append((items["D"], partial(label_of, name)))
+                self._legend_entries.append((items["hull"], partial(label_of, name, " (D**, envelope)")))
             items = self._fit_items[name]
             if fit.get("q") is not None:                 # a D(h)-only method (large deviations) has no q
                 q = np.asarray(fit["q"], dtype=np.float64)
@@ -274,6 +278,9 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._sync_legend()
         if hasattr(self, "_chord"):
             self._update_kink_geometry()
+
+    def _fit_label(self, name: str, suffix: str = "") -> str:
+        return self._fits[name].get("label", name) + suffix
 
     def _apply_shown(self, name: str, *, sync: bool = True) -> None:
         """One published spectrum's items on or off (its Show action), the hull also behind the
