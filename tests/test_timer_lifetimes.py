@@ -5,10 +5,16 @@
 A two-argument ``QTimer.singleShot(ms, callable)`` has no receiver: in PySide6 a zero delay, or
 any lambda or closure, is called after its widget is destroyed, into a C++ object that is gone. A
 positive delay on a bound method of a QObject is connected with that object as receiver, and Qt
-drops it with the object. Each test destroys the owner before its callback is due and asserts
-nothing reaches the dead widget; a live twin, where one fits, shows the callback still runs.
+drops it with the object. A zero-delay call given a context object is dropped with it, but a bound
+method passed that way stays referenced, and with it the object's Python side; an owned timer, or
+a closure with the context, releases both. Each test destroys the owner before its callback is due
+and asserts nothing reaches the dead widget; a live twin, where one fits, shows the callback still
+runs.
 """
 from __future__ import annotations
+
+import gc
+import weakref
 
 import numpy as np
 import pytest
@@ -60,6 +66,10 @@ def test_a_dropped_tree_is_read_back_only_while_its_panel_lives(qtbot):
         _destroy(dead)
         qtbot.wait(20)
     assert raised == [] and live._drop_pending is False
+    gone = weakref.ref(dead)
+    del dead
+    gc.collect()
+    assert gone() is None                          # the dropped call keeps nothing alive
 
 
 def test_a_row_flash_is_cancelled_with_its_panel(qtbot):

@@ -445,6 +445,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         readouts.addWidget(self._kink_label, 1)
         layout.addLayout(readouts)
 
+        # The spectra are squared on the event loop's next turn (_square_spectra), by a timer the
+        # window owns, so a window destroyed first takes the pending call with it.
+        self._square_timer = QtCore.QTimer(self)
+        self._square_timer.setSingleShot(True)
+        self._square_timer.setInterval(0)
+        self._square_timer.timeout.connect(self._square_spectra)
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
@@ -995,7 +1001,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "_glw"):
-            QtCore.QTimer.singleShot(0, self, self._square_spectra)
+            self._square_timer.start()
 
     def _update_family_visibility(self) -> None:
         q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)

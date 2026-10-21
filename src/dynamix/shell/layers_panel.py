@@ -102,7 +102,12 @@ class LayersPanel(QtWidgets.QWidget):
         self.tree.currentItemChanged.connect(lambda *_a: self._sync_controls())
         self.tree.customContextMenuRequested.connect(self._menu)
         # A QTreeWidget drag takes the item out and inserts it again: rowsInserted, never
-        # rowsMoved.
+        # rowsMoved. The tree is read back on the next turn of the event loop, by a timer the
+        # panel owns, so a panel destroyed first takes the pending read with it.
+        self._read_back_timer = QtCore.QTimer(self)
+        self._read_back_timer.setSingleShot(True)
+        self._read_back_timer.setInterval(0)
+        self._read_back_timer.timeout.connect(self._read_back)
         self.tree.model().rowsInserted.connect(self._on_dropped)
         self.tree.viewport().installEventFilter(self)      # each press starts the latch clean
         self.grip = _Grip(self.tree)
@@ -312,7 +317,7 @@ class LayersPanel(QtWidgets.QWidget):
         if self._building or self._drop_pending:
             return
         self._drop_pending = True
-        QtCore.QTimer.singleShot(0, self, self._read_back)
+        self._read_back_timer.start()
 
     def _read_back(self) -> None:
         self._drop_pending = False
