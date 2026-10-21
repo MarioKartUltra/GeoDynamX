@@ -57,6 +57,56 @@ def test_a_worker_thread_never_collects_while_the_collector_runs(qtbot):
         gc_guard.uninstall(app)
 
 
+def test_the_full_collection_waits_for_a_second_without_input(qtbot):
+    """A full collection walks every tracked object, a fraction of a second to seconds in a long
+    session, so it waits until no input event has arrived for a second: it never lands inside a
+    drag. The young collections keep the timer's cadence, and uninstall gives automatic
+    collection back."""
+    import time
+
+    from PySide6 import QtCore, QtGui
+
+    from dynamix.shell import gc_guard
+
+    app = QtWidgets.QApplication.instance()
+    widget = QtWidgets.QWidget()
+    qtbot.addWidget(widget)
+    thresholds = gc.get_threshold()
+    gc.set_threshold(thresholds[0], 1, 1)                     # an older collection due every other tick
+    starts = []
+
+    def seen(phase, info):
+        if phase == "start":
+            starts.append((info["generation"], time.monotonic()))
+
+    gc.enable()
+    gc_guard.install(app, interval_ms=20)
+    gc.callbacks.append(seen)
+    try:
+        last_input = 0.0
+        end = time.monotonic() + 2.0
+        while time.monotonic() < end:                          # a drag: a mouse move every 200 ms
+            if time.monotonic() - last_input >= 0.2:
+                move = QtGui.QMouseEvent(QtCore.QEvent.Type.MouseMove, QtCore.QPointF(5, 5),
+                                         QtCore.QPointF(5, 5), QtCore.Qt.MouseButton.NoButton,
+                                         QtCore.Qt.MouseButton.NoButton,
+                                         QtCore.Qt.KeyboardModifier.NoModifier)
+                QtWidgets.QApplication.sendEvent(widget, move)
+                last_input = time.monotonic()
+            _Cycle()
+            qtbot.wait(5)
+        assert starts and all(gen < 2 for gen, _t in starts)
+        qtbot.waitUntil(lambda: bool(_Cycle()) and any(gen == 2 for gen, _t in starts), timeout=3000)
+        first_full = min(t for gen, t in starts if gen == 2)
+        assert first_full - last_input >= 1.0
+    finally:
+        gc.callbacks.remove(seen)
+        gc_guard.uninstall(app)
+        gc.set_threshold(*thresholds)
+    assert gc.isenabled()
+    gc.disable()                                               # as the test session keeps it
+
+
 def test_a_devloop_reload_keeps_the_one_collector(qtbot):
     """The devloop reloads ``gc_guard`` with the other shell modules; the collector lives on the
     application, so the reloaded module's ``install`` finds it and starts no second timer."""
