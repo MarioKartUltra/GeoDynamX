@@ -657,24 +657,25 @@ def specific_heat(q_list, tau) -> np.ndarray:
 
 
 def cumulant_heat(cumulants: dict, q_list) -> np.ndarray:
-    """c(q) from a cascade's cumulants: the expansion τ(q) = c₁q - c₂q²/2 + c₃q³/6 - c₄q⁴/24
-    has τ'' = -c₂ + c₃q - c₄q²/2, so c(q) = -q² τ''. A missing order counts as zero; a NaN one
-    (no fit) makes the whole curve NaN."""
+    """c(q) from the log-cumulants: the expansion τ(q) = Σ c_p q^p/p! has τ'' = c₂ + c₃q + c₄q²/2,
+    so c(q) = -q² τ'' (c₂ < 0 for a multifractal, the leaders literature's sign: Wendt, Abry and
+    Jaffard 2007). A missing order counts as zero; a NaN one (no fit) makes the whole curve NaN."""
     q = np.asarray(q_list, dtype=np.float64)
     c2, c3, c4 = (float(cumulants.get(k) if cumulants.get(k) is not None else 0.0)
                   for k in ("c2", "c3", "c4"))
-    return -q ** 2 * (-c2 + c3 * q - c4 * q ** 2 / 2.0)
+    return -q ** 2 * (c2 + c3 * q + c4 * q ** 2 / 2.0)
 
 
 def cascade_cumulants(mods_per_scale, scales_px, log2_a_min: float, log2_a_max: float, *,
                       max_order: int = 4) -> dict:
-    """The cascade's cumulants c₁..c₄ from the per-scale moduli of the maxima: the n-th cumulant
-    of ln|T| regressed on ln a over the scales inside the fit window (log2 a, the fitter's
-    window), through the vendored ``wtmm.dupont_venugopal.fit_venugopal_cumulants`` (whose cₙ is
-    the raw slope), with the cascade's alternating signs: c₁ = +s₁ (the mean of ln|T| grows with
-    ln a), c₂ = -s₂ (the variance grows towards SMALL scales), c₃ = +s₃, c₄ = -s₄. Returns
-    ``{"c1".."c4", "r2"}`` (the worst per-order R²); NaN when fewer than two scales fall inside
-    the window."""
+    """The log-cumulants c₁..c₄ from the per-scale moduli of the maxima: the n-th cumulant of
+    ln|T| regressed on ln a over the scales inside the fit window (log2 a, the fitter's window),
+    through the vendored ``wtmm.dupont_venugopal.fit_venugopal_cumulants`` (whose cₙ is the raw
+    slope). Every order is its slope, the leaders literature's sign (Wendt, Abry and Jaffard
+    2007; Castaing, Gagne and Hopfinger 1990): c₁ is the mean's growth with ln a, c₂ the
+    variance's, negative for a multifractal since the variance grows towards small scales.
+    Returns ``{"c1".."c4", "r2"}`` (the worst per-order R²); NaN when fewer than two scales fall
+    inside the window."""
     from dynamix.core import wtmm_backend
 
     if not wtmm_backend.USE_VENDORED:
@@ -690,8 +691,7 @@ def cascade_cumulants(mods_per_scale, scales_px, log2_a_min: float, log2_a_max: 
     ln2 = np.log(2.0)
     fit = fit_venugopal_cumulants(samples, ln_a, max_order=max_order,
                                   scale_range=(float(log2_a_min) * ln2, float(log2_a_max) * ln2))
-    signs = (1.0, -1.0, 1.0, -1.0)
-    out = {f"c{n}": signs[n - 1] * float(fit[f"c{n}"]) for n in range(1, max_order + 1)}
+    out = {f"c{n}": float(fit[f"c{n}"]) for n in range(1, max_order + 1)}
     out["r2"] = float(fit["r2"])
     return out
 
@@ -717,8 +717,8 @@ def cumulants_from_moments(moments, scales_px, log2_a_min: float, log2_a_max: fl
                            max_order: int = 4) -> dict:
     """:func:`cascade_cumulants` from per-scale moments of ln|T| (:func:`ln_moments`, or a
     moment table's ``lnT_moments``): the n-th moment regressed on ln a over the scales inside
-    the window, with the cascade's alternating signs; ``{"c1".."c4", "r2"}`` (worst R²), NaN
-    below two scales."""
+    the window, every order its slope (the leaders literature's sign, c₂ < 0 for a
+    multifractal); ``{"c1".."c4", "r2"}`` (worst R²), NaN below two scales."""
     moments = np.asarray(moments, dtype=np.float64)[:max_order]
     ln_a = np.log(np.asarray(scales_px, dtype=np.float64))
     ln2 = np.log(2.0)
@@ -728,11 +728,10 @@ def cumulants_from_moments(moments, scales_px, log2_a_min: float, log2_a_max: fl
     out["r2"] = float("nan")
     if valid.sum() < 2:
         return out
-    signs = (1.0, -1.0, 1.0, -1.0)
     r2_min = 1.0
     for n in range(max_order):
         slope, intercept = np.polyfit(ln_a[valid], moments[n, valid], 1)
-        out[f"c{n + 1}"] = signs[n] * float(slope)
+        out[f"c{n + 1}"] = float(slope)
         y = moments[n, valid]
         pred = slope * ln_a[valid] + intercept
         ss_tot = float(((y - y.mean()) ** 2).sum())
@@ -743,8 +742,8 @@ def cumulants_from_moments(moments, scales_px, log2_a_min: float, log2_a_max: fl
 
 def cumulant_regression(moments, scales_px, log2_a_min: float, log2_a_max: float, order: int) -> dict:
     """One log-cumulant on its own range: C_order(a) regressed on ln a over the scales inside the
-    window, with the cascade sign of :func:`cumulants_from_moments` (c₁ = +slope, c₂ = −slope,
-    c₃ = +slope, c₄ = −slope): ``c``, its standard error ``sigma`` from the residuals (n − 2
+    window, the slope itself as in :func:`cumulants_from_moments` (the leaders literature's
+    sign, c₂ < 0 for a multifractal): ``c``, its standard error ``sigma`` from the residuals (n − 2
     degrees of freedom; NaN below three scales), ``r2``, ``n`` (the scales fitted) and the raw
     ``slope`` and ``intercept`` of the line against ln a. NaN throughout below two scales."""
     C = np.asarray(moments, dtype=np.float64)[order - 1]
@@ -760,7 +759,7 @@ def cumulant_regression(moments, scales_px, log2_a_min: float, log2_a_max: float
     slope, intercept = np.polyfit(x, y, 1)
     res = y - (slope * x + intercept)
     ss_tot = float(((y - y.mean()) ** 2).sum())
-    out.update(c=(1.0, -1.0, 1.0, -1.0)[order - 1] * float(slope), slope=float(slope),
+    out.update(c=float(slope), slope=float(slope),
                intercept=float(intercept), r2=1.0 - float((res ** 2).sum()) / max(ss_tot, 1e-30))
     if n >= 3:
         out["sigma"] = float(np.sqrt((res ** 2).sum() / (n - 2) / ((x - x.mean()) ** 2).sum()))
@@ -768,9 +767,10 @@ def cumulant_regression(moments, scales_px, log2_a_min: float, log2_a_max: float
 
 
 def cumulant_tau(cumulants: dict, q_list, *, c0: float = 0.0) -> np.ndarray:
-    """tau(q) from the cascade's cumulants, tau = -c0 + c1 q - c2 q²/2 + c3 q³/6 - c4 q⁴/24
-    (the workbook's reconstruction), with c0 the support's dimension (-tau(0))."""
+    """tau(q) from the log-cumulants, tau = -c0 + c1 q + c2 q²/2 + c3 q³/6 + c4 q⁴/24 (the
+    expansion of the leaders literature, c_p the p-th derivative of tau at 0), with c0 the
+    support's dimension (-tau(0))."""
     q = np.asarray(q_list, dtype=np.float64)
     c1, c2, c3, c4 = (float(cumulants.get(k) if cumulants.get(k) is not None else 0.0)
                       for k in ("c1", "c2", "c3", "c4"))
-    return -float(c0) + c1 * q - c2 * q ** 2 / 2.0 + c3 * q ** 3 / 6.0 - c4 * q ** 4 / 24.0
+    return -float(c0) + c1 * q + c2 * q ** 2 / 2.0 + c3 * q ** 3 / 6.0 + c4 * q ** 4 / 24.0

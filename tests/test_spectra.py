@@ -453,18 +453,19 @@ def test_specific_heat_of_a_log_normal_tau_is_c2_q_squared():
 
 
 def test_cumulant_heat_follows_the_cumulant_expansion():
-    """c(q) = -q^2 (-c2 + c3 q - c4 q^2/2); a missing order counts as zero."""
+    """c(q) = -q^2 (c2 + c3 q + c4 q^2/2) in the leaders literature's sign, where c_p is the
+    p-th derivative of tau at 0 and c2 < 0 for a multifractal; a missing order counts as zero."""
     q = np.linspace(-2.0, 2.0, 9)
-    np.testing.assert_allclose(spectra.cumulant_heat({"c2": 0.3}, q), 0.3 * q ** 2)
-    c = {"c1": 0.7, "c2": 0.3, "c3": 0.05, "c4": -0.02}
+    np.testing.assert_allclose(spectra.cumulant_heat({"c2": -0.3}, q), 0.3 * q ** 2)
+    c = {"c1": 0.7, "c2": -0.3, "c3": 0.05, "c4": -0.02}
     np.testing.assert_allclose(spectra.cumulant_heat(c, q),
-                               -q ** 2 * (-0.3 + 0.05 * q + 0.02 * q ** 2 / 2))
+                               -q ** 2 * (-0.3 + 0.05 * q - 0.02 * q ** 2 / 2))
 
 
 def test_cascade_cumulants_recover_a_log_normal_cascade_in_the_fit_window():
-    """ln|T| per scale ~ N(h ln a, v0 - c2 ln a): the cumulants are c1 = h and c2 (the variance
-    GROWS towards small scales, so the slope of Var(ln|T|) against ln a is -c2), c3 = c4 = 0;
-    only the scales inside the log2 window count."""
+    """ln|T| per scale ~ N(h ln a, v0 + c2 ln a) with c2 = -0.3: the cumulants are c1 = h and
+    c2 the slope of Var(ln|T|) against ln a (negative: the variance grows towards small scales,
+    the leaders literature's sign), c3 = c4 = 0; only the scales inside the log2 window count."""
     rng = np.random.default_rng(7)
     scales = 2.0 ** np.arange(1, 8, dtype=np.float64)          # 2 .. 128 px
     ln_a = np.log(scales)
@@ -472,7 +473,7 @@ def test_cascade_cumulants_recover_a_log_normal_cascade_in_the_fit_window():
     mods[-1] = mods[-1] * 1e6                                   # outside the window: ignored
     c = spectra.cascade_cumulants(mods, scales, 1.0, 6.0)
     np.testing.assert_allclose(c["c1"], 0.6, atol=0.02)
-    np.testing.assert_allclose(c["c2"], 0.3, atol=0.03)
+    np.testing.assert_allclose(c["c2"], -0.3, atol=0.03)
     np.testing.assert_allclose(c["c3"], 0.0, atol=0.05)
     np.testing.assert_allclose(c["c4"], 0.0, atol=0.1)
     assert 0.0 <= c["r2"] <= 1.0                               # the worst order: c3/c4 have no slope
@@ -570,8 +571,8 @@ def test_cumulants_from_per_scale_moments_match_the_sample_route():
     b = spectra.cumulants_from_moments(moments, scales, 1.0, 6.0)
     for k in ("c1", "c2", "c3", "c4", "r2"):
         assert a[k] == pytest.approx(b[k], rel=1e-9, abs=1e-12)
-    tau = spectra.cumulant_tau({"c1": 0.7, "c2": 0.3, "c3": 0.0, "c4": 0.0}, np.array([-1.0, 0.0, 2.0]), c0=2.0)
-    np.testing.assert_allclose(tau, [-2.0 - 0.7 - 0.15, -2.0, -2.0 + 1.4 - 0.6])
+    tau = spectra.cumulant_tau({"c1": 0.7, "c2": -0.3, "c3": 0.0, "c4": 0.0}, np.array([-1.0, 0.0, 2.0]), c0=2.0)
+    np.testing.assert_allclose(tau, [-2.0 - 0.7 - 0.15, -2.0, -2.0 + 1.4 - 0.6])       # −c0 + c1 q + c2 q²/2
 
 
 def test_phase_transition_tangent_reaches_the_y_axis_at_D_minus_q_h():

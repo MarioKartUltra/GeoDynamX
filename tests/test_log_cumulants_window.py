@@ -14,7 +14,8 @@ from dynamix.shell.log_cumulants_window import LogCumulantsWindow
 
 def _samples(c1=0.5, c2=0.05, J=5, n=1024, seed=0):
     """A log-normal cascade in ln ℓ: at level j the mean is c1 j ln 2 and the variance
-    1 − c2 j ln 2 (the variance shrinks towards coarse scales, the app's c₂ > 0)."""
+    1 − c2 j ln 2 (the variance shrinks towards coarse scales; its slope against ln a, c₂ in the
+    leaders literature's sign, is −c2)."""
     rng = np.random.default_rng(seed)
     values, valid = [], []
     for j in range(1, J + 1):
@@ -45,7 +46,7 @@ def test_four_panels_each_regress_their_cumulant_over_the_seeded_range(qtbot):
         assert text.startswith(f"c{'₁₂₃₄'[m - 1]} = ") and "R²" in text and "N 5" in text
         xs, ys = window._points[m].getData()
         np.testing.assert_allclose(xs, np.arange(1, 6)) and np.testing.assert_allclose(ys, C[m - 1])
-    assert abs(fit["cumulants"]["c1"] - 0.5) < 0.05 and abs(fit["cumulants"]["c2"] - 0.05) < 0.03
+    assert abs(fit["cumulants"]["c1"] - 0.5) < 0.05 and abs(fit["cumulants"]["c2"] + 0.05) < 0.03
     assert fit["kind"] == "log-cumulants" and fit["name"] == "L1 · sym4 · leaders, log-cumulants"
     np.testing.assert_allclose(fit["tau"], spectra.cumulant_tau(fit["cumulants"], fit["q"], c0=2.0))
     np.testing.assert_allclose(fit["cq"], spectra.cumulant_heat(fit["cumulants"], fit["q"]))

@@ -5,12 +5,13 @@
 One per-level sample set at a time (:mod:`dynamix.model.samples`: the wavelet leaders' sets, the
 WTMM's maxima lines or every maximum). Four panels, C₁(a) to C₄(a) (the mean, variance,
 third and fourth cumulant of ln ℓ per level), each with its own draggable fit range and its own
-regression against ln a: c_m is the slope with the cascade sign (c₁ = +slope, c₂ = −slope, c₃ =
-+slope, c₄ = −slope, so c₂ > 0 for a cascade), shown with its standard error, R² and the number
-of levels fitted (Wendt, Abry and Jaffard 2007, eq. 8; Castaing, Gagne and Hopfinger 1990). The
+regression against ln a: c_m is that slope, in the leaders literature's sign (c₂ < 0 for a
+multifractal, the variance of ln ℓ growing towards fine scales), shown with its standard error, R²
+and the number of levels fitted (Wendt, Abry and Jaffard 2007, eq. 8; Castaing, Gagne and
+Hopfinger 1990). The
 ranges move together while "sync ranges" is on. In the original frame c₁ loses the
 pseudo-fractional integration γ. Every change publishes the cumulant expansion (``fitChanged``)
-for the construction window: τ(q) = −d + c₁ q − c₂ q²/2 + c₃ q³/6 − c₄ q⁴/24 and its h(q),
+for the construction window: τ(q) = −d + c₁ q + c₂ q²/2 + c₃ q³/6 + c₄ q⁴/24 and its h(q),
 D(h) and c(q).
 """
 from __future__ import annotations
@@ -202,7 +203,7 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
         q = Q_GRID
         tau = spectra.cumulant_tau(cums, q, c0=self._d)
         c1, c2, c3, c4 = (cums[f"c{m}"] for m in ORDERS)          # an order without a fit: no expansion
-        h = c1 - c2 * q + c3 * q ** 2 / 2.0 - c4 * q ** 3 / 6.0
+        h = c1 + c2 * q + c3 * q ** 2 / 2.0 + c4 * q ** 3 / 6.0
         name = f"{self._source} · {label}, log-cumulants" if self._source else f"{label}, log-cumulants"
         self._fit = {"name": name, "kind": "log-cumulants",
                      "set": label, "cumulants": cums, "frame": frame, "gamma": self._gamma,

@@ -240,7 +240,7 @@ def test_the_D_h_legend_is_a_row_under_the_panel_with_short_names(qtbot):
     assert "canonical (Arneodo WTMM)" in names
     assert "c(q) fit" in names                                     # drawn after the fit
     registered = {name_of() for _item, name_of in window._dh_legend_entries}
-    assert {"c(q) fit", "cumulant expansion", "log-normal c₂q²"} <= registered
+    assert {"c(q) fit", "cumulant expansion", "log-normal −c₂q²"} <= registered
     assert not window._cq_plot.titleLabel.isVisible()               # the caption moved here
 
 
@@ -315,9 +315,9 @@ def test_filtered_tables_carry_their_note_and_a_switch_to_all_chains(qtbot):
 
 
 def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot):
-    """A log-normal tau(q) = c1 q - c2 q^2/2 has c(q) = c2 q^2; the cumulant curve comes from
-    the maxima moduli (ln|T| ~ N(c1 ln a, v0 - c2 ln a)) inside the fit window, with the
-    log-normal reference c2 q^2 beside it; without moduli only the fit's own curve draws."""
+    """A log-normal tau(q) = c1 q + c2 q^2/2 with c2 < 0 has c(q) = −c2 q^2; the cumulant curve
+    comes from the maxima moduli (ln|T| ~ N(c1 ln a, v0 + c2 ln a)) inside the fit window, with
+    the log-normal reference −c2 q^2 beside it; without moduli only the fit's own curve draws."""
     q = np.linspace(-3.0, 3.0, 25)
     hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
     rng = np.random.default_rng(3)
@@ -332,9 +332,9 @@ def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot
     window.cumulant_check.setChecked(True)
     c = window.current_cumulants()
     np.testing.assert_allclose(c["c1"], 0.7, atol=0.03)
-    np.testing.assert_allclose(c["c2"], 0.3, atol=0.03)
+    np.testing.assert_allclose(c["c2"], -0.3, atol=0.03)
     xl, yl = window._cq_ln_curve.getData()
-    np.testing.assert_allclose(yl, c["c2"] * xl ** 2)
+    np.testing.assert_allclose(yl, -c["c2"] * xl ** 2)
     xc, yc = window._cq_cum_curve.getData()
     np.testing.assert_allclose(yc, spectra.cumulant_heat(c, xc))
     assert "c₂" in window._cq_label.text()
@@ -700,7 +700,7 @@ def test_the_cumulants_can_take_their_own_scale_range(qtbot):
     assert not any(r.isVisible() for r in window._cum_regions)
     assert window.current_cumulants() is None
     window.cumulant_check.setChecked(True)
-    np.testing.assert_allclose(window.current_cumulants()["c2"], 0.3, atol=0.03)
+    np.testing.assert_allclose(window.current_cumulants()["c2"], -0.3, atol=0.03)
 
 
 def test_the_kink_check_marks_q_star_and_the_bridged_h_interval(qtbot):

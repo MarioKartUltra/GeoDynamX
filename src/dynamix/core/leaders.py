@@ -461,8 +461,8 @@ def _weighted_slopes(x, w, Y, S) -> tuple:
 
 def cumulants(table: dict, j_min: int, j_max: int, gamma: float) -> dict:
     """The log-cumulants c1..c3 of ln M over the fitted levels, from the table's per-level
-    moments, in the app's cascade convention (c2 > 0 for a cascade: τ(q) = c1 q − c2 q²/2 + …),
-    as computed and in the original frame (c1 − γ)."""
+    moments, in the leaders literature's sign (τ(q) = −d + c1 q + c2 q²/2 + …, c2 < 0 for a
+    multifractal), as computed and in the original frame (c1 − γ)."""
     from dynamix.core.spectra import cumulants_from_moments
 
     integrated = cumulants_from_moments(table["lnT_moments"], table["scales"], float(j_min),

@@ -630,7 +630,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._cq_plot = self._glw.addPlot(*_SPECTRUM_CELLS["cq"], colspan=3, viewBox=WheelAxisViewBox())
         self._cq_plot.setLabel("bottom", "q")
         self._cq_plot.setLabel("left", "c(q) = −q² τ″")
-        # Points the fit, the solid line the cumulant expansion, dotted the log-normal c₂q²:
+        # Points the fit, the solid line the cumulant expansion, dotted the log-normal −c₂q²:
         # three entries of the legend row under D(h), beside the spectra it shares that row with.
         self._cq_curve = pg.PlotDataItem(pen=None, symbol="o", symbolSize=5, symbolPen=None,
                                          symbolBrush=current().ink)
@@ -653,7 +653,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._cq_plot.addItem(self._q_pick_line)
         self._dh_legend_entries += [(self._cq_curve, lambda: "c(q) fit"),
                                     (self._cq_cum_curve, lambda: "cumulant expansion"),
-                                    (self._cq_ln_curve, lambda: "log-normal c₂q²")]
+                                    (self._cq_ln_curve, lambda: "log-normal −c₂q²")]
 
         # The families take half the height; the 2 x 2 grid the rest (the Bershadskii row,
         # when shown, a fifth).
@@ -1242,7 +1242,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         shown = q[mask & np.isfinite(q)]
         grid = np.linspace(shown.min(), shown.max(), 200) if shown.size else q
         self._cq_cum_curve.setData(grid, spectra.cumulant_heat(c, grid))
-        self._cq_ln_curve.setData(grid, c["c2"] * grid ** 2)
+        self._cq_ln_curve.setData(grid, -c["c2"] * grid ** 2)          # the log-normal's c(q) = −c₂ q², c₂ < 0
         self._cq_label.setText(
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
             f"  ·  R²min={c['r2']:.2f}"

@@ -342,7 +342,7 @@ def test_binomial_cascade_density_needs_gamma_and_then_reads_its_closed_form():
     for k in L.METHODS:
         fit = fit_spectra(t1[k], 2, 5, eta=1.0, frame="original")
         assert np.abs(fit["tau"] - theory).max() < 0.1, (k, fit["tau"] - theory)
-        assert abs(_c(r1, k, gamma=1.0)["c2"] - c2_theory) < 0.02, k
+        assert abs(_c(r1, k, gamma=1.0)["c2"] + c2_theory) < 0.02, k          # c2 < 0: Wendt's sign
         assert fit_spectra(t1[k], 2, 5, eta=1.0, frame="integrated")["tau"][_qi(t1[k], 1.0)] \
             == pytest.approx(fit["tau"][_qi(t1[k], 1.0)] + 1.0)
 
@@ -528,7 +528,7 @@ def test_the_structure_fit_reads_fbm_with_either_weighting_and_shifts_frames():
     assert np.all(np.isnan(narrow["tau"]))                                 # two levels fit nothing
 
 
-def test_each_log_cumulant_regresses_on_its_own_range_with_the_cascade_sign():
+def test_each_log_cumulant_regresses_on_its_own_range_as_its_slope():
     from dynamix.core.spectra import cumulant_regression, ln_moments
 
     r = L.run_leaders(fbm2d(512, 0.5, seed=6), scale_min=4, scale_max=32, wse_rule="fixed")
@@ -537,10 +537,10 @@ def test_each_log_cumulant_regresses_on_its_own_range_with_the_cascade_sign():
     c1 = cumulant_regression(C, r["scales"], 2, 5, 1)
     assert abs(c1["c"] - 0.5) < 0.05 and c1["n"] == 4 and 0 < c1["sigma"] < 0.05 and c1["r2"] > 0.99
     c2 = cumulant_regression(C, r["scales"], 2, 5, 2)
-    assert abs(c2["c"]) < 0.02 and c2["c"] == -c2["slope"]                  # the cascade sign
+    assert abs(c2["c"]) < 0.02 and c2["c"] == c2["slope"]                   # every order is its slope
     exact = np.array([[0.3 * j for j in range(1, 6)], [0.1 * j for j in range(1, 6)], [0.0] * 5, [0.0] * 5]) * np.log(2.0)
     fit = cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 5, 2)
-    assert fit["c"] == pytest.approx(-0.1) and fit["sigma"] == pytest.approx(0.0, abs=1e-9) and fit["r2"] == pytest.approx(1.0)
+    assert fit["c"] == pytest.approx(0.1) and fit["sigma"] == pytest.approx(0.0, abs=1e-9) and fit["r2"] == pytest.approx(1.0)
     assert cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 1, 1)["n"] == 1
     assert np.isnan(cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 1, 1)["c"])
     two = cumulant_regression(exact, 2.0 ** np.arange(1, 6), 1, 2, 1)
