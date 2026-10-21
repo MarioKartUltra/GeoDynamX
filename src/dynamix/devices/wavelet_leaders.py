@@ -67,6 +67,7 @@ class WaveletLeaders:
         Param("gamma", ParamKind.FLOAT, default=0.0, min=-2.0, max=4.0, soft_min=0.0, soft_max=2.0,
               label="γ"),
         Param("dither", ParamKind.BOOL, default=False, label="Dither"),
+        Param("spin", ParamKind.INT, default=1, min=1, max=4, soft_max=4, label="Cycle spin (grids per axis)"),
         Param("p", ParamKind.FLOAT, default=2.0, min=0.25, max=16.0, soft_min=0.5, soft_max=4.0,
               label="p"),
         Param("wse_rule", ParamKind.CHOICE, default="dumeur", choices=("dumeur", "fixed"),
@@ -222,13 +223,12 @@ class WaveletLeaders:
 
             vals = _dithered(vals, measure_lsb(vals))
         tick = (lambda frac: progress("wavelet leaders", frac)) if progress is not None else None
-        run = leaders.run_leaders(
-            vals, wavelet=params["wavelet"], scale_min=int(params["scale_min"]),
-            scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
-            wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
-            wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
-            edge=edge, origin=origin, block=block, anchor=self.grid_anchor(field, int(params["scale_max"])),
-            progress=tick)
+        kw = dict(wavelet=params["wavelet"], scale_min=int(params["scale_min"]),
+                  scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
+                  wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
+                  wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
+                  edge=edge, origin=origin, block=block)
+        run = leaders.run_leaders(vals, **kw, anchor=self.grid_anchor(field, int(params["scale_max"])), progress=tick)
         j_min, J = run["j_min"], run["levels"]
         warnings = []
         truncated = [j for j, flag in enumerate(run["wse_truncated"], 1) if flag and j >= j_min]
@@ -291,6 +291,13 @@ class WaveletLeaders:
         }
         samples = leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"],
                                       wse_schedule=run["wse_schedule"] if params["wse_rule"] == "dumeur" else None)
+        spun_maps = None
+        if int(params["spin"]) > 1:
+            samples, spun_maps, phases = self._spin(vals, params, kw, run, samples, h_cells)
+            h_map, r2_map, levels_map = spun_maps[method]
+            used = levels_map[np.isfinite(levels_map)]
+            record["levels"]["used"] = {"min": int(used.min()), "max": int(used.max())} if used.size else None
+            record["spin"] = {"grids": len(phases), "phases": [[int(v) for v in ph] for ph in phases]}
         # The method's set as one structure-function table in the partition schema: the
         # Partition functions window opens on a leaders result like the CWT leaders'.
         hd = leaders.structure_table(samples, params["method"])
@@ -304,7 +311,43 @@ class WaveletLeaders:
             "_dyadic_origin": tuple(int(v) for v in run["phase"]), "_pad": tuple(int(v) for v in run["pad"]),
             "_frame": getattr(field, "frame", None), "_shape": tuple(vals.shape),
             "record": record, "warnings": warnings,
+            **({"_spun_maps": spun_maps} if spun_maps is not None else {}),
         }
+
+    def _spin(self, vals, params, kw, run, samples, h_cells):
+        """The leaders on s × s phases of the dyadic grid (cycle spinning): the phase steps by
+        2^J / s + 1 pixels per axis, so every level's cells shift, the finest included. Every
+        phase is a dyadic grid of its own, so the formalism holds on each: the grids' samples are
+        pooled (one grid's cell counts and σ's, :func:`leaders.pool_sample_sets`) and each
+        method's h-map and R² are averaged pixel by pixel, the levels map keeping the fewest
+        levels any grid used there. Returns the pooled samples, the maps per method and the
+        phases, the first being ``run``'s own."""
+        import warnings as _warnings
+
+        s, cell = int(params["spin"]), 2 ** run["levels"]
+        step = cell // s + 1
+        base = tuple(int(v) for v in run["phase"])
+        phases = [((base[0] + a * step) % cell, (base[1] + b * step) % cell) for a in range(s) for b in range(s)]
+        shape = np.shape(vals)
+        schedule = run["wse_schedule"] if params["wse_rule"] == "dumeur" else None
+        grids = [samples]
+        maps = {m: [self._paint(h_cells[m], run["j_min"], shape, run["pad"])] for m in leaders.METHODS}
+        for phase in phases[1:]:
+            r = leaders.run_leaders(vals, **kw, anchor=phase)
+            quantity = {m: [np.asarray(a, dtype=np.float32) for a in r["quantity"][m]] for m in leaders.METHODS}
+            mods = [np.asarray(a, dtype=np.float32) for a in r["coefficients"]]
+            valid = {m: list(r["valid"][m]) for m in leaders.METHODS + ("coefficients",)}
+            grids.append(leaders.sample_sets(quantity, mods, valid, r["scales"], r["data_shape"],
+                                             wse_schedule=r["wse_schedule"] if schedule is not None else None))
+            for m in leaders.METHODS:
+                cells = tuple(np.asarray(a, dtype=np.float32) for a in r["local"][m])
+                maps[m].append(self._paint(cells, r["j_min"], shape, r["pad"]))
+        with np.errstate(all="ignore"), _warnings.catch_warnings():
+            _warnings.simplefilter("ignore", RuntimeWarning)          # a pixel no grid covers stays NaN
+            averaged = {m: tuple(f(np.stack([g[i] for g in stack]), axis=0).astype(np.float32)
+                                 for i, f in enumerate((np.nanmean, np.nanmean, np.nanmin)))
+                        for m, stack in maps.items()}
+        return leaders.pool_sample_sets(grids), averaged, phases
 
     @staticmethod
     def _paint(cells, j_min: int, shape, pad=None) -> tuple:
@@ -335,6 +378,10 @@ class WaveletLeaders:
         if method == result["params"].get("method") or method not in result["_h_cells"]:
             return result
         views = result.setdefault("_views", {})
+        if method not in views and "_spun_maps" in result:
+            h_map, r2_map, levels_map = result["_spun_maps"][method]
+            views[method] = {**result, "h_map": h_map, "r2_map": r2_map, "levels_map": levels_map,
+                             "params": {**result["params"], "method": method}}
         if method not in views:
             j_min = int(result["record"]["levels"]["j_min"])
             h_cells, r2_cells, n_cells = result["_h_cells"][method]

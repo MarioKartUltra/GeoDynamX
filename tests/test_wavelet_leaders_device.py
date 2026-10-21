@@ -293,3 +293,39 @@ def test_the_h_map_reaches_within_the_finest_levels_band_of_the_edge_and_says_ho
     assert res["levels_map"][80, 128] == 3 and res["levels_map"][128, 128] == 3
     assert np.isnan(res["levels_map"][79, 128])
     assert res["record"]["levels"]["used"] == {"min": 3, "max": 3}
+
+
+def test_cycle_spin_averages_the_h_map_over_phases_of_the_grid_and_pools_the_samples(dev):
+    """Spin s runs the leaders on s × s phases of the dyadic grid, spread so the finest fitted
+    level's cells shift too; the h-map is the pixel-wise mean of the grids' maps, the samples are
+    pooled, and spin 1 is the single grid of before."""
+    from conftest import fbm2d
+    from dynamix.core import leaders as L
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.model.device import defaults_for
+
+    n = 256
+    values = fbm2d(n, 0.6, seed=5).astype(np.float32)
+    field = RasterField(name="fbm", values=values, frame=LocalFrame(), x_axis=np.arange(float(n)), y_axis=np.arange(float(n)))
+    p = {**defaults_for(dev), "scale_max": 32}
+    assert p["spin"] == 1
+    single = dev.compute(field, p)
+    assert "spin" not in single["record"]
+    spun = dev.compute(field, {**p, "spin": 2})
+    phases = [tuple(ph) for ph in spun["record"]["spin"]["phases"]]
+    assert len(phases) == 4 and len(set(phases)) == 4 and phases[0] == tuple(single["record"]["grid"]["phase"])
+    assert len({ph[0] % 4 for ph in phases}) > 1                                # the 4-px cells shift too
+    maps = []
+    for ph in phases:
+        r = L.run_leaders(values.astype(np.float64), scale_min=4, scale_max=32, anchor=ph)
+        h, _r2, _n = r["local"]["leaders"]
+        maps.append(L.paint(h, r["j_min"], (n, n), pad=r["pad"]))
+    with np.errstate(all="ignore"):
+        expect = np.nanmean(np.stack(maps), axis=0)
+    np.testing.assert_allclose(spun["h_map"], expect.astype(np.float32), rtol=1e-5, atol=1e-6, equal_nan=True)
+    assert spun["samples"]["sets"]["leaders"]["pooled"] == 4
+    assert spun["samples"]["cells"] == single["samples"]["cells"]
+    sizes = [int(np.asarray(v).sum()) for v in single["samples"]["sets"]["leaders"]["valid"]]
+    pooled = [np.asarray(v).size for v in spun["samples"]["sets"]["leaders"]["values"]]
+    assert all(pz >= 3 * s for pz, s in zip(pooled, sizes))

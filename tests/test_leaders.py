@@ -591,3 +591,27 @@ def test_the_local_exponent_fits_the_levels_valid_at_each_cell():
     x = np.arange(full["j_min"], full["levels"] + 1, dtype=float)
     expect = np.polyfit(x, ys[:, c].reshape(x.size, -1), 1)[0]
     np.testing.assert_allclose(hf[c], expect, atol=1e-9)
+
+
+def test_pooled_sample_sets_average_the_grids_and_keep_one_grid_s_counts_and_sigmas():
+    """Cycle spinning pools the per-level samples of several phases of the dyadic grid: each
+    level's values are every grid's valid values, the cell counts stay one grid's, so the
+    structure functions are the average over the grids, and the σ's are one grid's (the shifted
+    samples are not independent)."""
+    x = fbm2d(256, 0.5, seed=12)
+    runs = [L.run_leaders(x, scale_min=4, scale_max=32, wse_rule="fixed", anchor=a)
+            for a in ((0, 0), (9, 0), (0, 9), (9, 9))]
+    pooled = L.pool_sample_sets([r["samples"] for r in runs])
+    s0 = runs[0]["samples"]
+    assert pooled["cells"] == s0["cells"] and pooled["sets"]["leaders"]["pooled"] == 4
+    for j in range(5):
+        n = sum(int(np.asarray(r["samples"]["sets"]["leaders"]["valid"][j]).sum()) for r in runs)
+        assert np.asarray(pooled["sets"]["leaders"]["values"][j]).size == n
+    q = [2.0]
+    t = L.tables(pooled, q)["leaders"]
+    for j in range(5):
+        vals = np.concatenate([np.asarray(r["samples"]["sets"]["leaders"]["values"][j])[np.asarray(r["samples"]["sets"]["leaders"]["valid"][j])] for r in runs])
+        np.testing.assert_allclose(t["tau_qa"][0, j], np.log2(np.mean(vals ** 2) * s0["cells"][j]), rtol=1e-10)
+    plain = L.tables({**pooled, "sets": {"leaders": {k: v for k, v in pooled["sets"]["leaders"].items() if k != "pooled"}}}, q)["leaders"]
+    np.testing.assert_allclose(t["sigma_tau_qa"], 2.0 * plain["sigma_tau_qa"], rtol=1e-10)
+    np.testing.assert_allclose(t["N_a"], plain["N_a"] / 4.0, rtol=1e-10)

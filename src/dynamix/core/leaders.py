@@ -316,14 +316,16 @@ def _flatten(per_level: list, valid: list) -> list:
 
 
 def partition_table(per_level: list, valid: list, q_list, cells, *, scales=None,
-                    positive_only: bool = False) -> dict:
+                    positive_only: bool = False, pooled: int = 1) -> dict:
     """The structure functions of one quantity in the partition schema the fitter reads:
     ``tau_qa`` = log2 of the mean of M^q over the valid cells of each level times the field's
     cell count there (``cells``, Π_i n_i / 2^j per level), so that the count scales exactly as
     2^{−dj} whatever the border takes and τ(q) = ζ(q) − d (the critically sampled cells standing
     where the WTMM's maxima count stands); ``h_qa``, ``D_qa``, their σ's, ``N_a`` (the valid
     cells) and ``lnT_moments``; rows with q ≤ 0 NaN when ``positive_only`` (the bare
-    coefficients, whose zeros make negative moments meaningless)."""
+    coefficients, whose zeros make negative moments meaningless). ``pooled`` grids of one field
+    (cycle spinning, :func:`pool_sample_sets`) share their information: ``N_a`` and the σ's are
+    one grid's."""
     from dynamix.core.microcanonical import partition_tables
 
     samples = _flatten(per_level, valid)
@@ -336,6 +338,10 @@ def partition_table(per_level: list, valid: list, q_list, cells, *, scales=None,
         shift = np.array([np.log2(float(n) / max(x.size, 1)) for n, x in zip(cells, samples)])
     table["tau_qa"] += shift[None, :]
     table["D_qa"] -= shift[None, :]
+    if pooled > 1:
+        table["N_a"] = table["N_a"] / pooled
+        for k in ("sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
+            table[k] = table[k] * math.sqrt(pooled)
     if positive_only:
         rows = table["q_list"] <= 0
         for k in ("tau_qa", "h_qa", "D_qa", "sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
@@ -348,8 +354,24 @@ def tables(samples: dict, q_list) -> dict:
     (:mod:`dynamix.model.contracts`), at the moment orders ``q_list``."""
     return {name: partition_table(s["values"], s["valid"], q_list, s.get("cells", samples["cells"]),
                                   scales=samples.get("scales"),
-                                  positive_only=bool(s.get("positive_only", False)))
+                                  positive_only=bool(s.get("positive_only", False)),
+                                  pooled=int(s.get("pooled", 1)))
             for name, s in samples["sets"].items()}
+
+
+def pool_sample_sets(grids: list) -> dict:
+    """One ``Samples`` dict from the sample sets of several phases of the dyadic grid on one
+    field (cycle spinning): each set's level holds every grid's valid values, the cell counts and
+    the other keys stay the first grid's, and ``pooled`` records how many grids share them, so the
+    structure functions are the average over the grids with one grid's counts and σ's."""
+    first = grids[0]
+    sets = {}
+    for name, s in first["sets"].items():
+        flat = [_flatten(g["sets"][name]["values"], g["sets"][name]["valid"]) for g in grids]
+        values = [np.concatenate([f[j] for f in flat]) for j in range(len(s["values"]))]
+        sets[name] = {**s, "values": values, "valid": [np.ones(v.size, dtype=bool) for v in values],
+                      "pooled": len(grids)}
+    return {**first, "sets": sets}
 
 
 #: The moment orders of the structure-function table a leaders result carries for the Partition
