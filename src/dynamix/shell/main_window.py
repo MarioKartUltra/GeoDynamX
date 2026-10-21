@@ -8065,7 +8065,7 @@ both ``Canvas`` signals report the
                     kept.append(d)
                 descriptors = kept
                 QtCore.QTimer.singleShot(
-                    0, lambda ds=[dict(d) for d in descriptors]:
+                    0, self, lambda ds=[dict(d) for d in descriptors]:
                     self.strips.set_steps(ds, field=_workflow_reading_field(self.layer, self.field)))
         names = [d["device"] for d in descriptors]
         params = [dict(d.get("params", {})) for d in descriptors]
@@ -8081,7 +8081,7 @@ both ``Canvas`` signals report the
                 and not any(ref.device == "wtmm2d_roi" for ref in self.layer.chain.steps)):
             revert = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
                       for n, pp, b, r in zip(self._names, self._params, self._bypassed, self._rack)]
-            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field)))
+            QtCore.QTimer.singleShot(0, self, lambda: self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field)))
             d = defaults_for(get_device("wtmm2d_roi"))
             values = getattr(self.field, "values", self.field)
             dims = native_shape(self.field) if hasattr(values, "shape") else None
@@ -8118,7 +8118,7 @@ both ``Canvas`` signals report the
             revert = [{"device": n, "params": dict(pp), "bypassed": b, "rack": r}
                       for n, pp, b, r in zip(self._names, self._params, self._bypassed,
                                              self._rack)]
-            QtCore.QTimer.singleShot(0, lambda: self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field)))
+            QtCore.QTimer.singleShot(0, self, lambda: self.strips.set_steps(revert, field=_workflow_reading_field(self.layer, self.field)))
             self._notify("noise is a field stage — drop it together with an analyzer (e.g. as a "
                          "preset) and it runs on the active ROI and its margin", "status")
             return
@@ -8205,7 +8205,7 @@ both ``Canvas`` signals report the
                     self._notify(f"{rows} × {cols} px ({rows * cols / 1e6:.0f} M) — press Run "
                                  "(⌘↩) to compute", "status")
 
-            QtCore.QTimer.singleShot(0, _spawn)
+            QtCore.QTimer.singleShot(0, self, _spawn)
             forked = "new analysis forked into its own layer — the current one is untouched"
             placed = self.strips.reading_label.text() if self.strips is not None else ""
             if "placed in the transform section" in placed:    # the same drop was clamped first

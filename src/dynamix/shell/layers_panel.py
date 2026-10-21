@@ -312,7 +312,7 @@ class LayersPanel(QtWidgets.QWidget):
         if self._building or self._drop_pending:
             return
         self._drop_pending = True
-        QtCore.QTimer.singleShot(0, self._read_back)
+        QtCore.QTimer.singleShot(0, self, self._read_back)
 
     def _read_back(self) -> None:
         self._drop_pending = False
