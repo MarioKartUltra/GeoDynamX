@@ -14,17 +14,34 @@ never builds it, and the stage store's ``_freeze`` and ``_own_structure`` and th
 """
 from __future__ import annotations
 
+import copy
 import threading
 from collections.abc import Mapping
 
 
+def _same(value):
+    return value
+
+
 class Once:
-    """``build()``'s value, computed on the first call and kept."""
+    """``build()``'s value, computed on the first call and kept. A deep copy of an unbuilt one
+    shares the builder and builds for itself; of a built one, copies the value. Pickling carries
+    the value, built if need be, since the builder's closure cannot travel."""
 
     __slots__ = ("_build", "_value", "_lock")
 
     def __init__(self, build):
         self._build, self._value, self._lock = build, None, threading.Lock()
+
+    def __deepcopy__(self, memo):
+        if self._build is not None:
+            return Once(self._build)
+        twin = Once(None)
+        twin._value = copy.deepcopy(self._value, memo)
+        return twin
+
+    def __reduce__(self):
+        return _same, (self(),)
 
     @property
     def built(self) -> bool:
@@ -46,6 +63,14 @@ class Deferred(Mapping):
 
     def __init__(self, build):
         self._once = Once(build)
+
+    def __deepcopy__(self, memo):
+        twin = Deferred(None)
+        twin._once = copy.deepcopy(self._once, memo)
+        return twin
+
+    def __reduce__(self):
+        return _same, (dict(self._once()),)
 
     @property
     def built(self) -> bool:

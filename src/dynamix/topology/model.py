@@ -148,6 +148,18 @@ class DeferredTopology(TopologyModel):
     def __init__(self, build):
         self._graph = Once(build)
 
+    def __deepcopy__(self, memo):
+        import copy
+
+        twin = DeferredTopology(None)
+        twin._graph = copy.deepcopy(self._graph, memo)
+        return twin
+
+    def __reduce__(self):
+        from dynamix.core.deferred import _same
+
+        return _same, (self._graph(),)
+
     @property
     def built(self) -> bool:
         return self._graph.built

@@ -184,3 +184,36 @@ def test_the_stage_store_helpers_pass_a_deferred_through_unbuilt():
     assert owned["y"] is d and owned["x"][0] is d
     assert stage_nbytes(holder) == 0 and not d.built
     assert d["a"].nbytes == 32 and stage_nbytes(holder) == 64     # built, it weighs its arrays
+
+
+def test_a_deferred_product_survives_a_deep_copy_and_a_pickle():
+    """A result is deep-copied by tests and by callers that edit their own copy: an unbuilt
+    product stays unbuilt in the copy and builds the same value there; a built one is copied as
+    its value. Pickling carries the value, built if need be."""
+    import copy
+    import pickle
+
+    from dynamix.core.deferred import Deferred
+    from dynamix.topology.model import DeferredTopology, TopologyModel
+
+    calls = []
+
+    def build():
+        calls.append(1)
+        return {"a": np.arange(3)}
+
+    def graph():
+        m = TopologyModel()
+        m.add_node("n", "line")
+        return m
+
+    result = {"hd_std": Deferred(build), "topology": DeferredTopology(graph)}
+    twin = copy.deepcopy(result)
+    assert not twin["hd_std"].built and not twin["topology"].built and calls == []
+    np.testing.assert_array_equal(twin["hd_std"]["a"], [0, 1, 2])
+    assert twin["hd_std"].built and not result["hd_std"].built
+    result["hd_std"]["a"][0] = 7
+    built_copy = copy.deepcopy(result)
+    assert built_copy["hd_std"]["a"][0] == 7 and built_copy["hd_std"]["a"] is not result["hd_std"]["a"]
+    back = pickle.loads(pickle.dumps(result))
+    assert back["hd_std"]["a"][0] == 7 and set(back["topology"].nodes) == {"n"}
