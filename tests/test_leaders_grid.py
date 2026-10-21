@@ -8,6 +8,8 @@ from __future__ import annotations
 import sys
 
 import numpy as np
+
+from dynamix.engine.resolve import output_raster  # noqa: E402
 import pytest
 
 sys.path.insert(0, "tests")
@@ -93,7 +95,7 @@ def test_a_region_drawn_anywhere_has_the_cells_of_the_whole_field(builtins):
     np.testing.assert_allclose(roi["h_map"], full["h_map"][r0:r0 + h, c0:c0 + w], rtol=1e-5, atol=1e-5)
     assert np.isfinite(roi["h_map"]).all()
     level = 3
-    top = dev.compute_output("leader", f.values, full, params, fetch=None, level=level)["raster"]
-    inner = dev.compute_output("leader", f.values[r0:r0 + h, c0:c0 + w], roi, params, fetch=None, level=level)["raster"]
+    top = output_raster(dev.compute_output("leader", f.values, full, params, fetch=None, level=level))
+    inner = output_raster(dev.compute_output("leader", f.values[r0:r0 + h, c0:c0 + w], roi, params, fetch=None, level=level))
     np.testing.assert_allclose(inner, top[r0:r0 + h, c0:c0 + w], rtol=1e-5, atol=1e-5)
     assert np.isfinite(inner).all()

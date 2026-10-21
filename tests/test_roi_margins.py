@@ -8,6 +8,8 @@ ROI run with it must reproduce the same region of a whole-field run.
 from __future__ import annotations
 
 import numpy as np
+
+from dynamix.engine.resolve import output_raster  # noqa: E402
 import pytest
 
 from dynamix.core.frames import LocalFrame
@@ -279,8 +281,8 @@ def test_wavelet_leaders_lazy_outputs_paint_the_roi_not_the_window_corner(builti
     got = run_on_region([(dev, params)], f, roi)
     window, _info = read_processing_window(f, roi, m)
     ref = dev.compute(window, params)
-    out = dev.compute_output("leader", None, got, params, fetch=None, level=0)["raster"]
-    want = dev.compute_output("leader", None, ref, params, fetch=None, level=0)["raster"]
+    out = output_raster(dev.compute_output("leader", None, got, params, fetch=None, level=0))
+    want = output_raster(dev.compute_output("leader", None, ref, params, fetch=None, level=0))
     assert out.shape == (h, w)
     np.testing.assert_array_equal(out, want[m:m + h, m:m + w])
     other = next(mm for mm in leaders.METHODS if mm != params["method"])

@@ -364,9 +364,16 @@ class Cache:
         return frozenset(self._pinned)
 
 
+def _is_output(value) -> bool:
+    """Whether ``value`` is a lazy output: a dict holding a ``"raster"`` ndarray, or a pyramid
+    level travelling as its decimated ``"cells"`` with their ``"paint"`` placement."""
+    return isinstance(value, dict) and (bool(_raster_nbytes(value))
+                                        or (isinstance(value.get("cells"), np.ndarray) and "paint" in value))
+
+
 def _is_result(value) -> bool:
-    """Whether ``value`` is an analysis result: a dict other than a raster output."""
-    return isinstance(value, dict) and not _raster_nbytes(value)
+    """Whether ``value`` is an analysis result: a dict other than a lazy output."""
+    return isinstance(value, dict) and not _is_output(value)
 
 
 def _raster_nbytes(value) -> int:

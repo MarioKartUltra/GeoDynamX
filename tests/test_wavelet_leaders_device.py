@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("pywt")
 
 from dynamix.core import dwt, leaders                                           # noqa: E402
+from dynamix.engine.resolve import output_raster                                # noqa: E402
 from dynamix.model.contracts import FIELD, HMAP, SAMPLES                       # noqa: E402
 from dynamix.model.device import get_device, keyed_params, validate_params     # noqa: E402
 
@@ -115,17 +116,17 @@ def test_the_per_level_outputs_paint_the_cells_and_blank_the_border(dev, field):
     res = dev.compute(field, p)
     for name, key in (("leader", "leaders"), ("p_leader", "p-leaders"), ("wse", "wse"), ("oscillation", "oscillation")):
         out = dev.compute_output(name, field.values, res, p, fetch=None, level=2)
-        raster = out["raster"]
+        raster = output_raster(out)
         assert raster.shape == (512, 512) and raster.dtype == np.float32
         assert out["diag"]["level"] == 2 and out["diag"]["scale_px"] == 8.0
         assert out["diag"]["valid_cells"] == int(np.sum(res["_valid"][key][2]))
         assert np.isnan(raster[:8]).all() and np.isfinite(raster[256, 256])
         # one cell = one 8 × 8 block
         assert np.all(raster[256:264, 256:264] == raster[256, 256])
-    lead = dev.compute_output("leader", field.values, res, p, fetch=None, level=2)["raster"]
+    lead = output_raster(dev.compute_output("leader", field.values, res, p, fetch=None, level=2))
     cell = res["_quantity"]["leaders"][2][32, 32]
     assert lead[256, 256] == pytest.approx(np.log2(cell), rel=1e-6)
-    osc = dev.compute_output("oscillation", field.values, res, p, fetch=None, level=2)["raster"]
+    osc = output_raster(dev.compute_output("oscillation", field.values, res, p, fetch=None, level=2))
     assert np.nanmin(osc) >= -1e-6                                     # the fixed window lies inside 3λ
     assert dev.compute_output("leader", field.values, res, p, fetch=None, level=99)["diag"]["level"] == 4
     with pytest.raises(ValueError, match="no lazy output"):
@@ -143,7 +144,7 @@ def test_the_engine_resolves_the_tool_and_its_levels(dev, field):
     a = resolve_output(layer, field, cache, "leader", level=1)
     b = resolve_output(layer, field, cache, "leader", level=3)
     assert a["diag"]["scale_px"] == 4.0 and b["diag"]["scale_px"] == 16.0
-    assert not np.array_equal(np.nan_to_num(a["raster"]), np.nan_to_num(b["raster"]))
+    assert not np.array_equal(np.nan_to_num(output_raster(a)), np.nan_to_num(output_raster(b)))
     again = make_layer(("wavelet_leaders", dict(SMALL, wse_rule="fixed", method="wse")))
     v = resolve(again, field, cache).result
     assert v["params"]["method"] == "wse" and v["_quantity"] is res["_quantity"]      # a cache hit, viewed
@@ -329,3 +330,21 @@ def test_cycle_spin_averages_the_h_map_over_phases_of_the_grid_and_pools_the_sam
     sizes = [int(np.asarray(v).sum()) for v in single["samples"]["sets"]["leaders"]["valid"]]
     pooled = [np.asarray(v).size for v in spun["samples"]["sets"]["leaders"]["values"]]
     assert all(pz >= 3 * s for pz, s in zip(pooled, sizes))
+
+
+def test_a_per_level_output_travels_as_its_decimated_cell_grid(dev, field):
+    """A level of the pyramid is a raster at its own 2^j-px cells: the output carries that grid
+    and its placement, so a cached level costs its cells, and :func:`output_raster` repeats them
+    over their blocks only when something draws or reads them, giving the field-grid raster of
+    before."""
+    from dynamix.engine.cache import retained_nbytes
+
+    p = validate_params(dev, dict(SMALL, wse_rule="fixed"))
+    res = dev.compute(field, p)
+    out = dev.compute_output("leader", field.values, res, p, fetch=None, level=3)
+    assert "raster" not in out
+    assert out["cells"].shape == res["_quantity"]["leaders"][3].shape and out["cells"].dtype == np.float32
+    raster = output_raster(out)
+    cells = np.where(res["_valid"]["leaders"][3], np.log2(res["_quantity"]["leaders"][3]), np.nan)
+    np.testing.assert_array_equal(raster, leaders.paint(cells, 4, (512, 512), pad=res["_pad"]).astype(np.float32))
+    assert retained_nbytes(out) < raster.nbytes / 50

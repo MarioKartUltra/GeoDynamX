@@ -624,7 +624,11 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
         window = cache.get_or_compute(window_key, _window)["window"]
         value = window_output(name)
         cut = dict(value)
-        cut["raster"] = np.asarray(value["raster"])[m:m + h, m:m + w]
+        if "cells" in value:                       # a level's own grid: only its crop moves
+            y0, x0, _h, _w = value["paint"]["crop"]
+            cut["paint"] = {**value["paint"], "crop": (int(y0) + m, int(x0) + m, h, w)}
+        else:
+            cut["raster"] = np.asarray(value["raster"])[m:m + h, m:m + w]
         cut["roi_axes"] = (np.asarray(window.x_axis)[m:m + w].copy(),
                            np.asarray(window.y_axis)[m:m + h].copy())
         cut["_output_identity"] = {"key": key, "name": name, "level": lvl,
@@ -632,6 +636,23 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
         return cut
 
     return cache.get_or_compute(key, _cut)
+
+
+def output_raster(value: dict) -> np.ndarray:
+    """The raster of a lazy output's value on the layer's own pixels: ``value["raster"]``, or,
+    for an output that travels as its decimated cell grid (``cells``, a pyramid level at
+    2^level-px cells, with ``paint``: the level, the grid's offset ``pad`` in the working image
+    and the ``crop`` (row, col, rows, cols) it describes there), those cells repeated over their
+    blocks, cut to the crop. A cached level then costs its cells, not a field-sized copy."""
+    if "raster" in value:
+        return value["raster"]
+    paint = value["paint"]
+    cells = np.asarray(value["cells"])
+    s = 2 ** int(paint["level"])
+    y0, x0, h, w = (int(v) for v in paint["crop"])
+    rows = (np.arange(h) + y0 + int(paint["pad"][0])) // s
+    cols = (np.arange(w) + x0 + int(paint["pad"][1])) // s
+    return cells[np.ix_(rows, cols)]
 
 
 def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | None = None,

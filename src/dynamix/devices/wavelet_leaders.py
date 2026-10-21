@@ -394,9 +394,11 @@ class WaveletLeaders:
 
     def compute_output(self, name: str, values, result: dict, params: dict, *, fetch,
                        progress=None, cancel=None, level=None) -> dict:
-        """One quantity at the level shown, painted over its cells: log2 of the leader, p-leader
-        or (θ, ω)-leader, or the oscillation ratio; NaN on the cells the border or non-finite
-        pixels exclude."""
+        """One quantity at the level shown on its own decimated grid: log2 of the leader,
+        p-leader or (θ, ω)-leader, or the oscillation ratio, NaN on the cells the border or
+        non-finite pixels exclude, with the placement :func:`~dynamix.engine.resolve.output_raster`
+        repeats them by over the layer's pixels (the level, the grid's offset, the ROI's crop of
+        the window)."""
         if name not in _OUTPUT_OF:
             raise ValueError(f"{self.name}: no lazy output named {name!r}")
         key = _OUTPUT_OF[name]
@@ -408,9 +410,12 @@ class WaveletLeaders:
             with np.errstate(divide="ignore", invalid="ignore"):
                 cells = np.where(cells > 0, np.log2(np.where(cells > 0, cells, 1.0)), np.nan)
         cells = np.where(valid, cells, np.nan)
-        raster = self._painted(cells, idx + 1, result)
-        return {"raster": raster, "diag": {"level": idx, "scale_px": 2.0 ** (idx + 1),
-                                           "valid_cells": int(np.sum(valid))}}
+        h, w = (int(v) for v in result["_shape"])
+        m = int((result.get("_roi") or {}).get("margin") or 0)
+        pad = tuple(int(v) for v in (result.get("_pad") or (0, 0)))
+        return {"cells": np.asarray(cells, dtype=np.float32),
+                "paint": {"level": idx + 1, "pad": pad, "crop": (m, m, h, w)},
+                "diag": {"level": idx, "scale_px": 2.0 ** (idx + 1), "valid_cells": int(np.sum(valid))}}
 
     # ------------------------------------------------------------------------------- reading
 

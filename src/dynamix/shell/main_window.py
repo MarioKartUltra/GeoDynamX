@@ -69,7 +69,7 @@ from dynamix.devices.groups import encode_groups
 from dynamix.devices.wtmm import BOUNDARY_PARAMS
 from dynamix.engine import Cache, resolve, source_identity
 from dynamix.engine.gprv_export import bundle_path, record_beside
-from dynamix.engine.resolve import (output_key, seed_shown_level, selection_recipe,
+from dynamix.engine.resolve import (output_key, output_raster, seed_shown_level, selection_recipe,
                                     selection_steps, shown_level, step_key)
 from dynamix.roi.picture import display_stride, file_pixel_grid, native_shape
 from dynamix.geo.footprints import (band_label, band_sort_key, group_key, overview_field,
@@ -6103,7 +6103,7 @@ both ``Canvas`` signals report the
             note = output.label or output.name
             if output.per_level and "scale_px" in (value.get("diag") or {}):
                 note = f"{note} · {float(value['diag']['scale_px']):g} px"
-            out = {**result, "raster_out": value["raster"], "_view_note": note,
+            out = {**result, "raster_out": output_raster(value), "_view_note": note,
                    "_output_identity": value.get("_output_identity"),
                    "_output_execution": value.get("_execution", [])}
             if output.grid == "stride":
@@ -6129,7 +6129,7 @@ both ``Canvas`` signals report the
         """The cached raster of the lazy output ``layer`` shows, when it lies on the field's own
         grid (the Vector/Geo drape); ``None`` otherwise. Never computes anything."""
         value = self._cached_output_value(layer, renderable)
-        return None if value is None else value["raster"]
+        return None if value is None else output_raster(value)
 
     def _cached_output_value(self, layer, renderable):
         """The cached value (``raster``, ``diag``, and ``display_offset`` where its samples
@@ -9419,7 +9419,7 @@ both ``Canvas`` signals report the
                         # their pixel index drapes on the moved axes.
                         value = self._cached_output_value(layer, renderable)
                         if value is not None:
-                            drape = value["raster"]
+                            drape = output_raster(value)
                             drape_offset = value.get("display_offset")
                     entries.append({"layer": layer, "field": field, "result": res,
                                     "status": "ok", "signature": signature,
@@ -10219,7 +10219,7 @@ both ``Canvas`` signals report the
             return {}, None
         value = self._cached_output_value(layer, renderable)
         if value is not None:
-            result = {**result, "raster_out": value["raster"]}
+            result = {**result, "raster_out": output_raster(value)}
             if value.get("roi_axes") is not None:
                 result["_roi_axes"] = value["roi_axes"]
             if value.get("display_offset") is not None:

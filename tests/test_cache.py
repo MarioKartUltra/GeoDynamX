@@ -253,3 +253,17 @@ def test_the_report_keeps_the_three_budgets_apart(monkeypatch):
     assert report["stages"] == {"entries": 1, "bytes": stage_nbytes({"cwt": np.zeros(16)}),
                                 "max_bytes": 10_000}
     assert report["mlx"] == {"active": 7, "cache": 11}
+
+
+def test_a_level_carried_as_its_cells_counts_as_an_output_and_not_against_the_analysis_bound():
+    """A pyramid level that travels as its decimated cell grid is a lazy output like a raster
+    one: it never counts toward the bound on analysis results, so scrubbing the levels of many
+    quantities never evicts them by count."""
+    import numpy as np
+    from dynamix.engine.cache import Cache
+
+    cache = Cache(max_results=2)
+    for k in range(10):
+        cache.put(f"level{k}", {"cells": np.zeros((8, 8), np.float32), "paint": {"level": 3, "pad": (0, 0), "crop": (0, 0, 64, 64)}})
+    assert all(f"level{k}" in cache for k in range(10))
+    assert cache.report()["results"]["analysis"] == 0
