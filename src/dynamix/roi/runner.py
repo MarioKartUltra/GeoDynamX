@@ -24,8 +24,7 @@ import inspect
 
 import numpy as np
 
-from dynamix.core import fft_policy
-from dynamix.engine import execution
+from dynamix.core import execution, fft_policy
 from dynamix.model import capabilities
 from dynamix.model.contracts import stamp_fill
 

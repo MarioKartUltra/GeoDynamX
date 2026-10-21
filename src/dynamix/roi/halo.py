@@ -695,7 +695,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
 
     backend = get_backend("python")
     from dynamix.core import fft_policy
-    from dynamix.engine.cache import cache_key
+    from dynamix.core.keys import cache_key
 
     policy = fft_policy.active()
     group_key = cache_key("roi-cwt-levels", "", {

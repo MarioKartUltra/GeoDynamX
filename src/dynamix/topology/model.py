@@ -145,7 +145,7 @@ def provenance(project) -> "TopologyModel":
         m.add_node(node, DATASET, anchor=("layer", layer.layer_id))
         # default=str: a param arrives as whatever the caller put in it -- a numpy scalar out of
         # a device's own params is not JSON-serialisable, and a paper trail that raises is worse
-        # than one that spells an int64 the way repr does (engine/cache._jsonable does the same).
+        # than one that spells an int64 the way repr does (core/keys._jsonable does the same).
         via = json.dumps([{"device": ref.device, "params": ref.params}
                           for ref in layer.chain.steps],
                          sort_keys=True, separators=(",", ":"), default=str)

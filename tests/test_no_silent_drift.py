@@ -164,7 +164,8 @@ NEW_MODULES = ["figure_fits", "figure_samples", "orientation_net", "space_scale"
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
               "bus", "orientation", "anisotropy", "wtmm_levels", "dwt", "smoothers", "nonconcave", "undersampling", "reach", "edges", "daf",
-              "disorder", "analytic_cwt", "ridge", "leaders", "large_deviation", "directional", "interpolating", "fractional", "sem_header", "cwt_leaders"]
+              "disorder", "analytic_cwt", "ridge", "leaders", "large_deviation", "directional", "interpolating", "fractional", "sem_header", "cwt_leaders",
+              "keys", "execution"]
 
 
 def _normalised(path: pathlib.Path) -> str:
