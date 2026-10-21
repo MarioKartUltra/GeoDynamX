@@ -2543,7 +2543,7 @@ def _cached_stage(stage, key_dict, out_dir, field_name, compute_fn, save_fn, loa
 
 
 def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
-                       cancel=None, stage_cache=None) -> dict:
+                       cancel=None, stage_cache=None, defer_partition=False) -> dict:
     backend = backend if backend is not None else get_backend("python")
     field_hash = _field_data_hash(field)
     scales = compute_scales2d(resolved["n_oct"], resolved["n_voice"], resolved["a_min"])
@@ -2730,10 +2730,17 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
         return backend.partition2d(chains, scales, q_list=resolved["q_list"],
                                    min_chain_len=resolved["min_chain_len"])
 
-    _ck()
-    hd_std, hd_cmax = run_stage(
-        "partition", partition_key, out_dir, field.name, compute_partition,
-        _save_partition, _load_partition, cache_hits, progress)
+    if defer_partition:
+        # Built by the first read of either table, after this call has returned and on whichever
+        # thread reads: outside the stage stores, which only the computing thread touches.
+        from dynamix.core.deferred import deferred_pair
+
+        hd_std, hd_cmax = deferred_pair(compute_partition)
+    else:
+        _ck()
+        hd_std, hd_cmax = run_stage(
+            "partition", partition_key, out_dir, field.name, compute_partition,
+            _save_partition, _load_partition, cache_hits, progress)
 
     npz_path = None
     if out_dir is not None:
@@ -2827,7 +2834,7 @@ def _json_safe_params(resolved: dict) -> dict:
 
 
 def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None,
-               cancel=None, stage_cache=None) -> dict:
+               cancel=None, stage_cache=None, defer_partition=False) -> dict:
     """Staged pipeline orchestrator (pure, headless): cwt -> extrema -> chains -> partition.
 
     Resolves ``params`` against the contract defaults (see
@@ -2880,6 +2887,13 @@ def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None
         Called ``(stage, 0.0)`` immediately before computing that stage (NEVER
         on a cache hit) and ``(stage, 1.0)`` after it completes or hits. The
         GUI marshals this to Qt signals; this module knows nothing about Qt.
+    defer_partition : bool
+        Scalar mode: ``hd_std`` and ``hd_cmax`` come back as
+        :class:`~dynamix.core.deferred.Deferred` mappings that
+        ``backend.partition2d`` fills on the first read of either, so a caller
+        that never reads them never pays for them. The ``partition`` stage is
+        then neither stored nor reloaded, reports no progress and adds nothing
+        to ``cache_hits``.
 
     Returns
     -------
@@ -2912,7 +2926,8 @@ def run_wtmm2d(field, params: dict, *, out_dir=None, backend=None, progress=None
             f"got {field.n_components} (field {field.name!r})"
         )
     return _run_wtmm2d_scalar(field, resolved, out_dir=out_dir, backend=backend,
-                              progress=progress, cancel=cancel, stage_cache=stage_cache)
+                              progress=progress, cancel=cancel, stage_cache=stage_cache,
+                              defer_partition=defer_partition)
 
 
 def cwt2d_scalar(image, scales, *, wavelet: str = "gaussian", pad: int = 32,

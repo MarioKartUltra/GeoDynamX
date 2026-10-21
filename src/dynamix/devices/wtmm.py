@@ -110,9 +110,10 @@ def cut_whole(res: dict, params: dict, shape) -> dict:
     """``edge = "cut"`` on a whole raster: each scale's maxima inside its cone of influence (the
     measured reach, ``dynamix.core.edges.cut_borders``) dropped, the chains trimmed there (spec
     14's ``coi_trim``, or ``coi_drop`` when that is the border policy) and the partition functions
-    rebuilt from them; ``_edge`` records the borders."""
+    rebuilt from them, on their first read; ``_edge`` records the borders."""
     from dynamix.core import edges
     from dynamix.core.chaining import border_trimmed
+    from dynamix.core.deferred import deferred_pair
     from dynamix.core.wtmm_backend import get_backend
     from dynamix.roi.halo import halo_plan
 
@@ -131,8 +132,9 @@ def cut_whole(res: dict, params: dict, shape) -> dict:
                                    int(resolved["min_chain_len"]),
                                    reach_at=edges.chain_reach(scales, borders))
     out["extrema"] = edges.drop_in_cone(res["extrema"], borders, (0, 0), shape)
-    out["hd_std"], out["hd_cmax"] = get_backend("python").partition2d(
-        out["chains"], scales, q_list=resolved["q_list"], min_chain_len=resolved["min_chain_len"])
+    chains = out["chains"]
+    out["hd_std"], out["hd_cmax"] = deferred_pair(lambda: get_backend("python").partition2d(
+        chains, scales, q_list=resolved["q_list"], min_chain_len=resolved["min_chain_len"]))
     out["_edge"] = {
         "device": "wtmm2d", "mode": "cut", "cut_scope": scope, "run_grid": run_grid,
         "eps": float(params.get("edge_eps", 1e-3)),
@@ -639,8 +641,9 @@ class WTMM2D:
                 field.values, dict(backend_params, **{p.name: params[p.name] for p in EDGE_PARAMS}),
                 progress=progress, stage_cache=stage_cache, cancel=cancel)
         if res is None:
+            # The partition tables are read by the fitting windows alone: built on that read.
             res = run_wtmm2d(field, backend_params, progress=progress, cancel=cancel,
-                             stage_cache=stage_cache)
+                             stage_cache=stage_cache, defer_partition=True)
         # Carry the field's own axes through so filters and views can convert pixels to physical
         # units without reaching back to the source.
         res = dict(res)
@@ -676,7 +679,7 @@ class WTMM2D:
         # The draw-ready CSR chain product: EQSelect's representation
         # stamped as the result's native form -- filters narrow index selections over its metric
         # table, views draw from it by concatenation, and the npz export writes the SAME bundle.
-        # Reuses the runs stamped just above; still worker-side.
+        # Reuses the runs stamped just above; stamped here, built by its first reader.
         from dynamix.core.chain_product import attach_chain_product
         attach_chain_product(res)
         warning = eta_warning(params)

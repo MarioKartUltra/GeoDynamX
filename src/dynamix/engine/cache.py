@@ -16,14 +16,18 @@ from typing import Any, Callable
 
 import numpy as np
 
+from dynamix.core.deferred import Deferred
 from dynamix.core.keys import cache_key  # noqa: F401
 
 
 def stage_nbytes(value) -> int:
     """Bytes of every ndarray inside ``value``: a dict's values, a list's or tuple's items, a
-    field's ``values`` and axes, an array itself. Anything else weighs nothing."""
+    field's ``values`` and axes, an array itself, a deferred product once it is built (counting
+    never builds it). Anything else weighs nothing."""
     if isinstance(value, np.ndarray):
         return int(value.nbytes)
+    if isinstance(value, Deferred):
+        return sum(stage_nbytes(v) for v in value.values()) if value.built else 0
     if isinstance(value, dict):
         return sum(stage_nbytes(v) for v in value.values())
     if isinstance(value, (list, tuple)):

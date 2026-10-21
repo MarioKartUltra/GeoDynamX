@@ -156,6 +156,8 @@ EXTRACTED = {
 #: wavelet_profiles: every wavelet's section and its λ* (the bandpass peak wavelength), the
 #: scale bar's and the physical scale axis's one authority; the per-family constants are
 #: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
+#: deferred: the app's own module, a result's products built on their first read; pinned in
+#: tests/test_deferred_products.py.
 NEW_MODULES = ["figure_fits", "figure_samples", "orientation_net", "space_scale",
               "units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product", "chaining",
@@ -165,7 +167,7 @@ NEW_MODULES = ["figure_fits", "figure_samples", "orientation_net", "space_scale"
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
               "bus", "orientation", "anisotropy", "wtmm_levels", "dwt", "smoothers", "nonconcave", "undersampling", "reach", "edges", "daf",
               "disorder", "analytic_cwt", "ridge", "leaders", "large_deviation", "directional", "interpolating", "fractional", "sem_header", "cwt_leaders",
-              "keys", "execution"]
+              "keys", "execution", "deferred"]
 
 
 def _normalised(path: pathlib.Path) -> str:

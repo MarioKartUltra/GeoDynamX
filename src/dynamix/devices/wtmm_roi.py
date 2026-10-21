@@ -292,7 +292,7 @@ class WTMM2DROI:
         # field's shape would be wrong (it is the whole raster, not the analysed window).
         res = dict(res)
         res["_frame"] = getattr(field, "frame", None)
-        # The draw-ready CSR chain product + ordering runs, stamped
+        # The draw-ready CSR chain product (built by its first reader) + ordering runs, stamped
         # worker-side exactly as wtmm2d.compute does -- over the ROI's own _shape, which
         # run_wtmm2d_roi already set to the analysed window's (h, w).
         from dynamix.core.chain_product import attach_chain_product

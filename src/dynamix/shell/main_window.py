@@ -3215,7 +3215,9 @@ both ``Canvas`` signals report the
             self._topology_panel.set_rows(rows)
             self._topology_rows_shown = rows
         topo = self._active_result.get("topology") if self._active_result is not None else None
-        self._topology_panel.set_chain_graph_count(len(topo.edges) if topo is not None else None)
+        # A chain graph nothing has read yet is not built, and counting its edges would build it.
+        built = topo is not None and getattr(topo, "built", True)
+        self._topology_panel.set_chain_graph_count(len(topo.edges) if built else None)
 
     # -- skeleton dialog -------------------------------------------
     def _refresh_skeleton_button(self) -> None:

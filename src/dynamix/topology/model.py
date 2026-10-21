@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import dataclasses
 
+from dynamix.core.deferred import Once
 from dynamix.topology.codes import KINDS, permitted
 
 DATASET = "dataset"
@@ -127,6 +128,27 @@ class TopologyModel:
             else:
                 raise ValueError(f"unknown edge family {e['family']!r}")
         return m
+
+
+class DeferredTopology(TopologyModel):
+    """A model whose graph ``build()`` makes on the first read of its nodes or edges (any method
+    reads them), once, under :class:`~dynamix.core.deferred.Once`'s lock; until then holding it,
+    testing it for ``None`` or reading :attr:`built` costs nothing."""
+
+    def __init__(self, build):
+        self._graph = Once(build)
+
+    @property
+    def built(self) -> bool:
+        return self._graph.built
+
+    @property
+    def nodes(self) -> dict[str, Node]:
+        return self._graph().nodes
+
+    @property
+    def edges(self) -> list[Edge]:
+        return self._graph().edges
 
 
 def provenance(project) -> "TopologyModel":

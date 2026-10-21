@@ -1209,7 +1209,7 @@ def test_wtmm2d_threads_smooth_and_thresh_into_the_backend_call(monkeypatch, reg
     captured = {}
 
     def fake_run_wtmm2d(field, params, *, out_dir=None, backend=None, progress=None, cancel=None,
-                        stage_cache=None):
+                        stage_cache=None, defer_partition=False):
         captured.update(params)
         return {"chains": [], "extrema": [], "scales": [], "hd_std": None, "hd_cmax": None,
                "npz_path": None, "params": params, "cache_hits": set()}

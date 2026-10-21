@@ -114,10 +114,22 @@ def test_chain_topology_prebuilds_the_vchain_index():
     assert out["_topology_vids"] == {"h0.0": frozenset({"v0", "v1"})}
 
 
-def test_min_vchains_consumes_the_prebuilt_index():
-    """Sabotage the index: if the filter still reads it, the H-chain must fail a threshold its
-    model-derived V-chain count would pass."""
+def test_min_vchains_consumes_the_prebuilt_counts():
+    """Sabotage the count index: if the filter reads it, the H-chain must fail a threshold its
+    model-derived V-chain count would pass, and the graph is never built."""
     r = dict(ChainTopology().compute(_result(), {}))
+    assert [(lids.tolist(), n.tolist()) for lids, n in r["_topology_counts"]] == [([0], [2])]
+    r["_topology_counts"] = [(np.array([0]), np.array([0]))]
+    out = MinVChains().apply(r, {"min_vchains": 1})
+    assert out["_hchains_dropped"] == 1
+    assert not r["topology"].built
+
+
+def test_min_vchains_consumes_the_prebuilt_index():
+    """Without the count index (an older cached result), sabotage the graph's index: if the
+    filter still reads it, the H-chain must fail a threshold its model-derived count would pass."""
+    r = dict(ChainTopology().compute(_result(), {}))
+    r.pop("_topology_counts")
     r["_topology_vids"] = {"h0.0": frozenset()}
     out = MinVChains().apply(r, {"min_vchains": 1})
     assert out["_hchains_dropped"] == 1
@@ -127,6 +139,7 @@ def test_min_vchains_rebuilds_the_index_when_it_is_missing():
     """A topology without an index -- an older cached result, or a model asserted by hand --
     still filters; it just pays for the index inline."""
     r = dict(ChainTopology().compute(_result(), {}))
+    r.pop("_topology_counts")
     r.pop("_topology_vids")
     out = MinVChains().apply(r, {"min_vchains": 3})
     assert out["_hchains_dropped"] == 1

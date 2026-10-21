@@ -5,6 +5,9 @@
 ChainTopology is deliberately its own transform rather than part of WTMM2D: the graph caches
 separately from the (much larger) scale stack, and the same device shape will serve every future
 binding (map, drillhole) -- topology-as-a-transform is the pattern, WTMM is its first instance.
+The graph itself (a node per V-chain, H-chain, segment and crossing maximum, an edge per
+incidence: a million Python objects on a 1024² field) is built by its first reader; MinVChains
+reads the V-chain counts the transform computes off the arrays.
 """
 from __future__ import annotations
 
@@ -26,16 +29,21 @@ class ChainTopology:
     params = ()
 
     def compute(self, field, params: dict, *, progress=None) -> dict:
-        from dynamix.topology.wtmm import build_chain_topology, vchain_index
+        from dynamix.core.deferred import Deferred
+        from dynamix.topology.model import DeferredTopology
+        from dynamix.topology.wtmm import build_chain_topology, vchain_counts, vchain_index
 
         out = dict(field)                    # `field` is the upstream WTMM result dict
-        model = build_chain_topology(field)
+        # What the graph is built from, held by key: the upstream result is the cache's, and
+        # immutable by its law.
+        source = {k: field[k] for k in ("extrema", "_shape", "chains") if k in field}
+        model = DeferredTopology(lambda: build_chain_topology(source))
         out["topology"] = model
-        # The H-chain -> V-chain incidence index is a pure function of the graph, so it belongs
-        # here rather than in MinVChains: built once, it rides the transform cache and costs a
-        # redraw nothing. Rebuilding it per redraw measured 37.8 ms at 128x128, against the 16 ms
-        # a Filter is documented to fit inside.
-        out["_topology_vids"] = vchain_index(model)
+        # The H-chain -> V-chain incidence index, a pure function of the graph, built with it.
+        out["_topology_vids"] = Deferred(lambda: vchain_index(model))
+        # MinVChains's input at every landing, computed here so it rides the transform cache:
+        # per scale, each H-chain's distinct V-chain count, from the arrays (milliseconds).
+        out["_topology_counts"] = vchain_counts(field)
         return out
 
     def cache_key(self, source_id: str, params: dict) -> str:
@@ -79,44 +87,51 @@ class MinVChains:
             return result
         need = int(params["min_vchains"])
 
-        # ChainTopology prebuilds the incidence index (it is a pure function of the graph and
-        # caches with it). Rebuild inline only when it is absent -- an older cached result, or a
-        # model asserted by hand and dropped into a result dict -- so this device keeps working
-        # off any topology, just without the free lunch.
-        # Perf: the drop computation is a Python walk over EVERY h-chain node (~187k on a 2048
-        # DEM -> ~120 ms, profiled) and depends ONLY on (this topology, need). resolve() re-runs
-        # the whole filter chain on every tweak, so unmemoized, scrubbing scale or min |W| pays
-        # that 120 ms each time for an identical result. Memoize it on the model, keyed by need:
-        # the model is the cached transform's own object (stable across resolves, replaced only
-        # when the transform recomputes), so this is exactly EQSelect's "cache per-layer filter
-        # state" -- a downstream tweak skips the walk entirely. The memo holds only the small
-        # (dropped, n_dropped) summary, never a copy of any point array.
-        memo = getattr(model, "_minv_drop_memo", None)
-        if memo is None:
-            memo = {}
-            try:
-                model._minv_drop_memo = memo
-            except (AttributeError, TypeError):
-                memo = None                        # a frozen model: fall back to recomputing
-        cached = memo.get(need) if memo is not None else None
-        if cached is not None:
-            dropped, n_dropped = cached
+        counts = result.get("_topology_counts")
+        if counts is not None:
+            # ChainTopology's per-scale V-chain counts: the drop set without the graph.
+            low = [lids[n < need] for lids, n in counts]
+            dropped = {si: ids for si, ids in enumerate(low) if ids.size}
+            n_dropped = sum(int(ids.size) for ids in low)
         else:
-            vids_by_hchain = result.get("_topology_vids")
-            if vids_by_hchain is None:
-                from dynamix.topology.wtmm import vchain_index
+            # No counts: an older cached result, or a model asserted by hand. ChainTopology stamps
+            # the incidence index (a pure function of the graph, built with it, cached with it);
+            # it is rebuilt inline only when it is absent too, so this device keeps working off
+            # any topology, just without the free lunch.
+            # Perf: the drop computation is a Python walk over EVERY h-chain node (~187k on a 2048
+            # DEM -> ~120 ms, profiled) and depends ONLY on (this topology, need). resolve() re-runs
+            # the whole filter chain on every tweak, so unmemoized, scrubbing scale or min |W| pays
+            # that 120 ms each time for an identical result. Memoize it on the model, keyed by need:
+            # the model is the cached transform's own object (stable across resolves, replaced only
+            # when the transform recomputes), so this is exactly EQSelect's "cache per-layer filter
+            # state" -- a downstream tweak skips the walk entirely. The memo holds only the small
+            # (dropped, n_dropped) summary, never a copy of any point array.
+            memo = getattr(model, "_minv_drop_memo", None)
+            if memo is None:
+                memo = {}
+                try:
+                    model._minv_drop_memo = memo
+                except (AttributeError, TypeError):
+                    memo = None                        # a frozen model: fall back to recomputing
+            cached = memo.get(need) if memo is not None else None
+            if cached is not None:
+                dropped, n_dropped = cached
+            else:
+                vids_by_hchain = result.get("_topology_vids")
+                if vids_by_hchain is None:
+                    from dynamix.topology.wtmm import vchain_index
 
-                vids_by_hchain = vchain_index(model)
+                    vids_by_hchain = vchain_index(model)
 
-            dropped = {}                           # scale index -> {line_id}
-            n_dropped = 0
-            for h in model.nodes_where(anchor0="hchain"):
-                if len(vids_by_hchain.get(h.node_id, ())) < need:
-                    _, si, lid = h.anchor
-                    dropped.setdefault(si, set()).add(lid)
-                    n_dropped += 1
-            if memo is not None:
-                memo[need] = (dropped, n_dropped)
+                dropped = {}                           # scale index -> {line_id}
+                n_dropped = 0
+                for h in model.nodes_where(anchor0="hchain"):
+                    if len(vids_by_hchain.get(h.node_id, ())) < need:
+                        _, si, lid = h.anchor
+                        dropped.setdefault(si, set()).add(lid)
+                        n_dropped += 1
+                if memo is not None:
+                    memo[need] = (dropped, n_dropped)
 
         out = dict(result)
         out["_hchains_dropped"] = n_dropped
@@ -135,10 +150,10 @@ class MinVChains:
             new_ext = []
             for si, ext in zip(sis, result["extrema"]):
                 bad = dropped.get(si)
-                if not bad:
+                if bad is None:
                     new_ext.append(ext)
                     continue
-                keep = ~np.isin(ext["line_id"], list(bad))
+                keep = ~np.isin(ext["line_id"], bad if isinstance(bad, np.ndarray) else list(bad))
                 new_ext.append({k: v[keep] for k, v in ext.items()})
             out["extrema"] = new_ext
             # The rows moved: every ("extremum", si, row) anchor in the model now points at a

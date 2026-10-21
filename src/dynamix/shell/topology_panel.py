@@ -61,8 +61,9 @@ class TopologyPanel(QtWidgets.QWidget):
 
     def set_chain_graph_count(self, n: int | None) -> None:
         """``n`` is the active layer's cached ``chain_topology`` edge count, or ``None`` when no
-        such product is cached for it right now (no chain_topology step in the chain, or nothing
-        resolved yet) -- shown as an honest em-dash rather than a misleading "0 edges"."""
+        such product is cached for it right now (no chain_topology step in the chain, nothing
+        resolved yet, or a graph no reader has built) -- shown as an honest em-dash rather than a
+        misleading "0 edges"."""
         self._chain_graph_label.setText(
             "chain graph: —" if n is None else f"chain graph: {n} edges")
 

@@ -67,13 +67,25 @@ def split_walk(mod_walk: np.ndarray, owner_pos: np.ndarray) -> list[tuple[int, i
     return [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)]
 
 
-def build_chain_topology(result: dict) -> TopologyModel:
+def _checked_shape(result: dict) -> tuple[int, int]:
+    """``(ny, nx)`` of a WTMM result that can be segmented; ValueError naming what is missing."""
     if "extrema" not in result or "_shape" not in result:
         raise ValueError(
             "build_chain_topology needs a WTMM2D result dict with 'extrema' and '_shape'; "
             "put a ChainTopology device after WTMM2D in the chain"
         )
+    for si, ext in enumerate(result["extrema"]):
+        if "line_id" not in ext:
+            raise ValueError(
+                f"scale {si}: extrema carry no 'line_id'; the upstream result predates "
+                f"line labelling and cannot be segmented"
+            )
     ny, nx = result["_shape"]
+    return ny, nx
+
+
+def build_chain_topology(result: dict) -> TopologyModel:
+    ny, nx = _checked_shape(result)
     chains = result.get("chains") or []
     model = TopologyModel()
 
@@ -81,11 +93,6 @@ def build_chain_topology(result: dict) -> TopologyModel:
         model.add_node(f"v{ci}", LINE, space_dim=3, anchor=("vchain", ci))
 
     for si, ext in enumerate(result["extrema"]):
-        if "line_id" not in ext:
-            raise ValueError(
-                f"scale {si}: extrema carry no 'line_id'; the upstream result predates "
-                f"line labelling and cannot be segmented"
-            )
         x, y, mod, line_id = ext["x"], ext["y"], ext["mod"], ext["line_id"]
         if x.size == 0:
             continue
@@ -185,3 +192,41 @@ def vchain_index(model) -> dict[str, frozenset[str]]:
             if hchain_id is not None:
                 vids.setdefault(hchain_id, set()).update(vchain_ids)
     return {hid: frozenset(v) for hid, v in vids.items()}
+
+
+def vchain_counts(result: dict) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Per scale, ``(line ids, counts)``: the sorted line ids of that scale's H-chains (the
+    graph's ``hchain`` nodes) and how many distinct V-chains cross each, which is
+    ``len(vchain_index(build_chain_topology(result)).get(f"h{si}.{lid}", ()))`` counted off the
+    arrays without building the graph.
+
+    The graph orders every labelled point of a line into its walks, so a V-chain crosses the
+    H-chain ``lid`` at scale ``si`` when its point at ``si`` is a point of that line; where several
+    V-chains share one point the graph's position lookup keeps the highest chain index, and so
+    does the ``maximum.at`` here. A chain point outside the raster matches no maximum."""
+    ny, nx = _checked_shape(result)
+    chains = result.get("chains") or []
+    n_pts = np.fromiter((len(c["x"]) for c in chains), np.int64, len(chains))
+    first = np.concatenate([[0], np.cumsum(n_pts)[:-1]]).astype(np.int64)
+    cx = cy = np.zeros(0, dtype=np.int64)
+    if chains:
+        cx = np.concatenate([np.asarray(c["x"]) for c in chains]).astype(np.int64)
+        cy = np.concatenate([np.asarray(c["y"]) for c in chains]).astype(np.int64)
+    out = []
+    for si, ext in enumerate(result["extrema"]):
+        line_id = np.asarray(ext["line_id"], dtype=np.int64)
+        on_line = line_id >= 0
+        lids = np.unique(line_id[on_line])
+        alive = np.flatnonzero(n_pts > si)
+        px, py = cx[first[alive] + si], cy[first[alive] + si]
+        inside = (px >= 0) & (px < nx) & (py >= 0) & (py < ny)
+        owner = np.full(ny * nx, -1, dtype=np.int64)
+        np.maximum.at(owner, py[inside] * nx + px[inside], alive[inside])
+        pos = (np.asarray(ext["y"], dtype=np.int64)[on_line] * nx
+               + np.asarray(ext["x"], dtype=np.int64)[on_line])
+        ci = owner[pos]
+        crossed = ci >= 0
+        pairs = np.unique(line_id[on_line][crossed] * (len(chains) + 1) + ci[crossed])
+        n = np.bincount(np.searchsorted(lids, pairs // (len(chains) + 1)), minlength=lids.size)
+        out.append((lids, n.astype(np.int64)))
+    return out

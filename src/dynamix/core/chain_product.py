@@ -8,7 +8,8 @@ filters were index selections over a per-chain metric table, and its draws were 
 grafted pieces of that onto the device pipeline (``_ext_base``/``_hline_runs`` stamps); this module
 makes the representation canonical instead of a retrofit.
 
-One dict, built worker-side by the transform, immutable afterwards (the engine cache's own law):
+One mapping, stamped by the transform and built by its first reader, immutable afterwards (the
+engine cache's own law):
 
 * **H chains** -- each scale's ordered maxima-line runs (``dynamix.core.hlines.hline_runs`` is the
   ordering authority -- the same ``_order_lines`` walk EQSelect's export runs once), flattened CSR:
@@ -258,19 +259,23 @@ def attach_chain_product(result: dict) -> dict:
     in place, and return it.
 
     Called by a Transform's own ``compute`` -- i.e. on the worker, the one place the ordering
-    walk and the metric table are allowed to cost anything. The stamped product is immutable
-    afterwards by the engine cache's own law, which is what lets every filter tweak reuse it
-    by identity.
+    walk is allowed to cost anything; the canvas draws the runs at every landing. The product
+    is a :class:`~dynamix.core.deferred.Deferred`: no landing reads it, so its first reader (an
+    export, an H-line filter's reading) builds it from the extrema, chains and runs stamped here,
+    which the engine cache's own law keeps immutable, and every later reader shares it.
     """
+    from dynamix.core.deferred import Deferred
+
     shape = tuple(result["_shape"])[:2]
     runs = result.get("_hline_runs")
     if runs is None:
         runs = [hline_runs(layer, shape) for layer in result.get("extrema") or []]
         result["_hline_runs"] = runs
     scales = result.get("scales")
-    result["chain_product"] = build_chain_product(
-        result.get("extrema") or [], result.get("chains") or [],
-        scales if scales is not None else [], shape, runs=runs)
+    extrema, chains = result.get("extrema") or [], result.get("chains") or []
+    scales = scales if scales is not None else []
+    result["chain_product"] = Deferred(
+        lambda: build_chain_product(extrema, chains, scales, shape, runs=runs))
     result["_selection"] = {
         "keep_h": None, "keep_v": None, "keep_h_pts": None, "keep_iso_pts": None,
         "extrema_ref": id(result.get("extrema")), "chains_ref": id(result.get("chains")),
