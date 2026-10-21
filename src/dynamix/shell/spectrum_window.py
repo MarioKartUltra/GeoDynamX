@@ -265,7 +265,7 @@ class SpectrumWindow(QtWidgets.QDialog):
                 self._legend_entries.append((items["D"], partial(label_of, name)))
                 self._legend_entries.append((items["hull"], partial(label_of, name, " (D**, envelope)")))
             items = self._fit_items[name]
-            if fit.get("q") is not None:                 # a D(h)-only method (large deviations) has no q
+            if fit.get("tau") is not None:               # a D(h)-only method (large deviations) has no τ
                 q = np.asarray(fit["q"], dtype=np.float64)
                 items["tau"].setData(q, np.asarray(fit["tau"], dtype=np.float64))
                 items["h"].setData(q, np.asarray(fit["h"], dtype=np.float64))

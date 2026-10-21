@@ -186,3 +186,26 @@ def test_replaced_fitting_widgets_are_released(win, opener, attr):
     QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
     assert not isValid(previous)
     assert isValid(getattr(win, attr))
+
+
+def test_an_adaptive_large_deviation_fit_reaches_an_open_construction_window(win, qtbot):
+    """The adaptive route publishes its tilts q beside h and D, and no τ: the construction window
+    draws its D(h) and leaves the τ(q) panels to the methods that have one."""
+    from test_multifractal_window import _pair
+    from test_samples import _chains
+
+    std, cmax = _pair()
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    extrema = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]
+    win._active_result = {"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {},
+                          "_shape": (128, 128), "hd_std": std, "hd_cmax": cmax}
+    win._on_dh_button_clicked()
+    cw = win._spectrum_construction_window
+    qtbot.addWidget(cw)
+    win._on_ld_button_clicked()
+    qtbot.addWidget(win._ld_window)
+    fit = win._ld_window.current_fit()
+    assert fit.get("q") is not None and "tau" not in fit
+    items = cw._fit_items[fit["name"]]
+    np.testing.assert_allclose(items["D"].getData()[1], fit["D"])
+    assert items["tau"].getData()[0] is None
