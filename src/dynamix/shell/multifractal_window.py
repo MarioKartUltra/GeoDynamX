@@ -995,7 +995,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "_glw"):
-            QtCore.QTimer.singleShot(0, self._square_spectra)
+            QtCore.QTimer.singleShot(0, self, self._square_spectra)
 
     def _update_family_visibility(self) -> None:
         q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)

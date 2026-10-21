@@ -104,3 +104,19 @@ def test_the_main_window_attaches_every_fitting_window_to_one_hub(win, qtbot):
     fresh = win._structure_window
     qtbot.addWidget(fresh)
     assert fresh is not sf and tuple(fresh._region.getRegion()) == (3.0, 5.0)
+
+
+@pytest.mark.parametrize("hide", ["close", "hide"])
+def test_closed_followers_stop_refitting_and_reopening_rejoins(qtbot, hide):
+    hub = SharedScaleRange()
+    live, old = _structure(qtbot, hub), _structure(qtbot, hub)
+    old.show()
+    getattr(old, hide)()
+    fits = []
+    old.fitChanged.connect(fits.append)
+    live.set_scale_window(3., 5.)
+    assert fits == []
+    assert tuple(old._region.getRegion()) == (2., 5.)
+    old.show()
+    assert tuple(old._region.getRegion()) == (3., 5.)
+    assert len(fits) == 1

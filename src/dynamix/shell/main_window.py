@@ -3366,6 +3366,7 @@ both ``Canvas`` signals report the
         eta_seed, note = _eta_note_of(result)
         if self._multifractal_window is not None:
             self._multifractal_window.close()
+            self._multifractal_window.deleteLater()
         # The maxima's moduli per scale feed the c(q) panel's cumulants; only a result whose
         # every scale carries them (the WTMM family) hands them over.
         extrema, scales = result.get("extrema") or [], result.get("scales")
@@ -3392,12 +3393,10 @@ both ``Canvas`` signals report the
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         self._on_fit_published(window.published_fit())
-        # The coupling channel (cell-49-inherits-cell-47): the fitter's window and fit mode
-        # drive an open construction window; connected on whichever of the two opens second.
-        if self._spectrum_construction_window is not None:
-            window.scaleWindowChanged.connect(
-                self._spectrum_construction_window.set_scale_window)
-            window.fitModeChanged.connect(self._spectrum_construction_window.set_fit_mode)
+        # The controller forwards fitter changes to the current construction window.
+        window.scaleWindowChanged.connect(self._on_partition_range_changed)
+        window.fitModeChanged.connect(self._on_partition_mode_changed)
+        window._frame_combo.currentTextChanged.connect(self._on_partition_frame_changed)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -3694,6 +3693,7 @@ both ``Canvas`` signals report the
         previous = getattr(self, attr)
         if previous is not None:
             previous.close()
+            previous.deleteLater()
         window = cls(result["samples"], gamma=_eta_note_of(result)[0],
                      levels=_seed_levels(result),
                      source=self._samples_source(), parent=self, physical_of_log2a=self._physical_of_log2a(),
@@ -3728,6 +3728,7 @@ both ``Canvas`` signals report the
         previous = getattr(self, attr)
         if previous is not None:
             previous.close()
+            previous.deleteLater()
         source = self.layer.name if self.layer is not None else "layer"
         if isinstance(result.get("samples"), dict):
             source = self._samples_source()
@@ -3752,6 +3753,25 @@ both ``Canvas`` signals report the
 
         result = self._active_result or {}
         self._open_sets_window("_generalized_window", GeneralizedSpectrumWindow, log2_L=self._log2_extent(result))
+
+    def _on_partition_range_changed(self, lo: float, hi: float) -> None:
+        window = self._spectrum_construction_window
+        if (self.sender() is self._multifractal_window and window is not None
+                and window.isVisible()):
+            window.set_scale_window(lo, hi)
+
+    def _on_partition_mode_changed(self, mode: str) -> None:
+        window = self._spectrum_construction_window
+        if (self.sender() is self._multifractal_window and window is not None
+                and window.isVisible()):
+            window.set_fit_mode(mode)
+
+    def _on_partition_frame_changed(self, frame: str) -> None:
+        window = self._spectrum_construction_window
+        fitter = self._multifractal_window
+        if (fitter is not None and self.sender() is fitter._frame_combo
+                and window is not None and window.isVisible()):
+            window.set_frame(frame)
 
     def _on_fit_published(self, fit) -> None:
         """A fitting window's fit, kept by name (the latest of each) and handed to an open
@@ -3780,6 +3800,7 @@ both ``Canvas`` signals report the
                 window = getattr(self, attr, None)
                 if window is not None:
                     window.close()
+                    window.deleteLater()
                     setattr(self, attr, None)
         win = self._spectrum_construction_window
         if stale and win is not None and win.isVisible():
@@ -3801,6 +3822,7 @@ both ``Canvas`` signals report the
         scales = result.get("scales") if chains else None
         if self._spectrum_construction_window is not None:
             self._spectrum_construction_window.close()
+            self._spectrum_construction_window.deleteLater()
         shape = result.get("_shape")
         log2_L = (float(np.log2(min(int(shape[0]), int(shape[1]))))
                   if shape is not None and len(shape) >= 2 else None)
@@ -3825,9 +3847,6 @@ both ``Canvas`` signals report the
         self._spectrum_construction_window = window
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         if self._multifractal_window is not None:
-            self._multifractal_window.scaleWindowChanged.connect(window.set_scale_window)
-            self._multifractal_window.fitModeChanged.connect(window.set_fit_mode)
-            self._multifractal_window._frame_combo.currentTextChanged.connect(window.set_frame)
             fit_lo, fit_hi = self._multifractal_window._region.getRegion()
             window.set_scale_window(float(fit_lo), float(fit_hi))
             window.set_fit_mode(self._multifractal_window._fitmode_combo.currentText())

@@ -43,6 +43,7 @@ class SharedRangeFollower:
 
     _shared: "SharedScaleRange | None" = None
     _applying_shared: bool = False
+    _range_connected: bool = False
     follow_check: "QtWidgets.QCheckBox | None" = None
 
     def _make_follow_check(self) -> QtWidgets.QCheckBox:
@@ -55,10 +56,31 @@ class SharedRangeFollower:
 
     def attach_shared_range(self, shared: SharedScaleRange) -> None:
         """Join the handshake: hear every published range, and take the current one now."""
+        self._disconnect_shared_range()
         self._shared = shared
         shared.changed.connect(self._on_shared_range)
+        self._range_connected = True
         if shared.value is not None and self._follows():
             self._take(*shared.value)
+
+    def _disconnect_shared_range(self) -> None:
+        if self._range_connected:
+            self._shared.changed.disconnect(self._on_shared_range)
+            self._range_connected = False
+
+    def closeEvent(self, event) -> None:
+        super().closeEvent(event)
+        if event.isAccepted():
+            self._disconnect_shared_range()
+
+    def hideEvent(self, event) -> None:
+        self._disconnect_shared_range()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        if self._shared is not None and not self._range_connected:
+            self.attach_shared_range(self._shared)
+        super().showEvent(event)
 
     def _follows(self) -> bool:
         return self.follow_check is None or self.follow_check.isChecked()
