@@ -56,7 +56,10 @@ def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min:
     returned. Empty levels are omitted. γ = 0 is the standard direct fit (Arneodo). Returns
     ``{"q", "gamma", "delta", "h", "D", "h2", "tau", "residual", "reference_amplitude"}`` with
     ``(n_q, n_gamma)`` tables, ``(n_q, n_gamma, n_delta)`` when ``delta_list`` is given; NaN when
-    fewer than two scales fall in the window."""
+    fewer than two scales fall in the window. The per-scale sums do not depend on the window:
+    ``log_partition`` (ln Z per scale, last axis) and ``scales`` cover every nonempty scale,
+    ``window`` is the mask of those inside the window, the only ones the slopes use, and
+    ``n_scales`` counts them."""
     q = np.asarray(q_list, dtype=np.float64)
     gam = np.asarray(gamma_list, dtype=np.float64)
     a = np.asarray(scales_px, dtype=np.float64)
@@ -80,9 +83,8 @@ def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min:
     L = float(length_px) if length_px is not None else 4.0 * float(a.max())
     if not np.isfinite(L) or np.any(a >= L):
         raise ValueError(f"every scale must lie below the integral scale L = {L}")
-    keep = [k for k, s in enumerate(a) if log2_a_min <= np.log2(s) <= log2_a_max]
     samples = {}
-    for k in keep:
+    for k in range(a.size):
         m = np.asarray(mods_per_scale[k], dtype=np.float64).ravel()
         c = np.ones_like(m) if counts_per_scale is None else np.asarray(counts_per_scale[k], dtype=np.float64).ravel()
         if c.shape != m.shape:
@@ -90,22 +92,18 @@ def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min:
         ok = np.isfinite(m) & (m > 0) & np.isfinite(c) & (c > 0)
         if ok.any():
             samples[k] = np.log(m[ok]), np.log(c[ok])
-    keep = [k for k in keep if k in samples]
+    keep = sorted(samples)                                                    # every nonempty scale
+    window = np.array([log2_a_min <= np.log2(a[k]) <= log2_a_max for k in keep], dtype=bool)
+    fitted = [k for k, inside in zip(keep, window) if inside]
     if auto_reference:
-        # c₁,₀: the intercept of the multiplicity-weighted mean of ln|T| against ln(a/L).
-        xs = [np.log(a[k] / L) for k in keep]
-        means = [float((np.exp(ln_c) * ln_t).sum() / np.exp(ln_c).sum()) for ln_t, ln_c in (samples[k] for k in keep)]
-        reference_amplitude = float(np.exp(np.polyfit(xs, means, 1)[1])) if len(keep) >= 2 else 1.0
+        # c₁,₀: the intercept of the multiplicity-weighted mean of ln|T| against ln(a/L) over the window.
+        xs = [np.log(a[k] / L) for k in fitted]
+        means = [float((np.exp(ln_c) * ln_t).sum() / np.exp(ln_c).sum()) for ln_t, ln_c in (samples[k] for k in fitted)]
+        reference_amplitude = float(np.exp(np.polyfit(xs, means, 1)[1])) if len(fitted) >= 2 else 1.0
     samples = {k: (ln_t - np.log(reference_amplitude), ln_c) for k, (ln_t, ln_c) in samples.items()}
     shape = (q.size, gam.size, dl.size)
     squeeze = (lambda t: t[..., 0]) if not with_delta else (lambda t: t)
-    if len(keep) < 2:
-        nan = np.full(shape, np.nan)
-        return {"q": q, "gamma": gam, "delta": dl, "h": squeeze(nan), "D": squeeze(nan.copy()),
-                "h2": squeeze(nan.copy()), "tau": squeeze(nan.copy()), "residual": squeeze(nan.copy()),
-                "tau_r2": squeeze(nan.copy()), "n_scales": len(keep), "scales": a[keep],
-                "log_partition": squeeze(np.full(shape + (len(keep),), np.nan)),
-                "reference_amplitude": reference_amplitude}
+    squeeze_z = (lambda t: t[:, :, 0, :]) if not with_delta else (lambda t: t)   # the δ axis, the scales stay
     S_h, S_D, S_h2, ln_Z = (np.empty(shape + (len(keep),)) for _ in range(4))
     qq = np.repeat(q, gam.size * dl.size)
     gg = np.tile(np.repeat(gam, dl.size), q.size)
@@ -127,16 +125,23 @@ def gaussian_ensemble(mods_per_scale, scales_px, q_list, gamma_list, log2_a_min:
             S_D.reshape(-1, len(keep))[start:stop, j] = (w*(lw-log_z[:, None]-ln_c)).sum(axis=-1)
             S_h2.reshape(-1, len(keep))[start:stop, j] = (w*(shifted*shifted/x)).sum(axis=-1)
             ln_Z.reshape(-1, len(keep))[start:stop, j] = log_z
-    la = np.log(a[keep])
-    h, D, h2, tau = (_slopes(la, S) for S in (S_h, S_D, S_h2, ln_Z))
+    if len(fitted) < 2:
+        nan = np.full(shape, np.nan)
+        return {"q": q, "gamma": gam, "delta": dl, "h": squeeze(nan), "D": squeeze(nan.copy()),
+                "h2": squeeze(nan.copy()), "tau": squeeze(nan.copy()), "residual": squeeze(nan.copy()),
+                "tau_r2": squeeze(nan.copy()), "n_scales": len(fitted), "scales": a[keep], "window": window,
+                "log_partition": squeeze_z(ln_Z), "reference_amplitude": reference_amplitude}
+    la = np.log(a[fitted])
+    Z_w = ln_Z[..., window]
+    h, D, h2, tau = (_slopes(la, S[..., window]) for S in (S_h, S_D, S_h2, ln_Z))
     residual = D - (q[:, None, None] * h + gam[None, :, None] * h2 - tau)
-    predicted = ln_Z.mean(axis=-1, keepdims=True) + tau[..., None] * (la-la.mean())
-    ss = ((ln_Z-ln_Z.mean(axis=-1, keepdims=True))**2).sum(axis=-1)
+    predicted = Z_w.mean(axis=-1, keepdims=True) + tau[..., None] * (la-la.mean())
+    ss = ((Z_w-Z_w.mean(axis=-1, keepdims=True))**2).sum(axis=-1)
     with np.errstate(invalid="ignore", divide="ignore"):
-        r2 = 1-((ln_Z-predicted)**2).sum(axis=-1)/ss
+        r2 = 1-((Z_w-predicted)**2).sum(axis=-1)/ss
     return {"q": q, "gamma": gam, "delta": dl, "h": squeeze(h), "D": squeeze(D), "h2": squeeze(h2),
             "tau": squeeze(tau), "residual": squeeze(residual), "tau_r2": squeeze(r2),
-            "log_partition": squeeze(ln_Z), "scales": a[keep], "n_scales": len(keep),
+            "log_partition": squeeze_z(ln_Z), "scales": a[keep], "window": window, "n_scales": len(fitted),
             "reference_amplitude": reference_amplitude}
 
 

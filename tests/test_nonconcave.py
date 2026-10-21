@@ -229,3 +229,26 @@ def test_the_generalized_table_s_slopes_are_the_gaussian_ensemble_s():
     np.testing.assert_allclose(table["D_qa"], identity, atol=1e-9)
     shifted = leaders.generalized_table(samples, "leaders", q, gamma, 0.3, length_px=L, reference_amplitude=1.0)
     assert not np.allclose(shifted["tau_qa"], table["tau_qa"])
+
+
+def test_the_ensemble_keeps_every_scale_and_fits_the_slopes_over_the_window_alone():
+    """The per-scale sums do not depend on the window: ``log_partition`` and ``scales`` cover
+    every nonempty scale, ``window`` marks the ones inside [log2_a_min, log2_a_max], and the
+    slopes use those alone, so a run over a narrow window equals a run restricted to its
+    scales; a window holding one scale still returns every scale's log partition."""
+    scales = np.array([2., 4., 8., 16., 32.])
+    rng = np.random.default_rng(3)
+    mods = [s**.5 * rng.lognormal(0, .3, 50) for s in scales]
+    q, gam = [-1, 0, 1, 2], [0, 1]
+    full = gaussian_ensemble(mods, scales, q, gam, 2, 4, length_px=64., reference_amplitude=1.0)
+    assert full["scales"].tolist() == scales.tolist() and full["log_partition"].shape[-1] == 5
+    np.testing.assert_array_equal(full["window"], [False, True, True, True, False])
+    assert full["n_scales"] == 3
+    narrow = gaussian_ensemble(mods[1:4], scales[1:4], q, gam, 2, 4, length_px=64., reference_amplitude=1.0)
+    np.testing.assert_allclose(full["tau"], narrow["tau"], atol=1e-12)
+    np.testing.assert_allclose(full["h"], narrow["h"], atol=1e-12)
+    np.testing.assert_allclose(full["D"], narrow["D"], atol=1e-12)
+    np.testing.assert_allclose(full["log_partition"][..., 1:4], narrow["log_partition"], atol=1e-12)
+    thin = gaussian_ensemble(mods, scales, q, gam, 2, 2.5, length_px=64., reference_amplitude=1.0)
+    assert thin["n_scales"] == 1 and np.isnan(thin["tau"]).all()
+    assert thin["log_partition"].shape[-1] == 5 and np.isfinite(thin["log_partition"]).all()

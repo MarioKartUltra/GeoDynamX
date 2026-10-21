@@ -159,6 +159,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.cq_plot.setLabel("left", "c_γ(q) = −q² τ_g″")
         add_zero_lines(self.cq_plot)
         self._panel_items: dict = {self.diagram_plot: [], self.tau_plot: [], self.cq_plot: []}
+        self._ensemble, self._fit_lines = None, []      # the last Compute's per-scale log Z; its fitted lines
         for plot in (self.plot, self.diagram_plot, self.tau_plot, self.cq_plot):
             for side in ("bottom", "left"):
                 plot.getAxis(side).enableAutoSIPrefix(False)
@@ -190,6 +191,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             self._region.blockSignals(True)
             self._region.setRegion((lo, hi))
             self._region.blockSignals(False)
+        self._draw_fit_lines()
 
     def _on_region(self) -> None:
         """The spins follow the sliders; the next Compute runs over the new window."""
@@ -201,6 +203,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
                 spin.setValue(v)
                 spin.blockSignals(False)
         self._mark_pending()
+        self._draw_fit_lines()
         self._publish_range(lo, hi)
 
     def _fill_pick(self, combo: QtWidgets.QComboBox, values) -> None:
@@ -213,14 +216,42 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         combo.setCurrentIndex(zero[0] if zero else 0)
         combo.blockSignals(False)
 
-    def _draw_diagrams(self) -> None:
-        fit = self._fit
-        if not fit or "ensemble" not in fit:
-            return
-        g = fit["ensemble"]
+    def _picked_log2_z(self):
+        """The last Compute's log₂ Z_g(q, a) at the picked γ and δ: q, log₂ a per scale, the table."""
+        g = self._ensemble
         gi, di = max(self.gamma_combo.currentIndex(), 0), max(self.delta_combo.currentIndex(), 0)
         q, x = np.asarray(g["q"], float), np.log2(np.asarray(g["scales"], float))
-        log2_z = np.asarray(g["log_partition"], float)[:, gi, di, :] / np.log(2.0)
+        return q, x, np.asarray(g["log_partition"], float)[:, gi, di, :] / np.log(2.0)
+
+    def _draw_fit_lines(self) -> None:
+        """The dashed line per q is the least-squares slope of log₂ Z_g over the scales inside
+        the current range, refitted on every move of the sliders or the spins; it is τ_g(q) at the
+        picked γ and δ once Compute has run over that range."""
+        for item in self._fit_lines:
+            self.diagram_plot.removeItem(item)
+        self._fit_lines.clear()
+        if self._ensemble is None:
+            return
+        q, x, log2_z = self._picked_log2_z()
+        lo, hi = sorted((self.spins["log₂a min"].value(), self.spins["log₂a max"].value()))
+        inside = (x >= lo - 1e-9) & (x <= hi + 1e-9)
+        for i in range(q.size):
+            ok = inside & np.isfinite(log2_z[i])
+            if ok.sum() < 2:
+                continue
+            slope, intercept = np.polyfit(x[ok], log2_z[i][ok], 1)
+            ends = np.array([x[ok].min(), x[ok].max()])
+            item = pg.PlotDataItem(ends, intercept + slope * ends,
+                                   pen=pg.mkPen(_q_color(i, q.size), style=QtCore.Qt.DashLine, width=1.4))
+            self.diagram_plot.addItem(item)
+            self._fit_lines.append(item)
+
+    def _draw_diagrams(self) -> None:
+        if self._ensemble is None:
+            return
+        g = self._ensemble
+        gi, di = max(self.gamma_combo.currentIndex(), 0), max(self.delta_combo.currentIndex(), 0)
+        q, x, log2_z = self._picked_log2_z()
         tau = np.asarray(g["tau"], float)
         for plot, items in self._panel_items.items():          # the sliders and the zero lines stay
             for item in items:
@@ -230,17 +261,10 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         def put(plot, item):
             plot.addItem(item)
             self._panel_items[plot].append(item)
-        for i in range(q.size):
-            hue = _q_color(i, q.size)
+        for i in range(q.size):                                  # every scale of the set, the window or not
             put(self.diagram_plot, pg.PlotDataItem(x, log2_z[i], pen=None, symbol="o", symbolSize=5,
-                                                   symbolPen=None, symbolBrush=hue))
-            slope = tau[i, gi, di]
-            if np.isfinite(slope) and np.isfinite(log2_z[i]).any():
-                ok = np.isfinite(log2_z[i])
-                intercept = float(log2_z[i][ok].mean() - slope * x[ok].mean())
-                ends = np.array([x.min(), x.max()])
-                put(self.diagram_plot, pg.PlotDataItem(ends, intercept + slope * ends,
-                                                       pen=pg.mkPen(hue, style=QtCore.Qt.DashLine, width=1.4)))
+                                                   symbolPen=None, symbolBrush=_q_color(i, q.size)))
+        self._draw_fit_lines()
         gammas = np.asarray(g["gamma"], float)
         for k in range(gammas.size):
             hue = _q_color(k, max(gammas.size, 2))
@@ -343,13 +367,14 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.plot.setYRange(-0.5, 2.5, padding=0.0)
         self._fit = {**result, "name": self._last_name, "kind": "generalized spectrum",
                      "valid": bool(np.isfinite(result["D"]).any()), "window": (result["settings"]["lo"], result["settings"]["hi"])}
+        self._ensemble = g
         self._fill_pick(self.gamma_combo, g["gamma"])
         self._fill_pick(self.delta_combo, g["delta"])
         self._draw_diagrams()
         r2 = g["tau_r2"][np.isfinite(g["tau_r2"])]
         quality = f"min partition R² {r2.min():.3f}" if r2.size else "partition R² unavailable"
         d = g["delta"]
-        self.readout.setText(f"{g['n_scales']} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
+        self.readout.setText(f"{g['n_scales']} of {np.size(g['scales'])} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
                              f"c₁,₀ = log₂ {g['reference_amplitude']:.3g} = {np.log2(g['reference_amplitude']):.2f}"
                              f"{'' if result['settings']['amplitude'] == 'auto' else ' (set by hand)'} · "
                              f"{b.sum()}/{b.size} grid-boundary minima (dots). Negative values retained; "

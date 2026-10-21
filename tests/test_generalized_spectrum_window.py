@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 import numpy as np
+import pytest
 
 from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
 
@@ -160,3 +161,72 @@ def test_the_range_sliders_on_the_partition_panel_follow_and_drive_the_scale_spi
     assert tuple(round(v, 6) for v in w._region.getRegion()) == (1.0, 2.5)
     w.set_scale_window(2.0, 4.0)
     assert tuple(round(v, 6) for v in w._region.getRegion()) == (2.0, 4.0)
+
+
+def _diagram_lines(w):
+    dots = [it for it in w.diagram_plot.listDataItems() if it.opts.get("symbol")]
+    lines = [it for it in w.diagram_plot.listDataItems() if not it.opts.get("symbol")]
+    return dots, lines
+
+
+def _slope(item):
+    x, y = item.getData()
+    return (y[-1] - y[0]) / (x[-1] - x[0])
+
+
+def test_moving_the_scale_range_refits_the_partition_lines_at_once(qtbot):
+    """The dashed lines on the log₂ Z_g panel follow the range sliders as they move: a per-q
+    least squares over the stored per-scale log₂ Z inside the window, drawn across the window's
+    scales; the spectrum itself waits for Compute (the fit is retracted meanwhile)."""
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    w.spins["q min"].setValue(-2)
+    w.spins["q max"].setValue(2)
+    w.spins["Δq"].setValue(1.0)
+    w.spins["Δδ"].setValue(1.0)
+    with qtbot.waitSignal(w.fitChanged, timeout=20000):
+        w.apply_button.click()
+    dots, lines = _diagram_lines(w)
+    x, y = dots[0].getData()
+    assert _slope(lines[0]) == pytest.approx(np.polyfit(x, y, 1)[0])
+    w._region.setRegion((2.0, 4.0))                              # three of the five scales
+    assert w.current_fit() is None                               # D(h) waits for Compute
+    dots, lines = _diagram_lines(w)
+    assert len(dots) == len(lines) == 5
+    x, y = dots[0].getData()
+    inside = (x >= 2.0) & (x <= 4.0)
+    assert _slope(lines[0]) == pytest.approx(np.polyfit(x[inside], y[inside], 1)[0])
+    np.testing.assert_allclose(lines[0].getData()[0], [2.0, 4.0])
+    w.spins["log₂a max"].setValue(3.0)                           # the spins drive the lines too
+    _, lines = _diagram_lines(w)
+    inside = (x >= 2.0) & (x <= 3.0)
+    assert _slope(lines[0]) == pytest.approx(np.polyfit(x[inside], y[inside], 1)[0])
+    w.spins["log₂a max"].setValue(2.5)                           # one scale: no line to draw
+    assert _diagram_lines(w)[1] == []
+
+
+def test_a_recompute_over_a_narrower_window_keeps_every_scale_on_the_partition_panel(qtbot):
+    """The per-scale log₂ Z does not depend on the window, so a narrower Compute still shows
+    every scale as a dot and fits the lines over the window's scales alone."""
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    w.spins["q min"].setValue(-2)
+    w.spins["q max"].setValue(2)
+    w.spins["Δq"].setValue(1.0)
+    w.spins["Δδ"].setValue(1.0)
+    w.set_scale_window(2.0, 4.0)
+    with qtbot.waitSignal(w.fitChanged, timeout=20000):
+        w.apply_button.click()
+    g = w.current_fit()["ensemble"]
+    assert g["n_scales"] == 3 and g["scales"].size == 5
+    dots, lines = _diagram_lines(w)
+    np.testing.assert_allclose(dots[0].getData()[0], np.log2(scales))
+    x, y = dots[0].getData()
+    inside = (x >= 2.0) & (x <= 4.0)
+    assert _slope(lines[0]) == pytest.approx(np.polyfit(x[inside], y[inside], 1)[0])
+    assert _slope(lines[0]) == pytest.approx(g["tau"][0, 0, list(g["delta"]).index(0.0)] )
+    assert "3 of 5 scales" in w.readout.text()
