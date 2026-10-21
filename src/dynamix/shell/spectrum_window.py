@@ -549,7 +549,10 @@ class SpectrumWindow(QtWidgets.QDialog):
         if self._per_scale or has_hd:
             beyond = _WrappingLayout()
             if self._per_scale:
-                self.ld_source_combo = QtWidgets.QComboBox()         # the ensemble's set
+                # The ensemble's set, kept off the layout: a hidden child of the window, deleted
+                # with it together with its connection.
+                self.ld_source_combo = QtWidgets.QComboBox(self)
+                self.ld_source_combo.hide()
                 self.ld_source_combo.addItems(list(self._per_scale))
                 self.ld_source_combo.currentTextChanged.connect(lambda _t: self._recompute())
                 self.gaussian_check = QtWidgets.QCheckBox("Ensemble candidates γ")

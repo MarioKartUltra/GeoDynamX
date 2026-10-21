@@ -175,6 +175,9 @@ def test_closed_partition_cannot_republish_an_old_table(win, qtbot):
     ("_on_dh_button_clicked", "_spectrum_construction_window"),
 ])
 def test_replaced_fitting_widgets_are_released(win, opener, attr):
+    import gc
+    import weakref
+
     from PySide6 import QtCore
     from shiboken6 import isValid
     from test_multifractal_window import _pair
@@ -182,10 +185,14 @@ def test_replaced_fitting_widgets_are_released(win, opener, attr):
     win._active_result = {**_leaders_result(), "hd_std": std, "hd_cmax": cmax}
     getattr(win, opener)()
     previous = getattr(win, attr)
+    gone = weakref.ref(previous)
     getattr(win, opener)()
     QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
     assert not isValid(previous)
     assert isValid(getattr(win, attr))
+    del previous
+    gc.collect()
+    assert gone() is None                    # nothing outside the window holds its Python side
 
 
 def test_an_adaptive_large_deviation_fit_reaches_an_open_construction_window(win, qtbot):
