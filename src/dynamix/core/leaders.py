@@ -54,20 +54,25 @@ EDGE_MODES = {"mirror": "symmetric", "reflect": "reflect", "edge_pad": "edge", "
 
 # ----------------------------------------------------------------------------------- coefficients
 
-def _extend(x, W, edge: str):
+def _extend(x, W, edge: str, pad=None):
     """``x`` continued to the working shape ``W`` by ``edge`` (:data:`EDGE_MODES`): the mirror
     through :func:`dwt.mirror` (the DWT tools' own construction), the others by numpy's pad
-    after the data."""
+    after the data. ``pad`` puts that many pixels of the same continuation before the data per
+    axis, which is where the dyadic grid's offset lives: the data then starts at ``pad`` in the
+    working image."""
+    if edge not in EDGE_MODES and edge != "mirror":
+        raise ValueError(f"leaders: edge {edge!r}, expected one of {tuple(EDGE_MODES)}")
+    if pad is not None and any(int(p) for p in pad):
+        x = np.pad(x, tuple((int(p), 0) for p in pad),
+                   mode="symmetric" if edge == "mirror" else EDGE_MODES[edge])
     if edge == "mirror":
         return dwt.mirror(x, W)
-    if edge not in EDGE_MODES:
-        raise ValueError(f"leaders: edge {edge!r}, expected one of {tuple(EDGE_MODES)}")
-    pad = tuple((0, int(w) - int(n)) for w, n in zip(W, x.shape))
-    return np.pad(x, pad, mode=EDGE_MODES[edge])
+    after = tuple((0, int(w) - int(n)) for w, n in zip(W, x.shape))
+    return np.pad(x, after, mode=EDGE_MODES[edge])
 
 
 def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str = "mirror",
-                 origin=(0, 0), block=None) -> dict:
+                 origin=(0, 0), block=None, anchor=None) -> dict:
     """The detail moduli of the field continued by ``edge`` to the working image, L¹, registered
     and integrated by 2^{γj}: ``mods[j-1]`` is the stack ``(n_bands, *cells)`` of |d| at level
     j = 1..``level``; ``bad[j-1]`` marks the cells holding a non-finite pixel (filled with the
@@ -75,21 +80,35 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str
     lies inside the data — the whole field, or the real block of a Periodic extension's output
     starting at ``origin`` with ``block`` pixels per axis. Under ``periodic`` the working image is
     the field wrapped to the next multiple of 2^J per axis, not doubled: a periodic field has no
-    edge to hide."""
+    edge to hide.
+
+    The dyadic grid's place on the data: ``anchor`` names, per axis, the data pixel on which a
+    coarsest-cell boundary falls (modulo 2^J); without it the remainder of the extent over 2^J is
+    split between the two edges, so the partial cells, and the border the bank costs beyond them,
+    are the same width on every side. A region of a larger field passes the field's own phase
+    shifted by the region's origin, and so keeps the field's cells. The data starts at ``pad``
+    in the working image."""
     x = np.asarray(values, dtype=np.float64)
     if x.ndim not in (1, 2):
         raise ValueError(f"leaders: a 1-D signal or a 2-D band, not shape {x.shape}")
     J = int(level)
+    cell = 2 ** J
+    if anchor is None:
+        phase = tuple((int(n) % cell) // 2 for n in x.shape)
+    else:
+        phase = tuple(int(a) % cell for a in anchor)
+    pad = tuple((cell - p) % cell for p in phase)
+    padded = tuple(int(n) + p for n, p in zip(x.shape, pad))
     finite = np.isfinite(x)
     filled = np.where(finite, x, float(x[finite].mean()) if finite.any() else 0.0)
     if edge == "periodic":
-        W = tuple(int(math.ceil(int(n) / 2 ** J)) * 2 ** J for n in x.shape)
+        W = tuple(int(math.ceil(int(n) / cell)) * cell for n in padded)
     else:
-        W = dwt.working_shape(x.shape, J)
-    work = _extend(filled, W, edge)
-    bad = _extend((~finite).astype(np.float64), W, "zero_pad" if edge in ("zero_pad", "edge_pad") else edge) > 0.5
+        W = dwt.working_shape(padded, J)
+    work = _extend(filled, W, edge, pad)
+    bad = _extend((~finite).astype(np.float64), W, "zero_pad" if edge in ("zero_pad", "edge_pad") else edge, pad) > 0.5
     size = tuple(int(n) for n in x.shape) if block is None else tuple(int(n) for n in block)
-    start = tuple(int(o) for o in origin)
+    start = tuple(int(o) + p for o, p in zip(origin, pad))
     reg = dwt.registration(name, J)
     d = x.ndim
     mods = []
@@ -112,8 +131,8 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str
     seam = edge == "periodic" and tuple(W) != tuple(x.shape)
     return {"mods": mods, "bad": [_pool_to(bad, j, np.any) for j in range(1, J + 1)],
             "block": cells, "levels": J, "ndim": d, "shape": tuple(x.shape), "work_shape": tuple(W),
-            "data_shape": size, "origin": start, "edge": edge, "seam": seam,
-            "registration": reg, "gamma": float(gamma), "wavelet": name}
+            "data_shape": size, "origin": start, "edge": edge, "seam": seam, "pad": pad,
+            "phase": phase, "registration": reg, "gamma": float(gamma), "wavelet": name}
 
 
 def _pool(a, op):
@@ -475,13 +494,15 @@ def local_exponent(per_level: list, valid: list, j_min: int) -> tuple:
     return slope, r2
 
 
-def paint(cells, level: int, shape) -> np.ndarray:
-    """A level-``level`` cell grid painted over its 2^level-px blocks, cropped to ``shape``."""
+def paint(cells, level: int, shape, pad=None) -> np.ndarray:
+    """A level-``level`` cell grid painted over its 2^level-px blocks, cropped to ``shape``
+    from ``pad``, where the data starts in the working image."""
     out = np.asarray(cells)
     f = 2 ** int(level)
     for ax in range(out.ndim):
         out = np.repeat(out, f, axis=ax)
-    return out[tuple(slice(0, int(n)) for n in shape)]
+    start = (0,) * out.ndim if pad is None else tuple(int(p) for p in pad)
+    return out[tuple(slice(p, p + int(n)) for p, n in zip(start, shape))]
 
 
 # ------------------------------------------------------------------------------------------- run
@@ -489,13 +510,15 @@ def paint(cells, level: int, shape) -> np.ndarray:
 def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max: int = 64,
                 gamma: float = 0.0, p: float = 2.0, wse_rule: str = "dumeur", wse_depth: int = 1,
                 wse_width: float = 1.0, wse_beta: float = 0.25, edge: str = "mirror",
-                origin=(0, 0), block=None, progress=None) -> dict:
+                origin=(0, 0), block=None, anchor=None, progress=None) -> dict:
     """The three quantities on one band (or 1-D signal): the pyramid to J = log2 ``scale_max``,
     the local exponent over the levels from log2 ``scale_min``, the admissibility, and the
     quantities and bare coefficients over their valid cells as ``samples`` (the ``Samples``
     contract, what :func:`tables` and the fitting tools read). ``edge`` continues the field
     (:data:`EDGE_MODES`); under ``periodic`` no border is lost. ``origin`` and ``block`` name
-    the data's real block inside the field (a Periodic extension's output)."""
+    the data's real block inside the field (a Periodic extension's output); ``anchor`` places the
+    dyadic grid (:func:`coefficients`), and the returned ``pad`` is where the data starts in the
+    working image, what :func:`paint` crops from."""
     J, j_min = _level_of(scale_max, "scale_max"), _level_of(scale_min, "scale_min")
     if j_min >= J:
         raise ValueError(f"leaders: scale_min {scale_min} px must be below scale_max {scale_max} px")
@@ -507,7 +530,7 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
                          f"{2 ** J} px")
     tick = progress or (lambda frac: None)
 
-    coef = coefficients(x, wavelet, J, gamma=gamma, edge=edge, origin=origin, block=block)
+    coef = coefficients(x, wavelet, J, gamma=gamma, edge=edge, origin=origin, block=block, anchor=anchor)
     tick(0.3)
     # The border the continuation costs: the bank's cells for a padded edge, none on a torus;
     # a wrapped field whose period is not the working size has a seam at the wrap, a border there.
@@ -535,7 +558,7 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     scales = 2.0 ** np.arange(1, J + 1)
     return {"levels": J, "j_min": j_min, "scales": scales, "ndim": x.ndim,
             "shape": coef["shape"], "edge": edge, "seam": coef["seam"], "origin": coef["origin"],
-            "data_shape": coef["data_shape"],
+            "data_shape": coef["data_shape"], "pad": coef["pad"], "phase": coef["phase"], "block": coef["block"],
             "wavelet": wavelet, "gamma": float(gamma), "p": float(p),
             "coefficients": coef["mods"], "quantity": quantity, "oscillation": osc, "valid": valid,
             "samples": sample_sets(quantity, coef["mods"], valid, scales, coef["data_shape"],

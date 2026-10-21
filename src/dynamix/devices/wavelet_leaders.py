@@ -127,8 +127,23 @@ class WaveletLeaders:
                              f"px to scale_max {params['scale_max']} px spans {J - j_min + 1}")
 
     def roi_margin(self, params: dict) -> int:
-        """What an ROI must read beyond its window: the bank's border in cells of the coarsest level."""
-        return dwt.border_cells(params["wavelet"]) * int(params["scale_max"])
+        """What an ROI must read beyond its window: the bank's border in cells of the coarsest
+        level, plus one cell, the partial cell the window's grid may start with when it keeps the
+        field's cells."""
+        return (dwt.border_cells(params["wavelet"]) + 1) * int(params["scale_max"])
+
+    @staticmethod
+    def grid_anchor(field, scale_max: int):
+        """Where the coarsest cell's boundary falls on this field's pixels, so a region keeps the
+        whole field's cells: the field's centred phase shifted by the region's origin in it, from
+        the provenance a processing window carries; None for a field that is the whole file."""
+        prov = getattr(field, "provenance", None) or {}
+        win, full = prov.get("window"), prov.get("full_dims")
+        if not win or not full:
+            return None
+        cell = int(scale_max)
+        return tuple(((int(n) % cell) // 2 - int(off)) % cell
+                     for n, off in zip(full, (win.get("row_off", 0), win.get("col_off", 0))))
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
         """The fitted cells in the field's units beside ``scale_min`` and ``scale_max``; what
@@ -212,7 +227,8 @@ class WaveletLeaders:
             scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
             wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
             wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
-            edge=edge, origin=origin, block=block, progress=tick)
+            edge=edge, origin=origin, block=block, anchor=self.grid_anchor(field, int(params["scale_max"])),
+            progress=tick)
         j_min, J = run["j_min"], run["levels"]
         warnings = []
         truncated = [j for j, flag in enumerate(run["wse_truncated"], 1) if flag and j >= j_min]
@@ -250,9 +266,10 @@ class WaveletLeaders:
         valid = {m: list(run["valid"][m]) for m in leaders.METHODS + ("coefficients",)}
         valid["oscillation"] = [a & b for a, b in zip(valid["leaders"], valid["wse"])]
         method = params["method"]
-        h_map, r2_map = self._paint(h_cells[method], j_min, vals.shape)
+        h_map, r2_map = self._paint(h_cells[method], j_min, vals.shape, run["pad"])
         record = {
             "method": self.name, "wavelet": params["wavelet"], "levels": {"j_min": j_min, "J": J},
+            "grid": {"cell": 2 ** J, "phase": [int(v) for v in run["phase"]], "pad": [int(v) for v in run["pad"]]},
             "edge": {"asked": params["edge"], "used": edge, "border_cells": e,
                      "block": list(block) if block else None, "origin": list(origin)},
             "seam": bool(run["seam"]),
@@ -281,16 +298,16 @@ class WaveletLeaders:
             "hd_source": f"dyadic {params['method']}",
             "_h_cells": h_cells, "_quantity": quantity, "_valid": valid, "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
-            "_dyadic_origin": (0, 0),
+            "_dyadic_origin": tuple(int(v) for v in run["phase"]), "_pad": tuple(int(v) for v in run["pad"]),
             "_frame": getattr(field, "frame", None), "_shape": tuple(vals.shape),
             "record": record, "warnings": warnings,
         }
 
     @staticmethod
-    def _paint(cells, j_min: int, shape) -> tuple:
+    def _paint(cells, j_min: int, shape, pad=None) -> tuple:
         h, r2 = cells
-        return (leaders.paint(h, j_min, shape).astype(np.float32),
-                leaders.paint(r2, j_min, shape).astype(np.float32))
+        return (leaders.paint(h, j_min, shape, pad).astype(np.float32),
+                leaders.paint(r2, j_min, shape, pad).astype(np.float32))
 
     @staticmethod
     def _painted(cells, level: int, result: dict) -> np.ndarray:
@@ -299,7 +316,8 @@ class WaveletLeaders:
         painted and the margin cut; a whole-field result's window is the field."""
         h, w = (int(v) for v in result["_shape"])
         m = int((result.get("_roi") or {}).get("margin") or 0)
-        return leaders.paint(cells, level, (h + 2 * m, w + 2 * m))[m:m + h, m:m + w].astype(np.float32)
+        pad = result.get("_pad")
+        return leaders.paint(cells, level, (h + 2 * m, w + 2 * m), pad)[m:m + h, m:m + w].astype(np.float32)
 
     def view(self, result: dict, params: dict) -> dict:
         """The h-map of ``method``: the cached result itself for the method it was computed

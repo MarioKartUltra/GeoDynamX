@@ -58,7 +58,9 @@ def test_the_tool_sits_in_regularity_and_produces_an_h_map(dev):
     keyed = keyed_params(dev, p)
     assert "method" not in keyed and "show" not in keyed                              # view-only
     assert {"wavelet", "scale_min", "scale_max", "gamma", "p", "wse_rule"} <= set(keyed)
-    assert dev.roi_margin(p) == dwt.border_cells("sym4") * 64
+    # The bank's border in coarsest cells, plus the partial cell a region's grid may start with
+    # when it keeps the whole field's cells.
+    assert dev.roi_margin(p) == (dwt.border_cells("sym4") + 1) * 64
     assert dev.wavelet_profile(p, 16.0, 3).family == "sym4 ψ, level 4"
     assert dev.derived_reading("scale_min", 4, make_field(np.zeros((16, 16)))) is None
 

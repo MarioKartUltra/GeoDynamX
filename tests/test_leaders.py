@@ -493,11 +493,11 @@ def test_the_real_block_bounds_the_valid_cells_and_a_wrap_of_another_period_is_a
     assert np.allclose(t["tau_qa"][_qi(t, 0.0)], 2 * np.log2(256) - 2 * np.arange(1, 6))
     odd = L.run_leaders(np.pad(f, ((0, 8), (0, 8)), mode="wrap"), scale_min=4, scale_max=32,
                         wse_rule="fixed", edge="periodic", block=(256, 256))
-    assert odd["seam"] is True                                            # 264 wraps to 288: a seam
+    assert odd["seam"] is True                                            # 264 is no period of the working size: a seam
     e = dwt.border_cells("sym4")
     for j in range(1, 6):
         v = odd["valid"]["leaders"][j - 1]
-        n = 288 // 2 ** j
+        n = v.shape[0]                                                    # the working size, the grid centred on the 264 px
         assert not v[:e].any() and not v[n - e:].any()                    # the seam's border
     plain = L.run_leaders(f, scale_min=4, scale_max=32, wse_rule="fixed", edge="periodic")
     assert plain["seam"] is False and all(v.all() for v in plain["valid"]["leaders"])
