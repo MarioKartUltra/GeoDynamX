@@ -11,13 +11,14 @@ it is kept.
 - **Keep**: saved to a file (a Save-As dialog follows), or temporary -- this session only, left
   out of a saved project until "Save derivative as…".
 
-The shell does the writing; this only asks.
+The shell does the writing; this only asks. Fast Fork (Y) skips the dialog: :func:`fast_fork_choice`
+turns the Fast Fork settings into the same choices, and :class:`FastForkSettingsDialog` edits them.
 """
 from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
-__all__ = ["ForkDialog"]
+__all__ = ["FastForkSettingsDialog", "ForkDialog", "fast_fork_choice"]
 
 
 class ForkDialog(QtWidgets.QDialog):
@@ -116,3 +117,53 @@ class ForkDialog(QtWidgets.QDialog):
         return {"name": self._name.text().strip(), "bands": self._checked_bands(),
                 "vectors": self._vectors(), "nest": self._nest.isChecked(),
                 "temporary": self._temporary.isChecked()}
+
+
+def fast_fork_choice(settings: dict, *, name: str, rasters: list, produced: bool, vectors: tuple) -> dict:
+    """The dialog's choices from the Fast Fork ``settings``: every raster when they say ``all``
+    or when the layer shows a produced field (its bands are what is on screen), else the raster
+    shown, the first; the vectors when the settings ask for them or no raster is there to take."""
+    bands = list(range(len(rasters))) if settings["rasters"] == "all" or produced else [0][:len(rasters)]
+    take_vectors = (settings["vectors"] or not bands) and sum(vectors) > 0
+    return {"name": name, "bands": bands, "vectors": bool(take_vectors), "nest": settings["nest"],
+            "temporary": settings["temporary"]}
+
+
+class FastForkSettingsDialog(QtWidgets.QDialog):
+    """Settings > Fast Fork…: what Y forks without asking."""
+
+    def __init__(self, settings: dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Fast Fork")
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(QtWidgets.QLabel("Y forks the active layer's result as set here, with no dialog."))
+
+        def pair(title, first, second, second_on):
+            box = QtWidgets.QGroupBox(title)
+            lay = QtWidgets.QVBoxLayout(box)
+            a, b = QtWidgets.QRadioButton(first), QtWidgets.QRadioButton(second)
+            (b if second_on else a).setChecked(True)
+            lay.addWidget(a)
+            lay.addWidget(b)
+            layout.addWidget(box)
+            return b
+
+        self._nest = pair("Placement", "A dataset row of its own", "Nested inside the dataset it came from",
+                          settings["nest"])
+        self._file = pair("Keep", "Temporary, this session only", "Save to a file… (permanent)",
+                          not settings["temporary"])
+        self._all_rasters = pair("Rasters", "The raster shown", "Every raster the result holds",
+                                 settings["rasters"] == "all")
+        self._vectors = QtWidgets.QCheckBox("Also the extrema and maxima lines shown")
+        self._vectors.setChecked(settings["vectors"])
+        layout.addWidget(self._vectors)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def choices(self) -> dict:
+        """The settings entry: ``{"nest", "temporary", "rasters" ("shown" | "all"), "vectors"}``."""
+        return {"nest": self._nest.isChecked(), "temporary": not self._file.isChecked(),
+                "rasters": "all" if self._all_rasters.isChecked() else "shown",
+                "vectors": self._vectors.isChecked()}

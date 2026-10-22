@@ -43,6 +43,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("edit.undo_rack_drop", "Undo Rack Removal", "Edit", ("Ctrl+Shift+Z",)),
     Command("edit.cancel_transect", "Cancel Transect", "Edit", ("Esc",)),
     Command("layer.roi", "ROI…", "Layer"),
+    Command("layer.fast_fork", "Fast Fork", "Layer", ("Y",)),
     Command("chain.run", "Run", "Layer", ("Ctrl+Return",)),
     Command("transport.play", "Play / Pause", "Layer", ("Space",)),
     Command("view.zoom_to_dataset", "Zoom to Layer", "View", ("R", "Ctrl+0", "F")),
@@ -75,6 +76,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("settings.precision.64", "64-bit (double, FFTW3)", "Settings", checkable=True,
             group="settings.precision", headless=True, submenu="FFT precision"),
     Command("settings.eta_warn", "Under-sampling Warning Level…", "Settings"),
+    Command("settings.fast_fork", "Fast Fork…", "Settings"),
     Command("help.about", "About GeoDynamix", "Help"),
 )
 

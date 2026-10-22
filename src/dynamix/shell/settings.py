@@ -17,6 +17,20 @@ from dynamix.model.atomic_write import write_json_atomically
 _CENTER_VIEWS = ("raster", "map", "vector", "geo")
 
 
+#: Fast Fork's defaults: a temporary dataset of its own holding the raster shown, no vectors.
+FAST_FORK_DEFAULTS = {"nest": False, "temporary": True, "rasters": "shown", "vectors": False}
+
+
+def _fast_fork(value) -> dict:
+    """A stored Fast Fork entry when every field is valid, else the defaults."""
+    if not isinstance(value, dict) or set(value) != set(FAST_FORK_DEFAULTS):
+        return dict(FAST_FORK_DEFAULTS)
+    if not all(isinstance(value[k], bool) for k in ("nest", "temporary", "vectors")) \
+            or value["rasters"] not in ("shown", "all"):
+        return dict(FAST_FORK_DEFAULTS)
+    return dict(value)
+
+
 @dataclasses.dataclass
 class Settings:
     auto_run_wtmm: bool = False
@@ -71,6 +85,10 @@ class Settings:
     #: Nyquist (``dynamix.core.undersampling``). Applied at startup and from Settings > Under-sampling
     #: Warning Level; anything that is not a positive number falls back to 1e-3 (spec 19's level).
     eta_warn: float = 1e-3
+    #: What Fast Fork (Y) writes without its dialog (:data:`FAST_FORK_DEFAULTS`): nested under the
+    #: dataset or a row of its own, temporary or saved to a file, the raster shown or every raster,
+    #: and the result's vectors. Set from Settings > Fast Fork…; an invalid entry reads as the defaults.
+    fast_fork: dict = dataclasses.field(default_factory=lambda: dict(FAST_FORK_DEFAULTS))
     #: Where each floating window was left, ``{key: [x, y, w, h]}`` in screen pixels
     #: (``dynamix.shell.window_fit.remember_geometry``); a saved geometry that lands on no
     #: screen is ignored on restore.
@@ -185,6 +203,7 @@ def load_settings() -> Settings:
         result_cache_entries=_positive_int(d.get("result_cache_entries"), 8),
         eta_warn=_positive_float(d.get("eta_warn"), 1e-3),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
+        fast_fork=_fast_fork(d.get("fast_fork")),
         theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
 

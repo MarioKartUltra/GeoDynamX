@@ -113,7 +113,7 @@ from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NE
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
 from dynamix.shell.inpaint_window import InpaintHistogramsWindow
-from dynamix.shell.fork_dialog import ForkDialog
+from dynamix.shell.fork_dialog import FastForkSettingsDialog, ForkDialog, fast_fork_choice
 from dynamix.shell.bus_dialog import BusDialog
 from dynamix.shell.sends_dialog import SendsDialog
 from dynamix.shell.import_dialog import ImportGridsDialog
@@ -4017,13 +4017,25 @@ both ``Canvas`` signals report the
                 return
 
     # -- derivative datasets -------------------------------------------------------------------
-    def _on_fork_derivative(self, layer_id: int) -> None:
+    def _fast_fork(self) -> None:
+        """Fast Fork (Y): the active layer forked as the Fast Fork settings say, with no dialog."""
+        if self.layer is not None:
+            self._on_fork_derivative(self.layer.layer_id, fast=True)
+
+    def _on_fast_fork_settings(self) -> None:
+        """Settings > Fast Fork…: what Y forks, persisted."""
+        dialog = FastForkSettingsDialog(load_settings().fast_fork, parent=self)
+        if dialog.exec():
+            update_settings(fast_fork=dialog.choices())
+
+    def _on_fork_derivative(self, layer_id: int, *, fast: bool = False) -> None:
         """"Fork derivative dataset…": what a result holds -- the rasters picked as bands and/or
         the extrema and maxima lines it shows -- written ONCE as a dataset of its own and opened
         like any raw one (:mod:`dynamix.core.derivative`). Unlike a child it never re-processes;
         its provenance records where it came from, as history only. The fork takes the result
         ON SCREEN, so the row is selected first; a result that is computing or pending (its
-        knobs moved, not yet run) is refused."""
+        knobs moved, not yet run) is refused. ``fast`` takes the choices from the Fast Fork
+        settings (:func:`~dynamix.shell.fork_dialog.fast_fork_choice`) in place of the dialog."""
         from datetime import datetime
 
         from dynamix.core.derivative import (carried_from, raster_choices, result_grid,
@@ -4048,12 +4060,19 @@ both ``Canvas`` signals report the
         note = row[len(prefix):] if row.startswith(prefix) else "shown"
         rasters = (_field_choices(produced, note) if produced is not None
                    else raster_choices(result, shown_label=f"as shown ({note})"))
-        dialog = ForkDialog(name=f"{dataset} · {row}", raster_labels=[l for l, _a in rasters],
-                            vector_counts=vector_counts(result), parent_name=dataset,
-                            parent=self)
-        if not dialog.exec():
-            return
-        choice = dialog.choices()
+        if fast:
+            choice = fast_fork_choice(load_settings().fast_fork, name=f"{dataset} · {row}", rasters=rasters,
+                                      produced=produced is not None, vectors=vector_counts(result))
+            if not choice["bands"] and not choice["vectors"]:
+                self._notify("fast fork: this layer shows nothing to fork", "status")
+                return
+        else:
+            dialog = ForkDialog(name=f"{dataset} · {row}", raster_labels=[l for l, _a in rasters],
+                                vector_counts=vector_counts(result), parent_name=dataset,
+                                parent=self)
+            if not dialog.exec():
+                return
+            choice = dialog.choices()
         path = self._derivative_path(choice["name"], temporary=choice["temporary"])
         if path is None:
             return
@@ -11225,7 +11244,7 @@ both ``Canvas`` signals report the
         window = weakref.ref(self)
         has_field = lambda: (w := window()) is not None and w.field is not None
         return {cid: has_field for cid in ("chain.run", "file.export_chains", "file.export_derived",
-                                           "layer.roi")}
+                                           "layer.roi", "layer.fast_fork")}
 
     def _open_cache_inspector(self):
         from dynamix.shell.cache_inspector import CacheInspector
@@ -11270,9 +11289,11 @@ both ``Canvas`` signals report the
             "file.export_derived": self._on_export_derived_clicked,
             "file.write_provenance": self._on_write_provenance,
             "layer.roi": self._on_roi_tool_clicked,
+            "layer.fast_fork": self._fast_fork,
             "chain.run": self._run_transforms,
             "view.map_crs": self._on_map_crs_action,
             "settings.eta_warn": self._on_eta_warn_clicked,
+            "settings.fast_fork": self._on_fast_fork_settings,
             **self.controller.handlers(),
             "view.reset_layout": self.reset_layout,
             "view.layouts.save_as": self._save_layout_as,
