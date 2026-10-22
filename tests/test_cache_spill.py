@@ -233,3 +233,15 @@ def test_pressure_can_drop_other_ram_entries_while_a_write_is_pending(tmp_path,m
         assert len(c._pending)==1 and len(c._store)<=2
     finally:
         release.set();c.wait_for_spills();c.close()
+
+
+def test_cache_collection_removes_its_disk_folder(tmp_path):
+    import gc
+    import weakref
+    folder=tmp_path/'cache'
+    c=Cache(max_bytes=1,disk_dir=folder,spill_threshold=1)
+    c.put('a',blob());c.put('b',blob());c.wait_for_spills()
+    reference=weakref.ref(c)
+    del c;gc.collect()
+    assert reference() is None
+    assert not folder.exists()

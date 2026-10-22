@@ -220,14 +220,8 @@ class Cache:
         else:
             from dynamix.engine.disk_cache import DiskStore
             self.disk = DiskStore(disk_dir, disk_bytes)
-            import atexit
             import weakref
-            reference = weakref.ref(self)
-            def cleanup():
-                cache = reference()
-                if cache is not None:
-                    cache.close()
-            atexit.register(cleanup)
+            self._disk_finalizer = weakref.finalize(self, self.disk.close)
 
     def _touch(self, key: str) -> None:
         self._store[key] = self._store.pop(key)   # move to the recent end
@@ -700,7 +694,7 @@ class Cache:
         if executor:
             executor.shutdown(wait=True)
         if self.disk:
-            self.disk.close()
+            self._disk_finalizer()
 
 
 
