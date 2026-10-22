@@ -81,7 +81,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core import chain_stats
 from dynamix.shell.plot_zoom import WheelAxisViewBox
 from dynamix.shell.theme import current, rgb
-from dynamix.shell.window_fit import fit_to_screen
+from dynamix.shell.window_fit import TOOL_WINDOW, fit_to_screen, show_while_inactive
 
 __all__ = ["SkeletonDialog", "MAX_DRAWN"]
 
@@ -143,7 +143,8 @@ class SkeletonDialog(QtWidgets.QDialog):
     selectionRequested = QtCore.Signal(list)
 
     def __init__(self, chains, px_size: float | None = None, parent=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self._chains = list(chains)
         self._px_log2 = math.log2(px_size) if px_size else 0.0

@@ -50,6 +50,7 @@ import numpy as np
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core.transect import SMOOTHINGS, smooth_profile
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["ProfileDialog"]
 
@@ -79,7 +80,8 @@ class ProfileDialog(QtWidgets.QDialog):
         # with min/max/close chrome, same choice ``SkeletonDialog`` made and for the
         # identical reason: several of these may be open side by side (see the module docstring's
         # "Lifecycle" section), so each needs its own full window chrome, not modal-dialog chrome.
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
 
         self._dist = np.asarray(dist, dtype=np.float64)

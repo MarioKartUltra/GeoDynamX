@@ -30,6 +30,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.core.stretch import parse_class_colors, parse_levels, resolve_breaks
 from dynamix.shell.theme import current
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["LevelsDialog", "BandDialog"]
 
@@ -41,7 +42,8 @@ class _HistogramDialog(QtWidgets.QDialog):
     """Shared base: the value histogram, a bin-width spin, horizontal-only zoom."""
 
     def __init__(self, values, title: str, parent=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self.setWindowTitle(title)
         v = np.asarray(values, dtype=np.float64).ravel()

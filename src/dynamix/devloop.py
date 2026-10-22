@@ -119,8 +119,8 @@ _DEPENDS_ON = {
     "fork_dialog": (),
     "sends_dialog": ("bus_dialog", ),
     "bus_dialog": (),
-    "inpaint_window": ("plot_zoom", ),
-    "components_window": ("plot_zoom", "theme", ),
+    "inpaint_window": ("plot_zoom", "window_fit", ),
+    "components_window": ("plot_zoom", "theme", "window_fit", ),
     "figure_data": (),
     "slope_plot": ("plot_zoom", "theme",),
     "directional_figures": ("plot_zoom", "figure_data", "slope_plot", "theme", "window_fit", "settings"),
@@ -193,7 +193,7 @@ _DEPENDS_ON = {
     # ``dynamix.core.transect``, no ``dynamix.shell.*`` module -- see the module's own "Accent
     # color" docstring section for why it does NOT import ``theme``), same shape as
     # "topology_panel"/"transect_panel" above.
-    "profile_dialog": (),
+    "profile_dialog": ("window_fit", ),
     # The interactive multifractal-spectrum window -- imports ``theme``
     # for its background/inks (the ``canvas.py`` precedent) plus ``dynamix.core.spectra``; no
     # other ``dynamix.shell.*`` module.
@@ -212,7 +212,7 @@ _DEPENDS_ON = {
     # topology_panel/transect_panel shape).
     "surface_dialog": (),
     # The density-slice editor -- imports theme (canvas.py precedent) + core.stretch.
-    "levels_dialog": ("theme",),
+    "levels_dialog": ("theme", "window_fit", ),
     # "inspector" joins the list because main_window.py now imports
     # InspectorWindow at module level (it opens/closes them and fans ``resolved`` out to them).
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier

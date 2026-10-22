@@ -37,6 +37,7 @@ from dynamix.core.anisotropy import (SECTOR_LABELS, angle_pdf, anisotropy_vs_sca
 from dynamix.core.orientation import Frame, from_arg, grid_to_true, to_azimuth
 from dynamix.shell.theme import RESTRAINED_DARK
 from dynamix.shell.plot_zoom import zoom_plot
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["AnisotropyWindow", "ESTIMATORS"]
 
@@ -54,7 +55,8 @@ class AnisotropyWindow(QtWidgets.QWidget):
     """A floating window; :meth:`set_result` feeds it the active result and its field."""
 
     def __init__(self, parent=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setWindowTitle("Directional roughness — WTMMM statistics")
         from dynamix.shell.window_fit import fit_to_screen
 

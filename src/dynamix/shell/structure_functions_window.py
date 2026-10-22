@@ -26,6 +26,7 @@ from dynamix.shell.multifractal_window import (PhysicalAxis, PhysicalLog2Axis, W
                                                add_zero_lines)
 from dynamix.shell.theme import current
 from dynamix.shell.shared_range import SharedRangeFollower
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["StructureFunctionsWindow"]
 
@@ -50,7 +51,8 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
 
     def __init__(self, samples: dict, *, gamma: float = 0.0, levels=None, source: str = "",
                  parent=None, physical_of_log2a=None, log2_L=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self._samples = samples
         self._gamma = float(gamma)

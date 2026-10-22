@@ -603,3 +603,31 @@ def test_construction_controls_wrap_inside_the_screen(qtbot):
     assert window.width() <= min(720, available.width())
     controls = window.layout().itemAt(0).layout()
     assert controls.heightForWidth(600) > controls.heightForWidth(1200)
+
+
+def test_the_spectra_inspector_lists_the_published_spectra_and_shows_or_hides_them(qtbot):
+    """The Spectra button opens a small window kept in front of the construction, one checkable
+    row per published spectrum; a row and the spectrum's Show action follow each other."""
+    from PySide6 import QtCore
+
+    window = SpectrumWindow(*_pair())
+    qtbot.addWidget(window)
+    q = np.arange(-2.0, 4.01, 0.5)
+    fits = [{"name": n, "q": q, "tau": 0.5 * q - 2, "h": np.full(q.size, 0.5), "D": np.full(q.size, 2.0),
+             "cq": np.zeros(q.size)} for n in ("L1 · leaders", "L1 · p-leaders")]
+    window.set_fits(fits)
+    window.spectra_button.click()
+    inspector = window.spectra_inspector
+    flags = inspector.windowFlags()
+    assert flags & QtCore.Qt.WindowType.WindowType_Mask == QtCore.Qt.WindowType.Tool
+    assert flags & QtCore.Qt.WindowType.WindowStaysOnTopHint and inspector.parentWidget() is window
+    rows = [inspector.list.item(i) for i in range(inspector.list.count())]
+    assert [r.text() for r in rows] == ["L1 · leaders", "L1 · p-leaders"]
+    assert all(r.checkState() == QtCore.Qt.CheckState.Checked for r in rows)
+    rows[0].setCheckState(QtCore.Qt.CheckState.Unchecked)
+    assert not window._fit_items["L1 · leaders"]["D"].isVisible()
+    assert not next(a for a in window.show_menu.actions() if a.text() == "L1 · leaders").isChecked()
+    next(a for a in window.show_menu.actions() if a.text() == "L1 · leaders").setChecked(True)
+    assert inspector.list.item(0).checkState() == QtCore.Qt.CheckState.Checked
+    window.set_fits(fits[1:])
+    assert [inspector.list.item(i).text() for i in range(inspector.list.count())] == ["L1 · p-leaders"]

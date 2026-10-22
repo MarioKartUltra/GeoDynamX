@@ -28,6 +28,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from dynamix.devices.decompose import format_group, parse_group
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import WheelAxisViewBox
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["ComponentsWindow", "thumbnail"]
 
@@ -65,7 +66,8 @@ class ComponentsWindow(QtWidgets.QDialog):
     def __init__(self, components, shares, *, eigenarrays=None, w_correlation=None,
                  group: str = "all", show: str = "recon", share_label: str = "share",
                  title: str = "Components", parent=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self.setWindowTitle(title)
         self._build_ui()

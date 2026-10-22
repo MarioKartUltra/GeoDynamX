@@ -24,6 +24,7 @@ from dynamix.core import spectra
 from dynamix.shell.multifractal_window import PhysicalAxis, WheelAxisViewBox
 from dynamix.shell.theme import current
 from dynamix.shell.shared_range import SharedRangeFollower
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["LogCumulantsWindow"]
 
@@ -44,7 +45,8 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
 
     def __init__(self, sets: dict, *, gamma: float = 0.0, levels=None, source: str = "", d: float = 2.0,
                  parent=None, physical_of_log2a=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self._sets = {k: v for k, v in sets.items() if v.get("mods") and v.get("scales") is not None}
         if not self._sets:

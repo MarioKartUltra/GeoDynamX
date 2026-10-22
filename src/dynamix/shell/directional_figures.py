@@ -18,6 +18,7 @@ from dynamix.shell.figure_data import FigureData
 from dynamix.shell.slope_plot import SlopePlot
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import zoom_plot
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 TOOLS = {
     "distributions": "WTMM distributions",
@@ -118,7 +119,8 @@ class DirectionalFigure(QtWidgets.QWidget):
     figureExported = QtCore.Signal(str, object)
 
     def __init__(self, kind, parent=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         if kind not in TOOLS:
             raise ValueError(kind)
         self.kind = kind

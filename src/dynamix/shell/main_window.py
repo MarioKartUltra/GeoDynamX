@@ -3369,6 +3369,8 @@ both ``Canvas`` signals report the
         if hd_std is None or hd_cmax is None:
             return          # the button is disabled in this state -- a defensive no-op
         eta_seed, note = _eta_note_of(result)
+        if self._reopen_tool("_multifractal_window", result):
+            return
         if self._multifractal_window is not None:
             self._multifractal_window.close()
             self._multifractal_window.deleteLater()
@@ -3393,6 +3395,7 @@ both ``Canvas`` signals report the
                                     source=self._tables_source(result, "canonical (Arneodo WTMM)"),
                                     sources=self._spectrum_sources(result),
                                     kind=result.get("hd_kind", "partition"))
+        window._opened_on = self._tool_identity(result)
         self._multifractal_window = window
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         window.fitChanged.connect(self._on_fit_published)
@@ -3691,9 +3694,31 @@ both ``Canvas`` signals report the
             return f"{self._samples_source()} · {own}"
         return own or default
 
+    def _tool_identity(self, result) -> tuple:
+        """What a tool window reads off the active result: the layer, its analysis and its
+        filters; the level shown is left out, a scale tick changing nothing a tool reads."""
+        landed = (result or {}).get("_landed") or {}
+        return (self.layer.layer_id if self.layer is not None else None,
+                landed.get("analysis_key"), repr(landed.get("filters")))
+
+    def _reopen_tool(self, attr: str, result) -> bool:
+        """Show the tool window ``attr`` again, as it was left, when it was opened on what the
+        active result is now (:meth:`_tool_identity`); False when it must be built anew. A result
+        without the engine's stamp is never matched."""
+        window = getattr(self, attr, None)
+        identity = self._tool_identity(result)
+        if window is None or identity[1] is None or getattr(window, "_opened_on", None) != identity:
+            return False
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        return True
+
     def _open_fitting_window(self, attr: str, cls, **extra) -> None:
         result = self._active_result
         if not result or not isinstance(result.get("samples"), dict):
+            return
+        if self._reopen_tool(attr, result):
             return
         previous = getattr(self, attr)
         if previous is not None:
@@ -3705,6 +3730,7 @@ both ``Canvas`` signals report the
                      **extra)
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
+        window._opened_on = self._tool_identity(result)
         setattr(self, attr, window)
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         self._on_fit_published(window.current_fit())
@@ -3730,6 +3756,8 @@ both ``Canvas`` signals report the
         sets = sample_sets(result) if result else {}
         if not sets:
             return
+        if self._reopen_tool(attr, result):
+            return
         previous = getattr(self, attr)
         if previous is not None:
             previous.close()
@@ -3741,6 +3769,7 @@ both ``Canvas`` signals report the
                      parent=self, physical_of_log2a=self._physical_of_log2a(), **extra)
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
+        window._opened_on = self._tool_identity(result)
         setattr(self, attr, window)
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         self._on_fit_published(window.current_fit())
@@ -3825,6 +3854,10 @@ both ``Canvas`` signals report the
         eta_seed, note = _eta_note_of(result)
         chains = result.get("chains") or None
         scales = result.get("scales") if chains else None
+        if self._reopen_tool("_spectrum_construction_window", result):
+            # Fits published while it was closed reach it now.
+            self._spectrum_construction_window.set_fits(list(self._published_fits.values()))
+            return
         if self._spectrum_construction_window is not None:
             self._spectrum_construction_window.close()
             self._spectrum_construction_window.deleteLater()
@@ -3849,6 +3882,7 @@ both ``Canvas`` signals report the
             source=self._tables_source(result, "canonical (Arneodo direct)"),
             kind=result.get("hd_kind", "partition"), per_scale=sample_sets(result),
             fits=list(self._published_fits.values()))
+        window._opened_on = self._tool_identity(result)
         self._spectrum_construction_window = window
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         if self._multifractal_window is not None:

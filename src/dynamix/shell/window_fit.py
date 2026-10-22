@@ -12,7 +12,18 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-__all__ = ["clamp_size", "fit_to_screen", "remember_geometry"]
+__all__ = ["TOOL_WINDOW", "clamp_size", "fit_to_screen", "remember_geometry", "show_while_inactive"]
+
+
+#: The window type of every tool window: a utility window owned by its opener, kept in front of
+#: it (a plain ``Qt.Window`` falls behind the main window as soon as the main window is clicked).
+TOOL_WINDOW = QtCore.Qt.WindowType.Tool
+
+
+def show_while_inactive(widget: QtWidgets.QWidget) -> None:
+    """Keep ``widget``, a tool window, on screen while the application is in the background:
+    macOS hides tool windows then unless told otherwise."""
+    widget.setAttribute(QtCore.Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
 
 
 def clamp_size(size: QtCore.QSize, available: QtCore.QRect, fraction: float = 0.92) -> QtCore.QSize:

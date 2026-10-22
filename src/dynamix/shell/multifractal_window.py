@@ -61,6 +61,7 @@ from dynamix.core import spectra
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported for the fitting windows)
 from dynamix.shell.shared_range import SharedRangeFollower
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["MultifractalWindow"]
 
@@ -222,7 +223,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._physical = physical_of_log2a
         # Qt.Window, not the QDialog default -- a real, independently resizable top-level window,
         # the same choice SkeletonDialog/ProfileDialog made and for the same reason.
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self.setWindowTitle(f"{vocabulary(self._kind)[0]} — {self._source}")
 

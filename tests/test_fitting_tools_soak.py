@@ -136,13 +136,15 @@ def _round(qtbot, win, wtmm, leaders, k: int) -> None:
         win._on_structure_button_clicked()
     _drag(qtbot, win._structure_window._region, _positions(win, k))
     win._structure_window.close()
-    # The WTMM layer: every tool its result offers, each opened and replaced while visible.
+    # The WTMM layer: every tool its result offers, each opened, closed and reopened as it was
+    # left (the same result: the same window).
     _select(qtbot, win, wtmm)
     for attr, opener in OPENERS.items():
         getattr(win, opener)()
         first = getattr(win, attr)
+        first.close()
         getattr(win, opener)()
-        assert getattr(win, attr) is not first and not first.isVisible()
+        assert getattr(win, attr) is first and first.isVisible()
     positions = _positions(win, k)
     _drag(qtbot, win._cumulants_window.regions[0], positions[:2])
     _drag(qtbot, win._generalized_window._region, positions[2:])

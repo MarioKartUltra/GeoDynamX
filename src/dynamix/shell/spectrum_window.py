@@ -52,13 +52,14 @@ from functools import partial
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core import chain_groups, spectra
 from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
                                                 WheelAxisViewBox, add_zero_lines)
 from dynamix.shell.theme import current
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["SpectrumWindow"]
 
@@ -128,6 +129,48 @@ class _WrappingLayout(QtWidgets.QLayout):
         return y + height - rect.y()
 
 
+class SpectraInspector(QtWidgets.QWidget):
+    """The construction's published spectra, one checkable row each in its colour, kept in front
+    of the construction: a row shows or hides its spectrum on every panel, in step with the Show
+    menu."""
+
+    def __init__(self, window):
+        super().__init__(window, TOOL_WINDOW | QtCore.Qt.WindowType.WindowStaysOnTopHint)
+        show_while_inactive(self)
+        self.setWindowTitle("Spectra")
+        self.list = QtWidgets.QListWidget()
+        QtWidgets.QVBoxLayout(self).addWidget(self.list)
+        self.list.itemChanged.connect(self._on_item_changed)
+        self.resize(320, 260)
+
+    def refresh(self, rows) -> None:
+        """``rows``: ``(name, label, shown, colour)`` per spectrum, in drawing order; the list is
+        rebuilt when the spectra change and only re-checked otherwise."""
+        role = QtCore.Qt.ItemDataRole.UserRole
+        names = [r[0] for r in rows]
+        self.list.blockSignals(True)
+        if [self.list.item(i).data(role) for i in range(self.list.count())] != names:
+            self.list.clear()
+            for name, label, _shown, colour in rows:
+                item = QtWidgets.QListWidgetItem(label)
+                item.setData(role, name)
+                item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+                swatch = QtGui.QPixmap(12, 12)
+                swatch.fill(pg.mkColor(colour))
+                item.setIcon(QtGui.QIcon(swatch))
+                self.list.addItem(item)
+        for i, (_name, label, shown, _colour) in enumerate(rows):
+            item = self.list.item(i)
+            item.setText(label)
+            item.setCheckState(QtCore.Qt.CheckState.Checked if shown else QtCore.Qt.CheckState.Unchecked)
+        self.list.blockSignals(False)
+
+    def _on_item_changed(self, item) -> None:
+        action = self.parentWidget()._show_actions.get(item.data(QtCore.Qt.ItemDataRole.UserRole))
+        if action is not None:
+            action.setChecked(item.checkState() == QtCore.Qt.CheckState.Checked)
+
+
 class SpectrumWindow(QtWidgets.QDialog):
     """D(h) construction: canonical points, optional Legendre hull, microcanonical histogram,
     and the dominant/non-dominant chain-group overlay."""
@@ -143,7 +186,8 @@ class SpectrumWindow(QtWidgets.QDialog):
                  filter_note: str = "", dh_curves=None, gh_field=None,
                  source: str = "canonical (Arneodo direct)", kind: str = "partition",
                  per_scale: "dict | None" = None, tables: "dict | None" = None, fits=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         #: The published fits of the methods' fitting tools, by name; their items by name.
         self._fits: dict = {}
         self._fit_items: dict = {}
@@ -233,6 +277,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         wanted = {f["name"]: f for f in fits}
         for name in [n for n in self._fit_items if n not in wanted]:
             self.show_menu.removeAction(self._show_actions.pop(name))
+            self._fit_hues.pop(name, None)
             gone = self._fit_items.pop(name).values()
             for item in gone:
                 self._plot.removeItem(item)
@@ -242,6 +287,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         for i, (name, fit) in enumerate(wanted.items()):
             if name not in self._fit_items:
                 hue = _SOURCE_HUES[len(self._fit_items) % len(_SOURCE_HUES)]
+                self._fit_hues[name] = hue
                 pen = pg.mkPen(hue, width=1.4)
                 items = {k: pg.PlotDataItem(pen=pen, connect="finite", symbol="o", symbolSize=3,
                                             symbolPen=None, symbolBrush=hue) for k in ("tau", "h", "cq")}
@@ -276,6 +322,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._apply_shown(name, sync=False)
         self._fits = wanted
         self._sync_legend()
+        self._refresh_spectra_inspector()
         if hasattr(self, "_chord"):
             self._update_kink_geometry()
 
@@ -295,6 +342,20 @@ class SpectrumWindow(QtWidgets.QDialog):
         items["hull"].setVisible(on and self._hull_check.isChecked())
         if sync:
             self._sync_legend()
+            self._refresh_spectra_inspector()
+
+    def _open_spectra_inspector(self) -> None:
+        if self.spectra_inspector is None:
+            self.spectra_inspector = SpectraInspector(self)
+        self._refresh_spectra_inspector()
+        self.spectra_inspector.show()
+        self.spectra_inspector.raise_()
+
+    def _refresh_spectra_inspector(self) -> None:
+        if self.spectra_inspector is None:
+            return
+        self.spectra_inspector.refresh([(name, self._fit_label(name), action.isChecked(), self._fit_hues.get(name, "w"))
+                                        for name, action in self._show_actions.items() if name in self._fits])
 
     def current_grouping(self) -> "np.ndarray | None":
         """The latest dominant/non-dominant membership, or None without chains."""
@@ -433,6 +494,13 @@ class SpectrumWindow(QtWidgets.QDialog):
         self.show_button.setMenu(self.show_menu)
         self._show_actions: dict = {}
         controls.addWidget(self.show_button)
+        # The same choice as a small window kept in front, one row per spectrum.
+        self.spectra_button = QtWidgets.QPushButton("Spectra…")
+        self.spectra_button.setToolTip("A list of the published spectra to show or hide, kept in front")
+        self.spectra_button.clicked.connect(self._open_spectra_inspector)
+        self.spectra_inspector = None
+        self._fit_hues: dict = {}
+        controls.addWidget(self.spectra_button)
 
         # The histogram construction's own controls, with an h-map to build it from.
         self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None

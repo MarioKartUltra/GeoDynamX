@@ -16,6 +16,7 @@ from dynamix.shell.theme import current
 from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color, add_zero_lines
 from dynamix.shell.plot_zoom import zoom_plot  # noqa: F401  (the source scan's marker; the panels take WheelAxisViewBox)
 from dynamix.shell.shared_range import SharedRangeFollower
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 
 class _Signals(QtCore.QObject):
@@ -50,7 +51,8 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
 
     def __init__(self, sets, *, log2_L=None, levels=None, source="", parent=None,
                  physical_of_log2a=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setModal(False)
         self.setWindowTitle(f"Generalized spectrum — {source}")
         self._sets, self._source = sets, source

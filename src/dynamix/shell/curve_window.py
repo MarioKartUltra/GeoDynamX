@@ -15,6 +15,7 @@ from PySide6 import QtCore, QtWidgets
 
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import zoom_plot
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["CurveWindow"]
 
@@ -23,7 +24,8 @@ class CurveWindow(QtWidgets.QWidget):
     """A floating window; :meth:`set_curves` feeds it the active result's curves."""
 
     def __init__(self, parent=None):
-        super().__init__(parent, QtCore.Qt.Window)
+        super().__init__(parent, TOOL_WINDOW)
+        show_while_inactive(self)
         self.setWindowTitle("Curves")
         from dynamix.shell.window_fit import fit_to_screen
 
