@@ -129,7 +129,7 @@ _DEPENDS_ON = {
     "layers_panel": ("gc_guard", ),
     "map_view": ("canvas", "units", "wavelet_bar", "theme", ),
     "wavelet_bar": ("canvas", "theme", "units", ),
-    "cache_inspector": ("window_fit", ),
+    "cache_inspector": ("window_fit", "gc_guard"),
     "window_fit": ("settings", ),
     "shared_range": (),
     "knobs": (),

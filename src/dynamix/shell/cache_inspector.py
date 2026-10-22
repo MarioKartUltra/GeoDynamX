@@ -8,11 +8,16 @@ import datetime
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.engine.cache import Cache
+from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.window_fit import TOOL_WINDOW, fit_to_screen, remember_geometry, show_while_inactive
 
 
 def _bytes(value):
-    return f'{value / 1024**3:.2f} GiB' if value >= 1024**3 else f'{value / 1024**2:.1f} MiB'
+    for unit in ('B','KiB','MiB','GiB'):
+        if abs(value)<1024 or unit=='GiB':
+            return f'{value:.0f} {unit}' if unit=='B' else f'{value:.1f} {unit}'
+        value/=1024
+
 
 
 class _Completion(QtCore.QObject):
@@ -38,9 +43,10 @@ class CacheInspector(QtWidgets.QWidget):
     def __init__(self, cache: Cache, holders=None, parent=None):
         super().__init__(parent, TOOL_WINDOW)
         self.cache = cache
-        self.holders = holders or (lambda snapshot: {})
+        self.holders = weak_method(holders) if holders is not None else (lambda snapshot: {})
         self._rows = []
         self._busy = False
+        self._gpu_available = False
         self.setWindowTitle('Cache Inspector')
         show_while_inactive(self)
         layout = QtWidgets.QVBoxLayout(self)
@@ -122,10 +128,13 @@ class CacheInspector(QtWidgets.QWidget):
         self.drop.setToolTip('Release Freeze or the marked level in its owning layer first.' if pinned else '')
         self.spill.setEnabled(bool(rows) and all(row['can_spill'] for row in rows) and not self._busy)
         self.load.setEnabled(bool(rows) and any(row['tier']=='disk' for row in rows) and not self._busy)
+        for button in (self.clear_ram,self.clear_disk,self.clear_stages):
+            button.setEnabled(not self._busy)
+        self.trim_gpu.setEnabled(self._gpu_available and not self._busy)
 
     def refresh(self,*unused):
         snapshot = self.cache.snapshot()
-        owners = self.holders(snapshot)
+        owners = self.holders(snapshot) or {}
         selected = {row['key'] for row in self._selected()}
         self._rows = snapshot['entries']
         self.table.blockSignals(True)
@@ -151,9 +160,12 @@ class CacheInspector(QtWidgets.QWidget):
         import psutil
         available=psutil.virtual_memory().available
         rss=psutil.Process().memory_info().rss
+        self._gpu_available=report['mlx'] is not None
         mlx=report['mlx'] or {'active':0,'cache':0}
+        ram_limit=_bytes(ram['max_bytes']) if ram['max_bytes'] is not None else 'unbounded'
+        result_limit=ram['max_results'] if ram['max_results'] is not None else 'unbounded'
         self.summary.setText(
-            f"RAM {_bytes(ram['bytes'])} / {_bytes(ram['max_bytes'] or 0)} · analyses {ram['analysis']} / {ram['max_results']}"
+            f"RAM {_bytes(ram['bytes'])} / {ram_limit} · analyses {ram['analysis']} / {result_limit}"
             f" · pinned {_bytes(ram['pinned_bytes'])}\n"
             f"Disk {_bytes(disk['bytes'])} / {_bytes(disk['max_bytes'])} · {disk['pending']} pending writes · {disk['folder']}\n"
             f"Stages {_bytes(stages['bytes'])} · GPU active {_bytes(mlx['active'])}, cached {_bytes(mlx['cache'])}"
@@ -193,12 +205,19 @@ class CacheInspector(QtWidgets.QWidget):
         if any('pinned' in row['holders'] for row in rows):return
         if any('shown' in row['holders'] for row in rows) and not self._confirm(
                 'Drop the shown analysis? Its layer will recompute on its next resolve.'):return
-        cache=self.cache;keys=[row['key'] for row in rows]
-        self._run(lambda:[cache.invalidate(key) for key in keys])
+        cache=self.cache
+        operations=[(row.get('stage_key'),row['key']) for row in rows]
+        self._run(lambda:[cache.drop_stage(stage) if stage is not None else cache.invalidate(key)
+                          for stage,key in operations])
 
     def _spill(self):
         cache=self.cache;keys=[row['key'] for row in self._selected()]
-        self._run(lambda:[cache.spill(key) for key in keys])
+        def spill_all():
+            for key in keys:
+                cache.wait_for_spills()
+                cache.spill(key)
+            cache.wait_for_spills()
+        self._run(spill_all)
 
     def _load(self):
         cache=self.cache;keys=[row['key'] for row in self._selected() if row['tier']=='disk']
@@ -213,7 +232,7 @@ class CacheInspector(QtWidgets.QWidget):
             self._run(self.cache.clear_disk)
 
     def _clear_stages(self):
-        self._run(self.cache.stages.clear)
+        self._run(self.cache.clear_stages)
 
     def _trim_gpu(self):
         self._run(self.cache.trim_gpu)

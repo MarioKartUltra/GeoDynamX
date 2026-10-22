@@ -93,6 +93,7 @@ class StageStore:
         self.max_bytes = None if max_bytes is None else int(max_bytes)
         self._store: dict[str, Any] = {}
         self._fft_contexts: dict[str, list] = {}
+        self._metadata = {}
         self.hits = 0
         self.misses = 0
 
@@ -110,6 +111,9 @@ class StageStore:
             self.misses += 1
             raise KeyError(key)
         self.hits += 1
+        self._metadata.setdefault(key, {"hits":0})
+        self._metadata[key]["hits"] += 1
+        self._metadata[key]["touched"] = time.time()
         self._store[key] = self._store.pop(key)
         from dynamix.core.fft_policy import include_observed
         include_observed(self._fft_contexts.get(key, ()))
@@ -127,10 +131,12 @@ class StageStore:
         self._fft_contexts[key] = observed()
         self._store.pop(key, None)
         self._store[key] = value
+        self._metadata[key] = {"touched":time.time(), "hits":self._metadata.get(key,{}).get("hits",0)}
         while len(self._store) > self.maxsize:
             victim = next(iter(self._store))
             del self._store[victim]
             self._fft_contexts.pop(victim, None)
+            self._metadata.pop(victim, None)
         if self.max_bytes is not None:
             sizes = [(k, stage_nbytes(v)) for k, v in self._store.items()]
             total = sum(n for _k, n in sizes)
@@ -139,6 +145,7 @@ class StageStore:
                     continue
                 del self._store[k]
                 self._fft_contexts.pop(k, None)
+                self._metadata.pop(k, None)
                 total -= n
 
     def put(self, key, value) -> None:
@@ -151,9 +158,23 @@ class StageStore:
             self._fft_contexts[key] = list(contexts)
 
     @_locked
+    def snapshot(self):
+        return [{"key":key, "bytes":stage_nbytes(value), **self._metadata.get(key,{})}
+                for key,value in self._store.items()]
+
+    @_locked
+    def invalidate(self,key):
+        present = key in self._store
+        self._store.pop(key,None)
+        self._fft_contexts.pop(key,None)
+        self._metadata.pop(key,None)
+        return present
+
+    @_locked
     def clear(self) -> None:
         self._store.clear()
         self._fft_contexts.clear()
+        self._metadata.clear()
 
 
 
@@ -488,11 +509,12 @@ class Cache:
         return frozenset(self._pinned)
 
 
-    def _event(self, action, key='', *, label=None, elapsed_ms=0, detail=''):
+    def _event(self, action, key='', *, label=None, elapsed_ms=0, detail='', nbytes=None):
         self._events.append({"time": time.time(), "thread": threading.current_thread().name,
                              "event": action, "key": key,
                              "label": label or self._meta.get(key, {}).get("label", key),
-                             "bytes": self._nbytes([key]), "ms": elapsed_ms, "detail": detail})
+                             "bytes": self._nbytes([key]) if nbytes is None else nbytes,
+                             "ms": elapsed_ms, "detail": detail})
 
     def _victim(self, candidates):
         return next((k for k in candidates if self._nbytes([k]) >= self.spill_threshold), candidates[0])
@@ -644,6 +666,29 @@ class Cache:
                 self._event('drop', key, detail='cleared RAM tier')
                 self._drop(key)
 
+    def drop_stage(self,key):
+        nbytes = next((row['bytes'] for row in self.stages.snapshot() if row['key']==key),0)
+        present = self.stages.invalidate(key)
+        with self._lock:
+            self._event('drop', 'stage:'+key, label='Stage '+key[:12], nbytes=nbytes)
+        return present
+
+    def clear_stages(self):
+        nbytes = sum(row['bytes'] for row in self.stages.snapshot())
+        self.stages.clear()
+        with self._lock:
+            self._event('drop', label='Stage store', detail='cleared intermediate stages', nbytes=nbytes)
+
+    def trim_gpu(self):
+        from dynamix.core.fft_policy import mlx_memory
+        memory = mlx_memory()
+        if memory is not None:
+            import mlx.core as mx
+            mx.clear_cache()
+        with self._lock:
+            self._event('drop', label='GPU cache', detail='trimmed allocator cache',
+                        nbytes=memory['cache'] if memory else 0)
+
     def clear_disk(self):
         with self._lock:
             self._disk_epoch += 1
@@ -677,6 +722,10 @@ class Cache:
                              'holders': holders, 'pending': key in self._pending,
                              'can_spill': bool(self.disk and in_ram and not holders and
                                                self._nbytes([key]) >= self.spill_threshold)})
+            for stage in self.stages.snapshot():
+                rows.append({**stage, 'stage_key':stage['key'], 'key':'stage:'+stage['key'],
+                             'label':'Stage '+stage['key'][:12], 'kind':'stage', 'tier':'RAM',
+                             'holders':[], 'can_spill':False, 'pending':False})
             return {'report': self.report(), 'entries': sorted(rows, key=lambda r:r.get('touched',0), reverse=True),
                     'events': list(self._events), 'shown': dict(self._shown),
                     'disk': {'bytes': sum(r['bytes'] for r in records.values()),

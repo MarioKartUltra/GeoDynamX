@@ -58,3 +58,30 @@ def test_main_window_command_opens_one_inspector(window,qtbot):
 
 
 from tests.test_shell_window import stub_devices,window
+
+
+def test_stages_appear_and_can_be_dropped(qtbot):
+    cache=Cache();cache.stages['stage-key']={'cwt':np.arange(10.)}
+    inspector=CacheInspector(cache);qtbot.addWidget(inspector)
+    row=next(i for i,r in enumerate(inspector._rows) if r['kind']=='stage')
+    inspector.table.selectRow(row)
+    assert not inspector.spill.isEnabled()
+    inspector._drop();qtbot.waitUntil(lambda:not inspector._busy)
+    assert 'stage-key' not in cache.stages
+    assert cache.snapshot()['events'][-1]['bytes']==80
+
+
+def test_layer_provider_names_shown_freeze_and_mark_holders(window,monkeypatch):
+    from types import SimpleNamespace
+    layer=SimpleNamespace(layer_id=7,name='Region A',tags={'ui.freeze':'1'})
+    window.project.layers=[layer]
+    window._out_keys={7:{'output'}}
+    window._marked_keys={(7,'leader',2):'output'}
+    monkeypatch.setattr(window,'_cache_keys_for',lambda layer:['analysis'])
+    monkeypatch.setattr(window,'_output_keys',lambda layer:{'leader':'output'})
+    owners=window._cache_holders({'entries':[{'key':'analysis','holders':['shown']}],
+                                  'shown':{7:'analysis'}})
+    assert 'shown by Region A' in owners['analysis']
+    assert 'Freeze in Region A' in owners['analysis']
+    assert 'marked level in Region A' in owners['output']
+    window.project.layers=[]

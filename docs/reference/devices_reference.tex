@@ -347,6 +347,11 @@ The disk budget is the smaller of 32\,GB and half the initially available disk s
 A system-memory reserve of 20\% triggers release of evictable entries, stages and GPU buffers.
 Shown results, frozen entries and required upstream entries remain protected; their memory and
 a running computation can exceed the cache budget. Scratch cache files are removed at exit.
+View $\to$ Cache Inspector opens a tool window with RAM, disk, stage and GPU memory, entry
+ownership and a bounded event history. It can drop or spill selected entries, reload disk entries,
+clear the unpinned tiers, drop intermediate stages and trim GPU buffers. Frozen or marked entries
+must be released from their owning controls before they can be dropped. Shown-analysis deletion
+and bulk clearing require confirmation.
 
 %======================================================================
 \section{Tool families and data contracts}\label{sec:contracts}
