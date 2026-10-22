@@ -11226,6 +11226,34 @@ both ``Canvas`` signals report the
         return {cid: has_field for cid in ("chain.run", "file.export_chains", "file.export_derived",
                                            "layer.roi")}
 
+    def _open_cache_inspector(self):
+        from dynamix.shell.cache_inspector import CacheInspector
+        window = getattr(self, "_cache_inspector", None)
+        if window is None:
+            window = CacheInspector(self.cache, self._cache_holders, self)
+            self._cache_inspector = window
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _cache_holders(self, snapshot):
+        names = {layer.layer_id: layer.name for layer in self.project.layers}
+        owners = {row["key"]: list(row["holders"]) for row in snapshot["entries"]}
+        for lid, key in snapshot["shown"].items():
+            owners.setdefault(key, []).append("shown by " + names.get(lid, str(lid)))
+        for ident, key in self._marked_keys.items():
+            lid = ident[0]
+            owners.setdefault(key, []).append("marked level in " + names.get(lid, str(lid)))
+        for layer in self.project.layers:
+            if _is_frozen(layer):
+                keys = self._cache_keys_for(layer) + list(self._out_keys.get(layer.layer_id, ()))
+                for key in keys:
+                    owners.setdefault(key, []).append("Freeze in " + layer.name)
+        for layer in self.project.layers:
+            for key in self._output_keys(layer).values():
+                owners.setdefault(key, []).append(layer.name)
+        return owners
+
     def command_handlers(self) -> dict:
         """What each command id does in this window; the table itself is headless. Transport and key
         handling come from the controller (``shell/controller.py``)."""
@@ -11249,6 +11277,7 @@ both ``Canvas`` signals report the
             "view.layouts.save_as": self._save_layout_as,
             "view.palette": self.show_palette,
             "view.edge_footprint": self._on_edge_footprint_toggled,
+            "view.cache_inspector": self._open_cache_inspector,
             "racks.editor": lambda: self._open_rack_editor(None),
             "settings.auto_run": self._on_auto_run_toggled,
             "help.about": self._show_about,

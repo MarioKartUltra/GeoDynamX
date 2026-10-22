@@ -53,6 +53,7 @@ COMMANDS: tuple[Command, ...] = (
     Command("view.center.geo", "Globe", "View", checkable=True, group="view.center"),
     Command("view.selection.click", "Click Selection", "View", ("C",)),
     Command("view.selection.cycle", "Next Selection Mode", "View", ("V",)),
+    Command("view.cache_inspector", "Cache Inspector…", "View"),
     Command("view.edge_footprint", "Edge Footprint", "View", checkable=True),
     Command("view.dock.browser", "Devices", "View", checkable=True, separator_before=True),
     Command("view.dock.layers", "Processing", "View", checkable=True),
