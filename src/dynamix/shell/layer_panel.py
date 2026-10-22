@@ -33,8 +33,9 @@ button on the header, not a second tree. The panel stores no open/closed state o
 
 Context menu (right-click a layer row): Rename (opens the same inline ``QLineEdit`` editor a
 double-click on the name column does -- ``QTreeWidget``'s own edit machinery, not a custom one),
-Remove (``removeRequested``), New refined run (``refinedRunRequested``). A source-header row gets no context menu: it names a raster, not a layer, and
-``removeRequested``'s signature (``int`` layer id) has nothing to carry for one.
+Remove (``removeRequested``), New refined run (``refinedRunRequested``). A dataset row gets the dataset's
+menu (Remove dataset, Save derivative as… on a temporary derivative) with the actions of the master layer it also
+stands for, the derivative fork among them.
 """
 from __future__ import annotations
 
@@ -1112,6 +1113,13 @@ class LayerPanel(QtWidgets.QTreeWidget):
         only_action.triggered.connect(lambda: self.removeLayerOnlyRequested.emit(layer_id))
         remove_action = menu.addAction("Delete layer and children")
         remove_action.triggered.connect(lambda: self.removeRequested.emit(layer_id))
+        self._add_layer_actions(menu, layer_id)
+        return menu
+
+    def _add_layer_actions(self, menu: QtWidgets.QMenu, layer_id: int) -> None:
+        """The actions on a layer's chain and result, on its own row and on the dataset row its
+        master shares: a refined run, a derivative fork, the bus and sends editors, routing and
+        saving the chain as a rack."""
         refined_action = menu.addAction("New refined run")
         refined_action.triggered.connect(lambda: self.refinedRunRequested.emit(layer_id))
         # A DERIVATIVE dataset: what this result shows, written once as a dataset of its own --
@@ -1132,7 +1140,6 @@ class LayerPanel(QtWidgets.QTreeWidget):
         bus_action.triggered.connect(lambda: self.busRequested.emit(layer_id))
         rack_action = menu.addAction("Save chain as rack…")
         rack_action.triggered.connect(lambda: self.saveRackRequested.emit(layer_id))
-        return menu
 
     def _build_output_context_menu(self, layer_id: int, name: str) -> "QtWidgets.QMenu | None":
         """A per-level output row's menu: mark the level the row shows for figures, or unmark it
@@ -1151,8 +1158,9 @@ class LayerPanel(QtWidgets.QTreeWidget):
         return menu
 
     def _build_source_context_menu(self, source_id: str) -> QtWidgets.QMenu:
-        """A dataset row's menu: "Remove dataset" (the shell owns the confirmation and cascade),
-        preceded by "Save derivative as…" on a TEMPORARY derivative."""
+        """A dataset row's menu: "Save derivative as…" on a TEMPORARY derivative, the actions of
+        the master layer the row also stands for (:meth:`_add_layer_actions`), and "Remove
+        dataset" (the shell owns the confirmation and cascade)."""
         menu = QtWidgets.QMenu(self)
         source = self._project.sources.get(source_id) if self._project is not None else None
         if source is not None and source.temporary:
@@ -1161,8 +1169,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
         master = next((l for l in (self._project.layers if self._project is not None else [])
                        if l.source_id == source_id and l.parent_id is None), None)
         if master is not None:
-            bus_action = menu.addAction("Route bands to a new bus…")
-            bus_action.triggered.connect(lambda: self.busRequested.emit(master.layer_id))
+            self._add_layer_actions(menu, master.layer_id)
         remove_src = menu.addAction("Remove dataset")
         remove_src.triggered.connect(lambda: self.removeSourceRequested.emit(source_id))
         return menu

@@ -1464,15 +1464,31 @@ def test_a_result_row_offers_fork_derivative_dataset(panel, project, qtbot):
     assert blocker.args == [layer.layer_id]
 
 
+def test_the_dataset_row_offers_its_master_layers_actions(panel, project, qtbot):
+    """The dataset row is the master layer's row too, so its menu carries the master's own actions:
+    a chain run on the whole dataset forks a derivative from that row."""
+    source = project.add_source("/data/dataset.tif")
+    master = _layer(project, "dataset", source.source_id)
+    menu = panel._build_source_context_menu(source.source_id)
+    assert [a.text() for a in menu.actions()] == ["New refined run", "Fork derivative dataset…",
+                                                  "Route bands to a new bus…", "Save chain as rack…",
+                                                  "Remove dataset"]
+    fork = next(a for a in menu.actions() if a.text() == "Fork derivative dataset…")
+    with qtbot.waitSignal(panel.forkDerivativeRequested) as blocker:
+        fork.trigger()
+    assert blocker.args == [master.layer_id]
+
+
 def test_a_temporary_derivative_row_offers_save_as(panel, project, qtbot):
     source = project.add_source("/data/dataset.tif")
     _layer(project, "dataset", source.source_id)
+    master_actions = ["New refined run", "Fork derivative dataset…", "Route bands to a new bus…",
+                      "Save chain as rack…"]
     assert [a.text() for a in panel._build_source_context_menu(source.source_id).actions()] \
-        == ["Route bands to a new bus…", "Remove dataset"]
+        == master_actions + ["Remove dataset"]
     source.temporary = True
     menu = panel._build_source_context_menu(source.source_id)
-    assert [a.text() for a in menu.actions()] == ["Save derivative as…", "Route bands to a new bus…",
-                                             "Remove dataset"]
+    assert [a.text() for a in menu.actions()] == ["Save derivative as…", *master_actions, "Remove dataset"]
     with qtbot.waitSignal(panel.saveDerivativeRequested) as blocker:
         menu.actions()[0].trigger()
     assert blocker.args == [source.source_id]
