@@ -21,3 +21,19 @@ def test_dropping_the_shown_analysis_never_computes_on_the_gui_thread(loaded,qtb
     with qtbot.waitSignal(loaded.resolved,timeout=10000):
         loaded._reresolve()
     assert calls and loaded.cache.ready(keys[-1])
+
+
+def test_helper_views_do_not_resolve_when_a_resident_tail_lost_its_parent(loaded,monkeypatch):
+    tail=loaded._cache_keys_for(loaded.layer)[-1]
+    value=loaded.cache.get(tail)
+    loaded.cache.put('parent',{})
+    loaded.cache.put(tail,value,upstream='parent')
+    loaded.cache.invalidate('parent')
+    calls=[]
+    def unexpected(*args,**kwargs):
+        calls.append(1)
+        raise RuntimeError('helper view started a resolve')
+    monkeypatch.setattr('dynamix.shell.main_window.resolve',unexpected)
+    assert loaded._stack_result() is loaded._active_result
+    assert loaded._inspector_result_at(loaded.layer.source_id,0) is None
+    assert calls==[]

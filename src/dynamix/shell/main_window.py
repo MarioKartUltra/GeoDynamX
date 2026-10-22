@@ -3630,7 +3630,7 @@ both ``Canvas`` signals report the
         if layer is None or field is None:
             return self._active_result
         tail = self._arr_tail_key(layer)
-        if tail is not None and tail not in self.cache:
+        if tail is not None and not self.cache.ready(tail):
             return self._active_result
         # A scale_select step the chain still holds would reduce the stack to its saved pick;
         # the shown level is the Transport's, so the step is left out here as it is at every
@@ -7129,7 +7129,7 @@ both ``Canvas`` signals report the
         if layer is None or field is None:
             return None
         tail = self._arr_tail_key(layer)
-        if tail is not None and tail not in self.cache:
+        if tail is not None and not self.cache.ready(tail):
             return None
         try:
             result = resolve(layer, field, self.cache, source_id=layer.source_id,
@@ -7924,7 +7924,7 @@ both ``Canvas`` signals report the
             self._start_worker()
             return
         keys = self._cache_keys_for(self.layer)
-        if self._errored or (keys and keys[-1] not in self.cache):
+        if self._errored or (keys and not self.cache.ready(keys[-1])):
             self._start_worker()
         elif not keys:
             self._notify("the chain has no transform — drop wtmm2d in the rack, then Run", "status")
@@ -8458,7 +8458,7 @@ both ``Canvas`` signals report the
         if self._out_job is None or layer is None:
             return False
         keys = self._cache_keys_for(layer)
-        return not keys or keys[-1] in self.cache
+        return not keys or self.cache.ready(keys[-1])
 
     @_timed("resolve_ms", report=True, event="landing_ms")
     def _resolve_now(self, committed_chain=None) -> None:
@@ -9201,11 +9201,13 @@ both ``Canvas`` signals report the
             return
         if pending == "resolve":
             self._resolve_now()
+            if self._thread is not None:
+                return
         if (self.layer is not None and not self._errored
                 and self._transform_signature() != self._stopped_sig
                 and self.layer.layer_id not in self._pending_layers):
             keys = self._cache_keys_for(self.layer)
-            if keys and keys[-1] not in self.cache:
+            if keys and not self.cache.ready(keys[-1]):
                 self._start_worker()
                 return
         if not self._arrangement_shown():
@@ -9224,7 +9226,7 @@ both ``Canvas`` signals report the
             if self._fields.get(layer_id) is None:
                 continue
             tail = self._arr_tail_key(layer)
-            if tail is not None and tail in self.cache:
+            if tail is not None and self.cache.ready(tail):
                 continue
             self._start_worker_for(layer)
             return
@@ -9477,7 +9479,7 @@ both ``Canvas`` signals report the
                     self._arr_errors.pop(layer.layer_id, None)
                     continue
                 tail = self._arr_tail_key(layer)
-                if tail is None or tail in self.cache:
+                if tail is None or self.cache.ready(tail):
                     try:
                         renderable = resolve(layer, field, self.cache, source_id=layer.source_id,
                                              level=shown_level(layer))
@@ -10307,7 +10309,7 @@ both ``Canvas`` signals report the
                 and getattr(self, "_active_result_owner", None) == layer.layer_id):
             return self._active_result, None
         tail = self._arr_tail_key(layer)
-        if tail is not None and tail not in self.cache:
+        if tail is not None and not self.cache.ready(tail):
             return None, "computing" if self.is_computing else "not run"
         field = self._fields.get(layer.layer_id)
         try:
