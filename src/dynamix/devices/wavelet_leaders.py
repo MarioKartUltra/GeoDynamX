@@ -22,7 +22,7 @@ from dynamix.core import dwt, leaders
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.devices.wtmm import filled_block, filled_origin
 from dynamix.model.contracts import FIELD, HMAP, SAMPLES
-from dynamix.model.device import Output, keyed_params
+from dynamix.model.device import Output, defaults_for, keyed_params
 from dynamix.model.param import Param, ParamKind
 
 __all__ = ["WaveletLeaders"]
@@ -196,8 +196,9 @@ class WaveletLeaders:
                      for n, off in zip(full, (win.get("row_off", 0), win.get("col_off", 0))))
 
     def derived_reading(self, name: str, value, field, params: dict | None = None) -> str | None:
-        """The fitted cells in the field's units beside ``scale_min`` and ``scale_max``; what
-        ``auto`` resolves to beside ``edge``."""
+        """The fitted cells in the field's units beside ``scale_min`` and ``scale_max``; beside
+        ``edge``, what ``auto`` resolves to and how much real data a region reads around itself
+        before the continuation applies (:meth:`roi_margin`)."""
         if name == "wse_beta":
             return f"θ(j) = j + j^{float(value):g}; ω(j′) = j′ · resolution index j"
         if name == "edge":
@@ -214,7 +215,10 @@ class WaveletLeaders:
                 if J is not None and shape and any(n % 2 ** J for n in shape):
                     seam = f"{shape[0]} × {shape[1]} px is no multiple of {2 ** J}: the wrap is a seam, bordered"
                     return f"{head} · {seam}" if head else seam
-            return head or None
+                return head or None
+            full = {**defaults_for(self), **dict(params or {})}
+            halo = f"a region reads {self.roi_margin(full, field=field)} px of real data around it first"
+            return f"{head} at the data's edge · {halo}" if head else None
         if name not in ("scale_min", "scale_max"):
             return None
         from dynamix.core.units import px_to_metres

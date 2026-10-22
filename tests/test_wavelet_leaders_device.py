@@ -218,7 +218,7 @@ def test_auto_edge_runs_periodic_on_an_extension_output_and_mirrors_otherwise(de
     plain = dev.compute(field, p)
     assert plain["record"]["edge"] == {"asked": "auto", "used": "mirror", "border_cells": dwt.border_cells("sym4"),
                                        "block": None, "origin": [0, 0]}
-    assert dev.derived_reading("edge", "auto", field) == "→ mirror"
+    assert dev.derived_reading("edge", "auto", field).startswith("→ mirror at the data's edge")
     ext = PeriodicExtension().compute(field, defaults_for(PeriodicExtension()))
     stamp = ext.provenance["edges.filled"]
     res = dev.compute(ext, p)
@@ -420,3 +420,15 @@ def test_a_chain_saved_before_the_boxes_reopens_computing_all_three(dev):
     assert (old.steps[0].params["with_leaders"], old.steps[0].params["with_p_leaders"], old.steps[0].params["with_wse"]) == (True, True, True)
     new = Chain.from_payload({"steps": [{"device": "wavelet_leaders", "params": {"scale_max": 32, "with_wse": False}}]})
     assert new.steps[0].params["with_wse"] is False
+
+
+def test_the_edge_reading_names_the_real_data_a_region_reads_around_it(dev):
+    """Beside ``edge`` the reading says where the continuation applies and how much real data a
+    region reads around itself first, the WSE's reach included when it is ticked."""
+    from dynamix.model.device import defaults_for
+
+    big = make_field(np.zeros((1024, 1024)))
+    p = dict(defaults_for(dev))
+    text = dev.derived_reading("edge", "auto", big, p)
+    assert text.startswith("→ mirror") and "a region reads 384 px of real data around it" in text
+    assert "640 px" in dev.derived_reading("edge", "auto", big, {**p, "with_wse": True})
