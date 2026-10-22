@@ -145,6 +145,10 @@ class DirectionalFigure(QtWidgets.QWidget):
         self.context = QtWidgets.QLabel()
         self.context.setWordWrap(True)
         outer.addWidget(self.context)
+        self.notation = QtWidgets.QLabel()
+        self.notation.setWordWrap(True)
+        self.notation.setTextFormat(QtCore.Qt.RichText)
+        outer.addWidget(self.notation)
         bar = QtWidgets.QHBoxLayout()
         self.pin = QtWidgets.QCheckBox("Pin source")
         bar.addWidget(self.pin)
@@ -251,7 +255,7 @@ class DirectionalFigure(QtWidgets.QWidget):
     def _build(self):
         k = self.kind
         if k == "fourier":
-            self._plot("2-D Fourier power", 0, 0).setAspectLocked(True)
+            self._plot("2-D Fourier power · log₂ |f̂|²", 0, 0).setAspectLocked(True)
             for title, row, col in [("Radial power", 0, 1), ("Native x cuts", 1, 0), ("Native y cuts", 1, 1)]:
                 self._plot(title, row, col, fit=True, quantity="β", factor=-1)
             self.windowing = self._choice("Window", ["Hann cuts", "Rectangular cuts"])
@@ -304,9 +308,10 @@ class DirectionalFigure(QtWidgets.QWidget):
             if k in ("distributions", "scalar"):
                 self._plot("Angle density" if k == "distributions" else "Rescaled signed coefficient", 0, 1)
         if k in ("collapse", "sensitivity", "moments", "scalar"):
-            self.hx = self._control("Hₓ" if k in ("collapse", "sensitivity") else "H", _spin(-2, 3, .5))
+            self.hx = self._control("Hₓ" if k in ("collapse", "sensitivity") else "H", _spin(-2, 3, .5),
+                                    label="H₁" if k == "collapse" else "H")
             if k == "collapse":
-                self.hy = self._control("Hᵧ", _spin(-2, 3, .5))
+                self.hy = self._control("Hᵧ", _spin(-2, 3, .5), label="H₂")
                 self.estimator = self._choice("Seed", ["median", "std", "collapse"])
             if k != "scalar":
                 self.seed_button = QtWidgets.QPushButton("Seed H")
@@ -449,6 +454,7 @@ class DirectionalFigure(QtWidgets.QWidget):
                 p.getAxis(side).setTextPen(current().ground if self.paper.isChecked() else current().ink)
         for fit in self.fitplots:
             fit.paper_mode = self.paper.isChecked()
+        self._notation_caption()
         d = self.data
         indices = self.selected_scales()
         frame = self.frame_combo.currentData() or "pixel"
@@ -484,6 +490,27 @@ class DirectionalFigure(QtWidgets.QWidget):
         elif self.kind == "net":
             self._draw_net(indices, frame, population)
 
+    def _component_symbol(self, axis):
+        frame = self.frame_combo.currentData() or "pixel"
+        suffix = ("ψ₁", "ψ₂")[axis] if frame == "pixel" else ("east", "north")[axis]
+        return f"T<sub>{suffix}</sub>"
+
+    def _notation_caption(self):
+        captions = {
+            "distributions": "ℳ<sub>ψ</sub>: wavelet modulus · 𝒜<sub>ψ</sub>: directed gradient argument · PDFs use the selected population and angle frame.",
+            "collapse": "T<sub>ψ₁</sub>, T<sub>ψ₂</sub>: native x/y components; geographic components are east/north. Uᵢ = Tᵢ/a<sup>Hᵢ</sup>; each rescaled PDF is normalized in Uᵢ.",
+            "sensitivity": "Uᵢ = Tᵢ/a<sup>H</sup> · each panel uses its displayed test exponent and a PDF normalized in Uᵢ.",
+            "spread": "H₁, H₂ are component scaling exponents, not automatically the directional Hurst exponents of a surface.",
+            "moments": "u = ℳ<sub>ψ</sub>/a<sup>H</sup> · p<sub>a,u</sub>(u) is the normalized rescaled-modulus density.",
+            "diagnostics": "𝒜 is axial here (modulo 180°); sectors use the selected frame. Sector PDFs describe z = log₂ ℳ<sub>ψ</sub>, not raw modulus.",
+            "fourier": "ν: spatial frequency in cycles/px · image: log₂ |f̂|² · curves: radial power and averaged native row/column profile power.",
+            "kernel": "Ĝ: marginal self-similarity kernel · p is conjugate to ln ℳ<sub>ψ</sub>; this is not a spatial-cascade test.",
+            "correlations": "C(r, a₁, a₂): centered covariance · dense route: ω = ½ ln σ²; skeleton route: ω = ln ℳ<sub>ψ</sub>.",
+            "scalar": "T<sub>ψ</sub>: signed scalar coefficient · U = T<sub>ψ</sub>/a<sup>H</sup>; rescaled density is normalized in U.",
+        }
+        self.notation.setText(captions.get(self.kind, ""))
+        self.notation.setVisible(bool(self.notation.text()))
+
     def _distributions(self, data, indices, frame, population, prefix=""):
         samples = data.samples(population)
         if not samples:
@@ -495,10 +522,10 @@ class DirectionalFigure(QtWidgets.QWidget):
             o = data.orientations(i, population, frame)
             x, y = an.angle_pdf(o, self.bins.value())
             self._series(self.plots[1], x, y, i, label, reference=j==0)
-        self.plots[0].setLabel("bottom", "M")
-        self.plots[0].setLabel("left", "density / modulus unit")
-        self.plots[1].setLabel("bottom", f"gradient angle ({frame}, degrees)")
-        self.plots[1].setLabel("left", "density / degree")
+        self.plots[0].setLabel("bottom", "ℳ<sub>ψ</sub>")
+        self.plots[0].setLabel("left", "P<sub>a</sub>(ℳ<sub>ψ</sub>) · modulus-unit⁻¹")
+        self.plots[1].setLabel("bottom", f"𝒜<sub>ψ</sub> ({frame}, degrees)")
+        self.plots[1].setLabel("left", "P<sub>a</sub>(𝒜<sub>ψ</sub>) · degree⁻¹")
         self.plots[1].addLine(y=1/360, pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine))
 
     def _seed_h(self):
@@ -512,12 +539,15 @@ class DirectionalFigure(QtWidgets.QWidget):
         mods = [s["mod"] for s in samples]
         if self.kind == "spread":
             for axis, fit in enumerate(self.fitplots):
+                fit.quantity = ("H₁", "H₂")[axis]
                 vals = [np.asarray(c[axis], float) for c in components]
                 spread = [np.median(np.abs(v)) if self.spread.currentIndex()==0 else np.std(v) for v in vals]
                 with np.errstate(divide="ignore", invalid="ignore"):
                     fit.set_data(np.log2(d.scales), np.log2(spread))
                 fit.plot.setLabel("bottom", "log₂ a (px)")
-                fit.plot.setLabel("left", "log₂ component spread")
+                symbol = self._component_symbol(axis)
+                statistic = f"median |{symbol}|" if self.spread.currentIndex() == 0 else f"σ({symbol})"
+                fit.plot.setLabel("left", f"log₂ {statistic}")
             return
         lo, hi = sorted((self.lo.value(), self.hi.value()))
         estimate = an.directional_hurst(components, d.scales, lo-.0005, hi+.0005)
@@ -548,8 +578,8 @@ class DirectionalFigure(QtWidgets.QWidget):
                     i = int(np.argmin(np.abs(d.scales-a)))
                     if i in indices:
                         self._series(self.plots[qj], table["x"], table["curves"][qj, j], i, f"a={a:g}", density=True)
-                self.plots[qj].setLabel("bottom", "x = M / aᴴ")
-                self.plots[qj].setLabel("left", "x^q pₓ(x), normalized rescaled density")
+                self.plots[qj].setLabel("bottom", "u = ℳ<sub>ψ</sub> / a<sup>H</sup>")
+                self.plots[qj].setLabel("left", "u<sup>q</sup> p<sub>a,u</sub>(u)")
             self.readout.setText("Accepted q (max−min area)/mean ≤ tolerance: "+str(np.asarray(qs)[table["usable"]].tolist()))
             return
         if self.kind == "sensitivity":
@@ -561,7 +591,8 @@ class DirectionalFigure(QtWidgets.QWidget):
                     self._series(self.plots[k], table["centres"][axis], table["ln_pdf"][axis,j], i,
                                  f"a={d.scales[i]:g}", density=True)
                 self.plots[k].setTitle(f"H={H+shift*delta:.3f}" + (" · overview" if k==0 else " · zoom"))
-                self.plots[k].setLabel("bottom", "T / aᴴ")
+                self.plots[k].setLabel("bottom", f"U = {self._component_symbol(axis)} / a<sup>H</sup>")
+                self.plots[k].setLabel("left", "ln p<sub>a,U</sub>(U)")
             self.plots[0].addItem(self.zoom)
             self._sync_sensitivity_zoom()
             self.readout.setText("δ is a sensitivity step, not a regression confidence interval")
@@ -573,11 +604,12 @@ class DirectionalFigure(QtWidgets.QWidget):
                 self._series(self.plots[axis], raw["centres"][axis], raw["ln_pdf"][axis,j], i, f"a={d.scales[i]:g}", density=True)
                 self._series(self.plots[axis+2], collapsed["centres"][axis], collapsed["ln_pdf"][axis,j], i,
                              f"a={d.scales[i]:g}", density=True)
-            self.plots[axis].setLabel("bottom", ("Tₓ" if axis==0 else "Tᵧ") if frame=="pixel" else ("T east" if axis==0 else "T north"))
-            self.plots[axis+2].setLabel("bottom", "T / aᴴ")
-            self.plots[axis].setLabel("left", "ln p(T)")
-            self.plots[axis+2].setLabel("left", "ln p(T/aᴴ)")
-        self.readout.setText(f"{key}: Hₓ={h1:.3f}, Hᵧ={h2:.3f} · estimate uses all scales in range; displayed scales are separate")
+            symbol = self._component_symbol(axis)
+            self.plots[axis].setLabel("bottom", symbol)
+            self.plots[axis+2].setLabel("bottom", f"U{axis+1} = {symbol} / a<sup>H{axis+1}</sup>")
+            self.plots[axis].setLabel("left", f"ln P<sub>a</sub>({symbol})")
+            self.plots[axis+2].setLabel("left", f"ln p<sub>a,U{axis+1}</sub>(U{axis+1})")
+        self.readout.setText(f"{key}: H₁={h1:.3f}, H₂={h2:.3f} · estimate uses all scales in range; displayed scales are separate")
         for other, picked, other_frame in self._comparisons:
             c = [other.components(i, other_frame) for i in picked]
             raw = an.component_pdfs(c, other.scales[picked], bins=self.bins.value())
@@ -602,22 +634,28 @@ class DirectionalFigure(QtWidgets.QWidget):
         samples = d.samples(population)
         orientations = [d.orientations(i, population, frame) for i in indices]
         if self.diagnostic.currentIndex()==0:
+            self.plots[0].setTitle("Peak strength")
+            self.plots[1].setTitle("Peak angle")
             table = an.anisotropy_vs_scale(orientations, d.scales[indices], bins=self.bins.value())
-            for p, key, ylabel in zip(self.plots, ("relative_height", "angle_deg"), ("peak / isotropic", "axial peak (degrees)")):
+            for p, key, ylabel in zip(self.plots, ("relative_height", "angle_deg"), ("max P<sub>a</sub>(𝒜 mod 180°) / P<sub>iso</sub>", f"𝒜<sub>peak</sub> ({frame}, degrees, axial)")):
                 self._series(p, np.log2(d.scales[indices]), table[key], 0, population)
                 p.setLabel("bottom", "log₂ a (px)")
                 p.setLabel("left", ylabel)
             self.plots[0].addLine(y=1, pen=pg.mkPen(current().ink_muted))
         else:
+            self.plots[0].setTitle("Gradient components")
+            self.plots[1].setTitle("Sector-conditioned modulus density")
             i = indices[0]
             points, o = samples[i], orientations[0]
             a = np.radians(o.degrees)
             self._series(self.plots[0], points["mod"]*np.cos(a), points["mod"]*np.sin(a), i, f"a={d.scales[i]:g}")
             self.plots[0].setAspectLocked(True)
+            self.plots[0].setLabel("bottom", self._component_symbol(0))
+            self.plots[0].setLabel("left", self._component_symbol(1))
             for sector, x, y, count in an.sector_modulus_pdfs(points["mod"], o, bins=self.bins.value()):
                 self._series(self.plots[1], x, y, sector, f"sector {sector} · n={count}", density=True)
-            self.plots[1].setLabel("bottom", "log₂ M")
-            self.plots[1].setLabel("left", "conditional density")
+            self.plots[1].setLabel("bottom", "z = log₂ ℳ<sub>ψ</sub>")
+            self.plots[1].setLabel("left", "p<sub>a</sub>(z | axial sector)")
 
     def _draw_net(self, indices, frame, population):
         from dynamix.core.orientation_net import project, plane_pole, plane_trace, graticule
@@ -772,8 +810,8 @@ class DirectionalFigure(QtWidgets.QWidget):
         ny,nx = values.shape
         image.setRect(QtCore.QRectF(-.5,-.5,1,1))
         self.plots[0].addItem(image)
-        self.plots[0].setLabel("bottom", "kₓ (cycles/px)")
-        self.plots[0].setLabel("left", "kᵧ (cycles/px)")
+        self.plots[0].setLabel("bottom", "νₓ (cycles/px)")
+        self.plots[0].setLabel("left", "νᵧ (cycles/px)")
         if self.contours.isChecked():
             levels = np.linspace(np.percentile(s["log2_power"], 65), np.percentile(s["log2_power"], 98), 5)
             for level in levels:
@@ -787,8 +825,8 @@ class DirectionalFigure(QtWidgets.QWidget):
                 fit.set_data(np.log2(s['k_'+key]), np.log2(s['S_'+key]))
             if initial:
                 fit.region.setRegion(np.log2(s["window_"+key]))
-            fit.plot.setLabel("bottom", "log₂ k (cycles/px)")
-            fit.plot.setLabel("left", "log₂ power")
+            fit.plot.setLabel("bottom", "log₂ ν (cycles/px)")
+            fit.plot.setLabel("left", f"log₂ S<sub>{key}</sub>(ν)")
         for other,picked,frame in self._comparisons:
             v = getattr(other.field, "values", None)
             if v is not None and np.ndim(v)==2:
@@ -939,7 +977,10 @@ class DirectionalFigure(QtWidgets.QWidget):
                 label = str(row["pair"])
                 for p, y in zip(self.plots,(row["logabs"],row["phase"],row["logabs"]/row["depth"],row["phase"]/row["depth"])):
                     self._series(p,result["p"],y,i,label)
-                    p.setLabel("bottom","p conjugate to ln M")
+                    p.setLabel("bottom","p conjugate to ln ℳ<sub>ψ</sub>")
+                for plot, label in zip(self.plots, ("ln |Ĝ|", "arg Ĝ (rad)",
+                                                   "ln |Ĝ| / ln(a′/a)", "arg Ĝ / ln(a′/a)")):
+                    plot.setLabel("left", label)
             cumulants = "; ".join(f"{r['pair']}: Δκ₁={r['cumulant_difference'][0]:.3g}, Δκ₂={r['cumulant_difference'][1]:.3g}" for r in result["rows"])
             self.readout.setText("Marginal kernel, not a spatial-cascade test; unstable ratios masked. " + cumulants)
         elif self.kind=="correlations":
@@ -958,7 +999,7 @@ class DirectionalFigure(QtWidgets.QWidget):
                 y = cascade_curve(row["r"], self.variance.value(), self.integral.value())
                 self._series(self.plots[0],np.log2(row["r"]),np.where(valid,y,np.nan),0,"W-cascade model",density=True)
             self.plots[0].setLabel("bottom","log₂ r (native px)")
-            self.plots[0].setLabel("left","covariance of ln magnitude")
+            self.plots[0].setLabel("left","C(r, a₁, a₂)")
             self.plots[0].addLine(y=0,pen=pg.mkPen(current().ink_muted))
             self.readout.setText("Recorded-position pairs · per-scale centering · covariance, not Pearson · pair counts retained in export")
         else:
@@ -974,14 +1015,15 @@ class DirectionalFigure(QtWidgets.QWidget):
                     with np.errstate(divide="ignore"):
                         y = np.where(hist>0,np.log(hist),np.nan)
                     self._series(p,(edges[:-1]+edges[1:])/2,y,i,f"a={scale:g}",density=True)
-                p.setLabel("bottom","W / aᴴ" if axis else "signed W")
-                p.setLabel("left","ln normalized density")
+                p.setLabel("bottom","U = T<sub>ψ</sub> / a<sup>H</sup>" if axis else "T<sub>ψ</sub>")
+                p.setLabel("left","ln p<sub>a,U</sub>(U)" if axis else "ln P<sub>a</sub>(T<sub>ψ</sub>)")
             where = " · stack memory-mapped in the scratch folder" if isinstance(result["signed"], np.memmap) else ""
             self.readout.setText("Signed scalar coefficients · dense CWT samples · no gradient direction inferred"+where)
 
     def render_state(self):
         state = {"tool":self.kind,"context":self.data.context() if self.data else {},
                  "population":self.population.currentData(),"frame":self.frame_combo.currentData(),
+                 "notation":self.notation.text(),
                  "displayed_scale_indices":self.selected_scales(),"bins":self.bins.value(),
                  "fits":[f.measurement for f in self.fitplots],"controls":{},
                  "comparisons":[{"context":d.context(), "scales":p, "frame":f} for d,p,f in self._comparisons],"structural":self._structural}
