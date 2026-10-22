@@ -158,3 +158,42 @@ def test_dragging_a_class_span_moves_both_bounds_together(qtbot):
     dialog._regions[0].setRegion((lo0 - 0.05, hi0 - 0.05))
     assert dialog.bounds()[0] == pytest.approx(0.05)
     assert dialog.bounds()[1] == pytest.approx(0.6)
+
+
+@pytest.mark.parametrize("direction", [-1, 1])
+def test_class_drag_stops_at_neighbor_and_recovers_without_release(qtbot, direction):
+    from PySide6 import QtCore
+
+    dialog = LevelsDialog(_values(), levels_text="-1, 0, 0.3, 1")
+    qtbot.addWidget(dialog)
+    region = dialog._regions[2]
+    colors = list(dialog._colors)
+    lines = list(dialog._lines)
+
+    class Drag:
+        def __init__(self, delta, start=False, finish=False):
+            self.delta, self.start, self.finish = delta, start, finish
+            self.accepted = False
+        def button(self): return QtCore.Qt.LeftButton
+        def accept(self): self.accepted = True
+        def isStart(self): return self.start
+        def isFinish(self): return self.finish
+        def buttonDownPos(self): return QtCore.QPointF(.15, 0)
+        def pos(self): return QtCore.QPointF(.15 + self.delta, 0)
+
+    region.mouseDragEvent(Drag(0, start=True))
+    for delta in (direction*.2, .7 if direction > 0 else -1., direction*2, direction*3):
+        event = Drag(delta)
+        region.mouseDragEvent(event)
+        assert event.accepted and region.moving
+        bounds = dialog.bounds()
+        assert np.all(np.diff(bounds) > 0)
+        assert bounds[2] - bounds[1] == pytest.approx(.3)
+        assert region.getRegion() == pytest.approx(bounds[1:3])
+        assert dialog._lines == lines
+        assert dialog._colors == colors
+        assert np.all(np.diff([float(v) for v in dialog._texts()[0].split(',')]) > 0)
+    region.mouseDragEvent(Drag(direction*.1))
+    assert dialog.bounds()[1:3] == pytest.approx([direction*.1, .3+direction*.1])
+    region.mouseDragEvent(Drag(direction*.1, finish=True))
+    assert not region.moving

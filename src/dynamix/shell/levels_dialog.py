@@ -278,10 +278,10 @@ class LevelsDialog(_HistogramDialog):
     def _on_region_dragged(self, i: int) -> None:
         """A class span was dragged as a unit: shift its REAL bounding lines by the drag
         delta (the outermost spans touch one real bound; interior spans move two). The moved
-        lines' own signals re-normalize every span and queue the live preview."""
+        pair moves atomically before the spans and live preview are updated."""
         if self._syncing_regions or i >= len(self._regions):
             return
-        pairs = sorted((float(line.value()), line) for line in self._lines)
+        pairs = sorted(((float(line.value()), line) for line in self._lines), key=lambda pair: pair[0])
         span = self._hi - self._lo
         edges = [self._lo - span] + [v for v, _l in pairs] + [self._hi + span]
         new_lo, new_hi = self._regions[i].getRegion()
@@ -289,14 +289,24 @@ class LevelsDialog(_HistogramDialog):
         delta = (float(new_lo) - edges[i]) if i > 0 else (float(new_hi) - edges[i + 1])
         if abs(delta) < 1e-15:
             return
+        # Keep class identity and width when its span reaches another class.
+        gap = max(span * 1e-9, float(np.spacing(np.max(np.abs(edges)))))
+        lower, upper = -np.inf, np.inf
+        if i > 1:
+            lower = min(0.0, pairs[i - 2][0] + gap - pairs[i - 1][0])
+        if i + 1 < len(pairs):
+            upper = max(0.0, pairs[i + 1][0] - gap - pairs[i][0])
+        delta = float(np.clip(delta, lower, upper))
         prev = self._syncing_regions
         self._syncing_regions = True
+        moved = pairs[max(0, i - 1):min(len(pairs), i + 1)]
+        blockers = [QtCore.QSignalBlocker(line) for _, line in moved]
         try:
-            if i > 0:
-                pairs[i - 1][1].setValue(pairs[i - 1][0] + delta)
-            if i < len(pairs):
-                pairs[i][1].setValue(pairs[i][0] + delta)
+            for value, line in moved:
+                line.setValue(value + delta)
         finally:
+            for blocker in blockers:
+                blocker.unblock()
             self._syncing_regions = prev
         self._update_regions()
         self._queue_live()
@@ -336,7 +346,7 @@ class LevelsDialog(_HistogramDialog):
         self.activateWindow()
 
     def _texts(self) -> tuple:
-        breaks_text = ", ".join(f"{b:g}" for b in self.bounds())
+        breaks_text = ", ".join(str(b) for b in self.bounds())
         colors_text = ",".join(
             "none" if c[3] == 0 else "#{:02x}{:02x}{:02x}".format(*c[:3])
             for c in self._colors)
