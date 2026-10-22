@@ -50,6 +50,8 @@ class WaveletLeaders:
     #: A knob change marks the layer pending until Run: the three quantities are chosen before a
     #: run, the WSE costing about as much as the transform.
     waits_for_run = True
+    #: Region results retain the processing window's cell pyramids and their ROI placement.
+    region_outputs_from_result = True
     #: The boxes a chain saved before them reopens with: it computed all three.
     params_added_later = {"with_leaders": True, "with_p_leaders": True, "with_wse": True}
     role = "primary"                    # a drop on a layer forks a sibling over the same field

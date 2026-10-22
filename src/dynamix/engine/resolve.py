@@ -562,6 +562,10 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
     output = next((o for o in outputs if o.name == name and o.lazy), None)
     if output is None:
         raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
+    if getattr(device, "region_outputs_from_result", False):
+        return _output_from_result(layer, field, cache, r, output, name,
+                                   source_id=source_id, progress=progress,
+                                   cancel=cancel, level=level, region=True)
     if getattr(device, "compute_roi", None) is not None:
         raise ValueError(f"{name}: {device.name} has its own region path -- its outputs are "
                          "not computed on ROI results yet")
@@ -683,13 +687,20 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
     output = next((o for o in outputs if o.name == name and o.lazy), None)
     if output is None:
         raise ValueError(f"{r.analysis_device}: no lazy output named {name!r}")
+    return _output_from_result(layer, field, cache, r, output, name,
+                               source_id=source_id, progress=progress, cancel=cancel, level=level)
+
+
+def _output_from_result(layer, field, cache, r, output, name, *, source_id, progress,
+                        cancel, level, region=False):
+    """Resolve an output from the cached analysis with its existing grid placement."""
     layer_input = input_contract(field)
     selection = selection_recipe(layer, layer_input) if output.selects else None
     lvl = (0 if level is None else int(level)) if output.per_level else None
     key = output_key(r.analysis_device, output, r.analysis_params, r.analysis_key, selection,
                      level=lvl)
     raw = cache.get(r.analysis_key)
-    values = np.asarray(r.analysis_input.values)
+    values = np.asarray((field if region else r.analysis_input).values)
 
     def fetch(other: str) -> dict:
         return resolve_output(layer, field, cache, other, source_id=source_id,
@@ -708,6 +719,8 @@ def resolve_output(layer, field, cache: Cache, name: str, *, source_id: str | No
         value = execution.run(device, r.analysis_params,
             lambda: device.compute_output(name, values, raw, r.analysis_params, fetch=fetch,
                                            progress=progress, cancel=cancel, **extra))
+        if region:
+            value = execution.attach(value, roi_axes=raw["_roi_axes"])
         return execution.attach(value, _output_identity={"key": key, "name": name, "level": lvl,
             "params": {k: r.analysis_params[k] for k in output.params}})
 
