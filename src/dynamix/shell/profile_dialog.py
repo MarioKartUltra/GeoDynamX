@@ -50,6 +50,7 @@ import numpy as np
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core.transect import SMOOTHINGS, smooth_profile
+from dynamix.shell.settings import start_path
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["ProfileDialog"]
@@ -182,13 +183,13 @@ class ProfileDialog(QtWidgets.QDialog):
 
     def _on_save_png_clicked(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save profile PNG", "", "PNG image (*.png)")
+            self, "Save profile PNG", start_path(), "PNG image (*.png)")
         if path:
             self._figure.savefig(path)
 
     def _on_save_npz_clicked(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save profile data", "", "NumPy archive (*.npz)")
+            self, "Save profile data", start_path(), "NumPy archive (*.npz)")
         if path:
             np.savez(path, dist=self._dist, z=self._z, z_filt=self._current_smoothed(),
                     smoothing=self._smoothing_combo.currentText(),

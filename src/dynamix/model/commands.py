@@ -77,6 +77,7 @@ COMMANDS: tuple[Command, ...] = (
             group="settings.precision", headless=True, submenu="FFT precision"),
     Command("settings.eta_warn", "Under-sampling Warning Level…", "Settings"),
     Command("settings.fast_fork", "Fast Fork…", "Settings"),
+    Command("settings.working_folder", "Working Folder…", "Settings"),
     Command("help.about", "About GeoDynamix", "Help"),
 )
 

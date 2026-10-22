@@ -89,6 +89,10 @@ class Settings:
     #: dataset or a row of its own, temporary or saved to a file, the raster shown or every raster,
     #: and the result's vectors. Set from Settings > Fast Fork…; an invalid entry reads as the defaults.
     fast_fork: dict = dataclasses.field(default_factory=lambda: dict(FAST_FORK_DEFAULTS))
+    #: The folder every open, save and export dialog starts in and a saved fork is offered in
+    #: (:func:`start_path`), set from Settings > Working Folder…; ``None``, or a folder that no
+    #: longer exists, leaves each dialog where it starts without one.
+    working_folder: str | None = None
     #: Where each floating window was left, ``{key: [x, y, w, h]}`` in screen pixels
     #: (``dynamix.shell.window_fit.remember_geometry``); a saved geometry that lands on no
     #: screen is ignored on restore.
@@ -204,6 +208,7 @@ def load_settings() -> Settings:
         eta_warn=_positive_float(d.get("eta_warn"), 1e-3),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
         fast_fork=_fast_fork(d.get("fast_fork")),
+        working_folder=d["working_folder"] if isinstance(d.get("working_folder"), str) else None,
         theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
 
@@ -217,6 +222,15 @@ def _positive_float(value, default: float) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not value > 0:
         return default
     return float(value)
+
+
+def start_path(name: str = "") -> str:
+    """Where a file dialog starts: ``name`` inside the working folder while one is set and exists,
+    else ``name`` alone (the dialog's own starting place)."""
+    folder = load_settings().working_folder
+    if folder and Path(folder).expanduser().is_dir():
+        return str(Path(folder).expanduser() / name) if name else str(Path(folder).expanduser())
+    return name
 
 
 def save_settings(s: Settings) -> None:

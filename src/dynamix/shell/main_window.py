@@ -135,7 +135,7 @@ from dynamix.shell.right_panel import DevicePanel, CompositePanel, Reconstructio
 from dynamix.shell.roi_panel import RoiPanel
 from dynamix.shell.settings import (Settings, devices_dir, load_settings, racks_dir, save_settings,
                                     themes_dir,
-                                    update_settings)
+                                    start_path, update_settings)
 from dynamix.shell.theme import Theme, apply_theme, bundled_themes
 from dynamix.shell.skeleton_dialog import SkeletonDialog
 from dynamix.shell.surface_dialog import SurfaceDialog
@@ -1909,7 +1909,7 @@ class MainWindow(QtWidgets.QMainWindow):
         display only -- analysis wants native pixels (the no-resampling rule), so run WTMM on a
         windowed open or an ROI, never on this."""
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Open full extent (decimated overview)", "", "GeoTIFF (*.tif *.tiff)")
+            self, "Open full extent (decimated overview)", start_path(), "GeoTIFF (*.tif *.tiff)")
         if not path:
             return
         # The display PICTURE, not the overview dataset
@@ -1929,7 +1929,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_open_reference_clicked(self) -> None:
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self, "Open reference layers", "",
+            self, "Open reference layers", start_path(),
             "Shapefiles, layer files, shapefile zips (*.shp *.lyr *.zip);;All files (*)")
         if paths:
             self._open_reference_layers(paths)
@@ -2102,7 +2102,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # -- footprint browser -----------------------------------------------------------------
     def _on_scan_footprints_clicked(self) -> None:
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Scan folder for raster footprints")
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Scan folder for raster footprints", start_path())
         if not folder:
             return
         self._scan_footprint_folder(folder, persist=True)
@@ -2372,7 +2372,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # not an error or progress dialog -- those are the ones DESIGN.md forbids.
         # Several files at once: each opens as its own dataset, in order, the last one current.
         paths, _ = QtWidgets.QFileDialog.getOpenFileNames(
-            self, "Open raster", "",
+            self, "Open raster", start_path(),
             "Raster, points or reference layers (*.npz *.npy *.tif *.tiff *.hdr *.zip *.png *.jpg "
             "*.csv *.shp *.lyr *.nc *.nc4 *.cdf *.h5 *.hdf5 *.he5 *.hdf)")
         for path in paths:
@@ -4028,6 +4028,14 @@ both ``Canvas`` signals report the
         if dialog.exec():
             update_settings(fast_fork=dialog.choices())
 
+    def _on_working_folder(self) -> None:
+        """Settings > Working Folder…: the folder the file dialogs start in (:func:`start_path`),
+        persisted; a cancelled pick keeps the current one."""
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "Working folder", start_path() or str(Path.home()))
+        if folder:
+            update_settings(working_folder=folder)
+            self._notify(f"working folder: {folder}", "status")
+
     def _on_fork_derivative(self, layer_id: int, *, fast: bool = False) -> None:
         """"Fork derivative dataset…": what a result holds -- the rasters picked as bands and/or
         the extrema and maxima lines it shows -- written ONCE as a dataset of its own and opened
@@ -4119,7 +4127,8 @@ both ``Canvas`` signals report the
         slug = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_") or "derivative"
         if temporary:
             return str(Path(_derivative_scratch()) / f"{slug}-{uuid.uuid4().hex[:8]}.npz")
-        folder = self._project_path.parent if self._project_path is not None else Path.home()
+        folder = (Path(start_path()) if start_path() else self._project_path.parent
+                  if self._project_path is not None else Path.home())
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save derivative dataset", str(folder / f"{slug}.npz"),
             "Derivative dataset (*.npz)")
@@ -4179,7 +4188,8 @@ both ``Canvas`` signals report the
         source = self.project.sources.get(source_id)
         if source is None or not source.temporary:
             return
-        folder = self._project_path.parent if self._project_path is not None else Path.home()
+        folder = (Path(start_path()) if start_path() else self._project_path.parent
+                  if self._project_path is not None else Path.home())
         slug = re.sub(r"[^A-Za-z0-9._-]+", "_", source.label or "derivative").strip("_")
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, "Save derivative dataset", str(folder / f"{slug or 'derivative'}.npz"),
@@ -4984,13 +4994,13 @@ both ``Canvas`` signals report the
 
     def _on_save_project_as_clicked(self) -> None:
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Save project", "", "DynamiX project (*.dynamix)")
+            self, "Save project", start_path(), "DynamiX project (*.dynamix)")
         if path:
             self._save_project_to(path)
 
     def _on_open_project_clicked(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Open project", "", "DynamiX project (*.dynamix)")
+            self, "Open project", start_path(), "DynamiX project (*.dynamix)")
         if path:
             self._open_project_path(path)
 
@@ -7594,7 +7604,7 @@ both ``Canvas`` signals report the
             self._notify(err, "status")
             return
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Export Chains (.npz)", "", "WTMM chains (*.npz);;All files (*)")
+            self, "Export Chains (.npz)", start_path(), "WTMM chains (*.npz);;All files (*)")
         if not path:
             return
         path = bundle_path(path)                 # the export's own folder, its record beside it
@@ -7614,7 +7624,7 @@ both ``Canvas`` signals report the
                          "holder_multiaffine or a band reconstruction first", "status")
             return
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "Export derived raster", f"{dfield.name}.npz", "NumPy archive (*.npz)")
+            self, "Export derived raster", start_path(f"{dfield.name}.npz"), "NumPy archive (*.npz)")
         if path:
             path = bundle_path(path)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -11294,6 +11304,7 @@ both ``Canvas`` signals report the
             "view.map_crs": self._on_map_crs_action,
             "settings.eta_warn": self._on_eta_warn_clicked,
             "settings.fast_fork": self._on_fast_fork_settings,
+            "settings.working_folder": self._on_working_folder,
             **self.controller.handlers(),
             "view.reset_layout": self.reset_layout,
             "view.layouts.save_as": self._save_layout_as,

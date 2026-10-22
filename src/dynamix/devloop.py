@@ -194,7 +194,7 @@ _DEPENDS_ON = {
     # ``dynamix.core.transect``, no ``dynamix.shell.*`` module -- see the module's own "Accent
     # color" docstring section for why it does NOT import ``theme``), same shape as
     # "topology_panel"/"transect_panel" above.
-    "profile_dialog": ("window_fit", ),
+    "profile_dialog": ("window_fit", "settings"),
     # The interactive multifractal-spectrum window -- imports ``theme``
     # for its background/inks (the ``canvas.py`` precedent) plus ``dynamix.core.spectra``; no
     # other ``dynamix.shell.*`` module.

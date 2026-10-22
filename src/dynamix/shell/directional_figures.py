@@ -15,6 +15,7 @@ from dynamix.core import anisotropy as an
 from dynamix.core.figure_fits import range_fit
 from dynamix.core.orientation import Orientation, Frame
 from dynamix.shell.figure_data import FigureData
+from dynamix.shell.settings import start_path
 from dynamix.shell.slope_plot import SlopePlot
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import zoom_plot
@@ -992,7 +993,7 @@ class DirectionalFigure(QtWidgets.QWidget):
         return state
 
     def _export(self):
-        filename,_ = QtWidgets.QFileDialog.getSaveFileName(self,"Export figure","figure.png","PNG (*.png)")
+        filename,_ = QtWidgets.QFileDialog.getSaveFileName(self,"Export figure",start_path("figure.png"),"PNG (*.png)")
         if not filename: return
         if not self.figure.grab().save(filename):
             self.readout.setText("Could not save the figure image")
