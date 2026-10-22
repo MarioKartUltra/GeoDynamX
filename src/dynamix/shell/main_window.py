@@ -8068,7 +8068,8 @@ both ``Canvas`` signals report the
         self._params[step_index][name] = value
         if self._inspected_step == step_index:
             self._device_panel.set_values(self._params[step_index])
-        if self._names[step_index] == "wtmm2d" and (name in _EDGE_KNOBS
+        footprint_device = get_device(self._names[step_index])
+        if hasattr(footprint_device, "footprint") and (name in getattr(footprint_device, "footprint_knobs", ())
                                                     or self._edge_footprint_kept()):
             self._show_edge_footprint(linger=True)
         # While the layer has a shown level (the Transport's ``ui.scale_idx``), a scale_select
@@ -11329,19 +11330,20 @@ both ``Canvas`` signals report the
         return {"row": row_off + h / 2.0, "col": col_off + w / 2.0, "radius": float(radii[level])}
 
     def _show_edge_footprint(self, *, linger: bool) -> None:
-        """The active layer's WTMM edge footprint on the canvas at the shown scale, read off the
+        """The active layer's analysis footprint on the canvas at the shown scale, read off the
         field reaching the WTMM step (from the cache, so nothing computes here; the dataset where
         an earlier transform has not run). ``linger``: it goes when the timer runs out unless
         View > Edge Footprint keeps it."""
         from dynamix.engine.resolve import cached_input
 
         self.canvas.set_disc(self._leaders_disc())
-        if (self.layer is None or self.field is None or "wtmm2d" not in self._names
-                or self._bypassed[self._names.index("wtmm2d")]):
+        eligible = [i for i, name in enumerate(self._names)
+                    if not self._bypassed[i] and hasattr(get_device(name), "footprint")]
+        if self.layer is None or self.field is None or not eligible:
             self.canvas.clear_footprint()
             return
-        i = self._names.index("wtmm2d")
-        device = get_device("wtmm2d")
+        i = eligible[-1]
+        device = get_device(self._names[i])
         dataset = self._fields.get(self.layer.layer_id, self.field)
         prior = [DeviceRef(self._names[k], dict(self._params[k])) for k in range(i)
                  if not self._bypassed[k]]

@@ -230,6 +230,125 @@ class WaveletLeaders:
             return None
         return f"{int(value)} px ≈ {int(value) * px:.3g} {unit}"
 
+    footprint_knobs = frozenset({'wavelet', 'edge', 'scale_min', 'scale_max', 'with_wse',
+                                  'wse_rule', 'wse_depth', 'wse_width', 'wse_beta', 'spin'})
+
+    def footprint(self, field, params, level, stride=1):
+        """The working grid, edge exclusions and representative cell without a transform."""
+        shape = tuple(int(n) for n in np.shape(field.values)[:2])
+        return self._footprint(field, params, level, stride, shape, (0, 0), 0,
+                               self.grid_anchor(field, int(params['scale_max'])),
+                               self._edge(field, params), self.resolution_side(field))
+
+    def roi_footprint(self, field, params, rect, level, stride=1):
+        """The region's full processing window, sampled through the file's reflected edge."""
+        from types import SimpleNamespace
+        from dynamix.roi.picture import display_stride
+        prov = getattr(field, 'provenance', None) or {}
+        win = prov.get('window') or {}
+        wr, wc = int(win.get('row_off',0)), int(win.get('col_off',0))
+        k = display_stride(field)
+        full = tuple(int(n) for n in prov.get('full_dims',
+                            (np.shape(field.values)[0]*k, np.shape(field.values)[1]*k)))
+        r,c,h,w = (int(v) for v in rect)
+        proxy = SimpleNamespace(provenance={'full_dims':full,
+                            'window':{'row_off':wr+r,'col_off':wc+c}}, values=field.values)
+        margin = self.roi_margin(params, proxy)
+        proxy.provenance['window'] = {'row_off':wr+r-margin,'col_off':wc+c-margin}
+        return self._footprint(field, params, level, stride, (h+2*margin,w+2*margin),
+                               (r,c), margin, self.grid_anchor(proxy,int(params['scale_max'])),
+                               'mirror', min(full))
+
+    def _footprint(self, field, params, level, stride, shape, origin, margin, anchor, edge, side):
+        from dynamix.roi.picture import display_stride
+        J = self._levels(params)[1]
+        j = min(max(int(level) + 1, 1), J)
+        step = 2 ** j
+        phase, pad, work = leaders.grid_layout(shape, J, edge=edge, anchor=anchor)
+        r, c = origin
+        processing_origin = (r-margin, c-margin)
+        y0, x0 = processing_origin
+        h, w = shape
+        roi_shape = (h-2*margin, w-2*margin)
+        s = max(1,int(stride)) * display_stride(field)
+        values = np.asarray(field.values)
+        values = values[...,0] if values.ndim==3 else values
+        prov = getattr(field,'provenance',None) or {}
+        win = prov.get('window') or {}
+        wr,wc = int(win.get('row_off',0)),int(win.get('col_off',0))
+        k = display_stride(field)
+        full = tuple(int(n) for n in prov.get('full_dims', (values.shape[0]*k,values.shape[1]*k)))
+
+        def reflect(indices,n):
+            if n<=1:return np.zeros_like(indices)
+            indices=np.mod(indices,2*(n-1))
+            return np.where(indices<n,indices,2*(n-1)-indices)
+
+        def sampled_axis(axis):
+            if margin:
+                # ROI continuation is the runner's reflect rule, independent of DWT edge mode.
+                source=reflect(processing_origin[axis]+(wr,wc)[axis]+np.arange(0,shape[axis],s),full[axis])
+            else:
+                indices=leaders._extend(np.arange(shape[axis]),(work[axis],),edge,(pad[axis],))[::s]
+                source=indices + (wr,wc)[axis]
+            local=np.floor_divide(source-(wr,wc)[axis],k).astype(int)
+            available=(local>=0)&(local<values.shape[axis])
+            if not margin and edge=='zero_pad':
+                support=leaders._extend(np.ones(shape[axis]),(work[axis],),edge,(pad[axis],))[::s]>0
+            else:
+                support=np.ones(local.shape,bool)
+            return np.clip(local,0,values.shape[axis]-1),available,support
+
+        rows,rok,rsupport=sampled_axis(0)
+        cols,cok,csupport=sampled_axis(1)
+        padded=np.asarray(values[np.ix_(rows,cols)],float)
+        padded=np.where(rsupport[:,None]&csupport[None,:],padded,0.)
+        padded=np.where(rok[:,None]&cok[None,:],padded,np.nan)
+        border=dwt.border_cells(params['wavelet'])
+        e=0 if edge=='periodic' else border
+        seam=border if edge=='periodic' and tuple(work)!=tuple(shape) else 0
+        schedule=leaders.wse_schedule(J,rule=params['wse_rule'],depth=int(params['wse_depth']),
+                    width=float(params['wse_width']),beta=float(params['wse_beta']),
+                    log2_n=math.log2(side or min(shape)))
+        reach=max(math.ceil(width) for _,width in schedule[j-1])
+        wse_margin=max(e-1,0)+reach if e or seam else 0
+        block=filled_block(field) if not margin else None
+        data_origin=filled_origin(field) if not margin else (0,0)
+        block=tuple(block or shape)
+
+        def bounds(cells,wrap):
+            intervals=[]
+            for n,p,o,b,W in zip(shape,pad,data_origin,block,work):
+                lo=max(math.ceil((p+o)/step)+cells,wrap)
+                hi=min((p+o+b)//step-cells,W//step-wrap)
+                intervals.append((lo*step-p, max(lo,hi)*step-p))
+            return (y0+intervals[0][0],x0+intervals[1][0],
+                    intervals[0][1]-intervals[0][0],intervals[1][1]-intervals[1][0])
+
+        outer=(y0,x0,h,w)
+        exclusions=[{'kind':'leaders','outer':outer,'inner':bounds(e,seam)}]
+        if params.get('with_wse',True):
+            exclusions.append({'kind':'WSE','outer':outer,
+                               'inner':bounds(wse_margin,max(seam-1,0)+reach if seam else 0)})
+        centre=tuple((math.floor((margin+n/2+p)/step)+.5)*step-p+o
+                     for n,p,o in zip(roi_shape,pad,processing_origin))
+        support=(len(dwt.wavelet(params['wavelet']).dec_lo)-1)*step
+        return {'shape':roi_shape,'origin':origin,'shown':margin if margin else max(work),
+                'pad':margin if margin else pad,'padded':padded,'stride':s,
+                'offset':-margin if margin else -pad[0], 'padded_origin':
+                    processing_origin if margin else (y0-pad[0],x0-pad[1]),
+                'border':0,'band':'edge exclusion','edge':edge,
+                'outline':outer if margin else (y0-pad[0],x0-pad[1],*work),
+                'grid':{'cell':step,'pad':pad,'phase':phase,'origin':processing_origin,
+                        'shape':shape,'remainder':tuple(n % (2**J) for n in shape)},
+                'exclusions':exclusions,
+                'cell':{'centre':centre,'size':step,'three_lambda':3*step,'atom':support,
+                        'wse':(2*reach+1)*step if params.get('with_wse',True) else None},
+                'legend':(f'{step} px cells · {params.get("spin",1)**2} shifted grid(s) · edge exclusion\n'
+                          f'Cell {step} px · 3λ {3*step} px · wavelet support {support} px'
+                          + (f' · WSE {(2*reach+1)*step} px' if params.get('with_wse',True) else '')),
+                'reflected_support':bool(margin and (y0<0 or x0<0 or y0+h>full[0] or x0+w>full[1]))}
+
     def wavelet_profile(self, params: dict, scale_px: float, level: int):
         """The bank's wavelet at the level whose cell is ``scale_px`` (the wavelet scale bar)."""
         from dynamix.core.wavelet_profiles import dwt_profile

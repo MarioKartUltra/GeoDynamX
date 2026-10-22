@@ -36,7 +36,7 @@ import numpy as np
 
 from dynamix.core import dwt
 
-__all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "leaders",
+__all__ = ["BANDS", "EDGE_MODES", "METHODS", "admissibility", "coefficients", "cumulants", "grid_layout", "leaders",
            "local_exponent", "oscillation", "paint", "partition_table", "pleaders", "run_leaders",
            "sample_sets", "sobolev_condition", "structure_fit", "tables", "valid_cells", "wse", "wse_schedule"]
 
@@ -71,6 +71,18 @@ def _extend(x, W, edge: str, pad=None):
     return np.pad(x, after, mode=EDGE_MODES[edge])
 
 
+def grid_layout(shape, level, *, edge="mirror", anchor=None):
+    """The phase, leading pad and working shape used by the dyadic transform."""
+    cell = 2 ** int(level)
+    phase = (tuple((int(n) % cell) // 2 for n in shape) if anchor is None
+             else tuple(int(a) % cell for a in anchor))
+    pad = tuple((cell - p) % cell for p in phase)
+    padded = tuple(int(n) + p for n, p in zip(shape, pad))
+    work = (tuple(int(math.ceil(int(n) / cell)) * cell for n in padded) if edge == "periodic"
+            else dwt.working_shape(padded, level))
+    return phase, pad, work
+
+
 def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str = "mirror",
                  origin=(0, 0), block=None, anchor=None) -> dict:
     """The detail moduli of the field continued by ``edge`` to the working image, L¹, registered
@@ -92,19 +104,9 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str
     if x.ndim not in (1, 2):
         raise ValueError(f"leaders: a 1-D signal or a 2-D band, not shape {x.shape}")
     J = int(level)
-    cell = 2 ** J
-    if anchor is None:
-        phase = tuple((int(n) % cell) // 2 for n in x.shape)
-    else:
-        phase = tuple(int(a) % cell for a in anchor)
-    pad = tuple((cell - p) % cell for p in phase)
-    padded = tuple(int(n) + p for n, p in zip(x.shape, pad))
+    phase, pad, W = grid_layout(x.shape, J, edge=edge, anchor=anchor)
     finite = np.isfinite(x)
     filled = np.where(finite, x, float(x[finite].mean()) if finite.any() else 0.0)
-    if edge == "periodic":
-        W = tuple(int(math.ceil(int(n) / cell)) * cell for n in padded)
-    else:
-        W = dwt.working_shape(padded, J)
     work = _extend(filled, W, edge, pad)
     bad = _extend((~finite).astype(np.float64), W, "zero_pad" if edge in ("zero_pad", "edge_pad") else edge, pad) > 0.5
     size = tuple(int(n) for n in x.shape) if block is None else tuple(int(n) for n in block)

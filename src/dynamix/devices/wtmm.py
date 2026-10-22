@@ -716,6 +716,8 @@ class WTMM2D:
                   "widths": widths, "pad": out["pad"], "notes": notes, "extent": extent}
         return out, record
 
+    footprint_knobs = frozenset(p.name for p in BOUNDARY_PARAMS)
+
     def footprint(self, field, params: dict, level: int, stride: int = 1) -> "dict | None":
         """What the Raster view draws while the edge knobs move (spec 25 §3.4), from the numbers
         the run uses at scale ``level``: ``pad`` (the run's padding, px; 0 for periodic),

@@ -1003,6 +1003,19 @@ class Canvas(pg.GraphicsLayoutWidget):
         band_edge.setCosmetic(True)                  # the cut's inner edge, crisp at any zoom
         self.footprint_band_item.setPen(band_edge)
         self.view.addItem(self.footprint_band_item)
+        self._footprint_geometry = None
+        self.footprint_grid_item = pg.PlotDataItem(pen=pg.mkPen(COI_COLOR, width=.7), connect="finite")
+        self.view.addItem(self.footprint_grid_item)
+        self.footprint_cells_item = pg.PlotDataItem(pen=pg.mkPen(COI_COLOR, width=1.5), connect="finite")
+        self.view.addItem(self.footprint_cells_item)
+        self.footprint_wse_item = QtWidgets.QGraphicsPathItem()
+        self.footprint_wse_item.setBrush(QtGui.QBrush(QtGui.QColor(*COI_COLOR), QtCore.Qt.BrushStyle.DiagCrossPattern))
+        self.footprint_wse_item.setPen(pg.mkPen(COI_COLOR, width=.5))
+        self.view.addItem(self.footprint_wse_item)
+        self.footprint_label = pg.TextItem(color=rgb(current().ink), anchor=(0,0))
+        self.view.addItem(self.footprint_label)
+        self.view.sigRangeChanged.connect(self._refresh_footprint_extras)
+
 
         # The ROI rubber band, in the theme's ``roi`` role (amber by default, and by the One-Accent
         # Rule rather than in spite of it: the spec grants this the accent explicitly, "the only
@@ -1841,8 +1854,9 @@ a bounded gather of at most :attr:`draw_cap` chains per
         # rest -- the mirror past its edges, an in-chain extension's gap -- is drawn here.
         shown_h, shown_w = np.shape(getattr(self._field, "values", np.empty((H, W))))[:2]
         k = display_stride(self._field) if self._field is not None else 1
-        rows = r0 + off + s * np.arange(padded.shape[0])
-        cols = c0 + off + s * np.arange(padded.shape[1])
+        pr, pc = footprint.get("padded_origin", (r0+off,c0+off))
+        rows = pr + s * np.arange(padded.shape[0])
+        cols = pc + s * np.arange(padded.shape[1])
         on_raster = (((rows >= 0) & (rows < shown_h * k))[:, None]
                      & ((cols >= 0) & (cols < shown_w * k))[None, :])
         padded[on_raster] = np.nan
@@ -1857,7 +1871,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             if cmap is not None:
                 self.footprint_image_item.setColorMap(cmap)
             self.footprint_image_item.setRect(QtCore.QRectF(
-                x0 + off * px, y0 + off * py, padded.shape[1] * s * px, padded.shape[0] * s * py))
+                bc + (pc-.5) * px, br + (pr-.5) * py, padded.shape[1] * s * px, padded.shape[0] * s * py))
             self.footprint_image_item.setVisible(True)
         else:
             self.footprint_image_item.setVisible(False)
@@ -1867,6 +1881,58 @@ a bounded gather of at most :attr:`draw_cap` chains per
             if W > 2 * b and H > 2 * b:
                 path.addRect(QtCore.QRectF(x0 + b, y0 + b, W - 2 * b, H - 2 * b))
         self.footprint_band_item.setPath(path)
+        self._footprint_geometry = footprint
+        self._refresh_footprint_extras()
+
+    def _refresh_footprint_extras(self, *unused):
+        fp = self._footprint_geometry
+        self.footprint_grid_item.setData([], [])
+        self.footprint_cells_item.setData([], [])
+        self.footprint_wse_item.setPath(QtGui.QPainterPath())
+        self.footprint_label.setText("")
+        if not fp or "grid" not in fp:
+            return
+        br,bc = self._base_off
+        py,px = self._display_pitch
+        def rectangle(rect):
+            r,c,h,w=rect
+            return QtCore.QRectF(bc+(c-.5)*px,br+(r-.5)*py,w*px,h*py)
+        r,c,h,w=fp["outline"]
+        outline=rectangle((r,c,h,w))
+        self.footprint_outline_item.setData([outline.left(),outline.right(),outline.right(),outline.left(),outline.left()],
+                                           [outline.top(),outline.top(),outline.bottom(),outline.bottom(),outline.top()])
+        for band in fp['exclusions']:
+            path=QtGui.QPainterPath()
+            outer=rectangle(band['outer'])
+            inner=rectangle(band['inner']).intersected(outer)
+            path.addRect(outer)
+            if inner.width()>0 and inner.height()>0:
+                path.addRect(inner)
+            (self.footprint_band_item if band['kind']=='leaders' else self.footprint_wse_item).setPath(path)
+        grid=fp['grid'];cell=grid['cell'];y0,x0=grid['origin'];ny,nx=grid['shape']
+        xr,yr=self.view.viewRange();pixel_x,pixel_y=self.view.viewPixelSize()
+        segments_x=[];segments_y=[]
+        def segment(x,y):
+            segments_x.extend([*x,np.nan]);segments_y.extend([*y,np.nan])
+        if cell*abs(px)/max(abs(pixel_x),1e-12)>=6:
+            lo=max(x0,(min(xr)-bc)/px+.5);hi=min(x0+nx,(max(xr)-bc)/px+.5)
+            positions=np.arange(np.ceil((lo-x0+grid['pad'][1])/cell),np.floor((hi-x0+grid['pad'][1])/cell)+1)*cell+x0-grid['pad'][1]
+            for x in positions[:2000]:segment([bc+(x-.5)*px]*2,[br+(y0-.5)*py,br+(y0+ny-.5)*py])
+        if cell*abs(py)/max(abs(pixel_y),1e-12)>=6:
+            lo=max(y0,(min(yr)-br)/py+.5);hi=min(y0+ny,(max(yr)-br)/py+.5)
+            positions=np.arange(np.ceil((lo-y0+grid['pad'][0])/cell),np.floor((hi-y0+grid['pad'][0])/cell)+1)*cell+y0-grid['pad'][0]
+            for y in positions[:2000]:segment([bc+(x0-.5)*px,bc+(x0+nx-.5)*px],[br+(y-.5)*py]*2)
+        self.footprint_grid_item.setData(segments_x,segments_y)
+        xs=[];ys=[]
+        cy,cx=fp['cell']['centre']
+        for width in [fp['cell']['size'],fp['cell']['three_lambda'],fp['cell']['atom'],fp['cell']['wse']]:
+            if width is None:continue
+            q=rectangle((cy-width/2,cx-width/2,width,width))
+            xs.extend([q.left(),q.right(),q.right(),q.left(),q.left(),np.nan])
+            ys.extend([q.top(),q.top(),q.bottom(),q.bottom(),q.top(),np.nan])
+        self.footprint_cells_item.setData(xs,ys)
+        self.footprint_label.setText(fp['legend']+(' · reflected file-edge support' if fp['reflected_support'] else ''))
+        self.footprint_label.setPos(min(xr)+abs(pixel_x)*8,min(yr)+abs(pixel_y)*8)
 
     def set_disc(self, disc: "dict | None") -> None:
         """A ring of ``disc["radius"]`` px around ``(disc["row"], disc["col"])``, the field's own
@@ -1881,9 +1947,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def clear_footprint(self) -> None:
         """Take the edge footprint off the canvas."""
+        self._footprint_geometry = None
         self.footprint_outline_item.setData([], [])
         self.footprint_image_item.setVisible(False)
         self.footprint_band_item.setPath(QtGui.QPainterPath())
+        self._refresh_footprint_extras()
 
     def clear_overlays(self) -> None:
         """Take every WTMM-result overlay off the canvas -- everything :meth:`set_result` draws --
@@ -2856,6 +2924,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             pen = pg.mkPen(item.opts["pen"])
             pen.setColor(pg.mkColor(role))
             item.setPen(pen)
+        self.footprint_label.setColor(rgb(t.ink))
         self.transect_marker_item.setBrush(pg.mkBrush(t.selection_accent))
         for text in self._saved_roi_labels:
             text.setColor(t.roi)
