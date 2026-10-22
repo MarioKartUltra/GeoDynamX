@@ -48,6 +48,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 import json
+import os
 import re
 import sys
 import time
@@ -1022,8 +1023,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle(TITLE)
 
         settings = load_settings()
-        self.cache = Cache(max_bytes=settings.output_cache_bytes,
-                           max_results=settings.result_cache_entries)
+        from dynamix.shell.settings import cache_ram_budget, scratch_dir
+        import psutil
+        import uuid
+        folder = scratch_dir() / f"cache-{os.getpid()}" / uuid.uuid4().hex
+        self.cache = Cache(max_bytes=cache_ram_budget(settings),
+                           max_results=settings.result_cache_entries, disk_dir=folder,
+                           pressure_floor=int(psutil.virtual_memory().total * .20))
+        import weakref
+        cache_ref = weakref.ref(self.cache)
+        def close_cache():
+            cache = cache_ref()
+            if cache is not None:
+                cache.close()
+        QtWidgets.QApplication.instance().aboutToQuit.connect(close_cache)
         self.project = Project(title=TITLE)
         self.field = None
         self.layer = None

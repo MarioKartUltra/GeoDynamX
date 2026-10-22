@@ -343,7 +343,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             value = run_on_region(run, field, r, progress=progress, cancel=cancel, stage_cache=cache.stages)
             return execution.attach(value, _landed={"analysis_key": upstream, "filters": [], "level": None})
 
-        result = cache.get_or_compute(upstream, _region)
+        result = cache.get_or_compute(upstream, _region, label=f"{roi_steps[-1][0].name} region")
         analyzer, analyzer_params = roi_steps[-1]
         result = apply_view(analyzer, result, analyzer_params)
         analysis_raw = result
@@ -376,7 +376,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
                     s if upstream is not None else None)
                 return execution.attach(value, _landed={"analysis_key": key, "filters": [], "level": None})
 
-            result = apply_view(device, cache.get_or_compute(key, _compute, upstream=upstream),
+            result = apply_view(device, cache.get_or_compute(key, _compute, upstream=upstream, label=getattr(device, "label", device.name)),
                                 params)
             if (roi_steps and isinstance(result, dict) and not result.get("_roi")
                     and hasattr(src, "values")):
@@ -427,6 +427,7 @@ def resolve(layer, field, cache: Cache, *, source_id: str | None = None,
             layer, layer_input, level=level, source=source_id))
     cache.mark_shown(layer.layer_id, analysis[2])
     fft_policy.trim_mlx_cache()
+    cache.check_pressure()
     return Renderable(
         layer_id=layer.layer_id,
         result=result,
@@ -603,7 +604,7 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
                          level=lvl) + "|window"
 
         def _compute():
-            win = cache.get_or_compute(window_key, _window)
+            win = cache.get_or_compute(window_key, _window, label=f"{device.name} window")
             raw = win["raw"]
             extra = {}
             if out.selects:
@@ -617,7 +618,7 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
                                                r.analysis_params, fetch=window_output,
                                                progress=progress, cancel=cancel, **extra))
 
-        return cache.get_or_compute(key, _compute)
+        return cache.get_or_compute(key, _compute, label=f"{r.analysis_device} {name} level {lvl}")
 
     selection = selection_recipe(layer, layer_input) if output.selects else None
     lvl = (0 if level is None else int(level)) if output.per_level else None
@@ -625,7 +626,7 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
                      level=lvl)
 
     def _cut() -> dict:
-        window = cache.get_or_compute(window_key, _window)["window"]
+        window = cache.get_or_compute(window_key, _window, label=f"{device.name} window")["window"]
         value = window_output(name)
         cut = dict(value)
         if "cells" in value:                       # a level's own grid: only its crop moves
@@ -639,7 +640,7 @@ def _resolve_region_output(layer, field, cache: Cache, name: str, *, source_id, 
             "params": {k: r.analysis_params[k] for k in output.params}}
         return cut
 
-    return cache.get_or_compute(key, _cut)
+    return cache.get_or_compute(key, _cut, label=f"{device.name} {name} level {lvl} region")
 
 
 def output_raster(value: dict) -> np.ndarray:
@@ -724,4 +725,4 @@ def _output_from_result(layer, field, cache, r, output, name, *, source_id, prog
         return execution.attach(value, _output_identity={"key": key, "name": name, "level": lvl,
             "params": {k: r.analysis_params[k] for k in output.params}})
 
-    return cache.get_or_compute(key, _compute)
+    return cache.get_or_compute(key, _compute, label=f"{r.analysis_device} {name} level {lvl}")

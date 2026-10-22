@@ -251,7 +251,7 @@ def test_the_report_keeps_the_three_budgets_apart(monkeypatch):
         "entries": 2, "analysis": 1, "max_results": 3, "bytes": retained_nbytes(result["chains"]),
         "max_bytes": 10_000, "pinned": 1, "pinned_bytes": retained_nbytes(np.zeros(8))}
     assert report["stages"] == {"entries": 1, "bytes": stage_nbytes({"cwt": np.zeros(16)}),
-                                "max_bytes": 10_000}
+                                "max_bytes": 2_000_000_000}
     assert report["mlx"] == {"active": 7, "cache": 11}
 
 

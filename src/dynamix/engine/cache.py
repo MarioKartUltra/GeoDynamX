@@ -13,11 +13,25 @@ re-exported here at its historical path.
 from __future__ import annotations
 
 from typing import Any, Callable
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
+from functools import wraps
+import threading
+import time
+
 
 import numpy as np
 
 from dynamix.core.deferred import Deferred
 from dynamix.core.keys import cache_key  # noqa: F401
+
+
+def _locked(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
 
 
 def stage_nbytes(value) -> int:
@@ -74,6 +88,7 @@ class StageStore:
     it. Nothing here is pinned, and ``Cache.clear`` empties it with the results."""
 
     def __init__(self, maxsize: int = 8, max_bytes: int | None = None):
+        self._lock = threading.RLock()
         self.maxsize = int(maxsize)
         self.max_bytes = None if max_bytes is None else int(max_bytes)
         self._store: dict[str, Any] = {}
@@ -81,12 +96,15 @@ class StageStore:
         self.hits = 0
         self.misses = 0
 
+    @_locked
     def __contains__(self, key) -> bool:
         return key in self._store
 
+    @_locked
     def __len__(self) -> int:
         return len(self._store)
 
+    @_locked
     def __getitem__(self, key):
         if key not in self._store:
             self.misses += 1
@@ -103,6 +121,7 @@ class StageStore:
         except KeyError:
             return default
 
+    @_locked
     def __setitem__(self, key, value) -> None:
         from dynamix.core.fft_policy import observed
         self._fft_contexts[key] = observed()
@@ -125,18 +144,21 @@ class StageStore:
     def put(self, key, value) -> None:
         self[key] = value
 
+    @_locked
     def set_context(self, key, contexts) -> None:
         """Narrow a stage's context to its own compute scope."""
         if key in self._store:
             self._fft_contexts[key] = list(contexts)
 
+    @_locked
     def clear(self) -> None:
         self._store.clear()
         self._fft_contexts.clear()
 
 
+
 class Cache:
-    """In-memory store, bounded LRU. A scrub such as the ``noise`` transform's seed/amplitude
+    """Bounded RAM store with optional asynchronous disk spill and memory-pressure release. A scrub such as the ``noise`` transform's seed/amplitude
     mints a full-raster field clone plus a complete WTMM result per step; an unbounded store
     retains every one of them, which on a 4096-px window is enough memory pressure to stall the
     app. ``maxsize`` bounds the UNPINNED entry count; a hit refreshes recency, so the entries a user
@@ -160,7 +182,10 @@ class Cache:
     shell runs on the GUI thread, computes nothing."""
 
     def __init__(self, maxsize: int = 64, max_bytes: int | None = None,
-                 max_results: int | None = None):
+                 max_results: int | None = None, *, disk_dir=None,
+                 disk_bytes: int | None = None, pressure_floor: int = 0,
+                 spill_threshold: int = 1_000_000):
+        self._lock = threading.RLock()
         self.maxsize = int(maxsize)
         self.max_bytes = None if max_bytes is None else int(max_bytes)
         self.max_results = None if max_results is None else int(max_results)
@@ -169,7 +194,7 @@ class Cache:
         self.hits = 0
         self.misses = 0
         #: Intermediate stages of transforms that declare ``uses_stage_cache``.
-        self.stages = StageStore(8, self.max_bytes)
+        self.stages = StageStore(8, 2_000_000_000)
         self._landed_views: dict = {}
         #: Per entry, the weight of each value it holds, by the value's id.
         self._weights: dict[str, dict[int, int]] = {}
@@ -179,6 +204,30 @@ class Cache:
         self._shown: dict = {}
         #: The key stored last, kept until another is stored.
         self._newest: str | None = None
+        self._meta = {}
+        self._versions = {}
+        self._sequence = 0
+        self._pending = {}
+        self._computing = {}
+        self._events = deque(maxlen=1000)
+        self._executor = None
+        self._closed = False
+        self._disk_epoch = 0
+        self.pressure_floor = int(pressure_floor)
+        self.spill_threshold = int(spill_threshold)
+        if disk_dir is None:
+            self.disk = None
+        else:
+            from dynamix.engine.disk_cache import DiskStore
+            self.disk = DiskStore(disk_dir, disk_bytes)
+            import atexit
+            import weakref
+            reference = weakref.ref(self)
+            def cleanup():
+                cache = reference()
+                if cache is not None:
+                    cache.close()
+            atexit.register(cleanup)
 
     def _touch(self, key: str) -> None:
         self._store[key] = self._store.pop(key)   # move to the recent end
@@ -194,8 +243,9 @@ class Cache:
         """``keys`` in recency order without what eviction keeps: a pinned or shown entry, the
         newest and every entry a stored entry names as its upstream."""
         keep = {self._newest, *self._shown.values(),
+                *(upstream for _future, upstream in self._computing.values()),
                 *(self._upstream.get(k) for k in list(self._store))}
-        return [k for k in keys if k not in keep and k not in self._pinned]
+        return [k for k in keys if k not in keep and k not in self._pinned and k not in self._pending]
 
     def _drop(self, key: str) -> None:
         self._store.pop(key, None)
@@ -208,7 +258,7 @@ class Cache:
         than ``max_results`` analysis results, are unpinned."""
         self._landed_views = {k: v for k, v in self._landed_views.items() if k in self._store}
         while True:
-            unpinned = [k for k in list(self._store) if k not in self._pinned]
+            unpinned = [k for k in list(self._store) if k not in self._pinned and k not in self._pending]
             results = [k for k in unpinned if _is_result(self._store.get(k))]
             if len(unpinned) > self.maxsize:
                 pool = unpinned
@@ -219,7 +269,7 @@ class Cache:
             victims = self._evictable(pool)
             if not victims:
                 return
-            self._drop(victims[0])
+            self._retire(self._victim(victims))
 
     def _evict_over_bytes(self) -> None:
         """Drop the least-recent evictable entries while the unpinned ones weigh more than
@@ -227,21 +277,26 @@ class Cache:
         if self.max_bytes is None:
             return
         while True:
-            unpinned = [k for k in list(self._store) if k not in self._pinned]
+            unpinned = [k for k in list(self._store) if k not in self._pinned and k not in self._pending]
             if self._nbytes(unpinned) <= self.max_bytes:
                 return
             victims = self._evictable(unpinned)
             if not victims:
                 return
-            self._drop(victims[0])
+            self._retire(self._victim(victims))
 
-    def _insert(self, key: str, value: Any, upstream: str | None) -> None:
+    def _insert(self, key: str, value: Any, upstream: str | None, label: str | None = None) -> None:
         """Store ``value``, weighed by its values; one another stored entry holds is weighed
         already, which spares a ``chain_topology`` result a second walk of its ``wtmm2d``
         result's chains."""
         self._store.pop(key, None)
         self._weights.pop(key, None)
         self._store[key] = value
+        if key not in self._versions:
+            self._sequence += 1
+            self._versions[key] = self._sequence
+        self._meta[key] = {**self._meta.get(key, {}), "label": label or self._meta.get(key, {}).get("label", key),
+                           "touched": time.time(), "hits": self._meta.get(key, {}).get("hits", 0)}
         self._newest = key
         known = {i: n for weights in list(self._weights.values()) for i, n in weights.items()}
         parts = value.values() if isinstance(value, dict) else (value,)
@@ -251,31 +306,69 @@ class Cache:
             self._upstream.pop(key, None)
         else:
             self._upstream[key] = upstream
+        self._event("insert", key)
         self._evict_over_capacity()
         self._evict_over_bytes()
 
     def get_or_compute(self, key: str, compute: Callable[[], Any], *,
-                       upstream: str | None = None) -> Any:
-        """The entry under ``key``, computed and stored on a miss. ``upstream`` is the key of the
-        entry ``compute`` consumes, kept while this one is stored."""
-        if key in self._store:
-            self.hits += 1
-            self._touch(key)
-            return self._store[key]
-        self.misses += 1
-        value = compute()
-        self._insert(key, value, upstream)
-        return value
+                       upstream: str | None = None, label: str | None = None) -> Any:
+        """Read either tier, or compute outside the cache lock on a miss."""
+        absent = object()
+        value = self.get(key, absent)
+        if value is not absent:
+            with self._lock:
+                self.hits += 1
+            return value
+        with self._lock:
+            if key in self._computing:
+                future, _upstream = self._computing[key]
+                owner = False
+            else:
+                future = Future()
+                self._computing[key] = (future, upstream)
+                owner = True
+                version = self._versions.get(key, 0)
+                self.misses += 1
+                self._event("miss", key, label=label)
+        if not owner:
+            return future.result()
+        try:
+            value = compute()
+            with self._lock:
+                if key in self._store:
+                    value = self._store[key]
+                elif self._versions.get(key, 0) == version:
+                    self._insert(key, value, upstream, label)
+            future.set_result(value)
+            self.check_pressure()
+            return value
+        except BaseException as exc:
+            if not future.done():
+                future.set_exception(exc)
+            raise
+        finally:
+            with self._lock:
+                self._computing.pop(key, None)
+
 
     def get(self, key: str, default=None):
-        if key in self._store:
-            self._touch(key)
-        return self._store.get(key, default)
+        with self._lock:
+            if key in self._store:
+                self._touch(key)
+                self._meta[key]["touched"] = time.time()
+                self._meta[key]["hits"] += 1
+                self._event("hit in RAM", key)
+                return self._store[key]
+        return self.load(key, default)
 
-    def put(self, key: str, value: Any) -> None:
-        self._landed_views.pop(key, None)
-        self._insert(key, value, None)
+    def put(self, key: str, value: Any, *, label: str | None = None,
+            upstream: str | None = None) -> None:
+        self.invalidate(key)
+        with self._lock:
+            self._insert(key, value, upstream, label)
+        self.check_pressure()
 
+    @_locked
     def landed_result(self, key, value, identity):
         """Keep a stable view identity while its underlying cached result is unchanged."""
         from dynamix.engine.execution import attach
@@ -288,6 +381,7 @@ class Cache:
         self._landed_views = {k: v for k, v in self._landed_views.items() if k in self._store}
         return result
 
+    @_locked
     def mark_shown(self, layer_id, key: str | None) -> None:
         """Record ``key`` as the analysis ``layer_id`` shows (``None``: none, the layer is gone).
         A shown entry stays through every bound, and so does each entry upstream of it, so the
@@ -300,6 +394,7 @@ class Cache:
         self._evict_over_capacity()
         self._evict_over_bytes()
 
+    @_locked
     def report(self) -> dict:
         """What the three memory budgets hold, apart. ``results``: this store's entries, with the
         bytes and the analysis results of the unpinned ones, which ``max_bytes`` and
@@ -311,7 +406,8 @@ class Cache:
         keys = list(self._store)
         pinned = [k for k in keys if k in self._pinned]
         unpinned = [k for k in keys if k not in self._pinned]
-        stages = list(self.stages._store.values())
+        with self.stages._lock:
+            stages = list(self.stages._store.values())
         return {
             "results": {"entries": len(keys), "bytes": self._nbytes(unpinned),
                         "max_bytes": self.max_bytes,
@@ -324,44 +420,260 @@ class Cache:
         }
 
     def invalidate(self, key: str) -> bool:
-        """Drop one entry. Returns whether it was present.
-
-        Presence is tested with ``in`` rather than by inspecting the popped value, so an entry
-        whose value is legitimately ``None`` still reports as present and still gets dropped.
-        """
-        present = key in self._store
-        self._drop(key)
+        """Remove an entry from both tiers and revoke any pending spill."""
+        with self._lock:
+            present = key in self._store or key in self._computing or bool(self.disk and self.disk.record(key))
+            if key in self._pending or key in self._computing:
+                self._sequence += 1
+                self._versions[key] = self._sequence
+            else:
+                self._versions.pop(key, None)
+            if present:
+                self._event("drop", key)
+            self._drop(key)
+            self._meta.pop(key, None)
+        if self.disk:
+            self.disk.remove(key)
         return present
 
     def clear(self) -> None:
-        self._store.clear()
-        self._landed_views.clear()
-        self._weights.clear()
-        self._upstream.clear()
+        with self._lock:
+            keys = set(self._store) | set(self._pending) | set(self._computing)
+            if self.disk:
+                keys.update(self.disk.records())
+        for key in keys:
+            self.invalidate(key)
         self.stages.clear()
 
+    @_locked
     def __contains__(self, key: str) -> bool:
+        # The shell uses membership to select its immediate GUI-thread cache-hit path.
         return key in self._store
 
+    @_locked
     def __len__(self) -> int:
         return len(self._store)
 
+    @_locked
     def pin(self, key: str) -> None:
         """Pin a key to prevent eviction. The key need not exist in the store yet."""
         self._pinned.add(key)
 
+    @_locked
     def unpin(self, key: str) -> None:
         """Unpin a key, allowing it to be evicted. No-op if the key is not pinned."""
         self._pinned.discard(key)
 
+    @_locked
     def is_pinned(self, key: str) -> bool:
         """Return whether a key is pinned."""
         return key in self._pinned
 
     @property
+    @_locked
     def pinned(self) -> frozenset[str]:
         """Return a frozenset of all pinned keys."""
         return frozenset(self._pinned)
+
+
+    def _event(self, action, key='', *, label=None, elapsed_ms=0, detail=''):
+        self._events.append({"time": time.time(), "thread": threading.current_thread().name,
+                             "event": action, "key": key,
+                             "label": label or self._meta.get(key, {}).get("label", key),
+                             "bytes": self._nbytes([key]), "ms": elapsed_ms, "detail": detail})
+
+    def _victim(self, candidates):
+        return next((k for k in candidates if self._nbytes([k]) >= self.spill_threshold), candidates[0])
+
+    def _retire(self, key):
+        if (self.disk is None or self._closed or
+                self._nbytes([key]) < self.spill_threshold):
+            self._event('drop', key)
+            self._drop(key)
+            self._meta.pop(key, None)
+            if key not in self._computing:
+                self._versions.pop(key, None)
+            return
+        if self.disk.record(key):
+            self._event('spill', key, detail='existing disk copy')
+            self._drop(key)
+            return
+        self._schedule_spill(key)
+
+    def _schedule_spill(self, key):
+        if key in self._pending or self._closed:
+            return False
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cache-writer')
+        version = self._versions.get(key, 0)
+        metadata = {**self._meta[key], 'upstream': self._upstream.get(key),
+                    'kind': 'lazy output' if _is_output(self._store[key]) else
+                            'region window' if key.endswith('|window') else 'analysis result'}
+        self._pending[key] = version
+        self._executor.submit(self._write_spill, key, self._store[key], version,
+                              self._disk_epoch, metadata)
+        return True
+
+    def _write_spill(self, key, value, version, epoch, metadata):
+        started = time.perf_counter()
+        reason = ''
+        try:
+            kept = self.disk.write(key, value, version, metadata)
+        except Exception as exc:
+            kept, reason = False, f'{type(exc).__name__}: {exc}'
+        with self._lock:
+            self._pending.pop(key, None)
+            current = (self._versions.get(key, 0) == version and epoch == self._disk_epoch
+                       and not self._closed)
+            if current:
+                self._event('refusal to pickle' if reason else 'spill', key,
+                            elapsed_ms=(time.perf_counter()-started)*1000,
+                            detail=reason or ('' if kept else 'disk budget; entry dropped'))
+                if key in self._evictable([key]) and self._store.get(key) is value:
+                    self._drop(key)
+                self._evict_over_capacity()
+                self._evict_over_bytes()
+            retained = set(self._store) | set(self._pending) | set(self._computing) | set(self.disk.records())
+            self._meta = {k: v for k, v in self._meta.items() if k in retained}
+            self._versions = {k: v for k, v in self._versions.items() if k in retained}
+        if not current:
+            self.disk.remove(key, version)
+        if current:
+            self.check_pressure()
+
+    def spill(self, key) -> bool:
+        """Queue an evictable large entry; retained RAM remains counted until writing ends."""
+        with self._lock:
+            if (self.disk is None or key not in self._store or
+                    key not in self._evictable([key]) or self._nbytes([key]) < self.spill_threshold):
+                return False
+            self._retire(key)
+            return True
+
+    def load(self, key, default=None):
+        """Read a disk entry outside the cache lock and promote it to RAM."""
+        with self._lock:
+            if key in self._store:
+                self._touch(key)
+                return self._store[key]
+            if self.disk is None or not self.disk.record(key):
+                return default
+            version = self._versions.get(key, 0)
+            epoch = self._disk_epoch
+        started = time.perf_counter()
+        try:
+            value, metadata = self.disk.read(key)
+        except Exception as exc:
+            self.disk.remove(key)
+            with self._lock:
+                self._event('drop', key, detail=f'load failed: {type(exc).__name__}')
+            return default
+        with self._lock:
+            if self._versions.get(key, 0) != version or epoch != self._disk_epoch or self._closed:
+                return default
+            if key in self._store:
+                return self._store[key]
+            self._insert(key, value, metadata.get('upstream'), metadata.get('label'))
+            self._event('hit on disk', key, elapsed_ms=(time.perf_counter()-started)*1000)
+            self._event('load', key)
+        self.check_pressure()
+        return value
+
+    def wait_for_spills(self):
+        """Wait for pending writes, including any evictions their completion schedules."""
+        while True:
+            with self._lock:
+                executor = self._executor
+                pending = bool(self._pending)
+            if executor is None:
+                return
+            executor.submit(lambda: None).result()
+            with self._lock:
+                if not self._pending:
+                    return
+            if not pending:
+                return
+
+    def check_pressure(self):
+        """Release evictable memory when the system reports less than its reserve floor."""
+        if not self.pressure_floor or self._closed:
+            return
+        import psutil
+        if psutil.virtual_memory().available >= self.pressure_floor:
+            return
+        self.stages.clear()
+        from dynamix.core.fft_policy import mlx_memory
+        if mlx_memory() is not None:
+            import mlx.core as mx
+            mx.clear_cache()
+        while psutil.virtual_memory().available < self.pressure_floor:
+            with self._lock:
+                candidates = self._evictable(list(self._store))
+                if not candidates or self._pending:
+                    return
+                self._retire(self._victim(candidates))
+
+
+    def clear_unpinned(self):
+        with self._lock:
+            keys = [k for k in self._store if k not in self._pinned]
+        with self._lock:
+            for key in keys:
+                self._event('drop', key, detail='cleared RAM tier')
+                self._drop(key)
+
+    def clear_disk(self):
+        with self._lock:
+            self._disk_epoch += 1
+        if self.disk:
+            self.disk.clear()
+        with self._lock:
+            self._event('drop', detail='cleared disk tier')
+
+    def snapshot(self):
+        """Copy consistent metadata for the inspector without walking retained products."""
+        with self._lock:
+            records = self.disk.records() if self.disk else {}
+            rows = []
+            upstreams = set(self._upstream.values())
+            for key in dict.fromkeys([*self._store, *records]):
+                in_ram = key in self._store
+                metadata = self._meta.get(key, records.get(key, {}))
+                holders = []
+                if key in self._pinned:
+                    holders.append('pinned')
+                if key in self._shown.values():
+                    holders.append('shown')
+                if key in upstreams:
+                    holders.append('upstream')
+                if key == self._newest and in_ram:
+                    holders.append('newest')
+                kind = ('lazy output' if _is_output(self._store[key]) else
+                        'region window' if key.endswith('|window') else 'analysis result') if in_ram else records[key]['kind']
+                rows.append({**metadata, 'key': key, 'kind': kind, 'tier': 'RAM' if in_ram else 'disk',
+                             'bytes': self._nbytes([key]) if in_ram else records[key]['bytes'],
+                             'holders': holders, 'pending': key in self._pending,
+                             'can_spill': bool(self.disk and in_ram and not holders and
+                                               self._nbytes([key]) >= self.spill_threshold)})
+            return {'report': self.report(), 'entries': sorted(rows, key=lambda r:r.get('touched',0), reverse=True),
+                    'events': list(self._events), 'shown': dict(self._shown),
+                    'disk': {'bytes': sum(r['bytes'] for r in records.values()),
+                             'max_bytes': self.disk.max_bytes if self.disk else 0,
+                             'folder': str(self.disk.folder) if self.disk else '',
+                             'pending': len(self._pending)},
+                    'pressure_floor': self.pressure_floor, 'hits': self.hits, 'misses': self.misses}
+
+    def close(self):
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            executor = self._executor
+        if executor:
+            executor.shutdown(wait=True)
+        if self.disk:
+            self.disk.close()
+
 
 
 def _is_output(value) -> bool:

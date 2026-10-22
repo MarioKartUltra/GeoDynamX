@@ -61,11 +61,8 @@ class Settings:
     #: ``opening.open_field``'s hard-coded ``max_pixels`` (~8000 x 8000; one float64 copy =
     #: 512 MB). Anything that is not a positive int falls back to 64M.
     open_max_pixels: int = 64_000_000
-    #: The engine cache's byte budget (``Cache.max_bytes``): every unpinned entry counts, its
-    #: arrays and an estimate of its Python objects, and past it the least-recent are evicted; a
-    #: marked level is pinned and rides above it, and what a layer shows stays. Anything that is
-    #: not a positive int falls back to 2 GB.
-    output_cache_bytes: int = 2_000_000_000
+    #: Zero selects one quarter of physical RAM; a positive value is an explicit byte budget.
+    cache_ram_bytes: int = 0
     #: The engine cache's bound on unpinned analysis results (``Cache.max_results``): every
     #: transform knob value mints new ones, and past it the least-recent are evicted; what a layer
     #: shows stays. Anything that is not a positive int falls back to 8.
@@ -123,9 +120,29 @@ def sweep_scratch() -> None:
     takes what a crash or a still-mapped file on Windows left behind."""
     for child in scratch_dir().iterdir():
         try:
-            child.unlink()
+            if child.is_dir() and child.name.startswith("cache-"):
+                import psutil
+                import shutil
+                pid = child.name.removeprefix("cache-")
+                if pid.isdigit() and not psutil.pid_exists(int(pid)):
+                    shutil.rmtree(child)
+            elif child.is_file():
+                child.unlink()
         except OSError:
             pass
+
+
+def cache_ram_budget(settings: Settings) -> int:
+    """Resolve the automatic RAM tier independently of the stage store's 2 GB bound."""
+    import psutil
+    return settings.cache_ram_bytes or int(psutil.virtual_memory().total // 4)
+
+
+def _cache_budget(data) -> int:
+    if "cache_ram_bytes" in data:
+        return _positive_int(data["cache_ram_bytes"], 0)
+    legacy = _positive_int(data.get("output_cache_bytes"), 2_000_000_000)
+    return 0 if legacy == 2_000_000_000 else legacy
 
 
 def load_settings() -> Settings:
@@ -164,7 +181,7 @@ def load_settings() -> Settings:
         compute_engine=compute_engine,
         open_max_pixels=_positive_int(d.get("open_max_pixels"), 64_000_000),
         compute_precision=compute_precision,
-        output_cache_bytes=_positive_int(d.get("output_cache_bytes"), 2_000_000_000),
+        cache_ram_bytes=_cache_budget(d),
         result_cache_entries=_positive_int(d.get("result_cache_entries"), 8),
         eta_warn=_positive_float(d.get("eta_warn"), 1e-3),
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),

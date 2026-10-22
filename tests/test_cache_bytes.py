@@ -94,14 +94,14 @@ def test_the_count_bound_is_unchanged():
 def test_settings_carry_the_output_budget_two_gigabytes_by_default(tmp_path, monkeypatch):
     from dynamix.shell.settings import Settings, load_settings, update_settings
 
-    assert Settings().output_cache_bytes == 2_000_000_000
-    assert load_settings().output_cache_bytes == 2_000_000_000
-    update_settings(output_cache_bytes=123_456)
-    assert load_settings().output_cache_bytes == 123_456
+    assert Settings().cache_ram_bytes == 0
+    assert load_settings().cache_ram_bytes == 0
+    update_settings(cache_ram_bytes=123_456)
+    assert load_settings().cache_ram_bytes == 123_456
     path = tmp_path / "bad.json"
     path.write_text(json.dumps({"output_cache_bytes": -5}), encoding="utf-8")
     monkeypatch.setenv("DYNAMIX_SETTINGS_PATH", str(path))
-    assert load_settings().output_cache_bytes == 2_000_000_000
+    assert load_settings().cache_ram_bytes == 0
 
 
 def test_an_entry_weighs_its_arrays_and_one_object_size_per_python_object():

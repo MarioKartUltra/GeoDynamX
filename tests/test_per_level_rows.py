@@ -145,8 +145,9 @@ def test_the_window_cache_takes_its_byte_budget_from_settings(qtbot, builtins):
 
     w = MainWindow(steps=())
     qtbot.addWidget(w)
-    assert w.cache.max_bytes == 2_000_000_000
-    update_settings(output_cache_bytes=123_456_789)
+    from dynamix.shell.settings import cache_ram_budget, Settings
+    assert w.cache.max_bytes == cache_ram_budget(Settings())
+    update_settings(cache_ram_bytes=123_456_789)
     w2 = MainWindow(steps=())
     qtbot.addWidget(w2)
     assert w2.cache.max_bytes == 123_456_789

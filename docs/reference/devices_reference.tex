@@ -337,11 +337,14 @@ releases it. \emph{File $\to$ Export Derived Raster (.npz)\ldots} writes the lev
 provenance names the output (\texttt{<device id>/<output>}), the level and the marked levels
 (counted from 0), and the status line lists the marked levels.
 
-\textbf{Memory.} The cache holds at most 64 unpinned entries. The raster outputs also share a
-byte budget, 2\,GB by default, set by \texttt{output\_cache\_bytes} in the settings file
-(\S\ref{sec:racks} gives its folder); a $4096^2$ float32 level is about 67\,MB. Past the budget
-the least recently used unpinned output levels go first. Fields, stacks and analysis results
-stay under the entry bound alone.
+\textbf{Memory.} The RAM cache holds up to 64 unpinned entries and eight unpinned analysis
+results. Its automatic byte budget is one quarter of physical RAM; a positive
+\texttt{cache\_ram\_bytes} setting overrides it. The stage store has its own 2\,GB bound.
+Large evictions spill asynchronously into the process's scratch folder and reload on demand.
+The disk budget is the smaller of 32\,GB and half the initially available disk space.
+A system-memory reserve of 20\% triggers release of evictable entries, stages and GPU buffers.
+Shown results, frozen entries and required upstream entries remain protected; their memory and
+a running computation can exceed the cache budget. Scratch cache files are removed at exit.
 
 %======================================================================
 \section{Tool families and data contracts}\label{sec:contracts}

@@ -61,7 +61,7 @@ def test_stage_nbytes_walks_arrays_in_dicts_lists_and_fields():
 
 def test_the_cache_byte_budget_is_the_stores_and_clear_empties_both():
     cache = Cache(max_bytes=4096)
-    assert cache.stages.max_bytes == 4096
+    assert cache.stages.max_bytes == 2_000_000_000
     cache.put("k", {"raster": np.zeros(4)})
     cache.stages["s"] = 1
     cache.clear()
