@@ -639,3 +639,18 @@ def test_each_level_s_wse_margin_is_its_own_reach_and_the_resolution_index_can_b
     assert checked >= 3
     big = L.run_leaders(x, scale_min=4, scale_max=32, resolution_side=3000)
     assert big["wse_schedule"] == L.wse_schedule(5, log2_n=math.log2(3000))
+
+
+def test_only_the_asked_quantities_are_computed_and_the_others_are_unchanged():
+    """``methods`` names the quantities to compute: the leaders alone give one set beside the
+    coefficients and no oscillation ratio; the oscillation ratio needs the leaders and the WSE;
+    what is computed equals the full run's."""
+    x = fbm2d(256, 0.5, seed=23)
+    full = L.run_leaders(x, scale_min=4, scale_max=32)
+    only = L.run_leaders(x, scale_min=4, scale_max=32, methods=("leaders",))
+    assert set(only["quantity"]) == {"leaders"} and set(only["local"]) == {"leaders"}
+    assert set(only["samples"]["sets"]) == {"leaders", "coefficients"} and only["oscillation"] is None
+    for a, b in zip(only["quantity"]["leaders"], full["quantity"]["leaders"]):
+        np.testing.assert_array_equal(a, b)
+    both = L.run_leaders(x, scale_min=4, scale_max=32, methods=("leaders", "wse"))
+    assert both["oscillation"] is not None and set(both["samples"]["sets"]) == {"leaders", "wse", "coefficients"}

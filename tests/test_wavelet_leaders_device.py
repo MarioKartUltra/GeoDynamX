@@ -35,7 +35,7 @@ def field():
     return make_field(fbm2d(512, 0.5, seed=3))
 
 
-SMALL = {"scale_min": 4, "scale_max": 32}
+SMALL = {"scale_min": 4, "scale_max": 32, "with_wse": True}          # the three quantities
 Q = np.arange(-2.0, 4.01, 1.0)
 
 
@@ -59,10 +59,12 @@ def test_the_tool_sits_in_regularity_and_produces_an_h_map(dev):
     keyed = keyed_params(dev, p)
     assert "method" not in keyed and "show" not in keyed                              # view-only
     assert {"wavelet", "scale_min", "scale_max", "gamma", "p", "wse_rule"} <= set(keyed)
-    # A region reads the bank's border in coarsest cells, or the WSE's reach when wider (level j
-    # reaches j_r + D cells, j_r = log2 N − j: 5 cells at 64 px on a 1024-px field, beyond the
-    # border less one), plus the partial cell its grid may start with.
-    assert dev.roi_margin(p, field=make_field(np.zeros((1024, 1024)))) == (4 + 5) * 64 + 64
+    # A region reads the bank's border in coarsest cells, or the WSE's reach when it is ticked and
+    # wider (level j reaches j_r + D cells, j_r = log2 N − j: 5 cells at 64 px on a 1024-px field,
+    # beyond the border less one), plus the partial cell its grid may start with.
+    big = make_field(np.zeros((1024, 1024)))
+    assert dev.roi_margin(p, field=big) == (5 + 1) * 64
+    assert dev.roi_margin({**p, "with_wse": True}, field=big) == (4 + 5) * 64 + 64
     assert dev.wavelet_profile(p, 16.0, 3).family == "sym4 ψ, level 4"
     assert dev.derived_reading("scale_min", 4, make_field(np.zeros((16, 16)))) is None
 
@@ -365,7 +367,7 @@ def test_a_region_s_wse_is_complete_at_the_coarsest_level_and_equals_the_whole_f
     f = RasterField(name="fbm", values=fbm2d(n, 0.6, seed=8).astype(np.float32), frame=LocalFrame(),
                     x_axis=np.arange(float(n)), y_axis=np.arange(float(n)))
     f.provenance.update({"window": {"row_off": 0, "col_off": 0}, "full_dims": (n, n)})
-    p = {**defaults_for(dev), "scale_max": 32}
+    p = {**defaults_for(dev), "scale_max": 32, "with_wse": True}
     margin, _ok = roi_margin_of(dev, p, field=f)
     assert margin == (4 + 7 + 1) * 32                                       # sym4: border 5 − 1, reach 7 at 32 px, one cell
     full = dev.compute(f, p)
@@ -376,3 +378,45 @@ def test_a_region_s_wse_is_complete_at_the_coarsest_level_and_equals_the_whole_f
         part = output_raster(dev.compute_output("wse", None, roi, p, fetch=None, level=level))
         assert np.isfinite(part).all(), level
         np.testing.assert_allclose(part, whole, rtol=1e-5, atol=1e-5)
+
+
+def test_the_three_quantities_are_boxes_the_wse_off_by_default_and_the_tool_waits_for_run(dev):
+    """Leaders and p-leaders are ticked by default and the WSE, which costs about as much as the
+    transform, is not; only the ticked ones are computed, an unticked quantity's output says so,
+    a region's halo covers the WSE only when it is ticked, and the tool waits for Run."""
+    from conftest import fbm2d
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.model.device import defaults_for
+
+    assert getattr(dev, "waits_for_run", False) is True
+    p = dict(defaults_for(dev))
+    assert (p["with_leaders"], p["with_p_leaders"], p["with_wse"]) == (True, True, False)
+    assert {"with_leaders", "with_p_leaders", "with_wse"} <= set(keyed_params(dev, p))
+    n = 256
+    f = RasterField(name="fbm", values=fbm2d(n, 0.6, seed=4).astype(np.float32), frame=LocalFrame(),
+                    x_axis=np.arange(float(n)), y_axis=np.arange(float(n)))
+    p = {**p, "scale_max": 32}
+    res = dev.compute(f, p)
+    assert set(res["samples"]["sets"]) == {"leaders", "p-leaders", "coefficients"}
+    assert dev.output_refusal("wse", p) and dev.output_refusal("oscillation", p) and dev.output_refusal("leader", p) is None
+    with pytest.raises(ValueError, match="WSE leaders"):
+        dev.compute_output("wse", None, res, p, fetch=None, level=1)
+    big = make_field(np.zeros((1024, 1024)))
+    assert dev.roi_margin({**p, "scale_max": 64}, field=big) == (5 + 1) * 64
+    assert dev.roi_margin({**p, "scale_max": 64, "with_wse": True}, field=big) == (4 + 5) * 64 + 64
+    with pytest.raises(ValueError, match="at least one"):
+        dev.check({**p, "with_leaders": False, "with_p_leaders": False})
+    shown = dev.compute(f, {**p, "with_leaders": False, "method": "leaders"})
+    assert shown["params"]["method"] == "leaders" and any("not computed" in w for w in shown["warnings"])
+
+
+def test_a_chain_saved_before_the_boxes_reopens_computing_all_three(dev):
+    """A saved chain without the boxes computed every quantity: it reopens with all three
+    ticked, while a chain that names them keeps its choice."""
+    from dynamix.model.chain import Chain
+
+    old = Chain.from_payload({"steps": [{"device": "wavelet_leaders", "params": {"scale_max": 32}}]})
+    assert (old.steps[0].params["with_leaders"], old.steps[0].params["with_p_leaders"], old.steps[0].params["with_wse"]) == (True, True, True)
+    new = Chain.from_payload({"steps": [{"device": "wavelet_leaders", "params": {"scale_max": 32, "with_wse": False}}]})
+    assert new.steps[0].params["with_wse"] is False

@@ -958,6 +958,17 @@ p-leaders' order. The window of the $(\theta,\omega)$-leader follows \texttt{wse
 paper's $\theta(j) = j + j^{\beta}$, $\omega(j') = j'$ in the resolution index (\texttt{wse\_beta},
 default $\tfrac14$), or a fixed \texttt{wse\_depth} of octaves below each level and
 \texttt{wse\_width} of coarse cells either side (depth 1, width 1 lies inside $3\lambda$).
+\texttt{with\_leaders}, \texttt{with\_p\_leaders} and \texttt{with\_wse} choose which quantities a
+run computes, with their masks, local exponents and sample sets; the WSE, which costs about as much
+as the transform, is off by default, and the oscillation ratio needs the leaders and the WSE. The
+tool waits for Run whatever the auto-run setting, so the boxes are chosen before a run. A chain saved
+before the boxes reopens with all three ticked. \texttt{spin} ($s$ grids per axis, 1 by default)
+runs the leaders on $s \times s$ phases of the dyadic grid, stepped by $2^J/s + 1$ px so every
+level's cells shift: the grids' per-level samples are pooled with one grid's cell counts and
+$\sigma$'s (the shifted samples are not independent), and the h-map is the pixel-wise mean of the
+grids' maps. On a region the tool reads real data from the file around it: the bank's border in
+coarsest cells, or the WSE's reach at the coarsest level when it is ticked, plus one cell; the WSE's
+resolution index is then the file's, so a region's quantities are the whole field's there.
 Admissibility: leaders need $h_{\min} > 0$ (the slope of $\log_2 \max|d|$ against the level),
 p-leaders $\eta(p) > 0$ (the slope of $\log_2$ mean $|d|^p$), the $(\theta,\omega)$-leaders
 nothing; a method that fails is computed, stamped and named in the reading with the $\gamma$ in

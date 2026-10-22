@@ -5937,6 +5937,11 @@ both ``Canvas`` signals report the
                 return "not on ROI results yet"
             if output.grid == "stride":
                 return "not on ROI results"
+        refusal = getattr(get_device(step.device), "output_refusal", None)
+        if refusal is not None:
+            reason = refusal(output.name, validate_params(get_device(step.device), step.params))
+            if reason:
+                return reason
         if "coarse" in output.params:
             params = validate_params(get_device(step.device), step.params)
             if params.get("coarse") == "thumbnail":
@@ -7839,10 +7844,14 @@ both ``Canvas`` signals report the
                                       roi_holder=roi_holder)
 
     def _auto_runs(self) -> bool:
-        """Auto-run is on and the active layer's tool reads at most ``_AUTO_RUN_MAX_PX`` native
-        pixels; a bigger read waits for Run."""
+        """Auto-run is on, no enabled tool of the chain waits for Run (``waits_for_run``), and the
+        active layer's tool reads at most ``_AUTO_RUN_MAX_PX`` native pixels; a bigger read waits
+        for Run."""
         if not self._auto_run_action.isChecked():
             return False
+        if any(getattr(get_device(name), "waits_for_run", False)
+               for name, off in zip(self._names, self._bypassed) if not off):
+            return False                     # a tool whose choices are made before a run
         rows, cols = _read_shape(self.layer, self._fields.get(self.layer.layer_id, self.field))
         return rows * cols <= _AUTO_RUN_MAX_PX
 
@@ -8238,13 +8247,16 @@ both ``Canvas`` signals report the
                 self.add_layer_row(layer, field)
                 rows, cols = _read_shape(layer, field)
                 held = rows * cols > _AUTO_RUN_MAX_PX
-                if held:
+                waits = any(getattr(get_device(ref.device), "waits_for_run", False) for ref in chain.steps)
+                if held or waits:
                     self._pending_layers.add(layer.layer_id)
                 self.layer_list.select_layer(layer.layer_id)   # -> _select_layer -> worker
                 self._reconcile_stack()
                 if held:
                     self._notify(f"{rows} × {cols} px ({rows * cols / 1e6:.0f} M) — press Run "
                                  "(⌘↩) to compute", "status")
+                elif waits:
+                    self._notify(f"{label}: choose what to compute, then press Run (⌘↩)", "status")
 
             QtCore.QTimer.singleShot(0, self, _spawn)
             forked = "new analysis forked into its own layer — the current one is untouched"

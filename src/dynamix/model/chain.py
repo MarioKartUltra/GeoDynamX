@@ -91,7 +91,7 @@ class Chain:
         superseded device is read as its successor (:data:`SUPERSEDED`), the knobs the successor
         does not have dropped."""
         steps = tuple(
-            _normalized(_succeeded(DeviceRef(s["device"], s.get("params", {}))))
+            _normalized(_backfilled(_succeeded(DeviceRef(s["device"], s.get("params", {})))))
             for s in payload.get("steps", [])
         )
         return cls(steps).validate()
@@ -101,6 +101,14 @@ class Chain:
 #: measures tool split into the disorder function and the Hessian measure; a saved step runs as
 #: the disorder function, the Hessian knobs dropped.
 SUPERSEDED = {"invariant_measures": "disorder_function"}
+
+
+def _backfilled(ref: DeviceRef) -> DeviceRef:
+    """``ref`` with the knobs its device gained after the chain was saved set to the values that
+    reproduce what the saved chain computed (the device's ``params_added_later``); a knob the
+    saved step names keeps its value."""
+    later = getattr(get_device(ref.device), "params_added_later", None)
+    return DeviceRef(ref.device, {**later, **ref.params}) if later else ref
 
 
 def _succeeded(ref: DeviceRef) -> DeviceRef:

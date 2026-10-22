@@ -546,7 +546,8 @@ def paint(cells, level: int, shape, pad=None) -> np.ndarray:
 def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max: int = 64,
                 gamma: float = 0.0, p: float = 2.0, wse_rule: str = "dumeur", wse_depth: int = 1,
                 wse_width: float = 1.0, wse_beta: float = 0.25, edge: str = "mirror",
-                origin=(0, 0), block=None, anchor=None, resolution_side=None, progress=None) -> dict:
+                origin=(0, 0), block=None, anchor=None, resolution_side=None, methods=METHODS,
+                progress=None) -> dict:
     """The three quantities on one band (or 1-D signal): the pyramid to J = log2 ``scale_max``,
     the local exponent over the levels from log2 ``scale_min``, the admissibility, and the
     quantities and bare coefficients over their valid cells as ``samples`` (the ``Samples``
@@ -556,7 +557,9 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     dyadic grid (:func:`coefficients`), and the returned ``pad`` is where the data starts in the
     working image, what :func:`paint` crops from. ``resolution_side`` is the N of the WSE's
     resolution index j_r = log2 N − j, the data's smaller side by default; a region of a larger
-    file passes the file's, so its schedule is the whole file's."""
+    file passes the file's, so its schedule is the whole file's. ``methods`` names the quantities
+    computed, with their masks, local exponents and sample sets; the oscillation ratio needs the
+    leaders and the WSE (None otherwise)."""
     J, j_min = _level_of(scale_max, "scale_max"), _level_of(scale_min, "scale_min")
     if j_min >= J:
         raise ValueError(f"leaders: scale_min {scale_min} px must be below scale_max {scale_max} px")
@@ -582,20 +585,32 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     # margin is its own reach.
     reach = [0 if edge == "periodic" and not coef["seam"] else max(math.ceil(w) for _, w in level)
              for level in schedule]
-    valid = {"coefficients": valid_cells(coef, e_coef, seam_coef), "leaders": valid_cells(coef, e, seam),
-             "p-leaders": valid_cells(coef, e, seam),
-             "wse": valid_cells(coef, [e_coef + (r if edge != "periodic" else 0) for r in reach],
-                                [seam_coef + (r if coef["seam"] else 0) for r in reach])}
+    methods = tuple(m for m in METHODS if m in methods)
+    if not methods:
+        raise ValueError(f"leaders: at least one of {METHODS} to compute")
+    valid = {"coefficients": valid_cells(coef, e_coef, seam_coef)}
+    for m in ("leaders", "p-leaders"):
+        if m in methods:
+            valid[m] = valid_cells(coef, e, seam)
+    if "wse" in methods:
+        valid["wse"] = valid_cells(coef, [e_coef + (r if edge != "periodic" else 0) for r in reach],
+                                   [seam_coef + (r if coef["seam"] else 0) for r in reach])
     adm = admissibility(coef, valid["coefficients"], j_min, p)
     eta = adm["eta"]["integrated"]
-    quantity = {"leaders": leaders(coef),
-                "p-leaders": pleaders(coef, p, eta=eta if np.isfinite(eta) else None),
-                "wse": wse(coef, schedule, anchor="origin" if wse_rule == "dumeur" else "centre")}
-    osc = oscillation(quantity["leaders"], quantity["wse"])
+    quantity = {}
+    if "leaders" in methods:
+        quantity["leaders"] = leaders(coef)
+    if "p-leaders" in methods:
+        quantity["p-leaders"] = pleaders(coef, p, eta=eta if np.isfinite(eta) else None)
+    if "wse" in methods:
+        quantity["wse"] = wse(coef, schedule, anchor="origin" if wse_rule == "dumeur" else "centre")
+    osc = oscillation(quantity["leaders"], quantity["wse"]) if {"leaders", "wse"} <= set(quantity) else None
     tick(0.6)
-    for m, v in zip(quantity["leaders"], valid["leaders"]):
-        v &= np.isfinite(m)
-    local = {k: local_exponent(quantity[k], valid[k], j_min) for k in METHODS}
+    if "leaders" in quantity:
+        for m, v in zip(quantity["leaders"], valid["leaders"]):
+            v &= np.isfinite(m)
+    local = {k: local_exponent(quantity[k], valid[k], j_min) for k in methods}
+    first = methods[0]
     tick(1.0)
     scales = 2.0 ** np.arange(1, J + 1)
     return {"levels": J, "j_min": j_min, "scales": scales, "ndim": x.ndim,
@@ -610,17 +625,17 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
             "wse_truncated": [any(D >= j for D, _ in lev) for j, lev in enumerate(schedule, 1)],
             "valid_cells": {k: [int(v.sum()) for v in vs] for k, vs in valid.items()},
             "zero_cells": [int(((m == 0) & v).sum())
-                           for m, v in zip(quantity["leaders"], valid["leaders"])]}
+                           for m, v in zip(quantity[first], valid[first])]}
 
 
 def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape, *, wse_schedule=None) -> dict:
     """The ``Samples`` contract over the three quantities and the bare coefficients: references
     to the per-level grids and masks (no copy), the field's cell count per level and its
     dimension ``d``."""
-    sets = {k: {"values": quantity[k], "valid": valid[k]} for k in METHODS}
+    sets = {k: {"values": quantity[k], "valid": valid[k]} for k in METHODS if k in quantity}
     sets["coefficients"] = {"values": mods, "valid": valid["coefficients"], "positive_only": True}
     cells = [int(np.prod([int(n) // 2 ** j for n in data_shape])) for j in range(1, len(scales) + 1)]
-    if wse_schedule is not None:
+    if wse_schedule is not None and "wse" in sets:
         masks, effective, strides = [], [], []
         for j, (v, schedule) in enumerate(zip(valid["wse"], wse_schedule), 1):
             omega = schedule[0][1]

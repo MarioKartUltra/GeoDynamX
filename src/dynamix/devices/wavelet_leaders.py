@@ -47,6 +47,11 @@ class WaveletLeaders:
     name = "wavelet_leaders"
     label = "Wavelet leaders"
     families = ("Regularity",)
+    #: A knob change marks the layer pending until Run: the three quantities are chosen before a
+    #: run, the WSE costing about as much as the transform.
+    waits_for_run = True
+    #: The boxes a chain saved before them reopens with: it computed all three.
+    params_added_later = {"with_leaders": True, "with_p_leaders": True, "with_wse": True}
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = (HMAP, SAMPLES)
@@ -67,6 +72,9 @@ class WaveletLeaders:
         Param("gamma", ParamKind.FLOAT, default=0.0, min=-2.0, max=4.0, soft_min=0.0, soft_max=2.0,
               label="γ"),
         Param("dither", ParamKind.BOOL, default=False, label="Dither"),
+        Param("with_leaders", ParamKind.BOOL, default=True, label="Leaders"),
+        Param("with_p_leaders", ParamKind.BOOL, default=True, label="p-leaders"),
+        Param("with_wse", ParamKind.BOOL, default=False, label="WSE leaders"),
         Param("spin", ParamKind.INT, default=1, min=1, max=4, soft_max=4, label="Cycle spin (grids per axis)"),
         Param("p", ParamKind.FLOAT, default=2.0, min=0.25, max=16.0, soft_min=0.5, soft_max=4.0,
               label="p"),
@@ -121,7 +129,25 @@ class WaveletLeaders:
             return asked
         return "periodic" if filled_block(field) is not None else "mirror"
 
+    @staticmethod
+    def _methods(params: dict) -> tuple:
+        """The quantities the boxes tick, in :data:`leaders.METHODS`' order."""
+        ticked = {"leaders": params.get("with_leaders", True), "p-leaders": params.get("with_p_leaders", True),
+                  "wse": params.get("with_wse", True)}
+        return tuple(m for m in leaders.METHODS if ticked[m])
+
+    def output_refusal(self, name: str, params: dict) -> "str | None":
+        """Why the per-level output ``name`` cannot be shown with these boxes, or None."""
+        need = {"leader": ("leaders",), "p_leader": ("p-leaders",), "wse": ("wse",),
+                "oscillation": ("leaders", "wse")}.get(name, ())
+        missing = [m for m in need if m not in self._methods(params)]
+        if not missing:
+            return None
+        return "tick " + " and ".join(_METHOD_LABEL[m] for m in missing) + " and Run"
+
     def check(self, params: dict) -> None:
+        if not self._methods(params):
+            raise ValueError("wavelet_leaders: tick at least one of Leaders, p-leaders and WSE leaders")
         j_min, J = self._levels(params)
         if J - j_min < 2:
             raise ValueError(f"wavelet_leaders: at least three fitted levels: scale_min {params['scale_min']} "
@@ -143,7 +169,7 @@ class WaveletLeaders:
                                         width=float(params["wse_width"]), beta=float(params["wse_beta"]),
                                         log2_n=math.log2(side) if side else 16.0)
         wse_px = max((max(e - 1, 0) + max(math.ceil(w) for _, w in level)) * 2 ** j
-                     for j, level in enumerate(schedule, 1))
+                     for j, level in enumerate(schedule, 1)) if params.get("with_wse", True) else 0
         return max(leaders_px, wse_px) + 2 ** J
 
     @staticmethod
@@ -250,15 +276,18 @@ class WaveletLeaders:
                   scale_max=int(params["scale_max"]), gamma=float(params["gamma"]), p=float(params["p"]),
                   wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
                   wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
-                  edge=edge, origin=origin, block=block, resolution_side=self.resolution_side(field))
+                  edge=edge, origin=origin, block=block, resolution_side=self.resolution_side(field),
+                  methods=self._methods(params))
         run = leaders.run_leaders(vals, **kw, anchor=self.grid_anchor(field, int(params["scale_max"])), progress=tick)
         j_min, J = run["j_min"], run["levels"]
+        computed = self._methods(params)
+        first = computed[0]
         warnings = []
         truncated = [j for j, flag in enumerate(run["wse_truncated"], 1) if flag and j >= j_min]
-        if truncated:
+        if truncated and "wse" in computed:
             warnings.append(f"WSE finer-scale neighborhoods truncated at levels {truncated}; compare a coarser fit range")
         adm = run["admissibility"]
-        for m in leaders.METHODS:
+        for m in computed:
             if not adm[m]["admissible"]:
                 warnings.append(f"{_METHOD_LABEL[m]} inadmissible on this field (h_min "
                                 f"{adm['h_min']['integrated']:.2f}, η({params['p']:g}) "
@@ -267,7 +296,7 @@ class WaveletLeaders:
         # The pyramid reaches every level; a fitted level that keeps fewer than 16 cells inside
         # the border is thin and one with none carries no statistics: warnings, never a refusal.
         for j in range(j_min, J + 1):
-            n_j = int(run["valid_cells"]["leaders"][j - 1])
+            n_j = int(run["valid_cells"][first][j - 1])
             if n_j == 0:
                 warnings.append(f"level {j} ({2 ** j} px): no cells inside {params['wavelet']}'s border of {e} "
                                 "cells; the level carries no statistics")
@@ -276,19 +305,24 @@ class WaveletLeaders:
                                 "its moments are thin")
         for j in range(j_min, J + 1):
             inside = (rows // 2 ** j - 2 * e) * (cols // 2 ** j - 2 * e)
-            if inside > 0 and run["valid_cells"]["leaders"][j - 1] < inside / 2:
+            if inside > 0 and run["valid_cells"][first][j - 1] < inside / 2:
                 warnings.append(f"level {j} ({2 ** j} px): more than half its cells touch non-finite pixels")
-            if run["zero_cells"][j - 1] > 0.01 * max(run["valid_cells"]["leaders"][j - 1], 1):
+            if run["zero_cells"][j - 1] > 0.01 * max(run["valid_cells"][first][j - 1], 1):
                 warnings.append(f"level {j} ({2 ** j} px): {run['zero_cells'][j - 1]} leaders are exactly zero "
                                 "(quantised data); the dither knob perturbs by half a least significant bit")
                 break
         h_cells = {m: (h.astype(np.float32), r2.astype(np.float32), n.astype(np.float32)) for m, (h, r2, n) in run["local"].items()}
-        quantity = {m: [np.asarray(a, dtype=np.float32) for a in run["quantity"][m]] for m in leaders.METHODS}
-        quantity["oscillation"] = [np.asarray(a, dtype=np.float32) for a in run["oscillation"]]
+        quantity = {m: [np.asarray(a, dtype=np.float32) for a in run["quantity"][m]] for m in computed}
+        if run["oscillation"] is not None:
+            quantity["oscillation"] = [np.asarray(a, dtype=np.float32) for a in run["oscillation"]]
         mods = [np.asarray(a, dtype=np.float32) for a in run["coefficients"]]
-        valid = {m: list(run["valid"][m]) for m in leaders.METHODS + ("coefficients",)}
-        valid["oscillation"] = [a & b for a, b in zip(valid["leaders"], valid["wse"])]
-        method = params["method"]
+        valid = {m: list(run["valid"][m]) for m in computed + ("coefficients",)}
+        if "oscillation" in quantity:
+            valid["oscillation"] = [a & b for a, b in zip(valid["leaders"], valid["wse"])]
+        method = params["method"] if params["method"] in computed else first
+        if method != params["method"]:
+            warnings.append(f"{_METHOD_LABEL[params['method']]} not computed: the h-map shows "
+                            f"{_METHOD_LABEL[method]}; tick its box and Run")
         h_map, r2_map, levels_map = self._paint(h_cells[method], j_min, vals.shape, run["pad"])
         used = levels_map[np.isfinite(levels_map)]
         record = {
@@ -303,8 +337,9 @@ class WaveletLeaders:
             "wse": {"rule": params["wse_rule"], "beta": float(params["wse_beta"]),
                     "schedule": [[list(pair) for pair in lev] for lev in run["wse_schedule"]],
                     "truncated_levels": truncated,
-                    "decimation": run["samples"]["sets"]["wse"].get("decimation", []),
-                    "normalization": run["samples"]["sets"]["wse"].get("normalization", "dense fixed window")},
+                    "decimation": run["samples"]["sets"].get("wse", {}).get("decimation", []),
+                    "normalization": run["samples"]["sets"].get("wse", {}).get("normalization", "dense fixed window")},
+            "computed": list(computed),
             "border_cells": run["border_cells"],
             "registration": [{"level": j, "band": band, "shift": list(v[:2]) if band != "detail" else [v[0]],
                               "residual_px": list(v[2:]) if band != "detail" else [v[1]]}
@@ -323,12 +358,12 @@ class WaveletLeaders:
             record["spin"] = {"grids": len(phases), "phases": [[int(v) for v in ph] for ph in phases]}
         # The method's set as one structure-function table in the partition schema: the
         # Partition functions window opens on a leaders result like the CWT leaders'.
-        hd = leaders.structure_table(samples, params["method"])
+        hd = leaders.structure_table(samples, method)
         return {
             "h_map": h_map, "r2_map": r2_map, "levels_map": levels_map, "chains": [], "extrema": [],
             "scales": run["scales"], "params": dict(params),
             "samples": samples, "hd_std": hd, "hd_cmax": hd, "hd_kind": "structure",
-            "hd_source": f"dyadic {params['method']}",
+            "hd_source": f"dyadic {method}",
             "_h_cells": h_cells, "_quantity": quantity, "_valid": valid, "_admissibility": adm,
             "_border_cells": run["border_cells"], "_valid_cells": run["valid_cells"],
             "_dyadic_origin": tuple(int(v) for v in run["phase"]), "_pad": tuple(int(v) for v in run["pad"]),
@@ -354,15 +389,15 @@ class WaveletLeaders:
         shape = np.shape(vals)
         schedule = run["wse_schedule"] if params["wse_rule"] == "dumeur" else None
         grids = [samples]
-        maps = {m: [self._paint(h_cells[m], run["j_min"], shape, run["pad"])] for m in leaders.METHODS}
+        maps = {m: [self._paint(h_cells[m], run["j_min"], shape, run["pad"])] for m in h_cells}
         for phase in phases[1:]:
             r = leaders.run_leaders(vals, **kw, anchor=phase)
-            quantity = {m: [np.asarray(a, dtype=np.float32) for a in r["quantity"][m]] for m in leaders.METHODS}
+            quantity = {m: [np.asarray(a, dtype=np.float32) for a in r["quantity"][m]] for m in r["quantity"]}
             mods = [np.asarray(a, dtype=np.float32) for a in r["coefficients"]]
-            valid = {m: list(r["valid"][m]) for m in leaders.METHODS + ("coefficients",)}
+            valid = {m: list(r["valid"][m]) for m in tuple(r["quantity"]) + ("coefficients",)}
             grids.append(leaders.sample_sets(quantity, mods, valid, r["scales"], r["data_shape"],
                                              wse_schedule=r["wse_schedule"] if schedule is not None else None))
-            for m in leaders.METHODS:
+            for m in maps:
                 cells = tuple(np.asarray(a, dtype=np.float32) for a in r["local"][m])
                 maps[m].append(self._paint(cells, r["j_min"], shape, r["pad"]))
         with np.errstate(all="ignore"), _warnings.catch_warnings():
@@ -424,6 +459,9 @@ class WaveletLeaders:
         the window)."""
         if name not in _OUTPUT_OF:
             raise ValueError(f"{self.name}: no lazy output named {name!r}")
+        reason = self.output_refusal(name, params)
+        if reason is not None:
+            raise ValueError(f"{self.name}: {name} is not computed: {reason}")
         key = _OUTPUT_OF[name]
         J = len(result["_quantity"][key])
         idx = int(np.clip(0 if level is None else int(level), 0, J - 1))
