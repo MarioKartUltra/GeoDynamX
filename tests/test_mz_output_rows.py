@@ -693,7 +693,11 @@ def test_in_the_vector_views_the_active_output_goes_before_background_layers(
     layer = _mz_layer(win, qtbot)
     background = []
     monkeypatch.setattr(win, "_start_worker_for", background.append)
-    monkeypatch.setattr(win, "_arr_tail_key", lambda l: "not-cached")
+    tail_key = win._arr_tail_key
+    # Only the background layer is uncached; the active layer's analysis stays resident, so
+    # its output resolves on the GUI thread.
+    monkeypatch.setattr(win, "_arr_tail_key",
+                        lambda l: "not-cached" if l.layer_id == master.layer_id else tail_key(l))
     win._center_stack.addWidget(QtWidgets.QWidget())       # stands in for the arrangement
     win._center_stack.setCurrentIndex(1)
     monkeypatch.setattr(win, "_arrangement_shown", lambda: True)   # the 3-D view is up
