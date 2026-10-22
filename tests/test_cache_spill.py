@@ -55,11 +55,14 @@ def test_large_victim_precedes_older_small_entries():
 
 def test_disk_budget_and_pickle_failure(tmp_path):
     c=Cache(max_bytes=1,disk_dir=tmp_path/'cache',disk_bytes=800,spill_threshold=1)
-    for i in range(4): c.put(str(i),blob())
+    for i in range(4):
+        c.put(str(i),blob())
+        c.wait_for_spills()
     c.wait_for_spills()
     assert c.snapshot()['disk']['bytes']<=800
     assert c.disk.record('0') is None
     c.put('unpicklable',lambda: None)
+    c.wait_for_spills()
     c.put('last',blob())
     c.wait_for_spills()
     assert any(e['event']=='refusal to pickle' for e in c.snapshot()['events'])
@@ -192,3 +195,41 @@ def test_ready_checks_the_resident_upstream_chain():
     assert c.ready('b')
     c.invalidate('a')
     assert 'b' in c and not c.ready('b')
+
+
+def test_slow_writer_cannot_accumulate_an_unbounded_ram_queue(tmp_path,monkeypatch):
+    c=Cache(max_bytes=1,disk_dir=tmp_path/'cache',spill_threshold=1)
+    entered,release=threading.Event(),threading.Event()
+    original=c.disk.write
+    def slow(*args):
+        entered.set();assert release.wait(5)
+        return original(*args)
+    monkeypatch.setattr(c.disk,'write',slow)
+    try:
+        c.put('0',blob());c.put('1',blob())
+        assert entered.wait(5)
+        for i in range(2,12):c.put(str(i),blob())
+        assert len(c._pending)==1
+        assert len(c._store)<=2
+        assert any('bounded pending memory' in e['detail'] for e in c.snapshot()['events'])
+    finally:
+        release.set();c.wait_for_spills();c.close()
+
+
+def test_pressure_can_drop_other_ram_entries_while_a_write_is_pending(tmp_path,monkeypatch):
+    import psutil
+    c=Cache(disk_dir=tmp_path/'cache',spill_threshold=1)
+    for i in range(4):c.put(str(i),blob())
+    entered,release=threading.Event(),threading.Event()
+    original=c.disk.write
+    def slow(*args):
+        entered.set();assert release.wait(5)
+        return original(*args)
+    monkeypatch.setattr(c.disk,'write',slow)
+    monkeypatch.setattr(psutil,'virtual_memory',lambda:SimpleNamespace(available=0))
+    try:
+        c.pressure_floor=100;c.check_pressure()
+        assert entered.wait(5)
+        assert len(c._pending)==1 and len(c._store)<=2
+    finally:
+        release.set();c.wait_for_spills();c.close()

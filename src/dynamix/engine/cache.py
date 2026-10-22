@@ -516,6 +516,13 @@ class Cache:
             self._event('spill', key, detail='existing disk copy')
             self._drop(key)
             return
+        if self._pending:
+            self._event('drop', key, detail='disk writer busy; bounded pending memory')
+            self._drop(key)
+            self._meta.pop(key, None)
+            if key not in self._computing:
+                self._versions.pop(key, None)
+            return
         self._schedule_spill(key)
 
     def _schedule_spill(self, key):
@@ -564,6 +571,9 @@ class Cache:
         with self._lock:
             if (self.disk is None or key not in self._store or
                     key not in self._evictable([key]) or self._nbytes([key]) < self.spill_threshold):
+                return False
+            if self._pending and not self.disk.record(key):
+                self._event('spill deferred', key, detail='disk writer busy')
                 return False
             self._retire(key)
             return True
@@ -627,7 +637,7 @@ class Cache:
         while psutil.virtual_memory().available < self.pressure_floor:
             with self._lock:
                 candidates = self._evictable(list(self._store))
-                if not candidates or self._pending:
+                if not candidates:
                     return
                 self._retire(self._victim(candidates))
 
