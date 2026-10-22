@@ -328,17 +328,23 @@ class Cache:
                 self._computing[key] = (future, upstream)
                 owner = True
                 version = self._versions.get(key, 0)
-                self.misses += 1
-                self._event("miss", key, label=label)
         if not owner:
             return future.result()
         try:
-            value = compute()
-            with self._lock:
-                if key in self._store:
-                    value = self._store[key]
-                elif self._versions.get(key, 0) == version:
-                    self._insert(key, value, upstream, label)
+            value = self.load(key, absent)
+            if value is absent:
+                with self._lock:
+                    self.misses += 1
+                    self._event("miss", key, label=label)
+                value = compute()
+                with self._lock:
+                    if key in self._store:
+                        value = self._store[key]
+                    elif self._versions.get(key, 0) == version:
+                        self._insert(key, value, upstream, label)
+            else:
+                with self._lock:
+                    self.hits += 1
             future.set_result(value)
             self.check_pressure()
             return value
@@ -352,6 +358,7 @@ class Cache:
 
 
     def get(self, key: str, default=None):
+        """Read RAM without I/O; worker resolves use get_or_compute to consult disk."""
         with self._lock:
             if key in self._store:
                 self._touch(key)
@@ -359,7 +366,18 @@ class Cache:
                 self._meta[key]["hits"] += 1
                 self._event("hit in RAM", key)
                 return self._store[key]
-        return self.load(key, default)
+        return default
+
+    @_locked
+    def ready(self, key):
+        """Whether a result and its cached lineage can be read synchronously from RAM."""
+        seen = set()
+        while key is not None:
+            if key in seen or key not in self._store:
+                return False
+            seen.add(key)
+            key = self._upstream.get(key)
+        return True
 
     def put(self, key: str, value: Any, *, label: str | None = None,
             upstream: str | None = None) -> None:

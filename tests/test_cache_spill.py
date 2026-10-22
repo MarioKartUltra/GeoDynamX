@@ -176,3 +176,19 @@ def test_pressure_releases_multiple_small_entries(monkeypatch):
     monkeypatch.setattr(psutil,'virtual_memory',lambda:SimpleNamespace(available=0))
     c.check_pressure()
     assert list(c._store)==['c']
+
+
+def test_ram_reads_never_open_disk_files(tmp_path,monkeypatch):
+    c=Cache(max_bytes=1,disk_dir=tmp_path/'cache',spill_threshold=1)
+    c.put('a',blob());c.put('b',blob());c.wait_for_spills()
+    def unexpected(*args):pytest.fail('RAM probe read a disk file')
+    monkeypatch.setattr(c.disk,'read',unexpected)
+    assert c.get('a') is None and not c.ready('a')
+    c.close()
+
+
+def test_ready_checks_the_resident_upstream_chain():
+    c=Cache();c.put('a',blob());c.put('b',blob(),upstream='a')
+    assert c.ready('b')
+    c.invalidate('a')
+    assert 'b' in c and not c.ready('b')

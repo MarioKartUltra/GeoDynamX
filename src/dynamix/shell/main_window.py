@@ -8500,6 +8500,13 @@ both ``Canvas`` signals report the
             # the arrangement resync below behave exactly as for an ordinary resolve.
             hybrid = self._hybrid_chain(committed_chain)
             layer = dataclasses.replace(self.layer, chain=hybrid)
+        tail = self._arr_tail_key(layer) if layer is not None else None
+        if tail is not None and not self.cache.ready(tail):
+            if committed_chain is not None:
+                self._set_compute_reading("Run the layer again to apply these pending changes.")
+            else:
+                self._start_worker()
+            return
         try:
             renderable = resolve(layer, self.field, self.cache,
                                  source_id=self.layer.source_id,
