@@ -3,8 +3,10 @@
 """The Structure functions window: the wavelet leaders' own fitter.
 
 One set of the ``Samples`` contract at a time (leaders, p-leaders, WSE leaders or the bare
-coefficients): the structure functions log₂ S(q, j) against log₂ a for the chosen moment
-orders, the fit range as a draggable region, and off that range ζ(q) by weighted least squares
+coefficients): the structure functions log₂ S(q, j), the mean of the quantity's q-th power over
+the valid cells (the leaders' are the wavelet leader structure functions, WLSF), against log₂ a
+for the chosen moment orders, the fit range as a draggable region, and off that range ζ(q), their
+slopes, by weighted least squares
 (Wendt, Abry and Jaffard 2007, eq. 7; uniform weights or the valid counts n_j), τ(q) = ζ(q) − d,
 h(q) and D(q) from the tilted means (their eqs. 12 and 13) and the Legendre transform of τ as
 the dashed hull on D(h). The pseudo-fractional integration γ the transform applied is taken back
@@ -41,6 +43,13 @@ TABLES_KEPT = 8
 FIT_MODES = {"naive": "naive", "fixed focus": "fixed_focus", "focus": "focus"}
 
 
+#: The structure functions each set of the ``Samples`` contract gives, by the set's name: the
+#: leaders' are the wavelet leader structure functions (WLSF).
+SF_KINDS = {"leaders": "WLSF", "p-leaders": "p-leader structure functions",
+            "wse": "WSE-leader structure functions", "coefficients": "wavelet coefficient structure functions",
+            "cwt-leaders": "CWT leader structure functions", "cwt-p-leaders": "CWT p-leader structure functions"}
+
+
 class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
     """ζ(q), τ(q), h(q) and D(h) off one sample set, over a chosen fit range."""
 
@@ -64,7 +73,8 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._fit: dict | None = None
         self._family_items: list = []
         self._fit_items: list = []
-        self.setWindowTitle(f"Structure functions — {source}" if source else "Structure functions")
+        title = "Wavelet leader structure functions"
+        self.setWindowTitle(f"{title} — {source}" if source else title)
         # The span is the set's own log2 scales: the pyramid's levels 1..J for a dyadic set, the
         # ladder's log2 a for a continuous one.
         log2_scales = np.log2(np.asarray(samples["scales"], dtype=np.float64))
@@ -229,6 +239,13 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
     def _scale_name(self) -> str:
         return "j" if self._dyadic else "log₂ a"
 
+    def _log2_cells(self, table: dict) -> np.ndarray:
+        """Per level of ``table``, log₂ of the field's cell count its sums run over (the set's own
+        count where it carries one): what turns log₂ Z into log₂ S."""
+        s = self._samples["sets"].get(self.set_combo.currentData(), {})
+        cells = np.asarray(s.get("cells", self._samples["cells"]), dtype=np.float64)
+        return np.log2(cells[:len(table["log2_scales"])])
+
     def _physical_unit(self) -> str:
         """The unit the physical conversion reads at the middle of the ladder."""
         if self._physical is None:
@@ -308,7 +325,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         label = self.set_combo.currentText()
         gamma, delta = self._generalized()
         fit["set"] = label
-        fit["kind"] = "structure functions"
+        fit["kind"] = SF_KINDS.get(self.set_combo.currentData(), "structure functions")
         fit["generalized"] = {"gamma": gamma, "delta": delta} if gamma else None
         fit["name"] = (f"{self._source} · {label}, {fit['kind']}" if self._source
                        else f"{label}, {fit['kind']}")
@@ -342,7 +359,9 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             self.family_plot.removeItem(item)
         self._family_items = []
         q, log2_s = table["q_list"], np.asarray(table["log2_scales"], dtype=np.float64)
-        for i, row in enumerate(np.asarray(table["tau_qa"])):
+        # The table is the partition function, Σ over the field's cells; less log₂ of the cell
+        # count it is the structure function, the mean, whose slopes are ζ(q).
+        for i, row in enumerate(np.asarray(table["tau_qa"]) - self._log2_cells(table)[None, :]):
             # Each scale a dot; the fitted line through them is _draw_fit_lines's.
             item = pg.PlotDataItem(log2_s, row, pen=None, symbol="o", symbolSize=5, symbolPen=None,
                                    symbolBrush=_q_color(i, len(q)))
@@ -357,10 +376,13 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._fit_items = []
         x = np.array([lo, hi])
         gamma = self._gamma if fit["frame"] == "original" else 0.0
+        # The partition function's line, less the cell count's own (−d per octave): slope ζ(q).
+        d = int(self._samples.get("d", 2))
+        c0 = float(np.nanmean(self._log2_cells(table) + d * np.asarray(table["log2_scales"], dtype=np.float64)))
         for i, (q, slope, at_zero) in enumerate(zip(fit["q_list"], fit["tau"] + gamma * fit["q_list"], fit["tau_0"])):
             if not np.isfinite(slope):
                 continue
-            item = pg.PlotDataItem(x, at_zero + slope * x,
+            item = pg.PlotDataItem(x, at_zero - c0 + (slope + d) * x,
                                    pen=pg.mkPen(_q_color(i, len(fit["q_list"])), style=QtCore.Qt.DashLine, width=1.6))
             self.family_plot.addItem(item)
             self._fit_items.append(item)

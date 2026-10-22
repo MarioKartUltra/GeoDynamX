@@ -82,10 +82,11 @@ LEADERS_METHODS = ("wavelet_leaders", "cwt_leaders")
 
 TABLE_CHOICES = ("no-sup (std)", "sup (cmax)")
 #: What a source's tables are, by ``hd_kind``: partition functions over maxima lines (WTMM, box
-#: counting) or structure functions (moments over the projections, wavelet leaders). The words
-#: change; the fit does not.
+#: counting), or over the field's cells (moments over the projections, wavelet leaders: the sum,
+#: so τ(q) = ζ(q) − d and D(q = 0) = d, the structure functions' mean being the Structure
+#: functions window's). Both are Z.
 VOCABULARY = {"partition": ("Partition functions", "log₂ Z(q,a)"),
-              "structure": ("Structure functions", "log₂ S(q,a)")}
+              "structure": ("Partition functions", "log₂ Z(q,a)")}
 
 
 def vocabulary(kind) -> tuple:

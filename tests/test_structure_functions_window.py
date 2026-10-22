@@ -5,6 +5,7 @@ structure_fit over the chosen set, moments, weights, frame and range; every chan
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from dynamix.core import leaders, spectra
 from dynamix.shell.structure_functions_window import StructureFunctionsWindow
@@ -33,19 +34,19 @@ def test_the_window_lists_the_sets_and_fits_the_core_over_the_seeded_range(qtbot
     s = _samples()
     window = StructureFunctionsWindow(s, levels=(2, 5), source="L1 · sym4")
     qtbot.addWidget(window)
-    assert window.windowTitle() == "Structure functions — L1 · sym4"
+    assert window.windowTitle() == "Wavelet leader structure functions — L1 · sym4"
     assert [window.set_combo.itemText(i) for i in range(4)] == ["leaders", "p-leaders", "WSE leaders", "coefficients"]
     assert tuple(window._region.getRegion()) == (2.0, 5.0) and (window.lo_spin.value(), window.hi_spin.value()) == (2.0, 5.0)
     fit = window.current_fit()
     q = fit["q"]
-    assert list(q) == list(np.arange(-3.0, 6.01, 0.5)) and fit["name"] == "L1 · sym4 · leaders, structure functions"
+    assert list(q) == list(np.arange(-3.0, 6.01, 0.5)) and fit["name"] == "L1 · sym4 · leaders, WLSF"
     expect = leaders.structure_fit(leaders.tables(s, q)["leaders"], 2, 5)
     np.testing.assert_allclose(fit["tau"], expect["tau"])
     np.testing.assert_allclose(fit["tau"], 0.5 * q - 2, atol=1e-5)
     np.testing.assert_allclose(fit["h"], 0.5, atol=1e-5)
     np.testing.assert_allclose(fit["D"], 2.0, atol=1e-4)
     np.testing.assert_allclose(fit["hull"]["D"], spectra.legendre_dh(q, fit["tau"])["D"], equal_nan=True)
-    assert fit["kind"] == "structure functions" and len(window._family_items) == q.size == len(window._fit_items)
+    assert fit["kind"] == "WLSF" and len(window._family_items) == q.size == len(window._fit_items)
     xd, yd = window._curves["D"].getData()
     np.testing.assert_allclose(xd, fit["h"]) and np.testing.assert_allclose(yd, fit["D"])
     assert "ζ(2) = 1.000" in window.readout.text() and "h(1) = 0.500" in window.readout.text()
@@ -195,8 +196,8 @@ def test_gamma_and_delta_turn_the_table_into_the_generalized_structure_functions
     window.gamma_spin.setValue(2.0)
     window.delta_spin.setValue(0.5)
     fit = window._fit
-    assert fit["generalized"] == {"gamma": 2.0, "delta": 0.5} and fit["name"] == "leaders, structure functions"
-    assert fit["label"] == "leaders, structure functions, γ = 2 δ = 0.5"
+    assert fit["generalized"] == {"gamma": 2.0, "delta": 0.5} and fit["name"] == "leaders, WLSF"
+    assert fit["label"] == "leaders, WLSF, γ = 2 δ = 0.5"
     expected = leaders.generalized_table(_samples(), "leaders", window._q_list(), 2.0, 0.5, length_px=64.0)
     np.testing.assert_allclose(window._table()["tau_qa"], expected["tau_qa"], equal_nan=True)
     hull = spectra.legendre_dh(fit["q_list"], fit["tau"])
@@ -230,7 +231,7 @@ def test_a_gamma_sweep_replaces_the_one_published_fit_and_keeps_the_table_cache_
     table cache keeps the latest few tables, and the published τ is the fit of a fresh
     generalized table at the last γ."""
     win, sf, cw = _landed_tools(qtbot)
-    name = "layer · DWT sym4 · leaders, structure functions"
+    name = "layer · DWT sym4 · leaders, WLSF"
     for gamma in np.arange(1, 101) * 0.05:
         sf.gamma_spin.setValue(gamma)
         assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and list(cw._fit_items) == [name]
@@ -252,11 +253,33 @@ def test_another_set_publishes_its_own_fit_beside_the_first(qtbot, clean_registr
     """A set is part of the fit's identity: switching the set publishes a second fit beside the
     first, the construction draws both, and a γ change on the new set leaves the first as it was."""
     win, sf, cw = _landed_tools(qtbot)
-    first = "layer · DWT sym4 · leaders, structure functions"
+    first = "layer · DWT sym4 · leaders, WLSF"
     tau = np.array(win._published_fits[first]["tau"])
     sf.set_combo.setCurrentText("p-leaders")
-    second = "layer · DWT sym4 · p-leaders, structure functions"
+    second = "layer · DWT sym4 · p-leaders, p-leader structure functions"
     sf.gamma_spin.setValue(1.0)
     assert list(win._published_fits) == [first, second] and set(cw._fit_items) == {first, second}
     np.testing.assert_allclose(cw._fit_items[first]["tau"].getData()[1], tau, equal_nan=True)
     assert win._published_fits[second]["generalized"] == {"gamma": 1.0, "delta": 0.0}
+
+
+def test_the_family_is_the_true_structure_function_and_a_leaders_fit_is_named_wlsf(qtbot):
+    """The panel shows log₂ S(q, j), the mean of ℓ^q over the valid cells, whose slopes are ζ(q)
+    (the fit's τ(q) is the partition function's, ζ − d); the leaders' fit is the wavelet leader
+    structure functions (WLSF), the other sets named for their quantity."""
+    s = _samples()
+    window = StructureFunctionsWindow(s, levels=(2, 5), source="L1 · sym4")
+    qtbot.addWidget(window)
+    assert window.windowTitle() == "Wavelet leader structure functions — L1 · sym4"
+    fit = window.current_fit()
+    q = fit["q"]
+    i2 = int(np.where(np.isclose(q, 2.0))[0][0])
+    x, y = window._family_items[i2].getData()
+    for j, (xx, yy) in enumerate(zip(x, y), start=1):
+        v = np.asarray(s["sets"]["leaders"]["values"][j - 1])[s["sets"]["leaders"]["valid"][j - 1]]
+        assert yy == pytest.approx(np.log2(np.mean(v.astype(np.float64) ** 2)), abs=1e-5)
+    lx, ly = window._fit_items[i2].getData()
+    assert (ly[-1] - ly[0]) / (lx[-1] - lx[0]) == pytest.approx(fit["zeta"][i2], abs=1e-6)
+    assert fit["kind"] == "WLSF" and fit["name"] == "L1 · sym4 · leaders, WLSF"
+    window.set_combo.setCurrentIndex(1)
+    assert window.current_fit()["name"] == "L1 · sym4 · p-leaders, p-leader structure functions"

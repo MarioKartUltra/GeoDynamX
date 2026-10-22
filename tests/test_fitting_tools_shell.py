@@ -70,9 +70,9 @@ def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_
     win._on_structure_button_clicked()
     sf = win._structure_window
     qtbot.addWidget(sf)
-    assert sf.windowTitle() == "Structure functions — layer · DWT sym4" and tuple(sf._region.getRegion()) == (2.0, 5.0)
+    assert sf.windowTitle() == "Wavelet leader structure functions — layer · DWT sym4" and tuple(sf._region.getRegion()) == (2.0, 5.0)
     assert sf._log2_L == 6.0 and sf.fit_combo.isEnabled()                   # the field extent reaches the focus modes
-    sf_name = "layer · DWT sym4 · leaders, structure functions"
+    sf_name = "layer · DWT sym4 · leaders, WLSF"
     assert list(win._published_fits) == [sf_name]
     win._on_cumulants_button_clicked()
     lc = win._cumulants_window
@@ -81,7 +81,7 @@ def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_
     lc_name = "layer · DWT sym4 · leaders, log-cumulants"
     assert list(win._published_fits) == [sf_name, lc_name]                  # one entry per tool and set
     sf.set_combo.setCurrentText("WSE leaders")
-    wse_name = "layer · DWT sym4 · WSE leaders, structure functions"
+    wse_name = "layer · DWT sym4 · WSE leaders, WSE-leader structure functions"
     assert list(win._published_fits) == [sf_name, lc_name, wse_name]
     sf.set_combo.setCurrentText("leaders")                                   # the same name: the latest wins
     assert list(win._published_fits) == [sf_name, lc_name, wse_name]
@@ -117,7 +117,7 @@ def test_a_landing_forgets_the_layer_s_published_fits_and_closes_its_stale_tools
     win._refresh_samples_buttons()
     win._on_structure_button_clicked()
     qtbot.addWidget(win._structure_window)
-    name = "layer · DWT sym4 · leaders, structure functions"
+    name = "layer · DWT sym4 · leaders, WLSF"
     assert list(win._published_fits) == [name] and win._published_fits[name]["layer_id"] is None
     win._published_fits["other"] = {"name": "other", "layer_id": 7}
     win._forget_layer_tools(None)

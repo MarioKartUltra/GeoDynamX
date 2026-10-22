@@ -772,20 +772,21 @@ def test_a_q_picked_on_the_c_q_panel_sets_the_d_h_tangent(qtbot):
     assert window._tangent_line.isVisible() and pick.value() == pytest.approx(-1.5)
 
 
-def test_the_window_names_structure_functions_for_the_moment_route_and_hides_a_lone_table(qtbot):
-    """hd_kind = "structure" (moments over the projections, leaders): the title and the first
-    family read structure functions; with one table under both names the Table choice is hidden.
-    The default stays partition functions with the choice visible."""
+def test_the_window_names_the_partition_function_for_the_cell_route_too_and_hides_a_lone_table(qtbot):
+    """hd_kind = "structure" (moments over the projections, leaders): the table is the sum over
+    the field's cells, a partition function Z (τ = ζ − d), so the title and the first family read
+    partition functions as for the maxima lines; with one table under both names the Table choice
+    is hidden."""
     from dynamix.shell.multifractal_window import vocabulary
 
-    assert vocabulary("structure") == ("Structure functions", "log₂ S(q,a)")
+    assert vocabulary("structure") == ("Partition functions", "log₂ Z(q,a)")
     assert vocabulary(None) == vocabulary("partition") == ("Partition functions", "log₂ Z(q,a)")
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_std, kind="structure",
                                 source="moments over the projections (Turiel 2006, M method)")
     qtbot.addWidget(window)
-    assert window.windowTitle().startswith("Structure functions — moments over")
-    assert window._family_plots["tau_qa"].getAxis("left").labelText == "log₂ S(q,a)"
+    assert window.windowTitle().startswith("Partition functions — moments over")
+    assert window._family_plots["tau_qa"].getAxis("left").labelText == "log₂ Z(q,a)"
     assert window._table_combo.isHidden() and window._table_label.isHidden()
     plain = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(plain)
@@ -803,7 +804,7 @@ def test_the_main_windows_button_names_what_the_active_result_holds(qtbot, clean
     hd_std, hd_cmax = _pair()
     win._active_result = {"hd_std": hd_std, "hd_cmax": hd_std, "hd_kind": "structure"}
     win._refresh_spectrum_button()
-    assert win._spectrum_button.text() == "Structure functions…" and win._spectrum_button.isEnabled()
+    assert win._spectrum_button.text() == "Partition functions…" and win._spectrum_button.isEnabled()
     win._active_result = {"hd_std": hd_std, "hd_cmax": hd_cmax}
     win._refresh_spectrum_button()
     assert win._spectrum_button.text() == "Partition functions…"
