@@ -191,6 +191,11 @@ class DirectionalFigure(QtWidgets.QWidget):
         self.fitplots = []
         self.controls_widgets = {}
         self._build()
+        if len(self.fitplots) > 1:
+            self.link = self._control("Sync fitting ranges", QtWidgets.QCheckBox())
+            self.link.toggled.connect(lambda on: self._link_ranges(0) if on else None)
+            for i, fit in enumerate(self.fitplots):
+                fit.region.sigRegionChanged.connect(lambda _region, i=i: self._link_ranges(i))
         direction_kinds = ("distributions", "diagnostics", "net")
         self.population.setVisible(kind in direction_kinds or kind in ("kernel", "correlations"))
         self.frame_combo.setVisible(kind in direction_kinds or kind in ("collapse", "sensitivity", "spread"))
@@ -251,9 +256,6 @@ class DirectionalFigure(QtWidgets.QWidget):
                 self._plot(title, row, col, fit=True, quantity="β", factor=-1)
             self.windowing = self._choice("Window", ["Hann cuts", "Rectangular cuts"])
             self.contours = self._control("Contours", QtWidgets.QCheckBox())
-            self.link = self._control("Link k ranges", QtWidgets.QCheckBox())
-            for i, fit in enumerate(self.fitplots):
-                fit.region.sigRegionChangeFinished.connect(lambda i=i: self._link_ranges(i))
             self.compute = QtWidgets.QPushButton("Compute spectra")
             self.controls.addWidget(self.compute)
             self.compute.clicked.connect(self._calculate)
@@ -766,7 +768,7 @@ class DirectionalFigure(QtWidgets.QWidget):
             self.readout.setText("Press Compute spectra for this native source/window; opening a figure does not run a transform")
             return
         s = self._spectra[1]
-        image = pg.ImageItem(s["log2_power"].T)
+        image = pg.ImageItem(s["log2_power"].T, axisOrder="col-major")
         ny,nx = values.shape
         image.setRect(QtCore.QRectF(-.5,-.5,1,1))
         self.plots[0].addItem(image)
@@ -775,10 +777,10 @@ class DirectionalFigure(QtWidgets.QWidget):
         if self.contours.isChecked():
             levels = np.linspace(np.percentile(s["log2_power"], 65), np.percentile(s["log2_power"], 98), 5)
             for level in levels:
-                contour = pg.IsocurveItem(s["log2_power"].T, level=level, pen=pg.mkPen(current().ink_muted))
-                contour.setScale(1/max(nx,ny))
-                contour.setPos(-.5,-.5)
-                self.plots[0].addItem(contour)
+                contour = pg.IsocurveItem(s["log2_power"].T, level=level,
+                                         pen=pg.mkPen(current().amber, width=1.5))
+                contour.setParentItem(image)
+                contour.setZValue(10)
         for fit,key in zip(self.fitplots,("r","x","y")):
             initial = not fit._seeded
             with np.errstate(divide="ignore"):

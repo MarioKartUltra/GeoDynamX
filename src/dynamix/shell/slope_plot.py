@@ -54,7 +54,7 @@ class SlopePlot(QtWidgets.QWidget):
         self.plot.setMinimumSize(230, 200)
         layout.addWidget(self.plot, 1)
         self.region = pg.LinearRegionItem([0, 1], brush=(160, 160, 160, 18))
-        self.region.sigRegionChangeFinished.connect(self._fit)
+        self.region.sigRegionChanged.connect(self._fit)
         self.segment = pg.PlotDataItem(pen=pg.mkPen(current().ink, width=1.8))
         self.preview = pg.PlotDataItem(pen=pg.mkPen(current().amber, style=QtCore.Qt.DashLine))
         self.roi = None

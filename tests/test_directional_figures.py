@@ -154,3 +154,63 @@ def test_main_window_menu_opens_focused_figures_and_highlights_points(window,qtb
     net.brush_hi.setValue(180)
     net.brush_button.click()
     assert len(win._figure_selection_item.getData()[0])>0
+
+
+def test_range_fit_updates_during_drag_before_finish(qtbot):
+    w = SlopePlot("Live fit")
+    qtbot.addWidget(w)
+    x = np.arange(8.)
+    w.set_data(x, x*x)
+    with QtCore.QSignalBlocker(w.region):
+        w.region.setRegion((0, 3))
+    w.region.sigRegionChanged.emit(w.region)
+    assert w.measurement["count"] == 4
+    assert w.measurement["slope"] == pytest.approx(3)
+
+
+@pytest.mark.parametrize("kind", ["fourier", "spread"])
+def test_window_fit_range_sync_is_optional_and_live(qtbot, kind):
+    w = DirectionalFigure(kind)
+    qtbot.addWidget(w)
+    for fit in w.fitplots:
+        fit.set_data(np.arange(8.), np.arange(8.)**2)
+    w.fitplots[0].region.setRegion((1, 4))
+    assert w.fitplots[1].region.getRegion() == (0, 7)
+    w.link.setChecked(True)
+    assert w.fitplots[1].region.getRegion() == (1, 4)
+    with QtCore.QSignalBlocker(w.fitplots[1].region):
+        w.fitplots[1].region.setRegion((2, 6))
+    w.fitplots[1].region.sigRegionChanged.emit(w.fitplots[1].region)
+    for fit in w.fitplots:
+        assert fit.region.getRegion() == (2, 6)
+        assert fit.measurement["count"] == 5
+    w.link.setChecked(False)
+    w.fitplots[0].region.setRegion((0, 3))
+    assert w.fitplots[1].region.getRegion() == (2, 6)
+
+
+def test_fourier_contours_share_rectangular_image_coordinates(qtbot):
+    import pyqtgraph as pg
+    f, r = source()
+    f.values = np.zeros((32, 64))
+    w = DirectionalFigure("fourier")
+    qtbot.addWidget(w)
+    w.set_result(r, f)
+    yy, xx = np.mgrid[:32, :64]
+    spectrum = {"log2_power": -((xx-32)**2 + (yy-16)**2).astype(float)}
+    for key in ("r", "x", "y"):
+        spectrum.update({"k_"+key: np.arange(1, 9)/64,
+                         "S_"+key: np.arange(1, 9.)**-2,
+                         "window_"+key: [1/64, 8/64]})
+    w._spectra = ((id(f.values), 0), spectrum)
+    w.contours.setChecked(True)
+    w.refresh()
+    image = next(item for item in w.plots[0].items() if isinstance(item, pg.ImageItem))
+    contours = [item for item in image.childItems() if isinstance(item, pg.IsocurveItem)]
+    assert len(contours) == 5
+    for contour in contours:
+        assert contour.zValue() > image.zValue()
+        p = contour.mapToView(QtCore.QPointF(64, 32))
+        assert (p.x(), p.y()) == pytest.approx((.5, .5))
+        contour.generatePath()
+        assert not contour.path.isEmpty()
