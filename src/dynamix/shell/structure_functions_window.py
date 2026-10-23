@@ -189,7 +189,8 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.family_plot.setLabel("bottom", self._scale_name())
         self.family_plot.setLabel("left", "log₂ S(q, a)")
         if self._physical is not None:
-            self.family_plot.setAxisItems({"top": PhysicalAxis(self._physical)})
+            self.family_plot.setAxisItems({"top": PhysicalAxis(self._physical),
+                                           "bottom": PhysicalLog2Axis(self._physical, physical_ticks=False)})
             self.family_plot.showAxis("top")
         band = pg.mkColor(current().amber)
         band.setAlpha(28)
@@ -258,11 +259,13 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         return ""
 
     def _on_xaxis_changed(self, text: str) -> None:
-        if text.startswith("log₂ λ*") and self._physical is not None:
-            self.family_plot.setAxisItems({"bottom": PhysicalLog2Axis(self._physical)})
+        physical = text.startswith("log₂ λ*") and self._physical is not None
+        axis = self.family_plot.getAxis("bottom")
+        if isinstance(axis, PhysicalLog2Axis):
+            axis.set_physical_ticks(physical)
+        if physical:
             self.family_plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
         else:
-            self.family_plot.setAxisItems({"bottom": pg.AxisItem("bottom")})
             self.family_plot.setLabel("bottom", self._scale_name())
 
     # -- the fit ----------------------------------------------------------------------------

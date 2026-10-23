@@ -149,14 +149,22 @@ class PhysicalAxis(pg.AxisItem):
 
 
 class PhysicalLog2Axis(pg.AxisItem):
-    """A bottom axis whose ticks sit at the panel's log₂ a positions and read log₂ of the
-    physical length λ* there -- the partition functions against the length the bars quote."""
+    """A persistent bottom axis switching between pixel and physical log₂ tick labels."""
 
-    def __init__(self, physical, orientation: str = "bottom", **kw) -> None:
+    def __init__(self, physical, orientation: str = "bottom", *, physical_ticks=True, **kw) -> None:
         super().__init__(orientation, **kw)
         self._physical = physical
+        self.physical_ticks = physical_ticks
+
+    def set_physical_ticks(self, enabled: bool) -> None:
+        # Keep the scene's axis item and view links intact while changing its labels.
+        self.physical_ticks = bool(enabled)
+        self.picture = None
+        self.update()
 
     def tickStrings(self, values, scale, spacing):
+        if not self.physical_ticks:
+            return super().tickStrings(values, scale, spacing)
         out = []
         for v in values:
             got = self._physical(float(v))
@@ -479,7 +487,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             plot.setLabel("bottom", self._scale_axis_label())
             plot.setLabel("left", vocabulary(self._kind)[1] if key == "tau_qa" else ylabel)
             if self._physical is not None:
-                plot.setAxisItems({"top": PhysicalAxis(self._physical)})
+                plot.setAxisItems({"top": PhysicalAxis(self._physical),
+                                   "bottom": PhysicalLog2Axis(self._physical, physical_ticks=False)})
                 plot.showAxis("top")
             region = pg.LinearRegionItem(values=span, orientation="vertical",
                                          brush=pg.mkBrush(band),
@@ -1041,11 +1050,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def _on_xaxis_changed(self, text: str) -> None:
         physical = text.startswith("log₂ λ*") and self._physical is not None
         for plot in self._family_plots.values():
+            axis = plot.getAxis("bottom")
+            if isinstance(axis, PhysicalLog2Axis):
+                axis.set_physical_ticks(physical)
             if physical:
-                plot.setAxisItems({"bottom": PhysicalLog2Axis(self._physical)})
                 plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
             else:
-                plot.setAxisItems({"bottom": pg.AxisItem("bottom")})
                 plot.setLabel("bottom", self._scale_axis_label())
 
     def refresh_physical_axes(self) -> None:
@@ -1057,7 +1067,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                 axis = plot.getAxis(name)
                 axis.picture = None
                 axis.update()
-            if isinstance(plot.getAxis("bottom"), PhysicalLog2Axis):
+            if (isinstance(plot.getAxis("bottom"), PhysicalLog2Axis)
+                    and plot.getAxis("bottom").physical_ticks):
                 plot.setLabel("bottom", f"log₂ λ* ({self._physical_unit()})")
         lo, hi = self._region.getRegion()
         self.range_label.setText(self._range_text(float(lo), float(hi)))

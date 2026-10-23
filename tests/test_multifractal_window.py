@@ -889,3 +889,42 @@ def test_a_one_table_window_publishes_under_the_tool_s_name_without_a_table_tail
     window = MultifractalWindow(hd_std, hd_std, source="dem · mexican · CWT leaders", kind="structure")
     qtbot.addWidget(window)
     assert window.published_fit()["name"] == "dem · mexican · CWT leaders, partition functions"
+
+
+def test_physical_log_axis_switch_survives_visible_repaints(qtbot):
+    window = MultifractalWindow(*_pair(), physical_of_log2a=lambda v: (2.0 ** v * 3.0, 'km'))
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.wait(30)
+    axes = {name: plot.getAxis("bottom") for name, plot in window._family_plots.items()}
+    for _ in range(4):
+        window._xaxis_combo.setCurrentText('log₂ λ* (unit)')
+        assert all(plot.getAxis("bottom") is axes[name] for name, plot in window._family_plots.items())
+        qtbot.wait(30)
+        window.grab()
+        window._xaxis_combo.setCurrentText('log₂ a (px)')
+        qtbot.wait(30)
+        window.grab()
+
+
+def test_leaders_partition_physical_axis_keeps_scene_items_on_unit_switch(qtbot, clean_registry):
+    from conftest import make_field
+    from dynamix.devices import register_builtin_devices
+    from dynamix.devices.wavelet_leaders import WaveletLeaders
+    from dynamix.model.device import defaults_for
+    from dynamix.core.wavelet_profiles import lambda_px
+
+    register_builtin_devices()
+    dev = WaveletLeaders()
+    params = {**defaults_for(dev), 'scale_max': 16}
+    result = dev.compute(make_field(shape=(256, 256)), params)
+    window = MultifractalWindow(result['hd_std'], result['hd_cmax'], kind=result['hd_kind'],
+                                physical_of_log2a=lambda v: (lambda_px(dev.name, params, 2.0**v), 'px'))
+    qtbot.addWidget(window)
+    window.show()
+    axes = [plot.getAxis('bottom') for plot in window._family_plots.values()]
+    for label in ('log₂ λ* (unit)', 'log₂ a (px)', 'log₂ λ* (unit)'):
+        window._xaxis_combo.setCurrentText(label)
+        qtbot.wait(20)
+        window.grab()
+        assert all(plot.getAxis('bottom') is axis for plot, axis in zip(window._family_plots.values(), axes))
