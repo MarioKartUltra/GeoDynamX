@@ -36,8 +36,9 @@ def test_the_tool_sits_in_regularity_and_offers_curves(dev):
     assert list(dev.p_list(p)) == list(np.arange(0.5, 6.01, 0.5))
     assert {"wavelet", "edge", "scale_min", "scale_max", "gamma", "p_min"} <= set(keyed_params(dev, p))
     assert dev.roi_margin(p) == dwt.border_cells("sym4") * 64
+    assert validate_params(dev, {"scale_min": 6})["scale_min"] == 8        # the knob is dyadic
     with pytest.raises(ValueError, match="power of two"):
-        dev.check(validate_params(dev, {"scale_min": 6}))
+        dev.check({**p, "scale_min": 6})
     with pytest.raises(ValueError, match="at least three levels"):
         dev.check(validate_params(dev, {"scale_min": 32, "scale_max": 64}))
     with pytest.raises(ValueError, match="p max"):

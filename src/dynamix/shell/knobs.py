@@ -95,6 +95,11 @@ def nudge(value, spec_or_param: ControlSpec | Param, direction: int, modifier: s
     """
     spec = spec_or_param if isinstance(spec_or_param, ControlSpec) else control_spec(spec_or_param)
     param = spec.param
+    if param.dyadic:
+        new = int(value) * 2 if direction > 0 else int(value) // 2
+        if (param.max is not None and new > param.max) or (param.min is not None and new < param.min):
+            return value
+        return new
     step = spec.step * _MOD_SCALE[modifier] * direction
     if param.kind is ParamKind.INT:
         step = direction * max(1, round(abs(step)))

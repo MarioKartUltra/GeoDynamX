@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import enum
+import math
 from typing import Any
 
 
@@ -82,6 +83,9 @@ class Param:
     #: CHOICE only: stored values still valid (a saved recipe may name them) that the knob no longer
     #: offers -- a superseded mode. Presentation only: validation accepts them as before.
     hidden_choices: tuple[str, ...] = ()
+    #: INT only: the knob holds powers of two (a dyadic scale in px). Validation snaps a value to
+    #: the nearest one inside the bounds; a drag or nudge doubles or halves it.
+    dyadic: bool = False
 
     def __post_init__(self):
         # A payload or a keyword copy hands a list; a frozen, hashable Param holds a tuple.
@@ -160,6 +164,8 @@ class Param:
             if int(value) != value:
                 raise ValueError(f"{self.name}: {value!r} is not an integer")
             value = int(value)
+            if self.dyadic and value > 0:
+                value = _nearest_power_of_two(value, self.min, self.max)
         elif self.kind is ParamKind.ANGLE:
             # Periodic: wrap, never clamp. Returning here skips the min/max check below, which is
             # only safe because __post_init__ refuses to let an ANGLE declare bounds at all --
@@ -186,3 +192,14 @@ class Param:
         d["kind"] = ParamKind(d["kind"])
         d["choices"] = tuple(d.get("choices", ()))
         return cls(**d)
+
+
+def _nearest_power_of_two(value: int, lo, hi) -> int:
+    """The power of two nearest ``value`` on a log scale, kept inside ``[lo, hi]`` when one fits;
+    a value whose nearest power falls outside is left for the bounds check to refuse."""
+    k = round(math.log2(value))
+    if hi is not None and 2 ** k > hi and value <= hi:
+        k = math.floor(math.log2(hi))
+    if lo is not None and 2 ** k < lo and value >= lo:
+        k = math.ceil(math.log2(lo))
+    return 2 ** k

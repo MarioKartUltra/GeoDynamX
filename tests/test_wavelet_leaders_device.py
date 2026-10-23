@@ -169,7 +169,7 @@ def test_an_inadmissible_field_is_named_in_the_reading_and_the_warnings(dev):
 
 def test_refusals_name_the_field_the_border_and_the_scale_that_fits(dev):
     with pytest.raises(ValueError, match="power of two"):
-        dev.check(validate_params(dev, {"scale_min": 6, "scale_max": 32}))
+        dev.check({**validate_params(dev, {"scale_max": 32}), "scale_min": 6})
     with pytest.raises(ValueError, match="at least three fitted levels"):
         dev.check(validate_params(dev, {"scale_min": 16, "scale_max": 32}))
     with pytest.raises(ValueError, match="place it FIRST"):
