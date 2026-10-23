@@ -57,7 +57,7 @@ def test_fbm_reads_its_hurst_exponent_along_both_axes_and_the_curves_follow(dev)
     at_p1 = list(d["p"]).index(1.0)
     assert abs(d["eta_e1"][at_p1] - 0.5) < 0.15 and abs(d["eta_e2"][at_p1] - 0.5) < 0.15
     assert res["fitted_anisotropies"] > 0
-    assert all(w.startswith("Only one anisotropy") for w in res["warnings"])
+    assert all("sits at an end of the fitted anisotropies" in w for w in res["warnings"])
     rec = res["record"]
     assert rec["edge"] == {"asked": "auto", "used": "mirror"} and rec["levels"] == {"j_min": 2, "J": 6}
     assert rec["alpha_step"] == 1 / 8 and len(rec["levels_per_alpha"]) == 15 and len(rec["eta_e1"]) == 12
@@ -154,3 +154,18 @@ def test_the_footprint_shows_the_halo_an_roi_reads_and_the_border_a_whole_run_dr
     assert roi["padded"].shape == (64 + 2 * roi["shown"], 48 + 2 * roi["shown"])
     whole = dev.footprint(field, p, 2)
     assert whole["shape"] == (256, 256) and whole["border"] == (dwt.border_cells("db2") - 1) * 2 ** 3
+
+
+
+def test_an_roi_is_held_to_its_own_size_and_an_roi_of_the_whole_dataset_is_the_whole_run(dev):
+    """The size gate judges the ROI, not its window; and an ROI covering the dataset reads only a
+    reflected halo, which counts as missing, so it keeps exactly the whole run's cells."""
+    from dynamix.roi.runner import run_on_region
+    field = make_field(fbm2d(512, 0.8, seed=5))
+    p = validate_params(dev, {"estimator": "legacy", "wavelet": "db2", "scale_min": 2, "scale_max": 32})
+    with pytest.raises(ValueError, match="ROI is below scale_max"):
+        run_on_region([(dev, p)], field, (200, 200, 24, 24))
+    roi = run_on_region([(dev, p)], field, (0, 0, 512, 512))["_directional"]
+    whole = dev.compute(field, p)["_directional"]
+    np.testing.assert_array_equal(roi["valid_cells"], whole["valid_cells"])
+    np.testing.assert_allclose(roi["eta_iso"], whole["eta_iso"], atol=1e-9)

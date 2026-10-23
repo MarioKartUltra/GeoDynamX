@@ -211,7 +211,8 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         for key, name, color in [('eta_e1', 'η(p,e₁)', Q_COLD), ('eta_e2', 'η(p,e₂)', Q_WARM), ('eta_iso', 'η(p), α=(1,1)', current().ink)]:
             curves.plot(d['p'], d[key], pen=pg.mkPen(color, width=2), name=name)
         gamma = float(self.params.get('gamma', 0.0) or 0.0)
-        integrated = f' of the γ-integrated field (γ = {gamma:g})' if gamma else ''
+        integrated = (f' (coefficient integration γ = {gamma:g}, order γ/2 per axis)'
+                      if gamma else '')
         curves.setLabel('bottom', 'Moment p')
         curves.setLabel('left', 'η' + integrated)
         # With one fitted α, η(p,e₁) = η(p,e₂) = η_iso by construction: that is no evidence of isotropy.
@@ -222,7 +223,7 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
             if fitted >= 2 and np.isfinite(d[key]).any():
                 profile.plot(d['p'], d[key], pen=pg.mkPen(color), symbol='o', symbolSize=4, name=name)
         profile.setLabel('bottom', 'Moment p')
-        profile.setLabel('left', 'Maximizing axis weight α*')
+        profile.setLabel('left', 'Maximizing axis weight α*' + integrated)
         for key, name, color in [('L_e1', 'L(H,e₁)', Q_COLD), ('L_e2', 'L(H,e₂)', Q_WARM)]:
             bounds.plot(d[key]['h'], d[key]['L'], pen=pg.mkPen(color, width=2), name=name)
         finite_bound = any(np.isfinite(d[key]['L']).any() for key in ('L_e1', 'L_e2'))

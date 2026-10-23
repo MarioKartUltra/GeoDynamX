@@ -3757,8 +3757,11 @@ both ``Canvas`` signals report the
             if at.size == 0:
                 continue
             e1, e2 = float(d["eta_e1"][at[0]]) / 2.0, float(d["eta_e2"][at[0]]) / 2.0
+            gamma = float((res.get("params") or {}).get("gamma", 0.0) or 0.0)
+            # With coefficient integration the exponents are of the integrated coefficients.
+            name = f"{layer.name} (γ = {gamma:g})" if gamma else layer.name
             if np.isfinite(e1) and np.isfinite(e2):
-                out.append((layer.name, e1, e2))
+                out.append((name, e1, e2))
         return out
 
     def _stack_result(self) -> "dict | None":

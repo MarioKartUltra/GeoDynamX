@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import dataclasses
+import hashlib
 
 import numpy as np
 
@@ -185,19 +186,24 @@ class DirectionalScaling:
         return None
 
     def compute_roi(self, window, core, params: dict, *, info=None, progress=None, stage_cache=None) -> dict:
-        """An ROI run: the coefficients on the processing window, whose halo carries each level's
-        support and border, and the statistics over the cells wholly inside the ROI ``core``."""
+        """An ROI run: the coefficients on the processing window, whose real halo carries each
+        level's support and border, and the statistics over the cells wholly inside the ROI
+        ``core``. The halo reflected past the dataset's edge counts as missing, so an ROI cell
+        whose wavelet reaches it drops as a whole-field run drops it."""
         r, c, h, w = (int(v) for v in core)
         return self.compute(window, params, progress=progress, stage_cache=stage_cache,
-                            region=((r, c), (h, w)))
+                            region=((r, c), (h, w)), real=(info or {}).get("real"))
 
-    def compute(self, field, params: dict, *, progress=None, stage_cache=None, region=None) -> dict:
-        vals = field_values_2d(field, self.name)
+    def compute(self, field, params: dict, *, progress=None, stage_cache=None, region=None,
+                real=None) -> dict:
+        raw = field_values_2d(field, self.name)
+        vals = raw if real is None else np.where(real, raw, np.nan)
         self.check(params)
         j_min, J = self._levels(params)
-        if min(vals.shape) < 2 ** J:
-            raise ValueError(f"directional_scaling: a {vals.shape[0]} × {vals.shape[1]} px field is below "
-                             f"scale_max {2 ** J} px")
+        size = vals.shape if region is None else region[1]
+        if min(size) < 2 ** J:
+            raise ValueError(f"directional_scaling: a {size[0]} × {size[1]} px "
+                             f"{'ROI' if region else 'field'} is below scale_max {2 ** J} px")
         edge = self._edge(field, params)
         p = self.p_list(params)
         from dynamix.core.wtmm_backend import _field_data_hash
@@ -206,7 +212,8 @@ class DirectionalScaling:
         origin, block = filled_origin(field), filled_block(field)
         key = cache_key("directional-coefficients", _field_data_hash(field),
                         {"wavelet": params["wavelet"], "J": J, "gamma": params["gamma"], "edge": edge,
-                         "origin": origin, "block": block, "estimator": params["estimator"]})
+                         "origin": origin, "block": block, "estimator": params["estimator"],
+                         "real": None if real is None else hashlib.sha1(np.packbits(real)).hexdigest()})
         if stage_cache is not None and key in stage_cache:
             coef = stage_cache[key]
         else:
@@ -221,7 +228,8 @@ class DirectionalScaling:
         d = dr.analyse(vals, params["wavelet"], J, j_min=j_min, p_list=p, gamma=float(params["gamma"]),
                        edge=edge, estimator=params["estimator"], step=float(params["alpha_step"]),
                        origin=origin, block=block, coefficient_cache=coef)
-        warnings = _fit_warnings(vals, coef, d, params)
+        warnings = _fit_warnings(raw if real is None else raw[real], coef, d, params,
+                                 roi=None if region is None else region[1])
         fitted = int(np.isfinite(d["eta_alpha"]).any(axis=0).sum())
         record = {
             "method": self.name, "wavelet": params["wavelet"], "edge": {"asked": params["edge"], "used": edge},
@@ -247,6 +255,8 @@ class DirectionalScaling:
             return []
         p = np.asarray(d["p"])
         note = f"{int(np.sum(d['n_levels'] >= 3))} of {d['alpha'].size} anisotropies keep three unclipped levels"
+        if float(params.get("gamma", 0.0) or 0.0):
+            note += f"; coefficient integration γ = {float(params['gamma']):g}, order γ/2 per axis"
         out = [Curve(name, p, np.asarray(d[key]), "p", "η", note=note)
                for key, name in (("eta_e1", "η(p, e₁), along x"), ("eta_e2", "η(p, e₂), along y"),
                                  ("eta_iso", "η(p), the diagonal α = (1, 1)"))]
@@ -278,31 +288,52 @@ class DirectionalScaling:
         return " · ".join(parts)
 
 
-def _fit_warnings(vals, coef: dict, d: dict, params: dict) -> list:
+def _fit_warnings(observed, coef: dict, d: dict, params: dict, roi=None) -> list:
     """What kept the fit or the bound from existing, in the order to fix it: an anisotropy needs
-    three resolutions whose every Γ member has valid cells, and a bound needs η_α(p) to reach
-    d = 2 inside the p range."""
-    fitted = int(np.isfinite(d["eta_alpha"]).any(axis=0).sum())
-    if fitted == 0:
-        out = [f"No anisotropy has three resolutions with valid cells between {params['scale_min']} "
-               f"and {params['scale_max']} px."]
-        missing = float(np.mean(~np.isfinite(vals)))
+    three resolutions whose every Γ member has valid cells; a bound needs η_α(p) to reach d = 2
+    inside the p range; an α* at the end of the fitted anisotropies is only a bound.
+    ``observed``: the real pixels read, halo included; ``roi``: an ROI run's (h, w)."""
+    J, e = int(d["levels"]), int(coef["border_cells"])
+    out = []
+    if roi is not None:
+        largest = max((2 ** j for j in range(1, J + 1) if min(roi) // 2 ** j >= 4), default=0)
+        if largest < 2 ** J:
+            out.append(f"Levels above {largest} px keep fewer than 16 cells inside the {roi[0]} × {roi[1]} "
+                       "px ROI: draw it wider or lower scale max.")
+    fitted = np.flatnonzero(np.isfinite(d["eta_alpha"]).any(axis=0))
+    if fitted.size == 0:
+        out.insert(0, f"No anisotropy has three resolutions with valid cells between {params['scale_min']} "
+                      f"and {params['scale_max']} px.")
+        missing = float(np.mean(~np.isfinite(observed))) if np.size(observed) else 0.0
         if missing > 0:
-            out.append(f"{100 * missing:.1f}% of the pixels are missing and every cell touching one is "
-                       "dropped: put Fill before Directional scaling.")
-        diagonal = [j for j in range(1, int(d["levels"]) + 1) if d["valid_cells"][j - 1][j - 1] > 0]
-        if diagonal and diagonal[-1] < int(d["levels"]):
-            out.append(f"Cells survive only up to {2 ** diagonal[-1]} px: {params['wavelet']} drops "
-                       f"{coef['border_cells']} cells per side at every level"
-                       + ("" if params["wavelet"] == "db2" else "; db2 drops the fewest")
+            out.append(f"{100 * missing:.1f}% of the pixels are missing and every cell whose wavelet reaches "
+                       "one is dropped" + (f", a square of (2·{e}+1)·2^j px around each at level j" if e else "")
+                       + ": put Fill before Directional scaling.")
+        diagonal = [j for j in range(1, J + 1) if d["valid_cells"][j - 1][j - 1] > 0]
+        if roi is None and e and diagonal and diagonal[-1] < J:
+            out.append(f"Cells survive only up to {2 ** diagonal[-1]} px: {params['wavelet']} drops {e} cells "
+                       "per side at every level"
+                       + ("" if params["wavelet"] == "db2" else
+                          "; db2 drops the fewest but has two vanishing moments, so it reads exponents "
+                          "below 2 and a quadratic trend leaks into it")
                        + ". An ROI inside a larger dataset reads those cells from its surroundings.")
         return out
-    out = []
-    if fitted < 2:
-        out.append("Only one anisotropy could be fitted, so η(p, e₁) and η(p, e₂) equal its η by "
-                   "construction: widen the scale range to compare directions.")
-    if not any(np.isfinite(d[key]["L"]).any() for key in ("L_e1", "L_e2")):
-        out.append(f"η stays below d = 2 at every fitted anisotropy (largest "
-                   f"{float(np.nanmax(d['eta_alpha'])):.2f}), so no directional bound exists here: raise "
-                   "γ (coefficient integration) or p max.")
+    alpha = np.asarray(d["alpha"], dtype=np.float64)
+    lo, hi = alpha[fitted].min(), alpha[fitted].max()
+    pinned = []
+    for key, axis, ends in (("alpha_star_e1", "e₁", (lo, hi)), ("alpha_star_e2", "e₂", (2 - hi, 2 - lo))):
+        grid = (alpha.min(), alpha.max()) if axis == "e₁" else (2 - alpha.max(), 2 - alpha.min())
+        star = np.asarray(d[key], dtype=np.float64)
+        star = star[np.isfinite(star)]
+        if any(np.isclose(star, end).any() and not np.isclose(end, edge)
+               for end, edge in zip(ends, grid)):
+            pinned.append(axis)
+    if pinned:
+        out.append(f"α* along {' and '.join(pinned)} sits at an end of the fitted anisotropies (α₁ {lo:g} to "
+                   f"{hi:g}), so η(p, e) there is a lower bound: widen the scale range to fit more of them.")
+    largest = float(np.nanmax(d["eta_alpha"]))
+    if largest < 2.0:
+        out.append(f"η stays below d = 2 at every fitted anisotropy in this p range (largest {largest:.2f}), "
+                   "so there is no directional bound in it: raise γ; raise p max only if η is still "
+                   "rising at p max.")
     return out
