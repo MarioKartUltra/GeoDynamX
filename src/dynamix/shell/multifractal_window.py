@@ -484,12 +484,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         warm.setAlpha(28)
         for col, (key, ylabel) in enumerate(FAMILY_TABLES):
             plot = self._glw.addPlot(row=0, col=4 * col, colspan=4, viewBox=WheelAxisViewBox())
-            plot.setLabel("bottom", self._scale_axis_label())
-            plot.setLabel("left", vocabulary(self._kind)[1] if key == "tau_qa" else ylabel)
-            if self._physical is not None:
+            if self._physical is not None:   # before the labels: a replaced axis item drops its label
                 plot.setAxisItems({"top": PhysicalAxis(self._physical),
                                    "bottom": PhysicalLog2Axis(self._physical, physical_ticks=False)})
                 plot.showAxis("top")
+            plot.setLabel("bottom", self._scale_axis_label())
+            plot.setLabel("left", vocabulary(self._kind)[1] if key == "tau_qa" else ylabel)
             region = pg.LinearRegionItem(values=span, orientation="vertical",
                                          brush=pg.mkBrush(band),
                                          pen=pg.mkPen(current().amber))

@@ -897,6 +897,7 @@ def test_physical_log_axis_switch_survives_visible_repaints(qtbot):
     window.show()
     qtbot.wait(30)
     axes = {name: plot.getAxis("bottom") for name, plot in window._family_plots.items()}
+    assert all(axis.labelText == window._scale_axis_label() for axis in axes.values())
     for _ in range(4):
         window._xaxis_combo.setCurrentText('log₂ λ* (unit)')
         assert all(plot.getAxis("bottom") is axes[name] for name, plot in window._family_plots.items())

@@ -186,12 +186,12 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
         self.family_plot = self._glw.addPlot(row=0, col=0, colspan=3, viewBox=WheelAxisViewBox())
-        self.family_plot.setLabel("bottom", self._scale_name())
-        self.family_plot.setLabel("left", "log₂ S(q, a)")
-        if self._physical is not None:
+        if self._physical is not None:   # before the labels: a replaced axis item drops its label
             self.family_plot.setAxisItems({"top": PhysicalAxis(self._physical),
                                            "bottom": PhysicalLog2Axis(self._physical, physical_ticks=False)})
             self.family_plot.showAxis("top")
+        self.family_plot.setLabel("bottom", self._scale_name())
+        self.family_plot.setLabel("left", "log₂ S(q, a)")
         band = pg.mkColor(current().amber)
         band.setAlpha(28)
         self._region = pg.LinearRegionItem(values=(lo, hi), orientation="vertical", brush=pg.mkBrush(band),
