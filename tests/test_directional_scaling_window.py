@@ -136,3 +136,16 @@ def test_basis_labels_keep_independent_native_axis_spacings(qtbot):
     win = DirectionalScalingWindow(params={'wavelet': 'db2', 'scale_max': 16}, field=field)
     qtbot.addWidget(win)
     assert 'Native-axis cell spans 8 × 12 m' in win.basis_note.text()
+
+
+def test_the_tools_warnings_head_the_window_and_gamma_names_the_integrated_field(qtbot, result):
+    warned = dict(result, warnings=["η stays below d = 2 at every fitted anisotropy"],
+                  params={**result["params"], "gamma": 1.0})
+    win = DirectionalScalingWindow(warned, source='test band')
+    qtbot.addWidget(win)
+    assert not win.warning.isHidden() and "η stays below" in win.warning.text()
+    assert "γ = 1" in win.scaling_plots[2].getAxis('bottom').labelText
+    plain = DirectionalScalingWindow(result, source='test band')
+    qtbot.addWidget(plain)
+    assert plain.warning.isHidden()
+    assert plain.scaling_plots[2].getAxis('bottom').labelText == 'H'

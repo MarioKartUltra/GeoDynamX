@@ -93,6 +93,22 @@ def coefficients(values, name: str, level: int, *, gamma: float = 0.0, edge: str
             "origin": tuple(origin), "data_shape": tuple(size), "seam": seam, "complete": complete}
 
 
+
+def restrict(coef: dict, origin, size) -> dict:
+    """``coef`` counting only the cells wholly inside the ``size`` region at ``origin`` of its
+    field: an ROI analysed on its processing window keeps the halo for each level's support and
+    border, and its statistics are the ROI's own cells."""
+    J = coef["levels"]
+    valid = {}
+    for (j1, j2), v in coef["valid"].items():
+        l1, l2 = j1 or J, j2 or J
+        rlo, clo = math.ceil(origin[0] / 2 ** l2), math.ceil(origin[1] / 2 ** l1)
+        rhi, chi = (origin[0] + size[0]) // 2 ** l2, (origin[1] + size[1]) // 2 ** l1
+        box = np.zeros_like(v)
+        box[rlo:max(rlo, rhi), clo:max(clo, chi)] = True
+        valid[(j1, j2)] = v & box
+    return {**coef, "valid": valid, "origin": tuple(origin), "data_shape": tuple(size)}
+
 def structure_functions(coef: dict, p_list) -> np.ndarray:
     """log2 S_{j₁j₂}(p), the mean of |c|^p over the valid cells: ``(n_p, J, J)`` indexed
     ``[p, j1 - 1, j2 - 1]``, NaN where a pair keeps no cell."""

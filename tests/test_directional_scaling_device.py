@@ -56,7 +56,8 @@ def test_fbm_reads_its_hurst_exponent_along_both_axes_and_the_curves_follow(dev)
     assert d["eta_alpha"].shape == (12, 15) and list(d["p"]) == list(np.arange(0.5, 6.01, 0.5))
     at_p1 = list(d["p"]).index(1.0)
     assert abs(d["eta_e1"][at_p1] - 0.5) < 0.15 and abs(d["eta_e2"][at_p1] - 0.5) < 0.15
-    assert res["fitted_anisotropies"] > 0 and res["warnings"] == []
+    assert res["fitted_anisotropies"] > 0
+    assert all(w.startswith("Only one anisotropy") for w in res["warnings"])
     rec = res["record"]
     assert rec["edge"] == {"asked": "auto", "used": "mirror"} and rec["levels"] == {"j_min": 2, "J": 6}
     assert rec["alpha_step"] == 1 / 8 and len(rec["levels_per_alpha"]) == 15 and len(rec["eta_e1"]) == 12
@@ -99,3 +100,45 @@ def test_the_scale_knob_warns_when_a_level_keeps_too_few_cells(dev):
     roomy = make_field(fbm2d(256, 0.5, seed=1))
     assert dev.knob_warnings(roomy, validate_params(dev, {"scale_min": 4, "scale_max": 16})) == {}
     assert dev.knob_warnings(None, p) == {}
+
+
+def test_an_empty_fit_says_what_starved_it(dev):
+    holes = fbm2d(256, 0.5, seed=4)
+    holes[np.random.default_rng(0).random(holes.shape) < 0.05] = np.nan
+    res = dev.compute(make_field(holes), validate_params(dev, {}))
+    text = " ".join(res["warnings"])
+    assert res["fitted_anisotropies"] == 0 and "missing" in text and "Fill" in text
+    clean = dev.compute(make_field(fbm2d(256, 0.5, seed=4)), validate_params(dev, {}))
+    assert clean["fitted_anisotropies"] == 0
+    assert "db2 drops the fewest" in " ".join(clean["warnings"])
+
+
+def test_a_fit_without_a_bound_says_to_raise_gamma(dev):
+    noise = np.random.default_rng(1).standard_normal((512, 512))
+    res = dev.compute(make_field(noise), validate_params(
+        dev, {"wavelet": "db2", "estimator": "legacy", "scale_min": 2, "scale_max": 64}))
+    assert res["fitted_anisotropies"] > 0
+    assert any("raise γ" in w for w in res["warnings"])
+
+
+def test_an_roi_counts_only_its_own_cells_and_reads_the_halo_for_support(dev):
+    """A noise ROI inside a smooth field: the run reads the halo so every level keeps its cells,
+    and its moments are the ROI's own -- each pair's count is exactly the cells inside the box."""
+    from dynamix.roi.runner import run_on_region
+    n, r0, h = 1024, 384, 256
+    smooth = fbm2d(n, 0.8, seed=3)
+    smooth /= smooth.std()
+    mixed = smooth.copy()
+    noise = np.random.default_rng(1).standard_normal((h, h))
+    mixed[r0:r0 + h, r0:r0 + h] = noise
+    p = validate_params(dev, {"estimator": "legacy", "wavelet": "db2", "scale_min": 2, "scale_max": 32})
+    roi = run_on_region([(dev, p)], make_field(mixed), (r0, r0, h, h))
+    d = roi["_directional"]
+    J = d["levels"]
+    for j1 in range(1, J + 1):
+        for j2 in range(1, J + 1):
+            assert d["valid_cells"][j1 - 1][j2 - 1] == (h >> j2) * (h >> j1)
+    inside = dev.compute(make_field(noise), p)["_directional"]
+    outside = dev.compute(make_field(smooth[r0:r0 + h, r0:r0 + h].copy()), p)["_directional"]
+    i = list(d["p"]).index(2.0)
+    assert abs(d["eta_iso"][i] - inside["eta_iso"][i]) < abs(d["eta_iso"][i] - outside["eta_iso"][i]) / 10

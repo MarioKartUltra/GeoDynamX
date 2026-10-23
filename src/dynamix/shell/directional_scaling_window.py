@@ -36,6 +36,13 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         self.caption = QtWidgets.QLabel()
         self.caption.setWordWrap(True)
         layout.addWidget(self.caption)
+        # What kept the fit or the bound from existing, as the tool diagnosed it.
+        warnings = list((result or {}).get('warnings') or [])
+        self.warning = QtWidgets.QLabel('\n'.join(warnings))
+        self.warning.setWordWrap(True)
+        self.warning.setProperty('reading', 'true')
+        self.warning.setVisible(bool(warnings))
+        layout.addWidget(self.warning)
         self.tabs = QtWidgets.QTabWidget()
         layout.addWidget(self.tabs, 1)
         self._moments_tab()
@@ -203,8 +210,10 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
             curves.plot(d['p'], d['eta_alpha'][:, col], pen=pg.mkPen(current().amber if col == ai else current().ink_muted, width=2 if col == ai else 1))
         for key, name, color in [('eta_e1', 'η(p,e₁)', Q_COLD), ('eta_e2', 'η(p,e₂)', Q_WARM), ('eta_iso', 'η(p), α=(1,1)', current().ink)]:
             curves.plot(d['p'], d[key], pen=pg.mkPen(color, width=2), name=name)
+        gamma = float(self.params.get('gamma', 0.0) or 0.0)
+        integrated = f' of the γ-integrated field (γ = {gamma:g})' if gamma else ''
         curves.setLabel('bottom', 'Moment p')
-        curves.setLabel('left', 'η')
+        curves.setLabel('left', 'η' + integrated)
         # With one fitted α, η(p,e₁) = η(p,e₂) = η_iso by construction: that is no evidence of isotropy.
         fitted = int(np.isfinite(d['eta_alpha']).any(axis=0).sum())
         curves.setTitle(f"ηα(p) and x/y envelopes · {fitted} of {len(d['alpha'])} anisotropies fitted")
@@ -218,7 +227,7 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
             bounds.plot(d[key]['h'], d[key]['L'], pen=pg.mkPen(color, width=2), name=name)
         finite_bound = any(np.isfinite(d[key]['L']).any() for key in ('L_e1', 'L_e2'))
         bounds.setTitle('Directional Legendre upper bounds' if finite_bound else 'No finite directional bound in this computed range')
-        bounds.setLabel('bottom', 'H')
+        bounds.setLabel('bottom', 'H' + integrated)
         bounds.setLabel('left', 'L(H,e), upper bound')
 
     def _basis_tab(self):
@@ -332,7 +341,8 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
                    'membership_columns': ['alpha1', 'x', 'family', 'jx', 'jy'],
                    'estimator': d['estimator'], 'x': d['diagnostic_fits'][0]['xlabel'] if d['diagnostic_fits'] else None,
                    'resolution_origin_J': d.get('resolution_origin'), 'families': self._family_names(),
-                   'L_e1, L_e2': 'Theorem 6 upper bound on the directional spectrum over p >= p_alpha, capped at d = 2; not a measured D(h)'}
+                   'L_e1, L_e2': 'Theorem 6 upper bound on the directional spectrum over p >= p_alpha, capped at d = 2; not a measured D(h)',
+                   'gamma': float(self.params.get('gamma', 0.0) or 0.0)}
         curves = {key: d[key] for key in ('eta_e1', 'eta_e2', 'eta_iso', 'alpha_star_e1', 'alpha_star_e2')}
         curves.update({f'{key}_{axis}': d[key][axis] for key in ('L_e1', 'L_e2') for axis in ('h', 'L')})
         np.savez_compressed(path, **curves, moment_pairs=d['moment_pairs'], log2_moments=d['log2_moments'], valid_cells=d['moment_counts'],
