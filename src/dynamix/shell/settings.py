@@ -93,6 +93,9 @@ class Settings:
     #: (:func:`start_path`), set from Settings > Working Folder…; ``None``, or a folder that no
     #: longer exists, leaves each dialog where it starts without one.
     working_folder: str | None = None
+    #: The user's own colour ramps, ``{name: [[position, "#rrggbb"], ...]}`` with positions in
+    #: [0, 1] (:mod:`dynamix.shell.ramps`); a ramp with fewer than two valid stops is left out.
+    ramps: dict = dataclasses.field(default_factory=dict)
     #: Where each floating window was left, ``{key: [x, y, w, h]}`` in screen pixels
     #: (``dynamix.shell.window_fit.remember_geometry``); a saved geometry that lands on no
     #: screen is ignored on restore.
@@ -209,8 +212,25 @@ def load_settings() -> Settings:
         window_geometry=_dict_of_int_lists(d.get("window_geometry")),
         fast_fork=_fast_fork(d.get("fast_fork")),
         working_folder=d["working_folder"] if isinstance(d.get("working_folder"), str) else None,
+        ramps=_ramps(d.get("ramps")),
         theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
+
+def _ramps(value) -> dict:
+    """The ramps that read back whole: a name, then two or more ``[position in [0, 1], #rrggbb]``."""
+    import re
+
+    out = {}
+    for name, stops in (value.items() if isinstance(value, dict) else ()):
+        try:
+            ok = [[float(p), str(c)] for p, c in stops
+                  if 0.0 <= float(p) <= 1.0 and re.fullmatch(r"#[0-9a-fA-F]{6}", str(c))]
+        except (TypeError, ValueError):
+            continue
+        if isinstance(name, str) and name.strip() and len(ok) == len(stops) >= 2:
+            out[name] = sorted(ok)
+    return out
+
 
 def _positive_int(value, default: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:

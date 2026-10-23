@@ -147,6 +147,7 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
             "dynamix.shell.directional_scaling_window",
             "dynamix.shell.curve_window",
             "dynamix.shell.levels_dialog",
+            "dynamix.shell.ramp_editor",
             "dynamix.shell.components_window",
             "dynamix.shell.main_window",
         ]
@@ -199,6 +200,7 @@ def test_devloop_scan_detects_a_touched_file_and_resolves_its_dependents():
             "dynamix.shell.directional_scaling_window",
             "dynamix.shell.curve_window",
             "dynamix.shell.levels_dialog",
+            "dynamix.shell.ramp_editor",
             "dynamix.shell.components_window",
             "dynamix.shell.main_window",
         ]

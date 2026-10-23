@@ -247,9 +247,9 @@ class LevelsDialog(_HistogramDialog):
     def _sample(self, t: float) -> tuple:
         """The colormap at ``t`` in [0, 1], RGBA."""
         try:
-            import matplotlib
-            rgba = matplotlib.colormaps[self._colormap_name](float(t))
-            return tuple(int(round(c * 255)) for c in rgba[:3]) + (255,)
+            from dynamix.shell.canvas import _resolve_cmap
+            rgba = _resolve_cmap(self._colormap_name).map(np.array([float(t)]), mode="byte")[0]
+            return tuple(int(c) for c in rgba[:3]) + (255,)
         except Exception:                                        # noqa: BLE001
             g = int(round(255 * float(t)))
             return (g, g, g, 255)

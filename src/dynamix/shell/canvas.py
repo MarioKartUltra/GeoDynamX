@@ -204,7 +204,13 @@ def _resolve_cmap(name):
 
     One resolver for :meth:`Canvas.set_colormap` AND :meth:`Canvas._refresh_image`'s
     re-apply -- the two must never disagree, or a stretch/hillshade refresh silently
-    reverts a matplotlib-named ramp to whatever LUT survived."""
+    reverts a matplotlib-named ramp to whatever LUT survived. The user's own ramps
+    (:mod:`dynamix.shell.ramps`) come first."""
+    from dynamix.shell.ramps import ramp_colormap
+
+    user = ramp_colormap(str(name))
+    if user is not None:
+        return user
     try:
         return pg.colormap.get(str(name))
     except Exception:

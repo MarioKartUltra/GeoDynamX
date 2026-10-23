@@ -1501,6 +1501,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_panel.styleChanged.connect(self._on_display_style_changed)
         self.right_panel.surfaceDialogRequested.connect(self._on_surface_dialog_requested)
         self.right_panel.levelsDialogRequested.connect(self._on_levels_dialog_requested)
+        self.right_panel.rampEditorRequested.connect(self._on_ramp_editor_requested)
         self.right_panel.bandDialogRequested.connect(self._on_band_dialog_requested)
         self._display_controls = self.right_panel._display_controls
         self._right_panel_host = self.right_panel      # kept for any code that still names it
@@ -2509,7 +2510,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if not points_only:
             self.canvas.set_display_style(opacity=style["opacity"], point_size=style["point_size"],
                                           line_width=style["line_width"])
-            self.canvas.set_colormap(style["colormap"])
+            self.canvas.set_colormap(self._known_colormap(style["colormap"]))
             self.canvas.set_overlay_colors(style["color_hchain"], style["color_vtrail"],
                                            style["color_extrema"],
                                            hchain_neg=style["color_hchain_neg"])
@@ -2649,6 +2650,39 @@ off / z from this layer's own values / z from another loaded
                     sib.tags["ui.surface"] = "True" if enabled else "False"
         self._on_display_style_changed("surface_source", source)
         self._on_display_style_changed("surface", enabled)
+
+    def _known_colormap(self, name: str) -> str:
+        """``name``, or the default when it names a ramp this machine's library lacks (a project
+        made with someone else's ramps); said once per name on the status line."""
+        from dynamix.shell.canvas import _resolve_cmap
+
+        if _resolve_cmap(name) is not None:
+            return name
+        noted = self.__dict__.setdefault("_missing_ramps", set())
+        if name not in noted:
+            noted.add(name)
+            self._notify(f"colormap {name!r} is not in your ramp library: showing {DEFAULT_COLORMAP}",
+                         "status")
+        return DEFAULT_COLORMAP
+
+    def _on_ramp_editor_requested(self) -> None:
+        """"Edit ramp…": the ramp editor on the active layer's colormap. A saved ramp joins the
+        list and colours the layer; deleting the ramp the layer shows puts it on the default."""
+        from dynamix.shell.ramp_editor import RampEditorDialog
+
+        if self.layer is None:
+            return
+        current = _display_style_of(self.layer)["colormap"]
+        dialog = RampEditorDialog(current, parent=self)
+        if dialog.exec() != QtWidgets.QDialog.Accepted:
+            return
+        from dynamix.shell.canvas import _resolve_cmap
+
+        self.right_panel.refresh_colormaps()
+        if dialog.saved_name:
+            self._on_display_style_changed("colormap", dialog.saved_name)
+        elif _resolve_cmap(current) is None:
+            self._on_display_style_changed("colormap", DEFAULT_COLORMAP)
 
     def _on_levels_dialog_requested(self) -> None:
         """"Slice…" (right panel) -- the color-slice editor over the DISPLAYED raster's values

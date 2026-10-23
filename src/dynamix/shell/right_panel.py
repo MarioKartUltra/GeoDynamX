@@ -89,22 +89,32 @@ def _cmap_pixmap(name: str, w: int = 72, h: int = 14) -> QtGui.QPixmap:
     matplotlib import is lazy and lives HERE, the one place this module ever touches it: shell-only,
     and matplotlib is already a dependency of the pyvista-backed viz stack, but no shell module
     imports it at top level."""
-    import matplotlib
-    rgb = (matplotlib.colormaps[name](np.linspace(0.0, 1.0, w))[:, :3] * 255).astype(np.uint8)
+    from dynamix.shell.ramps import ramp_colormap
+
+    user = ramp_colormap(name)
+    if user is not None:
+        rgb = np.asarray(user.getLookupTable(nPts=w, alpha=False), dtype=np.uint8)
+    else:
+        import matplotlib
+        rgb = (matplotlib.colormaps[name](np.linspace(0.0, 1.0, w))[:, :3] * 255).astype(np.uint8)
     row = np.ascontiguousarray(np.repeat(rgb[None, :, :], h, axis=0))     # (h, w, 3), contiguous
     qimg = QtGui.QImage(row.tobytes(), w, h, 3 * w, QtGui.QImage.Format_RGB888)  # QImage copies
     return QtGui.QPixmap.fromImage(qimg)
 
 
 def _all_cmap_names() -> tuple:
-    """The curated set first (EQSelect's own dropdown, unchanged defaults), a separator,
+    """The user's own ramps and a separator when there are any, then the curated set (EQSelect's
+    own dropdown, unchanged defaults), a separator,
     then EVERY other matplotlib colormap -- reversed (``_r``) variants excluded from the long
     tail to halve the list; any ``_r`` name still works when typed into a project file,
     and the curated set keeps its own ``viridis_r``/``plasma_r`` entries."""
     import matplotlib
     rest = sorted(n for n in matplotlib.colormaps
                   if n not in _CMAPS and not n.endswith("_r"))
-    return _CMAPS + (None,) + tuple(rest)
+    from dynamix.shell.ramps import ramp_names
+
+    mine = tuple(ramp_names())
+    return mine + ((None,) if mine else ()) + _CMAPS + (None,) + tuple(rest)
 
 
 def _make_cmap_combo(names=None) -> QtWidgets.QComboBox:
@@ -161,6 +171,8 @@ class RightPanel(QtWidgets.QScrollArea):
     #: "Slice…" clicked -- main_window opens the LevelsDialog over the DISPLAYED raster's
     #: values (only it knows whether that is the field or a holder_map h-map right now).
     levelsDialogRequested = QtCore.Signal()
+    #: "Edit ramp…": open the colour-ramp editor on the layer's colormap.
+    rampEditorRequested = QtCore.Signal()
     #: "Reconstruct…" clicked -- main_window opens the BandDialog over the result's h-map
     #: (analysis, not display; it needs a holder/band result to exist).
     bandDialogRequested = QtCore.Signal()
@@ -365,8 +377,30 @@ class RightPanel(QtWidgets.QScrollArea):
         self.cmap_combo = _make_cmap_combo()
         self.cmap_combo.currentTextChanged.connect(
             lambda name: self.styleChanged.emit("colormap", name))
-        layout.addWidget(self.cmap_combo)
+        cmap_row = QtWidgets.QHBoxLayout()
+        cmap_row.addWidget(self.cmap_combo, 1)
+        self.ramp_button = QtWidgets.QPushButton("Edit ramp…")
+        self.ramp_button.setToolTip("Make or change a colour ramp of your own, starting from this "
+                                    "colormap; your ramps head the list in every project")
+        self.ramp_button.clicked.connect(self.rampEditorRequested.emit)
+        cmap_row.addWidget(self.ramp_button)
+        layout.addLayout(cmap_row)
         return row
+
+    def refresh_colormaps(self) -> None:
+        """Rebuild the colormap list (the user's ramps changed), keeping the current entry."""
+        current = self.cmap_combo.currentText()
+        fresh = _make_cmap_combo()
+        self.cmap_combo.blockSignals(True)
+        self.cmap_combo.clear()
+        for i in range(fresh.count()):
+            if not fresh.itemText(i):
+                self.cmap_combo.insertSeparator(self.cmap_combo.count())
+            else:
+                self.cmap_combo.addItem(fresh.itemIcon(i), fresh.itemText(i))
+        self.cmap_combo.setCurrentText(current)
+        self.cmap_combo.blockSignals(False)
+        fresh.deleteLater()
 
     def _build_stretch_row(self) -> QtWidgets.QWidget:
         """Stretch: which contrast stretch colours the raster (``core.stretch``);

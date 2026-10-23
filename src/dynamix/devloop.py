@@ -95,13 +95,13 @@ _SHELL_DIR = Path(__file__).resolve().parent / "shell"
 #: would be one more moving part standing in for a constant.
 _MODULE_ORDER = (
     "session_timing", "gc_guard", "theme", "plot_zoom", "docks", "commands", "controller", "knobs", "knob_widgets", "worker", "opening",
-    "point_import", "units", "settings",
+    "point_import", "units", "settings", "ramps",
     "window_fit", "cache_inspector", "shared_range", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "map_view", "inspector", "roi_panel",
     "right_panel", "layer_panel", "layers_panel", "arrangement_facade", "view_dialog", "topology_panel",
     "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window",
     "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window",
-    "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "surface_dialog", "levels_dialog", "components_window",
+    "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "surface_dialog", "levels_dialog", "ramp_editor", "components_window",
     "inpaint_window", "bus_dialog", "sends_dialog", "fork_dialog", "import_dialog", "main_window",
 )
 
@@ -143,13 +143,14 @@ _DEPENDS_ON = {
     "point_import": (),
     "units": (),
     "settings": (),
+    "ramps": ("settings", ),
     "browser": (),
     "chain_strip": ("knobs", "knob_widgets", "units"),
     "workflow_zone": ("knobs", "knob_widgets", "browser"),
     # The rack editor dialog: the family tree (browser) and the zone's DeviceBox knobs.
     "rack_editor": ("browser", "workflow_zone"),
     "transport": ("gc_guard", ),
-    "canvas": ("session_timing", "theme", "units", "wavelet_bar", ),
+    "canvas": ("session_timing", "theme", "units", "wavelet_bar", "ramps", ),
     # The per-source floating inspector HOSTS the existing Canvas and the
     # existing Transport (that reuse is the point of it -- see inspector.py's own docstring), so
     # both are real module-level imports and both already sit earlier in _MODULE_ORDER.
@@ -159,7 +160,7 @@ _DEPENDS_ON = {
     # canvas.py's own HCHAIN_COLOR/VTRAIL_COLOR/EXTREMA_COLOR constants (see right_panel.py's own
     # _hex docstring) -- a real module-level import, not just a docstring mention. "canvas" is
     # already earlier in _MODULE_ORDER, so this adds no reordering, only a dependency edge.
-    "right_panel": ("knobs", "knob_widgets", "canvas"),
+    "right_panel": ("knobs", "knob_widgets", "canvas", "ramps"),
     "layer_panel": (),
     # "arrangement" is not itself a _MODULE_ORDER stem (the subpackage this facade stands in for
     # -- see arrangement_facade.py's own docstring); listed here only so the AST import-coverage
@@ -215,12 +216,13 @@ _DEPENDS_ON = {
     "surface_dialog": (),
     # The density-slice editor -- imports theme (canvas.py precedent) + core.stretch.
     "levels_dialog": ("theme", "window_fit", ),
+    "ramp_editor": ("ramps", "canvas", ),
     # "inspector" joins the list because main_window.py now imports
     # InspectorWindow at module level (it opens/closes them and fans ``resolved`` out to them).
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("cache_inspector", "session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
+    "main_window": ("cache_inspector", "session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "ramp_editor", "ramps", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"
