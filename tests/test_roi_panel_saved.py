@@ -64,3 +64,24 @@ def test_deselect_emits_an_empty_activation(qtbot, panel):
         panel.deselect_button.click()
     assert sig.args[0] == ""
     assert panel.saved_list.currentRow() == -1
+
+
+@pytest.mark.parametrize('origin', [('240', '240'), ('', ''), ('-4', '-8')])
+def test_place_box_uses_size_independently_of_typed_origin(panel, qtbot, origin):
+    panel.show_roi(0, 0, 64, 64, (None, 'px'), dims=(256, 256))
+    panel.edit('roi_row').setText(origin[0])
+    panel.edit('roi_col').setText(origin[1])
+    assert panel.values() is None
+    assert not panel.save_button.isEnabled()
+    assert panel.place_button.isEnabled()
+    with qtbot.waitSignal(panel.placeRequested, timeout=1000) as sig:
+        panel.place_button.click()
+    assert sig.args == [64, 64]
+
+
+@pytest.mark.parametrize('height,width', [('2', '64'), ('257', '64'), ('64', '257'), ('', '64')])
+def test_place_box_requires_a_size_that_fits_the_dataset(panel, height, width):
+    panel.show_roi(0, 0, 64, 64, (None, 'px'), dims=(256, 256))
+    panel.edit('roi_h').setText(height)
+    panel.edit('roi_w').setText(width)
+    assert not panel.place_button.isEnabled()

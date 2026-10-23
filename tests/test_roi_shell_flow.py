@@ -1407,3 +1407,26 @@ def test_dd_workflow_reading_uses_native_roi_shape_without_reading_pixels(qtbot,
     box._on_control_changed("levels", 1)
     box._on_control_changed("edge", "periodic")
     assert box._derived_labels["levels"].text().startswith("1023 × 1023")
+
+
+def test_whole_field_interpolation_displays_its_product_with_source_hidden(plain_window, qtbot):
+    win = plain_window
+    win._on_source_hide_toggled(win.layer.source_id, True)
+    child = _whole_field_child(win, qtbot, 'dyadic_interpolation')
+    assert 'roi.window' not in child.tags
+    assert win._active_field[1].values.shape == (79, 99)
+    assert win.canvas.image_item.isVisible()
+
+
+def test_armed_roi_resizes_and_repositions_despite_an_invalid_old_origin(plain_window):
+    win = plain_window
+    win.roi_panel.show_roi(0, 0, 16, 20, (None, 'px'), dims=(40, 50))
+    win.roi_panel.place_button.click()
+    win.roi_panel.edit('roi_row').setText('39')
+    win.roi_panel.edit('roi_col').setText('49')
+    win.roi_panel.edit('roi_h').setText('24')
+    win.roi_panel.edit('roi_w').setText('30')
+    assert win.canvas._roi_place == (24, 30)
+    win.canvas.roiPlaced.emit(8, 10, 24, 30)
+    spec = win.roi_panel.values()
+    assert (spec['roi_row'], spec['roi_col'], spec['roi_h'], spec['roi_w']) == (8, 10, 24, 30)

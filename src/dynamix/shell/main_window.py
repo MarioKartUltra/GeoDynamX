@@ -1389,6 +1389,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.roi_panel.roiActivated.connect(self._on_roi_activated)
         self.roi_panel.childRequested.connect(self._on_roi_child_create)
         self.roi_panel.placeRequested.connect(self._on_roi_place_arm)
+        self.roi_panel.placementSizeEdited.connect(self._on_roi_size_edited)
         self.roi_panel.valuesEdited.connect(self._on_roi_values_edited)
         self.roi_panel.closeRequested.connect(self._on_roi_panel_closed)
         # The per-layer display controls (EQSelect matrix: "layer display controls —
@@ -4678,6 +4679,7 @@ both ``Canvas`` signals report the
         values = np.asarray(result.values)
         self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
         self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
+        self._apply_raster_visibility(showing_product=True)
         self._to_map_live()
         self._sync_composite_panel(result)
         self._refresh_panel_relevance()
@@ -7223,6 +7225,11 @@ both ``Canvas`` signals report the
             return ("this layer is already an ROI — select its parent to draw another "
                     "(ROIs of ROIs are not supported yet)")
         return ""
+
+    def _on_roi_size_edited(self, h: int, w: int) -> None:
+        """An armed box follows size edits without depending on its old typed position."""
+        if self.canvas._roi_place is not None:
+            self.canvas.arm_roi_placement(h, w)
 
     def _on_roi_values_edited(self, spec: dict) -> None:
         """The panel's numbers changed and describe a legal box: move the drawn band to match.

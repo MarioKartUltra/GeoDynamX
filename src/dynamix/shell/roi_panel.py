@@ -68,6 +68,7 @@ class RoiPanel(QtWidgets.QFrame):
     #: Arm the hover-ghost placement for the panel's current (h, w) -- the click repositions
     #: row/col in these fields (never creates anything by itself).
     placeRequested = QtCore.Signal(int, int)
+    placementSizeEdited = QtCore.Signal(int, int)
 
     #: The fields currently describe a legal ROI (same dict shape as ``createRequested``).
     #: Emitted from every edit that leaves :meth:`values` non-None, so the canvas can keep the
@@ -249,6 +250,18 @@ class RoiPanel(QtWidgets.QFrame):
         """The physical readout currently shown beside ``name`` (``""`` when there is none)."""
         return self._physical[name].text()
 
+    def placement_size(self) -> tuple[int, int] | None:
+        """A box size that fits the raster, independent of its previous position."""
+        try:
+            h, w = (int(self._edits[name].text()) for name in ("roi_h", "roi_w"))
+        except ValueError:
+            return None
+        if h < _MIN_SIDE or w < _MIN_SIDE:
+            return None
+        if self._dims is not None and (h > self._dims[0] or w > self._dims[1]):
+            return None
+        return h, w
+
     def values(self) -> dict | None:
         """The four fields as ints plus the boundary choice, or ``None`` if they do not currently
         describe a legal ROI (unparsable, negative, a side under the engine's minimum, or -- when
@@ -287,7 +300,10 @@ class RoiPanel(QtWidgets.QFrame):
         self.create_button.setEnabled(current is not None and not self._blocked)
         self.save_button.setEnabled(current is not None)     # saving is legal on any layer
         self.child_button.setEnabled(current is not None)
-        self.place_button.setEnabled(current is not None)
+        size = self.placement_size()
+        self.place_button.setEnabled(size is not None)
+        if size is not None:
+            self.placementSizeEdited.emit(*size)
         self.message_label.setText(self._message())
         if current is not None:
             self.valuesEdited.emit(current)
@@ -362,6 +378,6 @@ class RoiPanel(QtWidgets.QFrame):
             self.childRequested.emit(values)
 
     def _on_place_clicked(self) -> None:
-        values = self.values()
-        if values is not None:
-            self.placeRequested.emit(int(values["roi_h"]), int(values["roi_w"]))
+        size = self.placement_size()
+        if size is not None:
+            self.placeRequested.emit(*size)
