@@ -215,7 +215,7 @@ _DEPENDS_ON = {
     # topology_panel/transect_panel shape).
     "surface_dialog": (),
     # The density-slice editor -- imports theme (canvas.py precedent) + core.stretch.
-    "levels_dialog": ("theme", "window_fit", ),
+    "levels_dialog": ("theme", "window_fit", "canvas", ),
     "ramp_editor": ("ramps", "canvas", ),
     # "inspector" joins the list because main_window.py now imports
     # InspectorWindow at module level (it opens/closes them and fans ``resolved`` out to them).
