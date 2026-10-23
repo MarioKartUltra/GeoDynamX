@@ -86,6 +86,16 @@ def test_classify_breaks_are_data_unit_classes():
     np.testing.assert_allclose(out, expect, equal_nan=True)
 
 
+
+def test_explicit_breaks_keep_a_repeated_bound_as_an_empty_class():
+    """Two slice bounds dragged together are still two bounds: the class between them is empty,
+    and the classes either side keep their numbers, so per-class colours stay aligned."""
+    from dynamix.core.stretch import resolve_breaks, slice_indices
+    breaks = resolve_breaks(np.zeros(1), [0.5, 0.25, 0.5])
+    np.testing.assert_array_equal(breaks, [0.25, 0.5, 0.5])
+    idx, n = slice_indices(np.array([0.1, 0.4, 0.5, 0.9]), breaks)
+    assert n == 4 and idx.tolist() == [0, 1, 3, 3]
+
 def test_classify_int_is_quantile_classes():
     from dynamix.core.stretch import classify
     rng = np.random.default_rng(0)

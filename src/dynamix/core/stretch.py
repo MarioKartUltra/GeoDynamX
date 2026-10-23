@@ -115,14 +115,15 @@ def classify(values, levels) -> np.ndarray:
 
 def resolve_breaks(values, levels) -> np.ndarray:
     """The actual class boundaries for a levels spec: an int N -> the N-quantile interior
-    breaks of ``values``'s finite cells; a break list -> itself, sorted/deduped. The shared
-    resolution ``classify`` uses -- exposed so the slice editor can seed its draggable lines
-    from the same numbers the display is using."""
+    breaks of ``values``'s finite cells; a break list -> itself, sorted. A repeated break is an
+    empty class, so the classes either side keep their numbers and per-class colours stay
+    aligned. The shared resolution ``classify`` uses -- exposed so the slice editor can seed
+    its draggable lines from the same numbers the display is using."""
     v = np.asarray(values, dtype=np.float64)
     if isinstance(levels, (int, np.integer)):
         n = max(int(levels), 2)
         return np.unique(np.nanquantile(v, np.linspace(0.0, 1.0, n + 1)[1:-1]))
-    breaks = np.unique(np.asarray(list(levels), dtype=np.float64))
+    breaks = np.sort(np.asarray(list(levels), dtype=np.float64))
     if breaks.size == 0 or not np.isfinite(breaks).all():
         raise ValueError("breaks must be finite and non-empty")
     return breaks

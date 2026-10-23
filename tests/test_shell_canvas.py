@@ -776,6 +776,17 @@ def test_set_colormap_default_at_construction_is_binary_r(qtbot):
     assert np.array_equal(canvas.image_item.lut, expected)
 
 
+
+def test_slice_colours_survive_two_bounds_meeting(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(np.linspace(0.0, 1.0, 400).reshape(20, 20))
+    canvas.set_levels("0.25, 0.5, 0.5", "#ff0000,#00ff00,#0000ff,#ffffff")
+    rgba = canvas._class_rgba(np.asarray(canvas._field))
+    assert rgba is not None
+    flat = rgba.reshape(-1, 4)[:, :3]
+    assert {tuple(c) for c in flat} == {(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (1.0, 1.0, 1.0)}
+
 def test_set_colormap_unknown_name_keeps_the_current_lut_and_does_not_raise(qtbot):
     canvas = Canvas()
     qtbot.addWidget(canvas)
