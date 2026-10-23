@@ -140,6 +140,38 @@ def slice_indices(values, breaks) -> "tuple[np.ndarray, int]":
     return idx, int(breaks.size) + 1
 
 
+#: Periodic colourings, the escape-time fractal schemes (Sekino, "Fractal coloring"): ``off``
+#: leaves the stretch in charge.
+BAND_MODES = ("off", "alternate", "wave", "cycle")
+
+
+def bands(values, mode: str, period: float, *, phase: float = 0.0, k: int = 6, q: float = 1.0):
+    """``values`` in units of ``period`` from ``phase``, u = (v − phase)/period, as [0, 1]
+    colormap positions: ``alternate`` flips between 0 and 1 each period (zebra bands along level
+    sets); ``wave`` rises and falls once per period, t = (1 − |2 frac(u) − 1|)^q; ``cycle``
+    steps through ``k`` colours, t = (⌊u⌋ mod k)/(k − 1). Non-finite cells stay NaN."""
+    if mode not in BAND_MODES[1:]:
+        raise ValueError(f"bands mode must be one of {BAND_MODES[1:]}")
+    if not period > 0:
+        raise ValueError("bands period must be positive")
+    u = (np.asarray(values, dtype=np.float64) - phase) / period
+    n = np.floor(u)
+    if mode == "alternate":
+        return np.mod(n, 2.0)
+    if mode == "wave":
+        return (1.0 - np.abs(2.0 * (u - n) - 1.0)) ** q
+    k = max(int(k), 2)
+    return np.mod(n, k) / (k - 1)
+
+
+def auto_band_period(values, n: int = 16) -> float:
+    """A ``n``-th of the finite range of ``values``; 1 when it is flat or empty."""
+    v = np.asarray(values, dtype=np.float64)
+    v = v[np.isfinite(v)]
+    span = float(v.max() - v.min()) if v.size else 0.0
+    return span / n if span > 0 else 1.0
+
+
 def parse_class_colors(text) -> "list | None":
     """``"#rrggbb,none,..."`` -> a list of (r, g, b, a) ints, or ``None`` for empty/blank.
 

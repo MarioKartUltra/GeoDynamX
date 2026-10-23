@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
-from dynamix.core.stretch import STRETCHES
+from dynamix.core.stretch import BAND_MODES, STRETCHES
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.shell.canvas import EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, VTRAIL_COLOR
@@ -390,6 +390,15 @@ class RightPanel(QtWidgets.QScrollArea):
         self.stretch_combo.currentTextChanged.connect(
             lambda name: self.styleChanged.emit("stretch", name))
         layout.addWidget(self.stretch_combo)
+        self.bands_combo = QtWidgets.QComboBox()
+        for name in BAND_MODES:
+            self.bands_combo.addItem(name)
+        self.bands_combo.setToolTip(
+            "Bands: colour by level sets, every Δ data units — alternate flips black/white with "
+            "binary_r, wave rises and falls, cycle steps through K colours. Off = the stretch.")
+        self.bands_combo.currentTextChanged.connect(
+            lambda name: self.styleChanged.emit("bands", name))
+        layout.addWidget(self.bands_combo)
         levels_row = QtWidgets.QHBoxLayout()
         levels_row.addWidget(self.levels_edit, 1)
         self.slice_button = QtWidgets.QPushButton("Slice…")
@@ -479,6 +488,9 @@ class RightPanel(QtWidgets.QScrollArea):
         self.stretch_combo.blockSignals(True)
         self.stretch_combo.setCurrentText(style.get("stretch", "linear"))
         self.stretch_combo.blockSignals(False)
+        self.bands_combo.blockSignals(True)
+        self.bands_combo.setCurrentText(style.get("bands", "off"))
+        self.bands_combo.blockSignals(False)
         self.levels_edit.blockSignals(True)
         self.levels_edit.setText(style.get("levels", ""))
         self.levels_edit.blockSignals(False)

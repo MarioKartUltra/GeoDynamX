@@ -787,6 +787,18 @@ def test_slice_colours_survive_two_bounds_meeting(qtbot):
     flat = rgba.reshape(-1, 4)[:, :3]
     assert {tuple(c) for c in flat} == {(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (1.0, 1.0, 1.0)}
 
+
+def test_alternate_bands_paint_two_values_and_off_restores_the_raw_field(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    values = np.linspace(0.0, 1.0, 400).reshape(20, 20)
+    canvas.set_field(values)
+    canvas.set_bands("alternate", 0.25)
+    shown = np.asarray(canvas.image_item.image)
+    assert set(np.unique(shown)) == {0.0, 1.0}
+    canvas.set_bands("off")
+    np.testing.assert_array_equal(np.asarray(canvas.image_item.image), values.T)
+
 def test_set_colormap_unknown_name_keeps_the_current_lut_and_does_not_raise(qtbot):
     canvas = Canvas()
     qtbot.addWidget(canvas)

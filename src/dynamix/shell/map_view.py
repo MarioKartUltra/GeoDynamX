@@ -101,11 +101,14 @@ class _RowPainter:
         self._composite = None
         self._hillshade = (False, 315.0, 45.0, 1.0)
         self._stretch = ("linear", 2.0)
+        self._bands = ("off", 0.0, 0.0, 6, 1.0)
         self._levels, self._levels_colors, self._levels_sieve = "", "", 0
 
     def apply_style(self, style: dict, composite) -> None:
         self._colormap = style["colormap"]
         self._stretch = (style["stretch"], float(style["stretch_pct"]))
+        self._bands = (style["bands"], float(style["bands_period"]), float(style["bands_phase"]),
+                       int(style["bands_k"]), float(style["bands_q"]))
         self._hillshade = (bool(style["hillshade"]), float(style["sun_azimuth"]),
                            float(style["sun_altitude"]), float(style["z_factor"]))
         self._levels, self._levels_colors, self._levels_sieve = (

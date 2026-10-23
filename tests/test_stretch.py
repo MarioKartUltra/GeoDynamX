@@ -139,3 +139,21 @@ def test_linear_honours_explicit_limits():
     v = np.array([10.0, 128.0, 200.0])
     np.testing.assert_allclose(stretch(v, "linear", limits=(0, 255)), v / 255.0)
     np.testing.assert_allclose(stretch(v, "linear"), [0.0, 118.0 / 190.0, 1.0])
+
+
+def test_bands_alternate_wave_and_cycle_map_level_sets_into_unit_values():
+    from dynamix.core.stretch import auto_band_period, bands
+    v = np.array([0.0, 0.04, 0.05, 0.09, 0.1, np.nan])
+    np.testing.assert_allclose(bands(v, "alternate", 0.05), [0, 0, 1, 1, 0, np.nan], equal_nan=True)
+    wave = bands(np.array([0.0, 0.025, 0.05]), "wave", 0.05)
+    np.testing.assert_allclose(wave, [0.0, 1.0, 0.0], atol=1e-12)        # up then down each period
+    np.testing.assert_allclose(bands(np.array([0.0125]), "wave", 0.05, q=2.0), [0.25])
+    np.testing.assert_allclose(bands(np.array([0.0, 1.0, 2.0, 3.0]), "cycle", 1.0, k=3),
+                               [0.0, 0.5, 1.0, 0.0])
+    np.testing.assert_allclose(bands(np.array([0.3]), "alternate", 0.25, phase=0.1), [0.0])
+    assert auto_band_period(np.array([1.0, 17.0, np.nan])) == 1.0
+    assert auto_band_period(np.full(4, 2.0)) == 1.0
+    with pytest.raises(ValueError):
+        bands(v, "stripes", 1.0)
+    with pytest.raises(ValueError):
+        bands(v, "wave", 0.0)

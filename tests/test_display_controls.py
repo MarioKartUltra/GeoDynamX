@@ -369,6 +369,20 @@ def test_stretch_changes_the_canvas_image_and_persists(loaded):
     assert loaded.right_panel.stretch_combo.currentText() == "percent"
 
 
+
+def test_bands_persist_and_reach_the_canvas(loaded):
+    panel = loaded.right_panel
+    assert _display_style_of(loaded.layer)["bands"] == "off"
+    loaded._on_display_style_changed("bands", "alternate")
+    assert loaded.layer.tags["ui.bands"] == "alternate"
+    shown = np.asarray(loaded.canvas.image_item.image)
+    assert set(np.unique(shown[np.isfinite(shown)])) <= {0.0, 1.0}
+    loaded._on_display_style_changed("bands", "cycle")
+    loaded._sync_display_controls(loaded.layer)
+    assert panel.bands_combo.currentText() == "cycle"
+    loaded.layer.tags["ui.bands"] = "plaid"
+    assert _display_style_of(loaded.layer)["bands"] == "off"
+
 # ----------------------------------------------------------------------------- 3-D surface
 
 def test_surface_and_depth_positive_are_per_layer_display_tags(loaded):

@@ -57,6 +57,19 @@ def test_hillshade_and_surface_reveal_their_own_knobs(window):
     assert _shown(win, "depth") and _shown(win, "knob:z_factor")
 
 
+
+def test_bands_reveal_only_the_knobs_their_mode_uses(window):
+    win = window
+    _load(win, np.random.default_rng(0).normal(size=(20, 24)))
+    knobs = ("knob:bands_period", "knob:bands_phase", "knob:bands_k", "knob:bands_q")
+    assert not any(_shown(win, k) for k in knobs)
+    win._on_display_style_changed("bands", "alternate")
+    assert [_shown(win, k) for k in knobs] == [True, True, False, False]
+    win._on_display_style_changed("bands", "wave")
+    assert [_shown(win, k) for k in knobs] == [True, True, False, True]
+    win._on_display_style_changed("bands", "cycle")
+    assert [_shown(win, k) for k in knobs] == [True, True, True, False]
+
 def test_each_tools_output_brings_exactly_its_controls(window):
     win = window
     _load(win, np.random.default_rng(0).normal(size=(20, 24)))

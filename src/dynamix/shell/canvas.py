@@ -787,6 +787,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._composite = None             # multiband display law (set_composite); None = band 1
         self._hillshade = (False, 315.0, 45.0, 1.0)   # (on, sun azimuth, sun altitude, z_factor)
         self._stretch = ("linear", 2.0)             # (core.stretch mode, percent clip)
+        self._bands = ("off", 0.0, 0.0, 6, 1.0)     # (core.stretch.bands mode, period, phase, k, q)
         self._levels = ""                            # density-slice spec text ("" = off)
         self._levels_colors = ""                     # "#rrggbb,..." per-class colors ("" = LUT)
         self._levels_sieve = 0                       # min island px (0 = off; settle/apply only)
@@ -1471,6 +1472,18 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._stretch = new
         self._refresh_image()
 
+    def set_bands(self, mode: str = "off", period: float = 0.0, phase: float = 0.0, k: int = 6,
+                  q: float = 1.0) -> None:
+        """Periodic colouring of the raster image (``dynamix.core.stretch.bands``): ``mode`` other
+        than ``"off"`` puts the banded [0, 1] field under the LUT in place of the stretch, every
+        ``period`` data units from ``phase`` (``period`` 0: a sixteenth of the shown range). A
+        density slice still wins. Composes with hillshade. View state."""
+        new = (str(mode), float(period), float(phase), int(k), float(q))
+        if new == self._bands:
+            return
+        self._bands = new
+        self._refresh_image()
+
     def set_levels(self, spec: str = "", colors: str = "", min_island: int = 0) -> None:
         """Density slice (ENVI): a class-count or data-unit-breaks spec
         (``dynamix.core.stretch.parse_levels``); active it REPLACES the continuous stretch so
@@ -1521,8 +1534,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         return rgba
 
     def _display_scalars(self, small, sliced: bool = True):
-        """The [0, 1] display field per the current levels/stretch, or ``None`` for the
-        raw-linear path (levels win over stretch when both are set; ``sliced`` False leaves
+        """The [0, 1] display field per the current levels/bands/stretch, or ``None`` for the
+        raw-linear path (levels win over bands, bands over stretch; ``sliced`` False leaves
         the levels out)."""
         mode, pct = self._stretch
         if sliced and self._levels and small.ndim == 2:
@@ -1538,6 +1551,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
                     return out
             except (ValueError, TypeError):
                 pass
+        band_mode, period, phase, k, q = self._bands
+        if band_mode != "off" and small.ndim == 2:
+            from dynamix.core.stretch import auto_band_period, bands
+            return bands(small, band_mode, period if period > 0 else auto_band_period(small),
+                         phase=phase, k=k, q=q)
         if mode != "linear" and small.ndim == 2:
             from dynamix.core.stretch import stretch
             return stretch(small, mode, percent=pct)

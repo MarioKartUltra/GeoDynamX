@@ -61,7 +61,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from dynamix.shell.session_timing import (measure as _timed, enabled as _timing_enabled,
                                           fed as _timing_fed)
 
-from dynamix.core.stretch import STRETCHES
+from dynamix.core.stretch import BAND_MODES, STRETCHES
 from dynamix.core.frames import LocalFrame, frames_compatible
 from dynamix.core.pointset import read_csv_points
 from dynamix.core.transect import chains_in_buffer, sample_profile
@@ -268,6 +268,16 @@ _DISPLAY_PARAMS = (
     # Stretch: the percent-clip for ui.stretch == "percent" (core.stretch).
     Param("stretch_pct", ParamKind.FLOAT, default=2.0, min=0.0, max=49.0,
           soft_min=0.5, soft_max=10.0, units="%", label="Clip %"),
+    # Bands (core.stretch.bands): the period in data units (0 = a sixteenth of the shown
+    # range), where the first band starts, the colours a cycle steps through, the wave's power.
+    Param("bands_period", ParamKind.FLOAT, default=0.0, min=0.0, max=1e12,
+          soft_min=0.0, soft_max=1.0, label="Band Δ (0 auto)"),
+    Param("bands_phase", ParamKind.FLOAT, default=0.0, min=-1e12, max=1e12,
+          soft_min=-1.0, soft_max=1.0, label="Band phase"),
+    Param("bands_k", ParamKind.FLOAT, default=6.0, min=2.0, max=64.0,
+          soft_min=2.0, soft_max=12.0, label="Band colours"),
+    Param("bands_q", ParamKind.FLOAT, default=1.0, min=0.05, max=20.0,
+          soft_min=0.25, soft_max=4.0, label="Band q"),
 )
 
 #: The three knob names, for :meth:`MainWindow._on_display_style_changed`'s dispatch: a name in
@@ -359,6 +369,8 @@ def _display_style_of(layer) -> dict:
     out["hillshade"] = tags.get("ui.hillshade") == "True"
     raw = tags.get("ui.stretch")
     out["stretch"] = raw if raw in STRETCHES else "linear"
+    raw = tags.get("ui.bands")
+    out["bands"] = raw if raw in BAND_MODES else "off"
     out["levels"] = tags.get("ui.levels", "")   # density slice: "" = off
     out["levels_colors"] = tags.get("ui.levels_colors", "")   # "#rrggbb,..." per class; "" = LUT
     try:
@@ -2505,6 +2517,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_show_isolated(style["show_isolated"])
             self.canvas.set_arrow_mode(style["arrows"])
             self.canvas.set_stretch(style["stretch"], style["stretch_pct"])
+            self.canvas.set_bands(style["bands"], style["bands_period"], style["bands_phase"],
+                                  int(style["bands_k"]), style["bands_q"])
             self.canvas.set_levels(style["levels"], style["levels_colors"],
                                    style["levels_sieve"])
             self.canvas.set_hillshade(style["hillshade"], style["sun_azimuth"],
@@ -2580,7 +2594,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._arrangement.set_colormap(str(value))
         elif (name in ("colormap", "color_vtrail", "color_points", "show_trails",
                        "hillshade", "sun_azimuth", "sun_altitude", "z_factor",
-                       "stretch", "stretch_pct", "levels", "levels_colors", "levels_sieve",
+                       "stretch", "stretch_pct", "bands", "bands_period", "bands_phase", "bands_k",
+                       "bands_q", "levels", "levels_colors", "levels_sieve",
                        "surface", "surface_source", "depth_positive")
                 and self._center_view != "raster"):
             self._sync_arrangement()
@@ -3533,6 +3548,10 @@ both ``Canvas`` signals report the
             "knob:line_width": has_lines or has_chains,
             "knob:sun_azimuth": shade, "knob:sun_altitude": shade,
             "knob:z_factor": shade or (single and style["surface"]),
+            "knob:bands_period": single and style["bands"] != "off",
+            "knob:bands_phase": single and style["bands"] != "off",
+            "knob:bands_k": single and style["bands"] == "cycle",
+            "knob:bands_q": single and style["bands"] == "wave",
             "colormap": single, "stretch": single,
             "reconstruct": res.get("h_map") is not None,
             "swatches": has_ext or has_chains,

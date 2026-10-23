@@ -15,7 +15,8 @@ from dynamix.shell.map_view import MapView, RowContent
 
 STYLE = {"colormap": "viridis", "stretch": "linear", "stretch_pct": 2.0, "hillshade": False,
          "sun_azimuth": 315.0, "sun_altitude": 45.0, "z_factor": 1.0, "levels": "",
-         "levels_colors": "", "levels_sieve": 0}
+         "levels_colors": "", "levels_sieve": 0, "bands": "off", "bands_period": 0.0,
+         "bands_phase": 0.0, "bands_k": 6.0, "bands_q": 1.0}
 
 
 def _utm(ny=40, nx=50, x0=500005.0, y0=4399995.0, d=10.0, crs="EPSG:32613"):
