@@ -177,6 +177,22 @@ def test_modifier_drag_emits_the_rect_in_image_coordinates(qtbot, canvas):
     assert all(isinstance(v, int) for v in sig.args)
 
 
+
+def test_a_drag_over_a_refined_fork_emits_the_forks_own_samples(qtbot, canvas):
+    from dynamix.shell.canvas import ROI_MODIFIER
+
+    # 64 file pixels of a grid four times finer, drawn at its pitch over the parent's extent.
+    canvas.set_field(np.zeros((253, 253)), display_pitch=(0.25, 0.25), roi_pitch=(0.25, 0.25))
+    canvas.view.setRange(xRange=(0, 64), yRange=(0, 64), padding=0)
+    start, end = (140.0, 160.0), (300.0, 280.0)
+    with qtbot.waitSignal(canvas.roiDrawn, timeout=1000) as sig:
+        _drag(canvas, start, end, ROI_MODIFIER)
+    row, col, h, w = sig.args
+    x0, y0 = _data_from_geometry(canvas, *start)
+    x1, y1 = _data_from_geometry(canvas, *end)
+    assert abs(col - 4 * x0) <= 2 and abs(row - 4 * y0) <= 2
+    assert abs(col + w - 4 * x1) <= 2 and abs(row + h - 4 * y1) <= 2
+
 def test_a_drag_off_the_edge_is_clamped_to_the_field(qtbot, canvas):
     from dynamix.shell.canvas import ROI_MODIFIER
 

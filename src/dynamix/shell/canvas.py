@@ -832,6 +832,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         # its georeference puts it): added to the base, and to everything drawn in file pixels.
         self._display_shift = (0, 0)
         self._display_pitch = (1.0, 1.0)   # file pixels per stored sample (rows, cols)
+        # File pixels per index of the ROI numbers: the dataset's own pixels, which a produced
+        # field drawn over that dataset does not change (``set_field(roi_pitch=)``).
+        self._roi_pitch = (1.0, 1.0)
         self._draw_off = (0.0, 0.0)
         self._press_pos = None
         self._press_shift = False
@@ -1216,11 +1219,22 @@ class Canvas(pg.GraphicsLayoutWidget):
         return point.x(), point.y()
 
     def _field_shape(self) -> tuple[int, int]:
-        # FILE pixels: a display picture reports its file's dims; a field finer or coarser than
-        # the file's grid, its extent at its pitch.
+        # The extent in ROI indices: a display picture reports its file's dims; a field finer or
+        # coarser than the dataset the ROI numbers index, its extent at the pitch between them.
         rows, cols = native_shape(self._field)
-        py, px = self._display_pitch
-        return int(np.ceil(rows * py)), int(np.ceil(cols * px))
+        (py, px), (qy, qx) = self._display_pitch, self._roi_pitch
+        return int(np.ceil(rows * py / qy - 1e-9)), int(np.ceil(cols * px / qx - 1e-9))
+
+    def _roi_index(self, xy) -> tuple[float, float]:
+        """Data-space ``(x, y)`` (file-absolute) -> ``(col, row)`` in ROI indices."""
+        (qy, qx), (br, bc) = self._roi_pitch, self._base_off
+        return (xy[0] - bc) / qx, (xy[1] - br) / qy
+
+    def _roi_cells(self, row, col, h, w) -> tuple:
+        """The data-space corners around the cells of an ROI given in ROI indices."""
+        (qy, qx), (br, bc) = self._roi_pitch, self._base_off
+        return ((bc + qx * (col - 0.5), br + qy * (row - 0.5)),
+                (bc + qx * (col + w - 0.5), br + qy * (row + h - 0.5)))
 
     def _pick_radius_data(self, screen_px: float) -> float:
         """SCREEN pixels -> DATA units, through the ViewBox's OWN current scale.
@@ -1745,9 +1759,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def _roi_place_origin(self, xy, h: int, w: int) -> tuple[int, int]:
         """Top-left of an ``h``x``w`` box centred on data-space ``xy``, clamped inside the field."""
-        x, y = xy
-        x -= self._base_off[1]                 # pin-in-place: the cursor is file-absolute
-        y -= self._base_off[0]
+        x, y = self._roi_index(xy)             # pin-in-place: the cursor is file-absolute
         ny, nx = self._field_shape()
         # Center registration: the box's pixel centers run row .. row+h-1, so its own center is
         # row + (h-1)/2 -- row + h/2 would be the cell-edge convention.
@@ -1764,9 +1776,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         NUMBERS currently say -- same corner convention as the ⌘-drag release at the bottom of
         this file (x = col, y = row)."""
         # Center registration + pin-in-place: local pixels, absolute cells.
-        br, bc = self._base_off
-        self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
-                            (col + w + bc - 0.5, row + h + br - 0.5))
+        self._draw_roi_band(*self._roi_cells(row, col, h, w))
 
     def set_saved_rois(self, rois) -> None:
         """Outline the saved ROIs ``[{"label", "row", "col", "h", "w", "active"}, ...]`` around
@@ -1775,9 +1785,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         def _rings(items):
             xs, ys = [], []
             sr, sc = self._display_shift
+            qy, qx = self._roi_pitch
             for d in items:
-                x0, y0 = d["col"] + sc - 0.5, d["row"] + sr - 0.5
-                x1, y1 = d["col"] + sc + d["w"] - 0.5, d["row"] + sr + d["h"] - 0.5
+                x0, y0 = sc + qx * (d["col"] - 0.5), sr + qy * (d["row"] - 0.5)
+                x1, y1 = sc + qx * (d["col"] + d["w"] - 0.5), sr + qy * (d["row"] + d["h"] - 0.5)
                 xs += [x0, x1, x1, x0, x0, np.nan]
                 ys += [y0, y0, y1, y1, y0, np.nan]
             return np.asarray(xs, dtype=float), np.asarray(ys, dtype=float)
@@ -1790,8 +1801,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._saved_roi_labels = []
         for d in rois:
             text = pg.TextItem(str(d["label"]), color=current().roi, anchor=(0, 1))
-            text.setPos(d["col"] + self._display_shift[1] - 0.5,
-                        d["row"] + self._display_shift[0] - 0.5)
+            text.setPos(self._display_shift[1] + self._roi_pitch[1] * (d["col"] - 0.5),
+                        self._display_shift[0] + self._roi_pitch[0] * (d["row"] - 0.5))
             self.view.addItem(text)
             self._saved_roi_labels.append(text)
 
@@ -2207,13 +2218,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if self._roi_press is not None:
             # Whole pixels while dragging, too: the live band covers exactly the cells the
             # release will emit (same arithmetic as mouseReleaseEvent), never the raw cursor.
-            br, bc = self._base_off
-            cur = self._data_xy(event)
-            row, col, h, w = roi_from_corners((self._roi_press[0] - bc, self._roi_press[1] - br),
-                                              (cur[0] - bc, cur[1] - br),
+            row, col, h, w = roi_from_corners(self._roi_index(self._roi_press),
+                                              self._roi_index(self._data_xy(event)),
                                               self._field_shape())
-            self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
-                                (col + w + bc - 0.5, row + h + br - 0.5))
+            self._draw_roi_band(*self._roi_cells(row, col, h, w))
             event.accept()
             return
         if self._box_press is not None:
@@ -2235,9 +2243,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
             h, w = self._roi_place
             row, col = self._roi_place_origin(self._data_xy(event), h, w)
             # Center registration + pin-in-place: absolute cells.
-            br, bc = self._base_off
-            self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
-                                (col + w + bc - 0.5, row + h + br - 0.5))
+            self._draw_roi_band(*self._roi_cells(row, col, h, w))
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
@@ -2279,14 +2285,11 @@ a bounded gather of at most :attr:`draw_cap` chains per
         """
         if self._roi_press is not None:
             press, self._roi_press = self._roi_press, None
-            br, bc = self._base_off
-            rel = self._data_xy(event)
-            row, col, h, w = roi_from_corners((press[0] - bc, press[1] - br),
-                                              (rel[0] - bc, rel[1] - br),
+            row, col, h, w = roi_from_corners(self._roi_index(press),
+                                              self._roi_index(self._data_xy(event)),
                                               self._field_shape())
             # Center registration + pin-in-place: local pixels, absolute cells.
-            self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
-                                (col + w + bc - 0.5, row + h + br - 0.5))
+            self._draw_roi_band(*self._roi_cells(row, col, h, w))
             event.accept()
             self.roiDrawn.emit(row, col, h, w)
             return
@@ -2334,9 +2337,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
                     row, col = self._roi_place_origin(xy, h, w)
                     self._roi_place = None
                     # Center registration + pin-in-place: absolute cells.
-                    br, bc = self._base_off
-                    self._draw_roi_band((col + bc - 0.5, row + br - 0.5),
-                                        (col + w + bc - 0.5, row + h + br - 0.5))
+                    self._draw_roi_band(*self._roi_cells(row, col, h, w))
                     self.roiPlaced.emit(row, col, h, w)
                 elif self._selection_mode == "transect":
                     self._handle_transect_click(xy)
@@ -2347,7 +2348,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         super().mouseReleaseEvent(event)
 
     def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM, display_origin=None,
-                  display_pitch=(1.0, 1.0)) -> None:
+                  display_pitch=(1.0, 1.0), roi_pitch=(1.0, 1.0)) -> None:
         """Raster display: an ``ImageItem`` in the ``viridis`` colormap, decimated for on-screen
         size via :func:`lod_stride`. ``field`` may be a ``RasterField`` or a bare ``(ny, nx)``
         array.
@@ -2357,6 +2358,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         pixel, centred on the sample, so a dyadic refinement's retained nodes stay on the file
         pixels they came from and every file-pixel overlay (ROI outlines, bands, footprints) is
         untouched. (1, 1), the default, is the file's own grid.
+
+        ``roi_pitch`` = file pixels per index of the ROI numbers: the pitch of the dataset the
+        ROIs index, (1, 1) for one on the file's own grid whatever field is drawn over it. A
+        refined fork's ROIs index its own samples, so it passes its own pitch.
 
         The explicit ``setRect`` is the registration, and it is not optional. ``setImage`` alone
         gives an ``ImageItem`` one data unit per STORED sample, so a stride-4 display of a
@@ -2378,6 +2383,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._display_shift = (tuple(int(v) for v in display_origin) if display_origin is not None
                                else (0, 0))
         self._display_pitch = (float(display_pitch[0]), float(display_pitch[1]))
+        self._roi_pitch = (float(roi_pitch[0]), float(roi_pitch[1]))
         wr, wc = window_offset(field)
         self._base_off = (wr + self._display_shift[0], wc + self._display_shift[1])
         # North-up for GEOGRAPHIC fields only: this view is image-convention (row 0 at top,

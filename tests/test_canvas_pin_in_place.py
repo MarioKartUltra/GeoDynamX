@@ -216,3 +216,34 @@ def test_a_result_on_a_refined_field_draws_at_the_field_pitch(qtbot):
     # display_offset = roi − window = (−3, −3) samples → × ½ → file (5 − 1.5, 7 − 1.5); the box is 8 × ½ wide
     assert (min(bx), max(bx)) == (5.5 - 0.25, 5.5 - 0.25 + 4.0)
     assert (min(by), max(by)) == (3.5 - 0.25, 3.5 - 0.25 + 3.0)
+
+
+def test_roi_geometry_on_a_refined_fork_is_in_the_forks_own_samples(qtbot):
+    """A fork of a refined grid draws at pitch 1/4 over its parent's footprint; its ROI numbers
+    index the fork's samples, so the clamp, the band, the place origin and the saved outline
+    convert through that pitch."""
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(np.zeros((157, 197), dtype=np.float32), display_pitch=(0.25, 0.25),
+                     roi_pitch=(0.25, 0.25))
+    assert canvas._field_shape() == (157, 197)
+    canvas.show_roi_band(80, 100, 64, 80)
+    xs, ys = canvas.roi_band_item.getData()
+    assert (xs.min(), xs.max()) == (0.25 * 99.5, 0.25 * 179.5)
+    assert (ys.min(), ys.max()) == (0.25 * 79.5, 0.25 * 143.5)
+    assert canvas._roi_place_origin((34.875, 27.875), 64, 80) == (80, 100)
+    canvas.set_saved_rois([{"label": "A", "row": 80, "col": 100, "h": 64, "w": 80, "active": True}])
+    xs, ys = canvas.active_roi_item.getData()
+    assert (np.nanmin(xs), np.nanmax(xs)) == (0.25 * 99.5, 0.25 * 179.5)
+    assert (np.nanmin(ys), np.nanmax(ys)) == (0.25 * 79.5, 0.25 * 143.5)
+
+
+def test_a_produced_field_keeps_its_rois_in_the_datasets_pixels(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(np.zeros((157, 197), dtype=np.float32), display_pitch=(0.25, 0.25),
+                     roi_pitch=(1.0, 1.0))
+    assert canvas._field_shape() == (40, 50)
+    canvas.show_roi_band(20, 25, 16, 20)
+    xs, ys = canvas.roi_band_item.getData()
+    assert (xs.min(), xs.max()) == (24.5, 44.5) and (ys.min(), ys.max()) == (19.5, 35.5)

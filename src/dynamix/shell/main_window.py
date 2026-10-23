@@ -2356,8 +2356,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.layer_list.select_layer(self.layer.layer_id)
         self.setWindowTitle(f"{TITLE} — {self.layer.name}")
         self._build_strips()
+        pitch = self._display_pitch(field)
         self.canvas.set_field(field, display_origin=self._display_origin(field),
-                              display_pitch=self._display_pitch(field))
+                              display_pitch=pitch, roi_pitch=pitch)
         self._apply_raster_visibility()
         self._displayed_layer_name = self.layer.name
         self._holder_raster_ref = None       # raw field is up -- holder display re-syncs on land
@@ -4753,7 +4754,10 @@ both ``Canvas`` signals report the
             r, c = self._grid_origin_px(result, self.field)
             wr, wc = window_offset(result)
             shift = (dr + r - wr, dc + c - wc)
-        self.canvas.set_field(result, display_origin=shift, display_pitch=pitch)
+        # Its ROIs still index the dataset, at the dataset's own pitch (a fork's samples).
+        self.canvas.set_field(result, display_origin=shift, display_pitch=pitch,
+                              roi_pitch=self._display_pitch(self.field) if self.field is not None
+                              else (1.0, 1.0))
         values = np.asarray(result.values)
         self._holder_raster_ref = (id(values), values)   # the next result lands the dataset back
         self._active_field = (self.layer.layer_id if self.layer is not None else None, result)
@@ -4901,8 +4905,9 @@ both ``Canvas`` signals report the
                                  "status")
         elif self._holder_raster_ref is not None:
             if self.field is not None:
+                pitch = self._display_pitch(self.field)
                 self.canvas.set_field(self.field, display_origin=self._display_origin(self.field),
-                                      display_pitch=self._display_pitch(self.field))
+                                      display_pitch=pitch, roi_pitch=pitch)
                 self._apply_raster_visibility(showing_product=False)
             if self.layer is not None:
                 self.layer_list.set_layer_name(self.layer.layer_id, self.layer.name)
@@ -5520,8 +5525,9 @@ both ``Canvas`` signals report the
         # a PointSet is not array-like (TypeError). Drawing points on the canvas is a separate step; until then the canvas simply keeps showing whatever it last had (the previous
         # raster, or nothing) -- never a crash for selecting a point layer.
         if not self._is_point_layer(layer):
+            pitch = self._display_pitch(self.field)
             self.canvas.set_field(self.field, display_origin=self._display_origin(self.field),
-                                  display_pitch=self._display_pitch(self.field))
+                                  display_pitch=pitch, roi_pitch=pitch)
             self._apply_raster_visibility()
             self._refresh_saved_rois()
             self._displayed_layer_name = layer.name
