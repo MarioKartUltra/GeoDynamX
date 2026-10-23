@@ -46,7 +46,7 @@ _MIN_WIDTH = 200
 #: ``_CMAPS``) rather than imported: this widget sits outside the ``dynamix/core`` verbatim-copy
 #: contract, so it is DynamiX's own code, the same LIST of names.
 _CMAPS = (
-    "viridis", "plasma", "inferno", "magma", "cividis", "turbo",
+    "binary_r", "viridis", "plasma", "inferno", "magma", "cividis", "turbo",
     "coolwarm", "RdBu", "Spectral", "seismic", "bwr",
     "gist_earth", "terrain", "ocean", "cubehelix",
     "viridis_r", "plasma_r", "jet", "twilight", "hsv",

@@ -766,13 +766,13 @@ def test_set_colormap_swaps_the_image_items_lookup_table(qtbot):
     assert not np.array_equal(before, after)
 
 
-def test_set_colormap_default_at_construction_is_viridis(qtbot):
+def test_set_colormap_default_at_construction_is_binary_r(qtbot):
     import pyqtgraph as pg
 
     canvas = Canvas()
     qtbot.addWidget(canvas)
 
-    expected = pg.colormap.get("viridis").getLookupTable(nPts=256)
+    expected = pg.colormap.get("binary_r", source="matplotlib").getLookupTable(nPts=256)
     assert np.array_equal(canvas.image_item.lut, expected)
 
 

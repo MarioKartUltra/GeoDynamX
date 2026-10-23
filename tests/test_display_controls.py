@@ -93,7 +93,7 @@ def test_new_display_keys_default_when_tags_absent():
 
     style = _display_style_of(layer)
 
-    assert style["colormap"] == "viridis"
+    assert style["colormap"] == "binary_r"
     assert style["color_hchain"] == _hex(HCHAIN_COLOR)
     assert style["color_vtrail"] == _hex(VTRAIL_COLOR)
     assert style["color_extrema"] == _hex(EXTREMA_COLOR)
@@ -110,7 +110,7 @@ def test_layer_with_only_legacy_tags_gets_new_key_defaults():
     style = _display_style_of(layer)
 
     assert style["opacity"] == pytest.approx(0.5)
-    assert style["colormap"] == "viridis"
+    assert style["colormap"] == "binary_r"
     assert style["color_vtrail"] == _hex(VTRAIL_COLOR)
     assert style["show_trails"] is False
 
@@ -151,7 +151,7 @@ def test_empty_colormap_tag_falls_back_to_default():
     layer = Layer(layer_id=1, name="A", source_id="mem:a")
     layer.tags["ui.colormap"] = ""
 
-    assert _display_style_of(layer)["colormap"] == "viridis"
+    assert _display_style_of(layer)["colormap"] == "binary_r"
 
 
 # ------------------------------------------------------------------------------------------------
@@ -325,6 +325,14 @@ def test_hillshade_toggle_persists_and_renders_the_raster_as_shaded_rgba(loaded)
     assert turned.shape == shaded.shape and not np.array_equal(turned, shaded)
     loaded._on_display_style_changed("hillshade", False)
     assert loaded.canvas.image_item.image.ndim == 2
+
+
+def test_hillshade_paints_the_layers_own_matplotlib_ramp(loaded):
+    loaded._on_display_style_changed("hillshade", True)
+    rgba = np.asarray(loaded.canvas.image_item.image)
+    # the default binary_r is a grey ramp, so a shaded pixel keeps R = G = B
+    np.testing.assert_allclose(rgba[..., 0], rgba[..., 1])
+    np.testing.assert_allclose(rgba[..., 1], rgba[..., 2])
 
 
 def test_hillshade_survives_a_colormap_change_and_a_layer_switch(qtbot, loaded):

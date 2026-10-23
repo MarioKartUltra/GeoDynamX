@@ -108,7 +108,7 @@ from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.shared_range import SharedScaleRange
-from dynamix.shell.canvas import (Canvas, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
+from dynamix.shell.canvas import (Canvas, DEFAULT_COLORMAP, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
                                   VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
@@ -301,7 +301,7 @@ _RUN_ROWS = ("recon", "recon_edges_only", "residual")
 #: The three color defaults are DERIVED from ``canvas.py``'s own constants (``_hex`` below), not
 #: restated as separate literals -- a re-tint of the canvas module's defaults moves these for free,
 #: with no second place that could quietly drift out of sync.
-_DEFAULT_COLORMAP = "viridis"
+_DEFAULT_COLORMAP = DEFAULT_COLORMAP
 
 
 def _hex(rgb: tuple[int, int, int]) -> str:

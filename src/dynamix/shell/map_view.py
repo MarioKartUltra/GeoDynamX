@@ -14,7 +14,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.geo.placement import field_crs, image_transform, reproject_for_display
 from dynamix.shell.units import in_units
-from dynamix.shell.canvas import (ARROW_COLOR, Canvas, EXTREMA_COLOR, HCHAIN_COLOR, _arrow_segments,
+from dynamix.shell.canvas import (ARROW_COLOR, Canvas, DEFAULT_COLORMAP, EXTREMA_COLOR, HCHAIN_COLOR, _arrow_segments,
                                   hline_polylines, lod_stride, nice_round_scalebar)
 from dynamix.shell.theme import RESTRAINED_DARK
 
@@ -97,7 +97,7 @@ class _RowPainter:
     _display_scalars = Canvas._display_scalars
 
     def __init__(self) -> None:
-        self._colormap = "viridis"
+        self._colormap = DEFAULT_COLORMAP
         self._composite = None
         self._hillshade = (False, 315.0, 45.0, 1.0)
         self._stretch = ("linear", 2.0)

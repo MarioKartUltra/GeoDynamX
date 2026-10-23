@@ -22,8 +22,8 @@ testable without a window:
   ``chains`` into plain / seam-flagged / committed-group trails, by ``tags``.
 
 :class:`Canvas` (a ``pyqtgraph.GraphicsLayoutWidget``) wires those helpers to on-screen items. Two
-device-agnostic rules shape it: the Signal Rule (data gets a perceptually-uniform colormap --
-``viridis``, never rainbow) and the Theme Rule (chrome carries no literal color or font; it comes
+device-agnostic rules shape it: the Signal Rule (data gets a perceptually ordered colormap --
+``binary_r`` by default, never rainbow) and the Theme Rule (chrome carries no literal color or font; it comes
 from :mod:`dynamix.shell.theme` or a Qt style property). The one carve-out, matching how colormap
 NAMES are treated, is that chain/extremum colors are DATA identity, not chrome -- see the palette
 constants below.
@@ -106,6 +106,7 @@ _CLICK_MAX_TRAVEL_PX = 3.0
 #: strings: The chrome-literal grep matches `#rrggbb` text and font-family names, not tuples.
 EXTREMA_COLOR = (200, 200, 200)     # isolated extrema (line_id == -1): light gray
 HCHAIN_COLOR = (235, 235, 235)      # H-chain polylines: white-ish
+DEFAULT_COLORMAP = "binary_r"        # a layer's raster colormap until it picks one: black to white
 HCHAIN_NEG_COLOR = (90, 160, 255)    # the H-chain vertices and pixels whose scalar transform is
 #                                      negative when the WTMM's Sign knob marked the maxima; the
 #                                      positive ones keep the H-chain and maxima colours
@@ -879,7 +880,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         # are transparent, so where it has no support the dataset beneath shows through.
         self.product_item = pg.ImageItem()
         self.product_item.setVisible(False)
-        self.set_colormap("viridis")     # the Signal Rule default: never rainbow -- the canvas makes
+        self.set_colormap(DEFAULT_COLORMAP)   # the Signal Rule default: never rainbow -- the canvas makes
                                           # this a per-layer setter; see its own docstring
         self.view.addItem(self.image_item)
         self.view.addItem(self.product_item)
@@ -1422,9 +1423,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def set_colormap(self, name: str) -> None:
         """Per-layer image colormap (``ui.colormap``) -- swaps ``image_item``'s LUT in
-        place. Replaces the constructor's old one-time hard-set viridis: every layer switch now
-        calls this with whatever the layer's own tag says (``_display_style_of``'s default is
-        still "viridis", so an untouched layer looks exactly as it did before this existed).
+        place. Every layer switch calls this with whatever the layer's own tag says
+        (``_display_style_of``'s default is :data:`DEFAULT_COLORMAP`, the constructor's own).
 
         An unknown/garbled name (one ``pyqtgraph`` has no colormap file for) leaves whatever LUT
         is already applied untouched rather than raising -- the same tolerance
@@ -1615,10 +1615,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if base is None:
             base = stretch(small, mode, percent=pct)
         norm = np.nan_to_num(base, nan=0.0)
-        try:
-            cmap = pg.colormap.get(self._colormap or "viridis")
-        except Exception:
-            cmap = pg.colormap.get("viridis")
+        cmap = _resolve_cmap(self._colormap or DEFAULT_COLORMAP) or _resolve_cmap(DEFAULT_COLORMAP)
         rgba = cmap.map(norm, mode="byte").astype(np.float64)        # (ny, nx, 4)
         sh = np.nan_to_num(shade, nan=0.0)
         rgba[..., :3] *= sh[..., None]
@@ -1878,7 +1875,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
                 finite = values[np.isfinite(values)]
                 levels = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 1.0)
             self.footprint_image_item.setImage(padded.T, levels=tuple(levels))
-            cmap = _resolve_cmap(self._colormap or "viridis")
+            cmap = _resolve_cmap(self._colormap or DEFAULT_COLORMAP)
             if cmap is not None:
                 self.footprint_image_item.setColorMap(cmap)
             self.footprint_image_item.setRect(QtCore.QRectF(
@@ -2349,7 +2346,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
 
     def set_field(self, field, max_dim: int = _DEFAULT_MAX_DIM, display_origin=None,
                   display_pitch=(1.0, 1.0), roi_pitch=(1.0, 1.0)) -> None:
-        """Raster display: an ``ImageItem`` in the ``viridis`` colormap, decimated for on-screen
+        """Raster display: an ``ImageItem`` in the layer's colormap, decimated for on-screen
         size via :func:`lod_stride`. ``field`` may be a ``RasterField`` or a bare ``(ny, nx)``
         array.
 
