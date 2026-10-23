@@ -214,3 +214,85 @@ def test_fourier_contours_share_rectangular_image_coordinates(qtbot):
         assert (p.x(), p.y()) == pytest.approx((.5, .5))
         contour.generatePath()
         assert not contour.path.isEmpty()
+
+
+def test_rose_diagrams_keep_per_scale_counts_frame_and_exported_histograms(qtbot):
+    f,r = source()
+    win = DirectionalFigure('net')
+    qtbot.addWidget(win)
+    win.set_result(r,f)
+    win.net_display.setCurrentText('Rose diagram')
+    win.population.setCurrentIndex(1)
+    assert len(win._rose_outcomes) == 4
+    for i, row in enumerate(win._rose_outcomes):
+        assert row['total'] == len(win.data.samples('wtmm')[i]['arg'])
+        assert row['counts'].sum() == row['total']
+        assert row['frame'] == 'pixel'
+    assert 'not doubled' in win.readout.text()
+    assert win.render_state()['controls']['Display'] == 'Rose diagram'
+    assert len(win._export_outcomes()['rose_histograms']) == 4
+    win.show()
+    qtbot.wait(20)
+    win.grab()
+    win.add_orientation(name='bearing only', kind='azimuth', azimuth=30, frame='true')
+    assert win._structural[-1]['inclination'] is None
+    assert win._rose_outcomes[0]['total'] == 1
+    assert win._rose_outcomes[0]['source'] == 'bearing only · measured azimuths'
+    win.net_display.setCurrentText('Orientation net')
+    assert 'No geographic' not in win.readout.text()
+
+
+def test_measured_only_frames_leave_out_samples_without_that_north(qtbot):
+    _, r = source()
+    f = RasterField(name="utm", values=np.zeros((64, 64)),
+                    frame=LocalFrame(x0=5e5, y0=4e6, dx=30, dy=30, units="metre"),
+                    x_axis=5e5+30*np.arange(64.), y_axis=4e6-30*np.arange(64.),
+                    units="metre", provenance={"crs": "EPSG:32611"})
+    win = DirectionalFigure('net')
+    qtbot.addWidget(win)
+    win.set_result(r, f)
+    win.population.setCurrentIndex(1)
+    assert win.data.has_frame('grid') and win.data.has_frame('true')
+    assert not win.data.has_frame('magnetic')
+    with pytest.raises(ValueError):
+        win.data.orientations(0, win.population.currentData(), 'magnetic')
+    win.net_display.setCurrentText('Rose diagram')
+    win.add_orientation(name='compass', kind='azimuth', azimuth=30, frame='magnetic')
+    assert [row['source'] for row in win._rose_outcomes] == ['compass · measured azimuths']
+    assert win._rose_outcomes[0]['frame'] == 'magnetic'
+    win._select_sector()
+    win.net_display.setCurrentText('Orientation net')
+    assert 'px:' not in win.readout.text()
+
+
+def test_rose_pools_by_name_names_its_north_and_forgets_earlier_draws(qtbot):
+    f, r = source()
+    win = DirectionalFigure('net')
+    qtbot.addWidget(win)
+    win.net_display.setCurrentText('Rose diagram')
+    assert win._export_outcomes()['rose_histograms'] == []
+    win.set_result(r, f)
+    win.population.setCurrentIndex(1)
+    assert len(win._rose_outcomes) == 4
+    assert 'image axes' in win.plots[0].plotItem.titleLabel.text
+    for i in range(win.scales.count()):
+        win.scales.item(i).setCheckState(QtCore.Qt.Unchecked)
+    win.refresh()
+    assert win._export_outcomes()['rose_histograms'] == []
+    for name, azimuth in (('bedding', 10), ('cleavage', 80), ('bedding', 12)):
+        win.add_orientation(name=name, kind='plane', azimuth=azimuth, inclination=30, frame='grid')
+    assert [(row['source'], row['total']) for row in win._rose_outcomes] == [
+        ('bedding · measured RHR strikes', 2), ('cleavage · measured RHR strikes', 1)]
+    assert 'grid north' in win.plots[0].plotItem.titleLabel.text
+
+
+def test_chain_tangents_are_axial_only(qtbot):
+    f, r = source()
+    win = DirectionalFigure('net')
+    qtbot.addWidget(win)
+    win.set_result(r, f)
+    win.axial.setChecked(False)
+    win.representation.setCurrentText('chain tangent')
+    assert win.axial.isChecked() and not win.axial.isEnabled()
+    win.representation.setCurrentText('gradient')
+    assert win.axial.isEnabled()

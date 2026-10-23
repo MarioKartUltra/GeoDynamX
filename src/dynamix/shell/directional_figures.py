@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core import anisotropy as an
 from dynamix.core.figure_fits import range_fit
@@ -137,6 +137,7 @@ class DirectionalFigure(QtWidgets.QWidget):
         self._seed = True
         self._structural = []
         self._comparisons = []
+        self._rose_outcomes = []
         self.provenance_context = None
         self.setWindowTitle(TOOLS[kind])
         from dynamix.shell.window_fit import fit_to_screen
@@ -278,15 +279,17 @@ class DirectionalFigure(QtWidgets.QWidget):
             self.zoom.sigRegionChangeFinished.connect(self._sync_sensitivity_zoom)
         elif k == "net":
             self._plot("Map directions · dip/plunge unavailable", 0, 0).setAspectLocked(True)
+            self.net_display = self._choice("Display", ["Orientation net", "Rose diagram"])
             self.projection = self._choice("Projection", ["Schmidt", "Wulff"])
             self.hemisphere = self._choice("Hemisphere", ["lower", "upper"])
             self.representation = self._choice("Direction", ["gradient", "normal + 90°", "chain tangent"])
             self.axial = self._control("Axial", QtWidgets.QCheckBox())
             self.axial.setChecked(True)
+            self.representation.currentTextChanged.connect(self._tangent_is_axial)
             self.ring = self._control("Scale tracks", QtWidgets.QCheckBox())
             self.ring.setChecked(True)
             self.density = self._control("Angular density", QtWidgets.QCheckBox())
-            self.import_button = QtWidgets.QPushButton("Add lines / planes…")
+            self.import_button = QtWidgets.QPushButton("Add measured orientations…")
             self.controls.addWidget(self.import_button)
             self.import_button.clicked.connect(self._import_structural)
             self.brush_lo = self._control("Select azimuth min", _spin(0,360,0,5))
@@ -446,6 +449,7 @@ class DirectionalFigure(QtWidgets.QWidget):
             self.readout.setText(str(exc))
 
     def _draw(self):
+        self._rose_outcomes = []    # an export never carries a previous draw's histograms
         for p in self.plots:
             if p not in [f.plot for f in self.fitplots]:
                 p.clear()
@@ -658,6 +662,13 @@ class DirectionalFigure(QtWidgets.QWidget):
             self.plots[1].setLabel("left", "p<sub>a</sub>(z | axial sector)")
 
     def _draw_net(self, indices, frame, population):
+        rose = self.net_display.currentText() == "Rose diagram"
+        for control in (self.projection, self.hemisphere, self.ring, self.density):
+            control.setEnabled(not rose)
+        if rose:
+            self._draw_rose(indices, frame, population)
+            return
+        self.plots[0].setTitle(f"Map directions · dip/plunge unavailable · {self.frame_combo.currentText()}")
         from dynamix.core.orientation_net import project, plane_pole, plane_trace, graticule
         p = self.plots[0]
         t = np.linspace(0, 2*np.pi, 361)
@@ -675,9 +686,7 @@ class DirectionalFigure(QtWidgets.QWidget):
         track = 0
         layers = [(self.data, indices, frame), *self._comparisons]
         for data, picked, layer_frame in layers:
-            if layer_frame != frame:
-                continue
-            if frame != "pixel" and data.north is None:
+            if layer_frame != frame or not data.has_frame(frame):
                 continue
             for i in picked:
                 points = data.samples(population)[i]
@@ -724,7 +733,11 @@ class DirectionalFigure(QtWidgets.QWidget):
             if layer["frame"] != frame:
                 continue
             o = Orientation(layer["azimuth"], Frame(frame))
-            if layer["kind"]=="line":
+            if layer["kind"] == "azimuth":
+                angle = np.radians(layer["azimuth"])
+                self._series(p, np.atleast_1d(1.04*np.sin(angle)), np.atleast_1d(1.04*np.cos(angle)),
+                             0, layer["name"]+" · map azimuth (no inclination)")
+            elif layer["kind"]=="line":
                 x,y = project(o, layer["inclination"], projection=projection, hemisphere=hemisphere)
                 self._series(p, np.atleast_1d(x), np.atleast_1d(y), 0, layer["name"])
             else:
@@ -741,10 +754,100 @@ class DirectionalFigure(QtWidgets.QWidget):
         self.readout.setText(f"{population} · {self.representation.currentText()} · {'axial' if self.axial.isChecked() else 'directed'} · {frame}\n"
             + "Map directions: dip/plunge unavailable. Outer tracks identify scales, not inclination. " + "; ".join(counts))
 
-    def add_orientation(self, *, name, kind, azimuth, inclination, frame):
-        if kind not in ("line", "plane") or frame not in ("grid", "true", "magnetic"):
-            raise ValueError("line/plane with an explicit geographic reference required")
-        self._structural.append(dict(name=name, kind=kind, azimuth=float(azimuth), inclination=float(inclination), frame=frame))
+    def _draw_rose(self, indices, frame, population):
+        from dynamix.core.orientation_net import rose_histogram, rose_coordinates
+
+        plot = self.plots[0]
+        plot.setTitle(f"Rose diagram · azimuth only · {self.frame_combo.currentText()}")
+        outcomes = []
+        layers = [(self.data, indices, frame), *self._comparisons]
+        for data, picked, layer_frame in layers:
+            if layer_frame != frame or not data.has_frame(frame):
+                continue
+            for i in picked:
+                orientation = data.orientations(i, population, frame, self.representation.currentText())
+                row = rose_histogram(orientation, bins=self.bins.value(), axial=self.axial.isChecked())
+                row.update(source=getattr(data.field, "name", ""), scale_index=i,
+                           scale_px=float(data.scales[i]), representation=self.representation.currentText())
+                outcomes.append(row)
+        # One population per named measured layer and kind: bedding and cleavage never pool.
+        measured = {}
+        for v in self._structural:
+            if v["frame"] == frame:
+                measured.setdefault((v["kind"], v["name"]), []).append(v["azimuth"])
+        labels = {"azimuth": "measured azimuths", "line": "measured line trends", "plane": "measured RHR strikes"}
+        for (kind, name), angles in measured.items():
+            row = rose_histogram(Orientation(angles, Frame(frame)), bins=self.bins.value(), axial=self.axial.isChecked())
+            row.update(source=f"{name} · {labels[kind]}", scale_index=None, scale_px=None, representation=kind)
+            outcomes.append(row)
+        self._rose_outcomes = outcomes
+        largest = max((float(row["fraction"].max()) for row in self._rose_outcomes), default=0.)
+        outer = np.sqrt(largest) if largest > 0 else 1.
+        for probability in (.01, .025, .05, .1, .25, .5, 1.):
+            if probability > largest + 1e-12 and largest > 0:
+                continue
+            radius = np.sqrt(probability)
+            angle = np.linspace(0, 2*np.pi, 181)
+            plot.plot(radius*np.sin(angle), radius*np.cos(angle), pen=pg.mkPen(current().border))
+            label = pg.TextItem(f"{100*probability:g}%", color=current().ink_muted, anchor=(0, .5))
+            label.setPos(0, radius)
+            plot.addItem(label)
+        for ri, row in enumerate(self._rose_outcomes):
+            ink_index = row["scale_index"] if row["scale_index"] is not None else len(indices)+ri
+            color = pg.mkColor(self._ink(ink_index))
+            brush = pg.mkColor(color)
+            brush.setAlpha(35)
+            path = QtGui.QPainterPath()
+            offsets = (0., 180.) if row["axial"] else (0.,)
+            for edge0, edge1, fraction in zip(row["edges"][:-1], row["edges"][1:], row["fraction"]):
+                if fraction <= 0:
+                    continue
+                for offset in offsets:
+                    angle = np.linspace(edge0+offset, edge1+offset, 9)
+                    xx, yy = rose_coordinates(angle, np.sqrt(fraction), frame=Frame(frame))
+                    path.moveTo(0, 0)
+                    for x, y in zip(xx, yy):
+                        path.lineTo(float(x), float(y))
+                    path.closeSubpath()
+            item = QtWidgets.QGraphicsPathItem(path)
+            item.setPen(pg.mkPen(color, width=1.2))
+            item.setBrush(pg.mkBrush(brush))
+            plot.addItem(item)
+            suffix = f" · a={row['scale_px']:g}px" if row["scale_px"] is not None else ""
+            plot.plot([], [], pen=pg.mkPen(color, width=2), name=f"{row['source']}{suffix} · n={row['total']}")
+        labels = [("N",0,1),("E",1,0),("S",0,-1),("W",-1,0)] if frame != "pixel" else [("−row",0,1),("+col",1,0),("+row",0,-1),("−col",-1,0)]
+        for text, x, y in labels:
+            label = pg.TextItem(text, color=current().ink_muted, anchor=(.5,.5))
+            label.setPos(x*outer*1.15, y*outer*1.15)
+            plot.addItem(label)
+        plot.setXRange(-outer*1.3, outer*1.3, padding=0)
+        plot.setYRange(-outer*1.3, outer*1.3, padding=0)
+        plot.hideAxis("bottom")
+        plot.hideAxis("left")
+        total = sum(row["total"] for row in self._rose_outcomes)
+        self.readout.setText(f"{population} · {self.representation.currentText()} · {frame} · "
+                             f"{self.bins.value()} bins per {180 if self.axial.isChecked() else 360}° · "
+                             f"{total} finite per-scale/measured observations. Sector area ∝ count within each population; radius = √fraction. "
+                             + ("Axial sectors are mirrored for display; original counts are not doubled. " if self.axial.isChecked() else "Directed angles retain their full 360°. ")
+                             + "No dip/plunge inferred; radial percentages refer to each original sector.")
+
+    def _tangent_is_axial(self, text):
+        """A chain tangent's sign follows the order its chain is walked, so it is axial only."""
+        tangent = text == "chain tangent"
+        self.axial.setEnabled(not tangent)
+        if tangent and not self.axial.isChecked():
+            self.axial.setChecked(True)
+            self.refresh()
+
+    def add_orientation(self, *, name, kind, azimuth, inclination=None, frame):
+        if kind not in ("line", "plane", "azimuth") or frame not in ("grid", "true", "magnetic"):
+            raise ValueError("orientation with an explicit geographic reference required")
+        if not np.isfinite(azimuth):
+            raise ValueError("azimuth must be finite")
+        if kind != "azimuth" and (inclination is None or not np.isfinite(inclination) or not 0 <= inclination <= 90):
+            raise ValueError("line/plane needs plunge/dip between 0 and 90 degrees")
+        self._structural.append(dict(name=name, kind=kind, azimuth=float(azimuth),
+                                     inclination=None if kind == "azimuth" else float(inclination), frame=frame))
         if self.frame_combo.findData(frame)<0:
             self.frame_combo.addItem(frame+" north · measured layer only",frame)
         self.frame_combo.setCurrentIndex(self.frame_combo.findData(frame))
@@ -754,7 +857,7 @@ class DirectionalFigure(QtWidgets.QWidget):
         if self.data is None:
             return
         frame = self.frame_combo.currentData()
-        if frame!="pixel" and self.data.north is None:
+        if not self.data.has_frame(frame):
             return
         x,y,ids = [],[],[]
         period = 180 if self.axial.isChecked() else 360
@@ -782,11 +885,13 @@ class DirectionalFigure(QtWidgets.QWidget):
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Measured orientation")
         layout = QtWidgets.QFormLayout(dialog)
-        kind = QtWidgets.QComboBox(); kind.addItems(["line", "plane"])
+        kind = QtWidgets.QComboBox(); kind.addItems(["azimuth", "line", "plane"])
         frame = QtWidgets.QComboBox(); frame.addItems(["true", "grid", "magnetic"])
         azimuth, inclination = _spin(0,360,0,1), _spin(0,90,0,1)
+        inclination.setEnabled(False)
+        kind.currentTextChanged.connect(lambda text: inclination.setEnabled(text != "azimuth"))
         name = QtWidgets.QLineEdit("Measured orientation")
-        for label,w in [("Name",name),("Kind",kind),("Frame",frame),("Trend / RHR strike",azimuth),("Plunge / dip",inclination)]:
+        for label,w in [("Name",name),("Kind",kind),("Frame",frame),("Azimuth / trend / RHR strike",azimuth),("Plunge / dip",inclination)]:
             layout.addRow(label,w)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
         layout.addRow(buttons)
@@ -1056,6 +1161,8 @@ class DirectionalFigure(QtWidgets.QWidget):
             out = {k:v for k,v in self._computed.items() if k not in ("signed","spectra")}
             if "signed" in self._computed:
                 out["coefficient_counts"] = [int(np.isfinite(v).sum()) for v in self._computed["signed"]]
+        if self.kind == "net" and self.net_display.currentText() == "Rose diagram":
+            out["rose_histograms"] = self._rose_outcomes
         out["plotted_series"] = [[{"name":item.name(), "x":item.getData()[0], "y":item.getData()[1]}
                                   for item in p.listDataItems()] for p in self.plots]
         return out

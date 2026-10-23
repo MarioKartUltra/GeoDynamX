@@ -25,6 +25,15 @@ class FigureData:
             self._samples[population] = direction_samples(self.result, population)
         return self._samples[population]
 
+    def has_frame(self, frame):
+        """Whether these samples can be stated in ``frame``: the image axes, the field's own north,
+        or true north from grid north. No declination is known, so never magnetic."""
+        if frame == "pixel":
+            return True
+        if self.north is None:
+            return False
+        return frame == self.north[2].value or (frame == "true" and self.north[2] is Frame.GRID)
+
     def orientations(self, index, population="wtmmm", frame="pixel", representation="gradient"):
         points = self.samples(population)[index]
         arg = np.asarray(points["arg"])
@@ -39,8 +48,8 @@ class FigureData:
         o = from_arg(arg)
         if frame == "pixel":
             return o
-        if self.north is None:
-            raise ValueError("No geographic reference for these sample axes")
+        if not self.has_frame(frame):
+            raise ValueError(f"These sample axes have no {frame}-north reference")
         col_east, row_north, north = self.north
         az = to_azimuth(o, col_east=col_east, row_north=row_north, north=north)
         if frame == "true" and north is Frame.GRID:

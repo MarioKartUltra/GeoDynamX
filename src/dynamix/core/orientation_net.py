@@ -64,3 +64,27 @@ def graticule(*, projection="schmidt", hemisphere="lower", spacing=15):
         lat = np.radians(angle)
         curves.append(line(np.cos(lat)*np.cos(u), np.full(u.shape,np.sin(lat)), np.cos(lat)*np.sin(u)))
     return curves
+
+
+def rose_histogram(orientation: Orientation, *, bins=36, axial=False):
+    """Zero-centred angular sectors; axial antipodes share one original observation count."""
+    if int(bins) != bins or bins < 1:
+        raise ValueError('rose bin count must be a positive integer')
+    values = np.asarray(orientation.degrees, dtype=float).ravel()
+    values = values[np.isfinite(values)]
+    period = 180. if axial else 360.
+    width = period/int(bins)
+    edges = np.arange(int(bins)+1)*width-width/2
+    folded = (values+width/2)%period-width/2
+    counts, _ = np.histogram(folded, edges)
+    return {'edges': edges, 'counts': counts, 'fraction': counts/max(values.size, 1),
+            'total': int(values.size), 'period': period, 'frame': orientation.frame.value,
+            'axial': bool(axial)}
+
+
+def rose_coordinates(degrees, radius, *, frame: Frame):
+    """Plot coordinates: bearings clockwise from north; pixel +90 points toward +row/down."""
+    angle = np.radians(np.asarray(degrees, float))
+    if frame is Frame.PIXEL:
+        return radius*np.cos(angle), -radius*np.sin(angle)
+    return radius*np.sin(angle), radius*np.cos(angle)
