@@ -265,6 +265,23 @@ def test_measured_only_frames_leave_out_samples_without_that_north(qtbot):
     assert 'px:' not in win.readout.text()
 
 
+def test_pixel_net_and_rose_draw_plus_row_downward(qtbot):
+    f, r = source()
+    for e in r['extrema']:
+        e['arg'] = np.full(e['x'].shape, np.pi/2)
+    win = DirectionalFigure('net')
+    qtbot.addWidget(win)
+    win.set_result(r, f)
+    win.population.setCurrentIndex(1)
+    win.axial.setChecked(False)
+    win.refresh()
+    marks = [item for item in win.plots[0].listDataItems() if 'n=' in (item.name() or '')]
+    assert marks and all((item.getData()[1] < 0).all() for item in marks)
+    win.net_display.setCurrentText('Rose diagram')
+    sectors = [item for item in win.plots[0].getPlotItem().items if isinstance(item, QtWidgets.QGraphicsPathItem)]
+    assert sectors and all(item.path().boundingRect().bottom() <= 1e-9 for item in sectors)
+
+
 def test_rose_pools_by_name_names_its_north_and_forgets_earlier_draws(qtbot):
     f, r = source()
     win = DirectionalFigure('net')

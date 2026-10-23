@@ -698,7 +698,7 @@ class DirectionalFigure(QtWidgets.QWidget):
                 drawn = ids[::max(1, int(np.ceil(len(ids)/4000)))]
                 angle = np.radians(degrees[drawn])
                 if frame == "pixel":
-                    angle = np.pi/2-angle
+                    angle = np.pi/2+angle   # +90 toward +row, drawn down as labelled
                 if self.axial.isChecked():
                     angle = np.r_[angle, angle+np.pi]
                 radius = 1.04+.07*track if self.ring.isChecked() else 1.
@@ -724,7 +724,7 @@ class DirectionalFigure(QtWidgets.QWidget):
                     if period==180:
                         a, pdf = np.r_[a,a+np.pi], np.tile(pdf,2)
                     if frame=="pixel":
-                        a = np.pi/2-a
+                        a = np.pi/2+a
                     r = radius + .05*pdf/(pdf.max() if pdf.size and pdf.max()>0 else 1)
                     self._series(p, r*np.sin(a), r*np.cos(a), i, f"density / degree · a={data.scales[i]:g}", density=True)
                 counts.append(f"{data.scales[i]:g}px: {len(ids)}")
