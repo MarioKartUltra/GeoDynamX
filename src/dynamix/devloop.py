@@ -101,7 +101,7 @@ _MODULE_ORDER = (
     "right_panel", "layer_panel", "layers_panel", "arrangement_facade", "view_dialog", "topology_panel",
     "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window",
     "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window",
-    "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "curve_window", "surface_dialog", "levels_dialog", "components_window",
+    "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "surface_dialog", "levels_dialog", "components_window",
     "inpaint_window", "bus_dialog", "sends_dialog", "fork_dialog", "import_dialog", "main_window",
 )
 
@@ -125,6 +125,7 @@ _DEPENDS_ON = {
     "slope_plot": ("plot_zoom", "theme",),
     "directional_figures": ("plot_zoom", "figure_data", "slope_plot", "theme", "window_fit", "settings"),
     "anisotropy_window": ("plot_zoom", "window_fit", "theme", ),
+    "directional_scaling_window": ("multifractal_window", "plot_zoom", "theme", "settings", "window_fit"),
     "curve_window": ("plot_zoom", "window_fit", "theme", ),
     "layers_panel": ("gc_guard", ),
     "map_view": ("canvas", "units", "wavelet_bar", "theme", ),
@@ -219,7 +220,7 @@ _DEPENDS_ON = {
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("cache_inspector", "session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
+    "main_window": ("cache_inspector", "session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", ),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"

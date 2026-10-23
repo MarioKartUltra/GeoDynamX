@@ -161,13 +161,22 @@ def scaling_functions(log2_S, j_min: int, j_max: int, *, step: float = ALPHA_STE
     alphas = alpha_grid(step)
     eta = np.full((n_p, alphas.size), np.nan)
     n_levels = np.zeros(alphas.size, dtype=int)
+    fits = []
     finite = np.all(np.isfinite(log2_S), axis=0)
     for a, alpha1 in enumerate(alphas):
         js = fitted_levels(j_min, j_max, float(alpha1), J, finite)
         n_levels[a] = js.size
+        envelopes = np.full((n_p, 3, js.size), np.nan)
+        members = [families(int(j), float(alpha1), J) for j in js]
+        slopes_by_family = np.full((n_p, 3), np.nan)
+        intercepts = np.full((n_p, 3), np.nan)
+        fit = {"x": js.astype(float), "envelopes": envelopes, "members": members,
+               "slopes": slopes_by_family, "intercepts": intercepts, "admissible": js.size >= 3,
+               "xlabel": "Γ index j ≈ (j₁+j₂)/2"}
+        fits.append(fit)
         if js.size < 3:
             continue
-        fams = [families(int(j), float(alpha1), J) for j in js]
+        fams = members
         for i in range(n_p):
             slopes = []
             for f in range(3):
@@ -176,11 +185,16 @@ def scaling_functions(log2_S, j_min: int, j_max: int, *, step: float = ALPHA_STE
                     vals = [log2_S[i, j1 - 1, j2 - 1] for (j1, j2) in fams[k][f]]
                     vals = [v for v in vals if np.isfinite(v)]
                     env.append(max(vals) if vals else np.nan)
-                slopes.append(_slope(js, env))
+                slope = _slope(js, env)
+                slopes.append(slope)
+                envelopes[i, f] = env
+                slopes_by_family[i, f] = slope
+                intercepts[i, f] = np.mean(env) - slope * np.mean(js)
             slopes = [s for s in slopes if np.isfinite(s)]
             if slopes:
                 eta[i, a] = min(slopes)
-    return {"alpha": alphas, "eta_alpha": eta, "n_levels": n_levels}
+    return {"alpha": alphas, "eta_alpha": eta, "n_levels": n_levels,
+            "diagnostic_fits": fits}
 
 
 def resolution_families(j: int, alpha1: float) -> tuple:
@@ -198,10 +212,12 @@ def resolution_families(j: int, alpha1: float) -> tuple:
 
 
 def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
-    """Finite Γ-union envelope regression using the complete hyperbolic basis.
+    """Finite Γ-union envelope regression over the hyperbolic detail pairs.
 
     Resolution index r=J-level anchors the coarsest details at r=0; the
-    scaling branch is r=-1. No family is clipped to available fine levels.
+    scaling branch is r=-1. The moment tables span the complete basis, but a
+    fitted level needs every family index >= 0, so the scaling branch never
+    enters a fit. No family is clipped to available fine levels.
     The envelope is fitted against -r, the logarithm of relative scale.
     """
     J = coef["levels"]
@@ -227,10 +243,11 @@ def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
     alphas = alpha_grid(step)
     eta = np.full((p.size, alphas.size), np.nan)
     n_levels = np.zeros(alphas.size, int)
+    fits = []
     def key(pair):
         return tuple(0 if r == -1 else J-r for r in pair)
     for a, alpha in enumerate(alphas):
-        js, envelopes = [], []
+        js, envelopes, members = [], [], []
         for r in range(1, J-int(j_min)+1):
             if any(math.floor((r-1)*axis)-1 < 0 for axis in (alpha, 2-alpha)):
                 continue   # coarse scaling crossover is not an asymptotic fit level
@@ -242,16 +259,30 @@ def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
                 continue
             js.append(r)
             envelopes.append(values.max(axis=0))
+            members.append([[key(pair) for pair in sorted(pairs)]])
         n_levels[a] = len(js)
         resolved = all(len({math.floor(r*axis) for r in js}) >= 3 for axis in (alpha, 2-alpha))
         if not resolved:
             n_levels[a] = 0
+        xx = -np.asarray(js, dtype=float)
+        yy = np.asarray(envelopes).T.reshape(p.size, 1, len(js))
+        slopes = np.full((p.size, 1), np.nan)
+        intercepts = np.full((p.size, 1), np.nan)
         if len(js) >= 3 and resolved:
             for i in range(p.size):
                 eta[i, a] = _slope(-np.asarray(js), np.asarray(envelopes)[:, i])
+                slopes[i, 0] = eta[i, a]
+                intercepts[i, 0] = np.mean(yy[i, 0]) - eta[i, a] * np.mean(xx)
+        fits.append({"x": xx, "envelopes": yy, "members": members,
+                     "slopes": slopes, "intercepts": intercepts,
+                     "admissible": len(js) >= 3 and resolved, "xlabel": "−r (log₂ relative scale)"})
     return {"alpha": alphas, "eta_alpha": eta, "n_levels": n_levels,
             "estimator": "resolution-index Gamma union envelope regression",
-            "resolution_origin": J}
+            "resolution_origin": J, "diagnostic_fits": fits,
+            "moment_pairs": np.asarray(list(tables), dtype=int),
+            "log2_moments": np.stack(list(tables.values()), axis=1),
+            "moment_counts": np.asarray([int(coef["valid"][pair].sum()) for pair in tables]),
+            "moment_normalization": "mean over every valid cell; zeros retained in the count"}
 
 
 def directional_scaling(scaling: dict) -> dict:
@@ -327,6 +358,12 @@ def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float =
     log2_S = structure_functions({**coef, "mods": {k: v for k, v in coef["mods"].items() if min(k) > 0}}, p)
     scaling = (gamma_scaling(coef, p, j_min, step=step) if estimator == "gamma" else
                scaling_functions(log2_S, j_min, coef["levels"], step=step))
+    if estimator == "legacy":
+        pairs = [(j1, j2) for j1 in range(1, level+1) for j2 in range(1, level+1)]
+        scaling.update(moment_pairs=np.asarray(pairs),
+                       log2_moments=np.stack([log2_S[:, j1-1, j2-1] for j1, j2 in pairs], axis=1),
+                       moment_counts=np.asarray([int(coef["valid"][pair].sum()) for pair in pairs]),
+                       moment_normalization="legacy mean over positive coefficients only")
     out = {"p": p, "levels": coef["levels"], "j_min": int(j_min), "log2_S": log2_S,
            "valid_cells": np.array([[int(coef["valid"][(j1, j2)].sum()) for j2 in range(1, coef["levels"] + 1)]
                                     for j1 in range(1, coef["levels"] + 1)]),

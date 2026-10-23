@@ -158,7 +158,7 @@ EXTRACTED = {
 #: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
 #: deferred: the app's own module, a result's products built on their first read; pinned in
 #: tests/test_deferred_products.py.
-NEW_MODULES = ["figure_fits", "figure_samples", "orientation_net", "space_scale",
+NEW_MODULES = ["hyperbolic_preview", "figure_fits", "figure_samples", "orientation_net", "space_scale",
               "units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product", "chaining",
               "tensor_wtmm", "partition_tables",

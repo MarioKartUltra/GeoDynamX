@@ -1618,6 +1618,10 @@ class MainWindow(QtWidgets.QMainWindow):
         spectrum_lay = QtWidgets.QVBoxLayout(spectrum_box)
         spectrum_lay.setContentsMargins(0, 0, 0, 0)
         spectrum_lay.addWidget(self._spectrum_button)
+        self._directional_window = None
+        self._hyperbolic_button = QtWidgets.QPushButton("Hyperbolic basis…")
+        self._hyperbolic_button.clicked.connect(self._on_hyperbolic_basis_clicked)
+        spectrum_lay.addWidget(self._hyperbolic_button)
         spectrum_lay.addWidget(self._dh_button)
         # The wavelet leaders' own fitting tools, over the sample sets a result publishes
         # (the Samples contract): each fits in its own window and publishes its fit to the
@@ -3305,6 +3309,14 @@ both ``Canvas`` signals report the
         result = self._active_result
         enabled = bool(result) and result.get("hd_std") is not None \
             and result.get("hd_cmax") is not None
+        directional = bool(result) and result.get("_directional") is not None
+        self._hyperbolic_button.setVisible(self._directional_params() is not None or directional)
+        self._hyperbolic_button.setEnabled(self._directional_params() is not None or directional)
+        if directional:
+            self._spectrum_button.setEnabled(True)
+            self._spectrum_button.setText("Directional partition functions…")
+            self._spectrum_button.setToolTip("Hyperbolic moment tables, Γ-family scale fits, directional bounds and basis preview")
+            return
         self._spectrum_button.setEnabled(enabled)
         # The button names what the active result holds: partition functions over maxima lines,
         # or structure functions (the moment route, wavelet leaders).
@@ -3318,6 +3330,61 @@ both ``Canvas`` signals report the
             if enabled else
             "No partition tables in the active layer's result yet -- run a full wtmm2d compute "
             "(a finest-scale preview has none) before opening the spectrum window")
+
+    def _directional_params(self):
+        if self.layer is None:
+            return None
+        for i, name in enumerate(self._names):
+            if name == "directional_scaling" and not self._bypassed[i]:
+                return dict(self._params[i])
+        return None
+
+    def _on_hyperbolic_basis_clicked(self) -> None:
+        self._open_directional_scaling_window(basis=True)
+
+    def _open_directional_scaling_window(self, *, basis=False) -> None:
+        from dynamix.shell.directional_scaling_window import DirectionalScalingWindow
+
+        result = self._active_result or {}
+        if result.get("_directional") is None:
+            result = {}
+        params = self._directional_params()
+        if not result and params is None:
+            return
+        if not self._reopen_tool("_directional_window", result):
+            previous = self._directional_window
+            if previous is not None:
+                previous.close()
+                previous.deleteLater()
+            window = DirectionalScalingWindow(result, params=params,
+                                              source=self.layer.name if self.layer else "",
+                                              field=self.field, parent=self)
+            window._opened_on = self._tool_identity(result)
+            self._directional_window = window
+            owner = self.layer.layer_id if self.layer else None
+            window.bankRequested.connect(lambda bank, owner=owner: self._on_directional_bank_requested(owner, bank))
+            self._tools_owner = owner
+        window = self._directional_window
+        if basis:
+            window.tabs.setCurrentIndex(2)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    def _on_directional_bank_requested(self, owner, bank: str) -> None:
+        if self.layer is None or self.layer.layer_id != owner:
+            self._notify("select the preview’s source layer before changing its bank", "status")
+            return
+        if _lock_notice(self.layer) is not None:
+            self._notify(_lock_notice(self.layer), "status")
+            return
+        for i, name in enumerate(self._names):
+            if name == "directional_scaling" and not self._bypassed[i]:
+                if bank not in get_device(name).params[0].choices:
+                    return
+                self._set_step_param_silently(i, "wavelet", bank)
+                self._on_param_changed(i, "wavelet", bank)
+                return
 
     def _spectrum_tables(self, result) -> tuple:
         """``(hd_std, hd_cmax, all_tables, note)`` the spectrum windows fit: the transform's own
@@ -3378,6 +3445,9 @@ both ``Canvas`` signals report the
         seed is ``params["fracint_alpha"]`` whenever it is non-zero, regardless of mode. The
         window displays the note verbatim so an edited η stays an informed decision."""
         result = self._active_result
+        if result and result.get("_directional") is not None:
+            self._open_directional_scaling_window()
+            return
         hd_std, hd_cmax, all_tables, filter_note = (self._spectrum_tables(result)
                                                     if result else (None, None, None, ""))
         if hd_std is None or hd_cmax is None:
@@ -3468,7 +3538,7 @@ both ``Canvas`` signals report the
             "Groups": arrangement and has_chains,
             "Topology": has_chains or bool(self._topology_rows_shown),
             "Skeleton": has_chains,
-            "Spectrum": tables or res.get("h_map") is not None or has_ext,
+            "Spectrum": tables or res.get("h_map") is not None or has_ext or self._directional_params() is not None or res.get("_directional") is not None,
             "Figures": single or has_ext,
             "Decomposition": self._decomposition_of(res) is not None,
             "Inpainting": bool(res.get("_hists")),
@@ -3844,7 +3914,7 @@ both ``Canvas`` signals report the
             self._published_fits.pop(k)
         if getattr(self, "_tools_owner", None) == layer_id:
             for attr in ("_multifractal_window", "_spectrum_construction_window", "_structure_window",
-                         "_cumulants_window", "_ld_window", "_generalized_window"):
+                         "_cumulants_window", "_ld_window", "_generalized_window", "_directional_window"):
                 window = getattr(self, attr, None)
                 if window is not None:
                     window.close()
@@ -7978,6 +8048,12 @@ both ``Canvas`` signals report the
         pending = self.layer is not None and self.layer.layer_id in self._pending_layers
         self.run_button.setEnabled(pending)
         self._device_panel.set_pending(pending)
+        if hasattr(self, "_hyperbolic_button"):
+            directional = self._directional_params() is not None
+            self._hyperbolic_button.setVisible(directional)
+            self._hyperbolic_button.setEnabled(directional)
+            if directional:
+                self._refresh_panel_relevance()
         if pending:
             self._set_transform_states("pending")
 
