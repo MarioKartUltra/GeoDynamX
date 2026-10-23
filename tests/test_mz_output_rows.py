@@ -165,7 +165,7 @@ def test_an_mz_layer_gets_its_output_rows(win, qtbot):
     layer = _mz_layer(win, qtbot)
     group = win.layer_list._output_groups[layer.layer_id]
     assert [group.child(i).text(0) for i in range(group.childCount())] == [
-        "edges", "coarse", "thumbnail", "recon (edges + coarse)", "recon (edges only)",
+        "data", "edges", "coarse", "thumbnail", "recon (edges + coarse)", "recon (edges only)",
         "residual", "modulus", "argument"]
     assert all(not group.child(i).isDisabled() for i in range(group.childCount()))
 
@@ -797,7 +797,7 @@ def test_reopening_restores_the_rows_and_recomputes_the_shown_recon(win, qtbot, 
     back = next(l for l in win2.project.layers if l.layer_id == lid)
     assert back.tags["ui.edges_hidden"] == "1" and _step(back).params["show"] == "recon"
     assert _hidden(win2, back, "edges") and not _hidden(win2, back, "recon")
-    assert not win2.layer_list._output_groups[lid].isExpanded()
+    assert win2.layer_list._output_groups[lid].isExpanded()
     win2.layer_list.select_layer(lid)
     qtbot.waitUntil(lambda: not win2.is_computing and win2._out_request is None
                     and NOTE.search(_row(win2, back, "recon").text(0)) is not None,

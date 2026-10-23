@@ -749,6 +749,14 @@ def _edges_hidden(layer, layer_input: str | None = None) -> bool:
             and any(o.kind == "vector" for o in layer_outputs(layer, layer_input)[1]))
 
 
+def _data_hidden(layer, layer_input: str | None = None) -> bool:
+    """Whether the dataset is off the canvas under ``layer``'s results: its ``ui.data_hidden``
+    tag (the data output row's H), honoured, as :func:`_edges_hidden` is, only while the rows
+    carry that data row, so a tag left behind by a swapped analyzer hides nothing."""
+    return (layer.tags.get("ui.data_hidden") == "1"
+            and any(o.kind == "vector" for o in layer_outputs(layer, layer_input)[1]))
+
+
 def _output_note(value) -> str:
     """A lazy output row's reading: a reconstruction's iterations, residual status and SNR; a
     band reconstruction's PSNR and the share of pixels in its band (a band mask's share alone);
@@ -5735,6 +5743,14 @@ both ``Canvas`` signals report the
         layer = self._layer_by_id.get(layer_id)
         if layer is None:
             return
+        if name == "data":
+            # The data row's H: a drawing choice of this layer alone, like the edges row's.
+            if hidden:
+                layer.tags["ui.data_hidden"] = "1"
+            else:
+                layer.tags.pop("ui.data_hidden", None)
+            self._sync_output_rows(layer)
+            return
         step, outputs = layer_outputs(layer, self._layer_input(layer))
         output = next((o for o in outputs if o.name == name), None)
         if output is not None and output.kind == "vector":
@@ -5869,7 +5885,8 @@ both ``Canvas`` signals report the
         step's ``show`` puts on the canvas, and the ``ui.edges_hidden`` tag. The group is
         rebuilt first when the chain's declared outputs changed (a chain edit). Lazy output
         rows also carry their reading and their greying (:meth:`_output_row_state`). The active
-        layer's Reconstruction section follows (:meth:`_sync_recon_section`)."""
+        layer's Reconstruction section follows (:meth:`_sync_recon_section`), and its canvas
+        image, which the data row (:func:`_data_hidden`) gates only while the rows carry it."""
         if layer is None:
             return
         layer_input = self._layer_input(layer)
@@ -5879,10 +5896,12 @@ both ``Canvas`` signals report the
             notes, disabled = self._output_row_state(layer, step, outputs)
             self.layer_list.set_output_state(layer.layer_id, shown_output(step, outputs),
                                              layer.tags.get("ui.edges_hidden") == "1",
-                                             notes=notes, disabled=disabled)
+                                             notes=notes, disabled=disabled,
+                                             data_hidden=layer.tags.get("ui.data_hidden") == "1")
         self._sync_marked_pins(layer)
         if layer is self.layer:
             self._sync_recon_section()
+            self._apply_raster_visibility()
 
     # -- the Reconstruction section ------------------------------------------------------------
     def _recon_step(self) -> "tuple | None":
@@ -7048,14 +7067,19 @@ both ``Canvas`` signals report the
 
         A product on the canvas's product layer (``Canvas.set_product``) leaves the dataset on
         ``image_item`` beneath it, and the dataset follows its own H; only a produced field drawn
-        on ``image_item`` itself (:meth:`_land_field_result`) keeps it up under the dataset's H."""
+        on ``image_item`` itself (:meth:`_land_field_result`) keeps it up under the dataset's H.
+
+        The active layer's data row (:func:`_data_hidden`) hides the dataset, a child's crop
+        included, under that layer alone; a result's own raster stays."""
         if showing_product is None:
             showing_product = self._holder_raster_ref is not None
         source = self.project.sources.get(self.layer.source_id) if self.layer is not None else None
         exempt = self.layer is not None and bool(self.layer.tags.get("roi.window"))
         on_image_item = showing_product and self.canvas._product is None
-        self.canvas.image_item.setVisible(on_image_item or exempt or
-                                          not (source is not None and source.hidden))
+        data_shown = ((exempt or not (source is not None and source.hidden))
+                      and not (self.layer is not None
+                               and _data_hidden(self.layer, self._layer_input(self.layer))))
+        self.canvas.image_item.setVisible(on_image_item or data_shown)
 
     def _on_inspector_toggled(self, source_id: str, checked: bool) -> None:
         """The layer list's per-source "I" button (a ``source_id``, not a ``layer_id``).

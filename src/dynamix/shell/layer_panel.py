@@ -104,6 +104,17 @@ def shown_output(step, outputs) -> str | None:
     return show if any(o.name == show and o.kind == "raster" for o in outputs) else None
 
 
+def panel_rows(outputs) -> tuple:
+    """The rows an Outputs group lists: the step's declared ``outputs``, led by a "data" row
+    (kind ``"data"``: the dataset drawn under this layer, hidden for this layer alone by the
+    ``ui.data_hidden`` tag) when they include the vector edges row."""
+    from dynamix.model.device import Output
+
+    if any(o.kind == "vector" for o in outputs):
+        return (Output("data", "data", label="data"), *outputs)
+    return tuple(outputs)
+
+
 def row_level(layer) -> int:
     """The level a per-level output row of ``layer`` shows: the Transport's (``ui.scale_idx``),
     or the finest (0) before the Transport has set one."""
@@ -199,7 +210,7 @@ class _RoiRow(QtWidgets.QWidget):
 class _OutputRow(QtWidgets.QWidget):
     """An output row's trailing widget: its H only. On a raster output H checked means "not the
     one on the canvas" (the rows are a radio); on the vector "edges" output it hides the maxima
-    drawing."""
+    drawing; on the "data" row it hides the dataset under this layer's results."""
 
     hideToggled = QtCore.Signal(bool)
 
@@ -210,6 +221,9 @@ class _OutputRow(QtWidgets.QWidget):
         row.addStretch(1)
         tip = ("Hide the edges drawing (filters and tables still read them)"
                if output.kind == "vector" else
+               "Hide the data under this layer's results, for this layer only "
+               "(the dataset's own H hides it everywhere)"
+               if output.kind == "data" else
                "Hide this output; clear H to show it in place of the data "
                "(one raster output at a time)")
         self.hide_button = _LayerRow._make_button("H", tip, hidden)
@@ -572,22 +586,26 @@ class LayerPanel(QtWidgets.QTreeWidget):
     # -- output rows (what a result produces, each shown or hidden on its own) -------------------
     def sync_output_rows(self, layer, layer_input: str | None = None) -> None:
         """Keep ``layer``'s "Outputs" group matching what its chain's last transform declares
-        (:func:`layer_outputs`; given ``layer_input``, the last one that applies): built
-        collapsed the first time, rebuilt when the declared set
+        (:func:`layer_outputs`; given ``layer_input``, the last one that applies) and
+        :func:`panel_rows`: built open for an edge tool (its data, edges and rasters are the
+        choice of what the canvas shows), collapsed otherwise, rebuilt when the declared set
         changes, removed when there is none. A new row reads its state from the layer once, at
         construction (the :class:`_LayerRow` rule): a raster row is hidden unless the step's
-        ``show`` names it, the vector row is hidden while the ``ui.edges_hidden`` tag is set.
-        Idempotent; the window calls it after every chain edit."""
+        ``show`` names it, the vector row is hidden while the ``ui.edges_hidden`` tag is set,
+        the data row while ``ui.data_hidden`` is. Idempotent; the window calls it after every
+        chain edit."""
         lid = layer.layer_id
         item = self._layer_items.get(lid)
         step, outputs = layer_outputs(layer, layer_input) if item is not None else (None, ())
-        if [o.name for o in outputs] == list(self._output_items.get(lid, {})):
+        listed = panel_rows(outputs)
+        if [o.name for o in listed] == list(self._output_items.get(lid, {})):
             return
         self._forget_output_rows(lid)
         if not outputs:
             return
         shown = shown_output(step, outputs)
         edges_hidden = layer.tags.get("ui.edges_hidden") == "1"
+        data_hidden = layer.tags.get("ui.data_hidden") == "1"
         rows: dict[str, _OutputRow] = {}
         items: dict[str, tuple] = {}
         self.blockSignals(True)          # detached build: the add_layer_row itemChanged trap
@@ -596,16 +614,16 @@ class LayerPanel(QtWidgets.QTreeWidget):
             group.setData(0, _OUTPUT_LAYER_ROLE, lid)
             group.setToolTip(0, "what this result produces — clear H on a raster row to show it "
                                 "in place of the data (one at a time); H on edges hides the "
-                                "edges drawing")
+                                "edges drawing; H on data hides the data under this layer")
             item.insertChild(0, group)
-            group.setExpanded(False)
-            for out in outputs:
+            for out in listed:
                 label = out.label or out.name
                 child = QtWidgets.QTreeWidgetItem([label])
                 child.setData(0, _OUTPUT_KEY_ROLE, out.name)
                 child.setData(0, _OUTPUT_LAYER_ROLE, lid)
                 group.addChild(child)
-                hidden = edges_hidden if out.kind == "vector" else out.name != shown
+                hidden = (edges_hidden if out.kind == "vector" else
+                          data_hidden if out.kind == "data" else out.name != shown)
                 row = _OutputRow(out, hidden)
                 row.hideToggled.connect(
                     lambda checked, lid=lid, name=out.name:
@@ -613,6 +631,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
                 self.setItemWidget(child, 1, row)
                 rows[out.name] = row
                 items[out.name] = (child, label, out.kind)
+            group.setExpanded(len(listed) > len(outputs))
         finally:
             self.blockSignals(False)
         self._output_groups[lid] = group
@@ -621,10 +640,11 @@ class LayerPanel(QtWidgets.QTreeWidget):
 
     def set_output_state(self, layer_id: int, shown: str | None, edges_hidden: bool,
                          notes: dict[str, str] | None = None,
-                         disabled: dict[str, str] | None = None) -> None:
+                         disabled: dict[str, str] | None = None,
+                         data_hidden: bool = False) -> None:
         """Push the model's output state into ``layer_id``'s rows without emitting: ``shown``
         is the raster output on the canvas (``None``: the raw field), ``edges_hidden`` the
-        vector row's H. ``notes[name]`` is text shown after that row's name; ``disabled[name]``
+        vector row's H, ``data_hidden`` the data row's. ``notes[name]`` is text shown after that row's name; ``disabled[name]``
         greys that row out with the reason as its tooltip. A layer without rows is a no-op.
         Each button's own signals are blocked for its ``setChecked`` (never the tree's)."""
         rows = self._output_rows.get(layer_id)
@@ -633,7 +653,8 @@ class LayerPanel(QtWidgets.QTreeWidget):
         notes, disabled = notes or {}, disabled or {}
         for name, row in rows.items():
             child, label, kind = self._output_items[layer_id][name]
-            hidden = bool(edges_hidden) if kind == "vector" else name != shown
+            hidden = (bool(edges_hidden) if kind == "vector" else
+                      bool(data_hidden) if kind == "data" else name != shown)
             row.hide_button.blockSignals(True)
             try:
                 row.hide_button.setChecked(hidden)

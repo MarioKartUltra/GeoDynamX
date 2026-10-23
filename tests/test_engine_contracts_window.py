@@ -168,6 +168,6 @@ def test_the_active_layers_rows_and_recon_section_follow_the_engines_analysis(qt
     assert win._output_step_index() == 0
     assert win._recon_step()[0] == 0
     win._sync_output_rows(layer)
-    assert list(win.layer_list._output_items[layer.layer_id]) == rows
+    assert list(win.layer_list._output_items[layer.layer_id]) == ["data", *rows]
     layer.tags["ui.edges_hidden"] = "1"
     assert _edges_hidden(layer, win._layer_input()) and not _edges_hidden(layer)

@@ -65,7 +65,7 @@ def _show(layer):
                                                                             "pm_edges"))
 
 
-def test_a_cdf_layer_gets_a_collapsed_outputs_group_and_a_bare_dataset_none(win, qtbot):
+def test_a_cdf_layer_gets_an_open_outputs_group_and_a_bare_dataset_none(win, qtbot):
     from dynamix.shell.layer_panel import _LAYER_ID_ROLE
 
     master = win.layer
@@ -74,13 +74,14 @@ def test_a_cdf_layer_gets_a_collapsed_outputs_group_and_a_bare_dataset_none(win,
     item = panel._layer_items[child.layer_id]
     group = item.child(0)
     assert group is panel._output_groups[child.layer_id]
-    assert group.text(0) == "Outputs" and not group.isExpanded()
-    assert _row_names(panel, child.layer_id) == ["edges", "u (filtered)", "v (edge detector)",
+    assert group.text(0) == "Outputs" and group.isExpanded()
+    assert _row_names(panel, child.layer_id) == ["data", "edges", "u (filtered)", "v (edge detector)",
                                                  "u at σ", "v at σ"]
     for i in range(group.childCount()):
         assert group.child(i).data(0, _LAYER_ID_ROLE) is None     # never a layer row
     assert group.data(0, _LAYER_ID_ROLE) is None
-    # Show = edges: no raster output shown, edges drawn
+    # Show = edges: no raster output shown, edges drawn over the data
+    assert not _hidden(panel, child.layer_id, "data")
     assert not _hidden(panel, child.layer_id, "edges")
     assert _hidden(panel, child.layer_id, "filtered")
     assert _hidden(panel, child.layer_id, "edge_channel")
@@ -248,22 +249,23 @@ def test_edges_hidden_survives_a_project_round_trip_and_seeds_rebuilt_rows(win, 
     with qtbot.waitSignal(win.resolved, timeout=5000):
         win.layer_list.outputHideToggled.emit(lid, "filtered", False)
     win.layer_list.outputHideToggled.emit(lid, "edges", True)
+    win.layer_list.outputHideToggled.emit(lid, "data", True)
     back = Project.from_payload(win.project.to_payload())
     layer = next(l for l in back.layers if l.layer_id == lid)
-    assert layer.tags["ui.edges_hidden"] == "1"
+    assert layer.tags["ui.edges_hidden"] == "1" and layer.tags["ui.data_hidden"] == "1"
     assert _show(layer) == "filtered"
     panel = LayerPanel(back)
     qtbot.addWidget(panel)
     for l in back.layers:
         panel.add_layer_row(l, None)
     assert _hidden(panel, lid, "edges") and not _hidden(panel, lid, "filtered")
-    assert _hidden(panel, lid, "edge_channel")
-    assert not panel._output_groups[lid].isExpanded()
+    assert _hidden(panel, lid, "edge_channel") and _hidden(panel, lid, "data")
+    assert panel._output_groups[lid].isExpanded()
 
 
 def test_pm_edges_gets_edges_and_filtered_rows(win, qtbot):
     child = _tool_layer(win, qtbot, "pm_edges", n_levels=2)
-    assert _row_names(win.layer_list, child.layer_id) == ["edges", "filtered",
+    assert _row_names(win.layer_list, child.layer_id) == ["data", "edges", "filtered",
                                                           "filtered at σ"]
 
 
@@ -333,7 +335,7 @@ def test_the_outputs_group_follows_chain_edits(win, qtbot):
     desc[0]["bypassed"] = False
     win._on_chain_edited(desc)
     qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
-    assert _row_names(panel, lid) == ["edges", "u (filtered)", "v (edge detector)", "u at σ",
+    assert _row_names(panel, lid) == ["data", "edges", "u (filtered)", "v (edge detector)", "u at σ",
                                       "v at σ"]
     assert not _hidden(panel, lid, "filtered")                   # rebuilt from the chain
 
@@ -367,3 +369,47 @@ def test_the_devices_declare_their_outputs():
         show = next(p for p in dev.params if p.name == "show")
         assert ({o.name for o in declared_outputs(dev) if o.kind == "raster" and o.row}
                 <= set(show.choices))
+
+
+def test_the_data_row_hides_the_dataset_under_this_layer_only(win, qtbot):
+    """The data row's H is the layer's own: edges only over nothing, while the dataset itself,
+    its other layers and a shown raster output stay as they are."""
+    master = win.layer
+    child = _tool_layer(win, qtbot, "cdf_edges", n_levels=2)
+    lid = child.layer_id
+    panel = win.layer_list
+    panel._output_rows[lid]["data"].hide_button.click()
+    assert child.tags["ui.data_hidden"] == "1" and _hidden(panel, lid, "data")
+    assert not win.project.sources[child.source_id].hidden
+    assert win.canvas.image_item.isVisible() is False
+    assert win.canvas.extrema_raster_item.isVisible() is True
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        panel.outputHideToggled.emit(lid, "filtered", False)
+    np.testing.assert_array_equal(_shown(win.canvas).values, win._active_result["filtered"])
+    assert win.canvas.image_item.isVisible() is True
+    with qtbot.waitSignal(win.resolved, timeout=5000):
+        panel.outputHideToggled.emit(lid, "filtered", True)
+    assert win.canvas.image_item.isVisible() is False
+    with qtbot.waitSignal(win.resolved, timeout=30000):
+        panel.select_layer(master.layer_id)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
+    assert win.canvas.image_item.isVisible() is True
+    with qtbot.waitSignal(win.resolved, timeout=30000):
+        panel.select_layer(lid)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
+    assert win.canvas.image_item.isVisible() is False
+    panel._output_rows[lid]["data"].hide_button.click()
+    assert "ui.data_hidden" not in child.tags and win.canvas.image_item.isVisible() is True
+
+
+def test_a_data_hidden_tag_hides_nothing_once_no_data_row_exists(win, qtbot):
+    child = _tool_layer(win, qtbot, "cdf_edges", n_levels=2)
+    lid = child.layer_id
+    win.layer_list._output_rows[lid]["data"].hide_button.click()
+    assert win.canvas.image_item.isVisible() is False
+    i = win._names.index("cdf_edges")
+    desc = [{"device": "cdf_edges", "params": dict(win._params[i]), "bypassed": True}]
+    win._on_chain_edited(desc)
+    qtbot.waitUntil(lambda: not win.is_computing, timeout=30000)
+    assert lid not in win.layer_list._output_groups and child.tags["ui.data_hidden"] == "1"
+    assert win.canvas.image_item.isVisible() is True
