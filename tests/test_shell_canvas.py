@@ -1695,3 +1695,14 @@ def test_switching_themes_leaves_the_data_colours_alone(qtbot):
     finally:
         apply_theme(app, RESTRAINED_DARK)
     assert (HCHAIN_COLOR, EXTREMA_COLOR, POINTS_COLOR) == before
+
+
+def test_bands_shade_within_slice_classes(qtbot):
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(np.linspace(0.0, 1.0, 400).reshape(20, 20))
+    canvas.set_levels("0.5", "#ff0000,#0000ff")
+    canvas.set_bands("alternate", 0.25)
+    rgba = np.asarray(canvas.image_item.image, dtype=float)
+    reds = {tuple(c) for c in rgba.reshape(-1, rgba.shape[-1])[:, :3] if c[2] == 0}
+    assert len(reds) == 2                                  # the red class in two shades

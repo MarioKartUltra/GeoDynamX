@@ -197,3 +197,61 @@ def test_class_drag_stops_at_neighbor_and_recovers_without_release(qtbot, direct
     assert dialog.bounds()[1:3] == pytest.approx([direction*.1, .3+direction*.1])
     region.mouseDragEvent(Drag(direction*.1, finish=True))
     assert not region.moving
+
+
+def _four(qtbot):
+    d = LevelsDialog(np.random.default_rng(0).normal(size=4000), levels_text="-1, 0, 1",
+                     colors_text="#ff0000,#00ff00,#0000ff,#ffffff")
+    qtbot.addWidget(d)
+    return d
+
+
+def test_a_bound_inserted_inside_a_class_splits_it_with_a_colour_between_its_neighbours(qtbot):
+    d = _four(qtbot)
+    d.insert_bound(0.5)
+    assert d.bounds() == [-1.0, 0.0, 0.5, 1.0]
+    assert [c[:3] for c in d._colors] == [(255, 0, 0), (0, 255, 0), (0, 0, 255), (128, 128, 255),
+                                          (255, 255, 255)]
+    d.insert_bound(0.0)                                   # on a bound: nothing new
+    assert len(d.bounds()) == 4
+
+
+def test_removing_a_chosen_bound_merges_its_classes_into_the_left_colour(qtbot):
+    d = _four(qtbot)
+    d.remove_bound_at(0.0)
+    assert d.bounds() == [-1.0, 1.0]
+    assert [c[:3] for c in d._colors] == [(255, 0, 0), (0, 255, 0), (255, 255, 255)]
+
+
+def test_a_double_click_on_the_histogram_inserts_a_bound_there(qtbot):
+    d = _four(qtbot)
+
+    class _Click:
+        def __init__(self, scene_pos):
+            self._pos = scene_pos
+
+        def double(self):
+            return True
+
+        def button(self):
+            return pg.QtCore.Qt.MouseButton.LeftButton
+
+        def scenePos(self):
+            return self._pos
+
+        def accept(self):
+            pass
+
+    d.show()
+    qtbot.wait(50)                                        # laid out: the view has its rect
+    vb = d._plot.getViewBox()
+    d._on_scene_clicked(_Click(vb.mapViewToScene(pg.QtCore.QPointF(0.5, 10.0))))
+    assert any(abs(b - 0.5) < 0.05 for b in d.bounds()) and len(d.bounds()) == 4
+
+
+def test_bands_seed_an_empty_slice_at_their_edges_and_colours(qtbot):
+    values = np.linspace(0.0, 2.0, 2001)
+    d = LevelsDialog(values, colormap_name="binary_r", bands=("alternate", 0.5, 0.0, 6))
+    qtbot.addWidget(d)
+    assert d.bounds() == [0.5, 1.0, 1.5]
+    assert [c[:3] for c in d._colors] == [(0, 0, 0), (255, 255, 255), (0, 0, 0), (255, 255, 255)]

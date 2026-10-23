@@ -24,6 +24,8 @@ class colors are user data. Lifecycle: one per open, ``Qt.Window``, non-modal, l
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
@@ -108,11 +110,15 @@ class LevelsDialog(_HistogramDialog):
     levelsPreviewRequested = QtCore.Signal(str, str, int)
 
     def __init__(self, values, *, levels_text: str = "", colors_text: str = "",
-                 colormap_name: str = "viridis", min_island: int = 0, parent=None):
+                 colormap_name: str = "viridis", min_island: int = 0, bands=None, parent=None):
         super().__init__(values, "Color slice — class bounds on the displayed histogram",
                          parent)
         self._seed_min_island = int(min_island)
         self._colormap_name = colormap_name
+        #: ``(mode, period, phase, k)`` of the layer's Bands: an empty slice starts from them.
+        self._bands = bands
+        #: Whether the classes were seeded from those Bands (the window turns Bands off on Apply).
+        self.seeded_from_bands = False
         self._lines: list = []
         self._regions: list = []
         self._colors: list = []                       # (r, g, b, a) per class
@@ -176,6 +182,7 @@ class LevelsDialog(_HistogramDialog):
         self._seed(levels_text, colors_text)
         self._redraw_histogram()
         self._rebuild_classes()
+        self._plot.scene().sigMouseClicked.connect(self._on_scene_clicked)
 
     # -- seed / bounds ------------------------------------------------------------------------
     def _seed(self, levels_text: str, colors_text: str) -> None:
@@ -189,6 +196,11 @@ class LevelsDialog(_HistogramDialog):
                 breaks = list(resolve_breaks(self._finite, spec))
         except (ValueError, TypeError):
             pass
+        if not breaks and not colors_text and self._bands is not None:
+            seeded = self._band_seed()
+            if seeded is not None:
+                breaks, colors_text = seeded
+                self.seeded_from_bands = True
         if not breaks:
             breaks = list(resolve_breaks(self._finite, _DEFAULT_CLASSES))
         try:
@@ -204,6 +216,8 @@ class LevelsDialog(_HistogramDialog):
                                hoverPen=pg.mkPen(current().amber, width=2.5))
         line.sigPositionChanged.connect(lambda _l: (self._update_regions(),
                                                      self._queue_live()))
+        line.sigClicked.connect(lambda ln, ev: self.remove_bound_at(float(ln.value()))
+                                if ev.button() == QtCore.Qt.MouseButton.RightButton else None)
         self._plot.addItem(line)
         self._lines.append(line)
         return line
@@ -211,16 +225,38 @@ class LevelsDialog(_HistogramDialog):
     def bounds(self) -> list:
         return sorted(float(line.value()) for line in self._lines)
 
+    def _band_seed(self) -> "tuple | None":
+        """Bounds at the Bands' edges (phase + kΔ) inside the histogram and their colours, as the
+        Bands paint them: alternate and wave by the band's parity, cycle by its index mod K.
+        None when they would make no bound or more than 128."""
+        from dynamix.core.stretch import auto_band_period
+
+        mode, period, phase, k = self._bands
+        period = float(period) if float(period) > 0 else auto_band_period(self._finite)
+        first = math.floor((self._lo - phase) / period) + 1
+        last = math.ceil((self._hi - phase) / period) - 1
+        if last < first or last - first + 1 > 128:
+            return None
+        breaks = [phase + n * period for n in range(first, last + 1)]
+        k = max(int(k), 2)
+        colors = [self._sample((n % k) / (k - 1) if mode == "cycle" else n % 2)
+                  for n in range(first - 1, last + 1)]
+        return breaks, ",".join("#{:02x}{:02x}{:02x}".format(*c[:3]) for c in colors)
+
     # -- classes ------------------------------------------------------------------------------
-    def _default_color(self, i: int, n: int) -> tuple:
-        """Colormap sample at the class midpoint -- the seed a user then edits. RGBA."""
+    def _sample(self, t: float) -> tuple:
+        """The colormap at ``t`` in [0, 1], RGBA."""
         try:
             import matplotlib
-            rgba = matplotlib.colormaps[self._colormap_name]((i + 0.5) / max(n, 1))
+            rgba = matplotlib.colormaps[self._colormap_name](float(t))
             return tuple(int(round(c * 255)) for c in rgba[:3]) + (255,)
         except Exception:                                        # noqa: BLE001
-            g = int(round(255 * (i + 0.5) / max(n, 1)))
+            g = int(round(255 * float(t)))
             return (g, g, g, 255)
+
+    def _default_color(self, i: int, n: int) -> tuple:
+        """Colormap sample at the class midpoint -- the seed a user then edits. RGBA."""
+        return self._sample((i + 0.5) / max(n, 1))
 
     def _rebuild_classes(self) -> None:
         """One tinted span + one color button per class; transparent classes tint nothing and
@@ -312,6 +348,43 @@ class LevelsDialog(_HistogramDialog):
         self._queue_live()
 
     # -- gestures -----------------------------------------------------------------------------
+    def insert_bound(self, x: float) -> None:
+        """Split the class under ``x`` there: its left part keeps its colour, the new right part
+        takes the colour halfway to the next class. Nothing on an existing bound."""
+        bounds = self.bounds()
+        tol = (self._hi - self._lo) * 1e-6
+        if not self._lo <= x <= self._hi or any(abs(x - b) <= tol for b in bounds):
+            return
+        i = int(np.searchsorted(bounds, x))
+        left = self._colors[i]
+        right = self._colors[i + 1] if i + 1 < len(self._colors) else left
+        blend = tuple(int(round((a + b) / 2)) for a, b in zip(left[:3], right[:3]))
+        self._colors.insert(i + 1, blend + (max(left[3], right[3]),))
+        self._add_line(float(x))
+        self._rebuild_classes()
+        self._queue_live()
+
+    def remove_bound_at(self, x: float) -> None:
+        """Drop the bound nearest ``x``: the classes either side merge into the left one's colour."""
+        if len(self._lines) <= 1:
+            return
+        order = sorted(range(len(self._lines)), key=lambda k: float(self._lines[k].value()))
+        j = min(range(len(order)), key=lambda r: abs(float(self._lines[order[r]].value()) - x))
+        self._plot.removeItem(self._lines.pop(order[j]))
+        del self._colors[j + 1]
+        self._rebuild_classes()
+        self._queue_live()
+
+    def _on_scene_clicked(self, ev) -> None:
+        """A double-click inside the histogram splits the class there (:meth:`insert_bound`)."""
+        if not ev.double() or ev.button() != QtCore.Qt.MouseButton.LeftButton:
+            return
+        vb = self._plot.getViewBox()
+        if not vb.sceneBoundingRect().contains(ev.scenePos()):
+            return
+        ev.accept()
+        self.insert_bound(float(vb.mapSceneToView(ev.scenePos()).x()))
+
     def _on_add_bound(self) -> None:
         bounds = self.bounds()
         gaps = [self._lo] + bounds + [self._hi]

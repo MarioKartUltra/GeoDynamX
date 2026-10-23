@@ -401,3 +401,21 @@ def test_surface_and_depth_positive_are_per_layer_display_tags(loaded):
     assert loaded.layer.tags["ui.surface_source"] == "some-layer-id"
     loaded._sync_display_controls(loaded.layer)
     assert loaded.right_panel.surface_button.text() == "3-D surface: other dataset…"
+
+
+def test_slice_opens_seeded_from_the_bands_and_takes_over_on_apply(window, qtbot):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.shell.levels_dialog import LevelsDialog
+
+    values = np.linspace(0.0, 2.0, 400).reshape(20, 20)
+    with qtbot.waitSignal(window.resolved, timeout=10000):
+        window.load_field(RasterField(name="r", values=values, frame=LocalFrame(),
+                                      x_axis=np.arange(20.0), y_axis=np.arange(20.0)), "mem:r")
+    window._on_display_style_changed("bands", "alternate")
+    window._on_display_style_changed("bands_period", 0.5)
+    window._on_levels_dialog_requested()
+    dialog = window.findChildren(LevelsDialog)[-1]
+    assert dialog.seeded_from_bands and dialog.bounds() == [0.5, 1.0, 1.5]
+    dialog._emit()
+    assert window.layer.tags["ui.levels"] and window.layer.tags["ui.bands"] == "off"

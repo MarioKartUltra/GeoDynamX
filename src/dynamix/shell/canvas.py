@@ -1503,24 +1503,30 @@ a bounded gather of at most :attr:`draw_cap` chains per
             self._refresh_image()
 
     def _class_rgba(self, small, sliced: bool = True):
-        """(ny, nx, 4) float RGBA in [0, 1] from explicit per-class slice colors, or ``None``
-        when levels/colors are absent, mismatched, or malformed (LUT path then applies), or
-        when ``sliced`` is False."""
-        if not (sliced and self._levels and self._levels_colors) or small.ndim != 2:
+        """(ny, nx, 4) float RGBA in [0, 1] of the slice's classes: their explicit colors, or the
+        colormap's when Bands shade them (each class at 55–100 % by its band, the slice and the
+        Bands together). ``None`` when no slice is set, its colors are absent with Bands off,
+        mismatched or malformed (LUT path then applies), or when ``sliced`` is False."""
+        banded = self._bands[0] != "off"
+        if not (sliced and self._levels and (self._levels_colors or banded)) or small.ndim != 2:
             return None
         from dynamix.core.stretch import (parse_class_colors, parse_levels, resolve_breaks,
                                           slice_indices)
         try:
             spec = parse_levels(self._levels)
-            colors = parse_class_colors(self._levels_colors)
-            if spec is None or colors is None:
+            colors = parse_class_colors(self._levels_colors) if self._levels_colors else None
+            if spec is None:
                 return None
             idx, n_classes = slice_indices(small, resolve_breaks(small, spec))
         except (ValueError, TypeError):
             return None
-        if len(colors) != n_classes:
+        if colors is not None and len(colors) == n_classes:
+            table = np.asarray(colors, dtype=np.float64) / 255.0     # (n, 4) -- alpha 0 = "none"
+        elif banded:
+            cmap = _resolve_cmap(self._colormap or DEFAULT_COLORMAP) or _resolve_cmap(DEFAULT_COLORMAP)
+            table = cmap.map(np.linspace(0.0, 1.0, n_classes), mode="float")
+        else:
             return None
-        table = np.asarray(colors, dtype=np.float64) / 255.0     # (n, 4) -- alpha 0 = "none"
         rgba = np.zeros(small.shape + (4,), dtype=np.float64)
         ok = idx >= 0
         if self._levels_sieve > 0:
@@ -1531,6 +1537,12 @@ a bounded gather of at most :attr:`draw_cap` chains per
                     ok = ok & (~m | sieve_mask(m, self._levels_sieve))
         rgba[ok] = table[idx[ok]]
         rgba[..., 3] = np.where(ok, rgba[..., 3], 0.0)
+        if banded:
+            from dynamix.core.stretch import auto_band_period, bands
+            mode, period, phase, k, q = self._bands
+            t = bands(small, mode, period if period > 0 else auto_band_period(small),
+                      phase=phase, k=k, q=q)
+            rgba[..., :3] *= (0.55 + 0.45 * np.nan_to_num(t, nan=1.0))[..., None]
         return rgba
 
     def _display_scalars(self, small, sliced: bool = True):

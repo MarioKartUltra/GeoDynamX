@@ -2665,12 +2665,19 @@ off / z from this layer's own values / z from another loaded
         if values is None:
             return
         style = _display_style_of(self.layer)
+        bands = ((style["bands"], style["bands_period"], style["bands_phase"], int(style["bands_k"]))
+                 if style["bands"] != "off" else None)
         dialog = LevelsDialog(np.asarray(values, dtype=np.float64),
                               levels_text=style["levels"],
                               colors_text=style["levels_colors"],
                               colormap_name=style["colormap"],
-                              min_island=style["levels_sieve"], parent=self)
+                              min_island=style["levels_sieve"], bands=bands, parent=self)
         dialog.levelsApplied.connect(self._on_levels_applied)
+        if dialog.seeded_from_bands:
+            # The Bands became this slice: applied, they hand over to it, and turning Bands
+            # back on shades within its classes.
+            dialog.levelsApplied.connect(
+                lambda breaks, *_: breaks and self._on_display_style_changed("bands", "off"))
         dialog.levelsPreviewRequested.connect(self._on_levels_preview_requested)
         dialog.show()
         dialog.raise_()
