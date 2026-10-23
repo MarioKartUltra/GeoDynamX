@@ -114,6 +114,51 @@ class DirectionalScaling:
     def roi_margin(self, params: dict) -> int:
         return dwt.border_cells(params["wavelet"]) * int(params["scale_max"])
 
+    footprint_knobs = frozenset({"wavelet", "edge", "scale_min", "scale_max"})
+
+    def footprint(self, field, params: dict, level: int, stride: int = 1) -> dict:
+        """A whole-field run at ``level`` (0 = the finest): the cells within the bank's border of
+        each edge are read through the mirrored edge and dropped, a band (border_cells − 1)·2^j px
+        wide (none under a Periodic extension)."""
+        from dynamix.roi.picture import display_stride
+
+        v = np.asarray(field.values, dtype=np.float64)
+        v = v[..., 0] if v.ndim == 3 else v
+        k = display_stride(field)
+        j = min(max(int(level) + 1, 1), self._levels(params)[1])
+        edge = self._edge(field, params)
+        band = 0 if edge == "periodic" else (dwt.border_cells(params["wavelet"]) - 1) * 2 ** j
+        s = max(1, int(stride))
+        q = -(-band // (s * k))
+        padded = np.pad(v[::s, ::s], q, mode="wrap" if edge == "periodic" else "symmetric")
+        return {"edge": edge, "pad": band, "shown": band, "padded": padded, "stride": s * k,
+                "offset": -q * s * k, "border": band, "band": "edge exclusion",
+                "shape": (v.shape[0] * k, v.shape[1] * k)}
+
+    def roi_footprint(self, field, params: dict, rect, level: int, stride: int = 1) -> dict:
+        """An ROI run reads a halo of ``roi_margin`` px around the ROI for every level's support
+        (the dataset where it has pixels, mirrored past its edges as the runner reads it) and
+        counts only the ROI's own cells: the halo is outlined, nothing inside the ROI is dropped."""
+        from dynamix.roi.picture import display_stride
+
+        v = np.asarray(field.values, dtype=np.float64)
+        v = v[..., 0] if v.ndim == 3 else v
+        k = display_stride(field)
+        H, W = v.shape[0] * k, v.shape[1] * k
+        r, c, h, w = (int(x) for x in rect)
+        m = self.roi_margin(params)
+        s = max(1, int(stride)) * k
+
+        def axis(start, length, n):
+            px = start - m + s * np.arange(-(-(length + 2 * m) // s))
+            period = 2 * (n - 1)
+            px = np.abs(px) % period if period > 0 else np.zeros_like(px)
+            px = np.where(px >= n, period - px, px)
+            return np.minimum(px // k, n // k - 1)
+
+        return {"edge": "reflect", "pad": m, "shown": m, "padded": v[np.ix_(axis(r, h, H), axis(c, w, W))],
+                "stride": s, "offset": -m, "border": 0, "band": "halo", "shape": (h, w), "origin": (r, c)}
+
     def knob_warnings(self, field, params: dict) -> dict:
         """The strip's ⚠ on the coarsest cell when a level would keep fewer than 16 cells inside
         the bank's border on this field (the same rule as the wavelet leaders)."""

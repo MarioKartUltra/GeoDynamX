@@ -109,3 +109,21 @@ def test_an_roi_footprint_sits_on_the_roi_and_only_the_mirror_is_drawn(qtbot):
     assert np.isnan(shown[1:, 2:]).all()                                       # on the dataset
     rect = canvas.footprint_image_item.mapRectToView(canvas.footprint_image_item.boundingRect())
     assert (rect.x(), rect.y()) == (-1.5, -2.5)
+
+
+def test_a_directional_roi_footprint_outlines_the_halo_it_reads(qtbot):
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.devices.directional_scaling import DirectionalScaling
+    from dynamix.model.device import validate_params
+    dev = DirectionalScaling()
+    params = validate_params(dev, {"wavelet": "db2", "scale_min": 2, "scale_max": 32})
+    field = RasterField(name="f", values=np.zeros((256, 256)), frame=LocalFrame(),
+                        x_axis=np.arange(256.0), y_axis=np.arange(256.0))
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_field(field)
+    canvas.set_footprint(dev.roi_footprint(field, params, (96, 80, 64, 48), 0))
+    m = dev.roi_margin(params)
+    assert _extent(canvas.footprint_outline_item) == (80 - 0.5 - m, 80 + 48 - 0.5 + m,
+                                                      96 - 0.5 - m, 96 + 64 - 0.5 + m)

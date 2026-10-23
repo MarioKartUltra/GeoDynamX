@@ -142,3 +142,15 @@ def test_an_roi_counts_only_its_own_cells_and_reads_the_halo_for_support(dev):
     outside = dev.compute(make_field(smooth[r0:r0 + h, r0:r0 + h].copy()), p)["_directional"]
     i = list(d["p"]).index(2.0)
     assert abs(d["eta_iso"][i] - inside["eta_iso"][i]) < abs(d["eta_iso"][i] - outside["eta_iso"][i]) / 10
+
+
+def test_the_footprint_shows_the_halo_an_roi_reads_and_the_border_a_whole_run_drops(dev):
+    from dynamix.core import dwt
+    field = make_field(fbm2d(256, 0.5, seed=2))
+    p = validate_params(dev, {"wavelet": "db2", "scale_min": 2, "scale_max": 32})
+    roi = dev.roi_footprint(field, p, (96, 80, 64, 48), 0)
+    assert roi["shape"] == (64, 48) and roi["origin"] == (96, 80)
+    assert roi["shown"] == dev.roi_margin(p) and roi["border"] == 0      # the halo is read, then dropped
+    assert roi["padded"].shape == (64 + 2 * roi["shown"], 48 + 2 * roi["shown"])
+    whole = dev.footprint(field, p, 2)
+    assert whole["shape"] == (256, 256) and whole["border"] == (dwt.border_cells("db2") - 1) * 2 ** 3
