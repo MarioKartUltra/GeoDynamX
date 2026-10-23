@@ -129,6 +129,21 @@ class RoiPanel(QtWidgets.QFrame):
             self._physical[name] = physical
         column.addLayout(grid)
 
+        size_row = QtWidgets.QHBoxLayout()
+        size_label = QtWidgets.QLabel("Size")
+        size_label.setProperty("muted", "true")
+        size_row.addWidget(size_label)
+        self.half_button = QtWidgets.QPushButton("½")
+        self.half_button.setToolTip("Halve the box about its centre")
+        self.half_button.clicked.connect(lambda: self.scale_box(0.5))
+        size_row.addWidget(self.half_button)
+        self.double_button = QtWidgets.QPushButton("×2")
+        self.double_button.setToolTip("Double the box about its centre, kept inside the data")
+        self.double_button.clicked.connect(lambda: self.scale_box(2.0))
+        size_row.addWidget(self.double_button)
+        size_row.addStretch(1)
+        column.addLayout(size_row)
+
         boundary_row = QtWidgets.QHBoxLayout()
         boundary_label = QtWidgets.QLabel(_PARAMS["boundary"].label or "boundary")
         boundary_label.setProperty("muted", "true")
@@ -282,6 +297,27 @@ class RoiPanel(QtWidgets.QFrame):
                 return None
         out["boundary"] = self._boundary
         return out
+
+    def scale_box(self, factor: float) -> None:
+        """Scale the box's sides by ``factor`` about its centre: no side under the engine's
+        minimum or over the drawn-on field, the box moved inside the field when it would
+        overhang. Unparsable fields are left alone."""
+        try:
+            r, c, h, w = (int(self._edits[name].text()) for name in _ROI_FIELDS)
+        except ValueError:
+            return
+        size = [max(_MIN_SIDE, int(round(n * factor))) for n in (h, w)]
+        if self._dims is not None:
+            size = [min(n, d) for n, d in zip(size, self._dims)]
+        origin = [int(round(o + n / 2.0 - m / 2.0)) for o, n, m in zip((r, c), (h, w), size)]
+        if self._dims is not None:
+            origin = [min(o, d - m) for o, d, m in zip(origin, self._dims, size)]
+        values = (*(max(0, o) for o in origin), *size)
+        for name, value in zip(_ROI_FIELDS, values):
+            self._edits[name].blockSignals(True)
+            self._edits[name].setText(str(value))
+            self._edits[name].blockSignals(False)
+        self._refresh()
 
     # -- internals -------------------------------------------------------------------------
     def _on_boundary_changed(self, value) -> None:

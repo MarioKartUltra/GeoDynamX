@@ -85,3 +85,25 @@ def test_place_box_requires_a_size_that_fits_the_dataset(panel, height, width):
     panel.edit('roi_h').setText(height)
     panel.edit('roi_w').setText(width)
     assert not panel.place_button.isEnabled()
+
+
+def test_half_and_double_scale_the_box_about_its_centre_inside_the_data(qtbot):
+    from dynamix.shell.roi_panel import RoiPanel
+
+    panel = RoiPanel()
+    qtbot.addWidget(panel)
+    panel.show_roi(10, 20, 16, 20, (None, "px"), dims=(40, 50))
+
+    def box():
+        v = panel.values()
+        return v["roi_row"], v["roi_col"], v["roi_h"], v["roi_w"]
+
+    panel.double_button.click()
+    assert box() == (2, 10, 32, 40)
+    panel.double_button.click()                       # 64 x 80 does not fit: the whole data
+    assert box() == (0, 0, 40, 50)
+    panel.half_button.click()
+    assert box() == (10, 12, 20, 25)
+    for _ in range(4):
+        panel.half_button.click()                     # never below the engine's minimum side
+    assert min(box()[2:]) >= 8
