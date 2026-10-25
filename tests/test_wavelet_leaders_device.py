@@ -452,3 +452,14 @@ def test_an_roi_counts_only_its_own_cells_while_its_halo_carries_the_support(dev
     assert roi["samples"]["sets"]["leaders"]["cells"] == [(h >> j) * (w >> j) for j in range(1, 5)]
     tau2 = fit_spectra(L.tables(roi["samples"], [2.0])["leaders"], 2, 4)["tau"][0]
     assert tau2 == pytest.approx(-0.4, abs=0.15)
+
+
+def test_gamma_lifts_the_coefficients_but_the_h_map_and_the_reading_stay_in_the_original_frame(dev):
+    """The x-derivative of an fBm of H = 0.5 has h = −0.5, below what leaders read without a lift:
+    γ = 1 lifts every coefficient by 2^{γj}, and the h-map is shifted back as the fit is (it read
+    +0.5 in the lifted frame); the reading shows the lifted values its verdicts rest on."""
+    x = np.diff(fbm2d(257, 0.5, seed=8), axis=1)[:256, :256]
+    res = dev.compute(make_field(x), validate_params(dev, {"scale_min": 4, "scale_max": 16, "gamma": 1.0}))
+    assert np.median(res["h_map"][np.isfinite(res["h_map"])]) == pytest.approx(-0.5, abs=0.1)
+    reading = dev.reading(res, res["params"])
+    assert "h_min -0.90 (lifted 0.10)" in reading and "admissible" in reading

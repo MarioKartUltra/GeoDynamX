@@ -120,7 +120,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             controls.addWidget(spin)
         # Leonarduzzi et al. 2019's generalized structure functions (Touchette & Beck at δ = 0): γ
         # the quadratic penalty, δ its centre; γ = 0 is the ordinary table.
-        controls.addWidget(QtWidgets.QLabel("γ"))
+        controls.addWidget(QtWidgets.QLabel("Penalty γ"))
         self.gamma_spin = QtWidgets.QDoubleSpinBox()
         self.gamma_spin.setRange(-256.0, 256.0)
         self.gamma_spin.setDecimals(2)
@@ -156,8 +156,8 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.frame_combo = QtWidgets.QComboBox()
         self.frame_combo.addItems(["original", "integrated"])
         self.frame_combo.setEnabled(bool(self._gamma))
-        self.frame_combo.setToolTip(f"γ = {self._gamma:g}: the original frame takes γ q out of τ and γ out of h"
-                                    if self._gamma else "γ = 0: both frames coincide")
+        self.frame_combo.setToolTip(f"lift γ = {self._gamma:g}: the original frame takes γ q out of τ and γ out of h"
+                                    if self._gamma else "lift γ = 0: both frames coincide")
         self.frame_combo.currentIndexChanged.connect(lambda _i: self._refit())
         controls.addWidget(self.frame_combo)
         self._scale_label = QtWidgets.QLabel(self._scale_name())
@@ -443,5 +443,5 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
             parts.append(f"Jaffard (3.6) holds (margin {s['margin']:+.2f} at p = {s['at_q']:g})" if s["holds"]
                          else f"Jaffard (3.6) FAILS at p = {s['at_q']:g} (margin {s['margin']:+.2f}): the fit is wrong")
         if self._gamma:
-            parts.append(f"γ = {self._gamma:g}, {fit['frame']} frame")
+            parts.append(f"lift γ = {self._gamma:g}, {fit['frame']} frame")
         self.readout.setText(" · ".join(parts))

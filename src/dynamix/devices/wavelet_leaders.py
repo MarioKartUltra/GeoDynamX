@@ -449,7 +449,11 @@ class WaveletLeaders:
                 warnings.append(f"level {j} ({2 ** j} px): {run['zero_cells'][j - 1]} leaders are exactly zero "
                                 "(quantised data); the dither knob perturbs by half a least significant bit")
                 break
-        h_cells = {m: (h.astype(np.float32), r2.astype(np.float32), n.astype(np.float32)) for m, (h, r2, n) in run["local"].items()}
+        # The pointwise exponents in the original frame: γ lifts every coefficient by 2^{γj}, so
+        # every local exponent by γ.
+        lift = float(params["gamma"])
+        h_cells = {m: ((h - lift).astype(np.float32), r2.astype(np.float32), n.astype(np.float32))
+                   for m, (h, r2, n) in run["local"].items()}
         quantity = {m: [np.asarray(a, dtype=np.float32) for a in run["quantity"][m]] for m in computed}
         if run["oscillation"] is not None:
             quantity["oscillation"] = [np.asarray(a, dtype=np.float32) for a in run["oscillation"]]
@@ -538,7 +542,9 @@ class WaveletLeaders:
                                              wse_schedule=r["wse_schedule"] if schedule is not None else None,
                                              region=r["work_region"]))
             for m in maps:
-                cells = tuple(np.asarray(a, dtype=np.float32) for a in r["local"][m])
+                h, r2, n = r["local"][m]
+                cells = ((np.asarray(h) - float(params["gamma"])).astype(np.float32),
+                         np.asarray(r2, dtype=np.float32), np.asarray(n, dtype=np.float32))
                 maps[m].append(self._paint(cells, r["j_min"], shape, r["pad"]))
         with np.errstate(all="ignore"), _warnings.catch_warnings():
             _warnings.simplefilter("ignore", RuntimeWarning)          # a pixel no grid covers stays NaN
@@ -632,8 +638,10 @@ class WaveletLeaders:
             return "no leaders — run the transform"
         adm, p = result["_admissibility"], float(result["params"]["p"])
         lev = result["record"]["levels"]
-        parts = [f"{2 ** lev['j_min']}–{2 ** lev['J']} px", f"h_min {adm['h_min']['original']:.2f}",
-                 f"η({p:g}) {adm['eta']['original']:.2f}"]
+        # The verdicts are on the lifted coefficients: with γ the lifted values stand beside them.
+        lifted = (lambda key: f" (lifted {adm[key]['integrated']:.2f})") if adm["gamma"] else (lambda key: "")
+        parts = [f"{2 ** lev['j_min']}–{2 ** lev['J']} px", f"h_min {adm['h_min']['original']:.2f}{lifted('h_min')}",
+                 f"η({p:g}) {adm['eta']['original']:.2f}{lifted('eta')}"]
         bad = [(label, adm[m]["suggested_gamma"])
                for m, label in (("leaders", "leaders"), ("p-leaders", f"p = {p:g}")) if not adm[m]["admissible"]]
         if not bad:
