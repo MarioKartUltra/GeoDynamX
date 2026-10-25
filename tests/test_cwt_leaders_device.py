@@ -290,3 +290,17 @@ def test_the_maxima_measure_publishes_no_p_leaders_and_says_why(dev):
     assert res["_p_leaders"] is None and "cwt-p-leaders" not in res["samples"]["sets"]
     assert res["record"]["p_leader"] is None
     assert any("choose measure = leaders" in w for w in res["warnings"])
+
+
+def test_missing_pixels_and_everything_their_reach_touches_are_not_data(dev):
+    """The transform fills a missing pixel; every leader whose disc or kernel reaches one reads
+    that fill, so those pixels leave every scale's valid set (1 % missing moved c₁ by 0.03)."""
+    x = fbm2d(128, 0.5, seed=7)
+    x[56:72, 56:72] = np.nan
+    res = dev.compute(_field(x), _params(dev, n_oct=3))
+    y, x_ = np.mgrid[:128, :128]
+    dist = np.hypot(np.maximum.reduce([56 - y, 0 * y, y - 71]), np.maximum.reduce([56 - x_, 0 * x_, x_ - 71]))
+    for j, v in enumerate(res["_valid"]):
+        reach = res["record"]["radii_px"][j] + res["record"]["energy_radius_per_scale"] * res["scales"][j]
+        assert not v[dist <= reach - 1].any()
+        assert v[dist > reach + 1].any() or reach > 40

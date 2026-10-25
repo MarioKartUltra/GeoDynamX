@@ -232,9 +232,14 @@ class CwtLeaders:
                 run_grid=max(ny, nx) + 2 * int(backend["pad"]))]
         y, x = np.ogrid[:ny, :nx]
         inside = np.minimum(np.minimum(y, ny - 1 - y), np.minimum(x, nx - 1 - x))
+        # A missing pixel is filled for the transform, so every leader whose disc or kernel reaches
+        # one, R(a) + c·a px at scale a, reads the fill: those pixels are not data.
+        missing = (~np.isfinite(np.asarray(values, dtype=np.float64))).astype(np.float64)
         valid = []
         for j in range(len(scales)):
             m = np.isfinite(leaders[j])
+            if missing.any():
+                m &= core.disc_boxsum(missing, float(radii[j] + c * scales[j]))[0] <= 0
             if borders[j] > 0:
                 m &= inside >= borders[j]
             if float(params["sample_stride"]) > 0:
