@@ -28,8 +28,18 @@ def test_region_levels_reuse_analysis_and_match_window_route(builtins, monkeypat
     assert crop_result_to_roi({"_quantity": quantity}, raw["_roi"]["margin"],
                               roi[2], roi[3], shape)["_quantity"] is quantity
     references = {}
+    m = raw["_roi"]["margin"]
+    whole = type(dev).compute
+
+    def window_with_roi_statistics(self, window, params, **kw):
+        return whole(self, window, params, region=((m, m), (roi[2], roi[3])), **kw)
+
     with monkeypatch.context() as patch:
+        # The window route as the engine ran it before the device had a region path: the window
+        # computed, then cropped, its statistics the ROI's as the region path takes them.
         patch.setattr(type(dev), "region_outputs_from_result", False, raising=False)
+        patch.setattr(type(dev), "compute_roi", None)
+        patch.setattr(type(dev), "compute", window_with_roi_statistics)
         legacy = Cache()
         for name in outputs:
             for level in range(len(raw["scales"])):
