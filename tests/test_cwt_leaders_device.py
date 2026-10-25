@@ -304,3 +304,18 @@ def test_missing_pixels_and_everything_their_reach_touches_are_not_data(dev):
         reach = res["record"]["radii_px"][j] + res["record"]["energy_radius_per_scale"] * res["scales"][j]
         assert not v[dist <= reach - 1].any()
         assert v[dist > reach + 1].any() or reach > 40
+
+
+def test_a_continuous_sets_counts_and_sigmas_are_its_independent_discs(dev):
+    """A CWT set's pixels are correlated within one disc: N_a is the disc count, not the pixel
+    count, and the σ's widen by √(pixels / discs) (they were 15–40 times too small)."""
+    from dynamix.core import leaders as L
+
+    res = dev.compute(_field(fbm2d(128, 0.5, seed=5)), _params(dev, n_oct=3))
+    s = res["samples"]["sets"]["cwt-leaders"]
+    pixels = np.array([int(np.isfinite(np.asarray(v)[np.asarray(m)]).sum()) for v, m in zip(s["values"], s["valid"])])
+    discs = np.asarray(s.get("cells", res["samples"]["cells"]), dtype=np.float64)
+    t = L.tables(res["samples"], [2.0])["cwt-leaders"]
+    np.testing.assert_allclose(t["N_a"], discs, rtol=1e-9)
+    raw = L.partition_table(s["values"], s["valid"], [2.0], discs, scales=res["samples"]["scales"])
+    np.testing.assert_allclose(t["sigma_tau_qa"], raw["sigma_tau_qa"] * np.sqrt(pixels / discs)[None, :], rtol=1e-9)

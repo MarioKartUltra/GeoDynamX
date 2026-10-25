@@ -350,7 +350,7 @@ def _flatten(per_level: list, valid: list) -> list:
 
 
 def partition_table(per_level: list, valid: list, q_list, cells, *, scales=None,
-                    positive_only: bool = False, pooled: int = 1) -> dict:
+                    positive_only: bool = False, pooled: int = 1, independent=None) -> dict:
     """The structure functions of one quantity in the partition schema the fitter reads:
     ``tau_qa`` = log2 of the mean of M^q over the valid cells of each level times the field's
     cell count there (``cells``, Π_i n_i / 2^j per level), so that the count scales exactly as
@@ -359,7 +359,9 @@ def partition_table(per_level: list, valid: list, q_list, cells, *, scales=None,
     cells) and ``lnT_moments``; rows with q ≤ 0 NaN when ``positive_only`` (the bare
     coefficients, whose zeros make negative moments meaningless). ``pooled`` grids of one field
     (cycle spinning, :func:`pool_sample_sets`) share their information: ``N_a`` and the σ's are
-    one grid's."""
+    one grid's. ``independent`` (a continuous set's independent discs per scale, its pixels being
+    correlated within one) is ``N_a``, the σ's widened by √(samples / independent): Wendt, Abry
+    and Jaffard 2007 weight a scale by its independent count."""
     from dynamix.core.microcanonical import partition_tables
 
     samples = _flatten(per_level, valid)
@@ -376,6 +378,13 @@ def partition_table(per_level: list, valid: list, q_list, cells, *, scales=None,
         table["N_a"] = table["N_a"] / pooled
         for k in ("sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
             table[k] = table[k] * math.sqrt(pooled)
+    if independent is not None:
+        n = np.array([x.size for x in samples], dtype=np.float64)
+        free = np.asarray(independent, dtype=np.float64)
+        ratio = np.where((free > 0) & (n > free), n / np.maximum(free, 1e-300), 1.0)
+        table["N_a"] = table["N_a"] / ratio
+        for k in ("sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
+            table[k] = table[k] * np.sqrt(ratio)[None, :]
     if positive_only:
         rows = table["q_list"] <= 0
         for k in ("tau_qa", "h_qa", "D_qa", "sigma_tau_qa", "sigma_h_qa", "sigma_D_qa"):
@@ -389,7 +398,9 @@ def tables(samples: dict, q_list) -> dict:
     return {name: partition_table(s["values"], s["valid"], q_list, s.get("cells", samples["cells"]),
                                   scales=samples.get("scales"),
                                   positive_only=bool(s.get("positive_only", False)),
-                                  pooled=int(s.get("pooled", 1)))
+                                  pooled=int(s.get("pooled", 1)),
+                                  independent=(None if samples.get("dyadic")
+                                               else s.get("cells", samples["cells"])))
             for name, s in samples["sets"].items()}
 
 
