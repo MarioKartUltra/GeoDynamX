@@ -281,3 +281,12 @@ def test_the_result_carries_structure_tables_for_the_partition_functions_window(
     np.testing.assert_allclose(res["hd_std"]["q_list"], q)
     np.testing.assert_allclose(res["hd_std"]["tau_qa"], expected["tau_qa"], equal_nan=True)
     np.testing.assert_allclose(res["hd_std"]["log2_scales"], np.log2(res["scales"]))
+
+
+def test_the_maxima_measure_publishes_no_p_leaders_and_says_why(dev):
+    """A p-leader is a local L^p norm over every coefficient; over the maxima skeleton it read
+    c₁ = −0.04 for an fBm of H = 0.3. Under that measure the run publishes none and says so."""
+    res = dev.compute(_field(fbm2d(128, 0.3, seed=2)), _params(dev, n_oct=3, measure="wtmm", p=2.0))
+    assert res["_p_leaders"] is None and "cwt-p-leaders" not in res["samples"]["sets"]
+    assert res["record"]["p_leader"] is None
+    assert any("choose measure = leaders" in w for w in res["warnings"])

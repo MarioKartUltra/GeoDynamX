@@ -194,7 +194,13 @@ class CwtLeaders:
         # no published CWT p-leader exists, and a mean over the scales is not a power law.
         p_leaders = None
         factors = []
-        if p > 0:
+        # A p-leader is an area-weighted local L^p norm whose factor's η(p) comes from the same
+        # coefficients summed; over the maxima skeleton the disc mean is neither, so there is none.
+        with_p = p > 0 and params["measure"] != "wtmm"
+        if p > 0 and not with_p:
+            warnings.append("p-leaders are defined on every coefficient, not on the WTMM maxima: "
+                            "choose measure = leaders for them")
+        if with_p:
             p_leaders = np.full(mod.shape, np.nan, dtype=np.float32)
             acc = None
             voice = 1.0 / int(params["n_voice"])
@@ -269,7 +275,7 @@ class CwtLeaders:
             "energy": float(params["energy"]), "sup_from_octaves": int(params["sup_from"]),
             "eta": float(params["fracint_alpha"]), "p": p, "h_min": h_min, "eta_p": eta_p,
             "p_leader": "(sum over the admitted scales of the disc mean of M^p, over the finite-resolution "
-                        "factor)^(1/p)" if p > 0 else None,
+                        "factor)^(1/p)" if with_p else None,
             "finite_resolution_factor": factors,
             "n_eff": n_eff, "cells": cells, "edge": {"used": edge, "padding": padding, "borders_px": borders},
             "fit_range": fit_range, "sample_stride": float(params["sample_stride"]),
