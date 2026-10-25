@@ -262,23 +262,26 @@ def test_local_exponent_reads_an_exact_pyramid_and_paint_tiles_the_cells():
     assert painted.shape == (7, 8) and painted[3, 3] == 0 and painted[3, 4] == 1 and painted[4, 0] == 2
 
 
-def test_the_structure_functions_count_cells_as_the_dyadic_grid_does_whatever_the_border_takes():
-    """τ(0) = −d exactly: the table's count is the field's cell count per level, not the valid
-    count the border thins faster at coarse levels."""
+def test_the_structure_functions_count_one_domain_a_quarter_fewer_cells_per_level():
+    """τ(0) = −d exactly: every set sums over one pixel domain at every level (the coarsest
+    level's valid pixels), so its count is its valid cells and falls by 2^d per level."""
     r = L.run_leaders(fbm2d(512, 0.5, seed=6), scale_min=4, scale_max=32, wse_rule="fixed")
     samples = r["samples"]
     assert set(samples["sets"]) == {"leaders", "p-leaders", "wse", "coefficients"}
     assert list(samples["scales"]) == [2.0, 4.0, 8.0, 16.0, 32.0]
-    assert samples["cells"] == [(512 // 2 ** j) ** 2 for j in range(1, 6)]
     assert samples["sets"]["leaders"]["values"] is r["quantity"]["leaders"]          # no copy
     assert samples["sets"]["coefficients"]["positive_only"] and "positive_only" not in samples["sets"]["wse"]
     tables = _tables(r)
     for k in L.METHODS:
+        s = samples["sets"][k]
+        assert s["cells"] == [int(np.asarray(v).sum()) for v in s["valid"]]
+        assert all(a == 4 * b for a, b in zip(s["cells"], s["cells"][1:]))
+        assert all(not (np.asarray(v) & ~m).any() for v, m in zip(s["valid"], r["valid"][k]))
         t = tables[k]
-        assert np.allclose(t["tau_qa"][_qi(t, 0.0)], 2 * np.log2(512) - 2 * np.arange(1, 6))
+        assert np.allclose(t["tau_qa"][_qi(t, 0.0)], np.log2(s["cells"]))
         assert np.allclose(fit_spectra(t, 2, 5)["tau"][_qi(t, 0.0)], -2.0)
-        assert np.all(t["N_a"] == r["valid_cells"][k])
-    assert np.all(tables["coefficients"]["N_a"] == 3 * np.asarray(r["valid_cells"]["coefficients"]))
+        assert np.all(t["N_a"] == s["cells"])
+    assert np.all(tables["coefficients"]["N_a"] == 3 * np.asarray(samples["sets"]["coefficients"]["cells"]))
     assert np.all(np.isnan(tables["coefficients"]["tau_qa"][Q < 0]))
     assert np.all(np.isfinite(tables["leaders"]["tau_qa"][Q < 0]))
     assert "tables" not in r and "cumulants" not in r                              # nothing fitted here
@@ -613,7 +616,8 @@ def test_pooled_sample_sets_average_the_grids_and_keep_one_grid_s_counts_and_sig
     t = L.tables(pooled, q)["leaders"]
     for j in range(5):
         vals = np.concatenate([np.asarray(r["samples"]["sets"]["leaders"]["values"][j])[np.asarray(r["samples"]["sets"]["leaders"]["valid"][j])] for r in runs])
-        np.testing.assert_allclose(t["tau_qa"][0, j], np.log2(np.mean(vals ** 2) * s0["cells"][j]), rtol=1e-10)
+        np.testing.assert_allclose(t["tau_qa"][0, j],
+                                   np.log2(np.mean(vals ** 2) * s0["sets"]["leaders"]["cells"][j]), rtol=1e-10)
     plain = L.tables({**pooled, "sets": {"leaders": {k: v for k, v in pooled["sets"]["leaders"].items() if k != "pooled"}}}, q)["leaders"]
     np.testing.assert_allclose(t["sigma_tau_qa"], 2.0 * plain["sigma_tau_qa"], rtol=1e-10)
     np.testing.assert_allclose(t["N_a"], plain["N_a"] / 4.0, rtol=1e-10)
@@ -654,3 +658,16 @@ def test_only_the_asked_quantities_are_computed_and_the_others_are_unchanged():
         np.testing.assert_array_equal(a, b)
     both = L.run_leaders(x, scale_min=4, scale_max=32, methods=("leaders", "wse"))
     assert both["oscillation"] is not None and set(both["samples"]["sets"]) == {"leaders", "wse", "coefficients"}
+
+
+def test_a_step_reads_tau_minus_one_because_every_level_sums_over_one_domain():
+    """A step's leaders occupy a band a fixed number of cells wide, whose share of one domain
+    grows as a^{+1}: τ(q > 0) = −2 + 1 = −1. A border growing as e·2^j samples the centre alone
+    at the coarse levels and read −0.67 here."""
+    x = np.zeros((512, 512))
+    x[:, 256:] = 1.0
+    x += 1e-4 * np.random.default_rng(0).standard_normal(x.shape)
+    r = L.run_leaders(x, scale_min=4, scale_max=32, wse_rule="fixed")
+    tau = fit_spectra(L.tables(r["samples"], [0.0, 1.0, 2.0])["leaders"], 2, 5)["tau"]
+    assert tau[0] == pytest.approx(-2.0, abs=1e-9)
+    assert tau[1:] == pytest.approx([-1.0, -1.0], abs=0.06)

@@ -89,8 +89,9 @@ def test_the_adaptive_route_on_leaders_matches_the_tables_h_and_the_legendre_d()
 
     mu = _cascade(10, np.array([0.1, 0.2, 0.3, 0.4]))
     r = LE.run_leaders(mu, wavelet="haar", scale_min=4, scale_max=32, gamma=1.0, wse_rule="fixed")
-    samples = [m[v] for m, v in zip(r["quantity"]["leaders"], r["valid"]["leaders"])]
-    weight = [(1024 // 2 ** j) ** 2 / max(v.sum(), 1) for j, v in enumerate(r["valid"]["leaders"], start=1)]
+    s = r["samples"]["sets"]["leaders"]
+    samples = [m[v] for m, v in zip(s["values"], s["valid"])]
+    weight = [c / max(int(v.sum()), 1) for c, v in zip(s["cells"], s["valid"])]
     a = ld.adaptive(samples, r["scales"], q_list=Q, log2_a_min=2, log2_a_max=5, length_px=1024.0,
                     scale_weight=weight)
     fit = fit_spectra(LE.tables(r["samples"], Q)["leaders"], 2, 5)
@@ -105,7 +106,7 @@ def test_the_adaptive_route_on_leaders_matches_the_tables_h_and_the_legendre_d()
     assert a["D"][Q == 0.0] == pytest.approx(2.0, abs=0.1)
     shift = ld.prefactor_shift(samples, r["scales"], log2_a_min=2, log2_a_max=5, length_px=1024.0)
     unweighted = ld.adaptive(samples, r["scales"], q_list=Q, log2_a_min=2, log2_a_max=5, length_px=1024.0)
-    assert unweighted["D"][Q == 0.0][0] > 2.03                        # the border's thinning, uncorrected
+    assert unweighted["D"][Q == 0.0][0] == pytest.approx(2.0, abs=0.03)   # one domain: no thinning to correct
     assert shift.shape == (4,) and np.all(np.abs(shift) > 0.5)         # the fixed route's bias here
 
 

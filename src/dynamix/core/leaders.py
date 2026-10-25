@@ -201,6 +201,34 @@ def valid_cells(coef: dict, margin, seam_margin=0) -> list:
     return out
 
 
+def one_domain(valid: list, region=None) -> list:
+    """``valid`` (one mask per level, cells of 2^j px on one working grid) cut to the cells wholly
+    inside ``region`` = ``((row0, col0), (h, w))`` in working-grid pixels when given, then to those
+    wholly inside the coarsest non-empty level's valid pixels: the statistics sum over one domain
+    at every scale (Jaffard, Lashermes and Abry 2006, Def. 14). A border growing as e·2^j would
+    sample the centre alone at the coarse scales and bias c₂ on a field that varies across the
+    domain; maps keep each level's own mask."""
+    def inside(mask, k, bounds):
+        f = 2 ** (k + 1)
+        box = np.zeros_like(mask)
+        box[tuple(slice(-(-lo // f), hi // f) for lo, hi in bounds)] = True
+        return mask & box
+
+    out = list(valid)
+    if region is not None:
+        (r0, c0), (h, w) = region
+        out = [inside(v, k, ((r0, r0 + h), (c0, c0 + w))) for k, v in enumerate(out)]
+    k = max((k for k, v in enumerate(out) if v.any()), default=None)
+    if k is None:
+        return out
+    f = 2 ** (k + 1)
+    bounds = []
+    for axis in range(out[k].ndim):
+        idx = np.flatnonzero(out[k].any(axis=tuple(a for a in range(out[k].ndim) if a != axis)))
+        bounds.append((int(idx[0]) * f, (int(idx[-1]) + 1) * f))
+    return [inside(v, j, bounds) for j, v in enumerate(out)]
+
+
 # ------------------------------------------------------------------------------------ the quantities
 
 def leaders(coef: dict) -> list:
@@ -597,7 +625,7 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     if "wse" in methods:
         valid["wse"] = valid_cells(coef, [e_coef + (r if edge != "periodic" else 0) for r in reach],
                                    [seam_coef + (r if coef["seam"] else 0) for r in reach])
-    adm = admissibility(coef, valid["coefficients"], j_min, p)
+    adm = admissibility(coef, one_domain(valid["coefficients"]), j_min, p)
     eta = adm["eta"]["integrated"]
     quantity = {}
     if "leaders" in methods:
@@ -630,13 +658,20 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
                            for m, v in zip(quantity[first], valid[first])]}
 
 
-def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape, *, wse_schedule=None) -> dict:
+def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape, *, wse_schedule=None,
+                region=None) -> dict:
     """The ``Samples`` contract over the three quantities and the bare coefficients: references
-    to the per-level grids and masks (no copy), the field's cell count per level and its
+    to the per-level grids, each set's masks on one domain (:func:`one_domain`, an ROI's
+    ``region`` in working-grid pixels), each set's valid cell count per level and the field's
     dimension ``d``."""
-    sets = {k: {"values": quantity[k], "valid": valid[k]} for k in METHODS if k in quantity}
-    sets["coefficients"] = {"values": mods, "valid": valid["coefficients"], "positive_only": True}
-    cells = [int(np.prod([int(n) // 2 ** j for n in data_shape])) for j in range(1, len(scales) + 1)]
+    valid = {k: one_domain(v, region) for k, v in valid.items()}
+    sets = {k: {"values": quantity[k], "valid": valid[k], "cells": [int(v.sum()) for v in valid[k]]}
+            for k in METHODS if k in quantity}
+    sets["coefficients"] = {"values": mods, "valid": valid["coefficients"], "positive_only": True,
+                            "cells": [int(v.sum()) for v in valid["coefficients"]]}
+    # One pixel domain at every level makes each set's valid count fall as 2^{-dj} exactly, the
+    # normalisation the structure function needs.
+    cells = sets["coefficients"]["cells"]
     if wse_schedule is not None and "wse" in sets:
         masks, effective, strides = [], [], []
         for j, (v, schedule) in enumerate(zip(valid["wse"], wse_schedule), 1):
@@ -648,8 +683,7 @@ def sample_sets(quantity: dict, mods: list, valid: dict, scales, data_shape, *, 
             masks.append(mask)
             # omega^d times the decimated sum, with the same border correction as
             # other sets. Tensor-product normalization extends definition 2.4 to 2D.
-            n = np.prod([len(range(0, int(size)//2**j, stride)) for size in data_shape])
-            effective.append(float(omega**len(data_shape)*n))
+            effective.append(float(omega**len(data_shape)*mask.sum()))
             strides.append(stride)
         sets["wse"].update(valid=masks, cells=effective, decimation=strides,
                            normalization="omega^d times decimated sum (Dumeur 2.4)")

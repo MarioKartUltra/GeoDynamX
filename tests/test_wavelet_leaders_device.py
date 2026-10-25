@@ -80,10 +80,11 @@ def test_the_run_carries_the_three_readings_their_sample_sets_and_the_h_map(dev,
     samples = res["samples"]
     assert set(samples["sets"]) == {"leaders", "p-leaders", "wse", "coefficients"}
     assert list(samples["scales"]) == [2.0, 4.0, 8.0, 16.0, 32.0]
-    assert samples["cells"] == [(512 // 2 ** j) ** 2 for j in range(1, 6)]
+    assert all(a == 4 * b for a, b in zip(samples["cells"], samples["cells"][1:]))   # one domain
     for m in ("leaders", "p-leaders", "wse"):
         assert samples["sets"][m]["values"] is res["_quantity"][m]                 # the float32 grids, no copy
-        assert samples["sets"][m]["valid"] is res["_valid"][m]
+        assert all(not (np.asarray(v) & ~w).any()                                 # statistics within the maps
+                   for v, w in zip(samples["sets"][m]["valid"], res["_valid"][m]))
         assert abs(_c1(res, m) - 0.5) < 0.1, m
         assert res["_admissibility"][m]["admissible"]
     coef = samples["sets"]["coefficients"]
