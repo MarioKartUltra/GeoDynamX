@@ -433,3 +433,22 @@ def test_the_edge_reading_names_the_real_data_a_region_reads_around_it(dev):
     text = dev.derived_reading("edge", "auto", big, p)
     assert text.startswith("→ mirror") and "a region reads 384 px of real data around it" in text
     assert "640 px" in dev.derived_reading("edge", "auto", big, {**p, "with_wse": True})
+
+
+def test_an_roi_counts_only_its_own_cells_while_its_halo_carries_the_support(dev):
+    """An ROI inside the smooth half of a field whose other half is rough, its halo reaching the
+    rough half: the statistics are the ROI's own cells (exactly its tiles) and read the smooth
+    half's τ(2) = 2H − 2 = −0.4; counted over the whole window they read +0.89."""
+    from dynamix.core import leaders as L
+    from dynamix.core.spectra import fit_spectra
+    from dynamix.roi.runner import run_on_region
+
+    rough, smooth = fbm2d(512, 0.2, seed=3), fbm2d(512, 0.8, seed=4)
+    x = np.concatenate([rough[:, :256] / rough.std(), smooth[:, 256:] / smooth.std()], axis=1)
+    p = validate_params(dev, {"scale_min": 4, "scale_max": 16})
+    r0, c0, h, w = 192, 288, 192, 128
+    roi = run_on_region([(dev, p)], make_field(x), (r0, c0, h, w))
+    assert roi["_roi"]["margin"] > c0 - 256                                # the halo reaches the rough half
+    assert roi["samples"]["sets"]["leaders"]["cells"] == [(h >> j) * (w >> j) for j in range(1, 5)]
+    tau2 = fit_spectra(L.tables(roi["samples"], [2.0])["leaders"], 2, 4)["tau"][0]
+    assert tau2 == pytest.approx(-0.4, abs=0.15)

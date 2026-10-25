@@ -386,7 +386,20 @@ class WaveletLeaders:
                  f"no level keeps 16 cells inside {params['wavelet']}'s border of {e} cells on this field")
         return {"scale_max": where}
 
-    def compute(self, field, params: dict, *, progress=None) -> dict:
+    def compute_roi(self, window, core, params: dict, *, info=None, progress=None) -> dict:
+        """An ROI run: the pyramid on the processing window, whose halo carries each level's
+        support, and every statistic (sample sets, structure table, admissibility) over the cells
+        wholly inside the ROI ``core`` (Jaffard, Lashermes and Abry 2006, Def. 14 sums over the
+        analysed set). Maps and rasters keep the window, which the runner crops."""
+        from dynamix.roi.runner import crop_result_to_roi
+
+        r, c, h, w = (int(v) for v in core)
+        full = self.compute(window, params, progress=progress, region=((r, c), (h, w)))
+        res = crop_result_to_roi(full, r, h, w, np.asarray(window.values).shape[:2])
+        res["_shape"] = (h, w)
+        return res
+
+    def compute(self, field, params: dict, *, progress=None, region=None) -> dict:
         vals = field_values_2d(field, self.name)
         self.check(params)
         edge = self._edge(field, params)
@@ -402,7 +415,7 @@ class WaveletLeaders:
                   wse_rule=params["wse_rule"], wse_depth=int(params["wse_depth"]),
                   wse_width=float(params["wse_width"]), wse_beta=float(params["wse_beta"]),
                   edge=edge, origin=origin, block=block, resolution_side=self.resolution_side(field),
-                  methods=self._methods(params))
+                  methods=self._methods(params), region=region)
         run = leaders.run_leaders(vals, **kw, anchor=self.grid_anchor(field, int(params["scale_max"])), progress=tick)
         j_min, J = run["j_min"], run["levels"]
         computed = self._methods(params)
@@ -473,7 +486,8 @@ class WaveletLeaders:
             "admissibility": adm, "warnings": warnings,
         }
         samples = leaders.sample_sets(quantity, mods, valid, run["scales"], run["data_shape"],
-                                      wse_schedule=run["wse_schedule"] if params["wse_rule"] == "dumeur" else None)
+                                      wse_schedule=run["wse_schedule"] if params["wse_rule"] == "dumeur" else None,
+                                      region=run["work_region"])
         spun_maps = None
         if int(params["spin"]) > 1:
             samples, spun_maps, phases = self._spin(vals, params, kw, run, samples, h_cells)
@@ -521,7 +535,8 @@ class WaveletLeaders:
             mods = [np.asarray(a, dtype=np.float32) for a in r["coefficients"]]
             valid = {m: list(r["valid"][m]) for m in tuple(r["quantity"]) + ("coefficients",)}
             grids.append(leaders.sample_sets(quantity, mods, valid, r["scales"], r["data_shape"],
-                                             wse_schedule=r["wse_schedule"] if schedule is not None else None))
+                                             wse_schedule=r["wse_schedule"] if schedule is not None else None,
+                                             region=r["work_region"]))
             for m in maps:
                 cells = tuple(np.asarray(a, dtype=np.float32) for a in r["local"][m])
                 maps[m].append(self._paint(cells, r["j_min"], shape, r["pad"]))

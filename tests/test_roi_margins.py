@@ -280,7 +280,7 @@ def test_wavelet_leaders_lazy_outputs_paint_the_roi_not_the_window_corner(builti
     roi = (m + 8, m + 8, h, w)
     got = run_on_region([(dev, params)], f, roi)
     window, _info = read_processing_window(f, roi, m)
-    ref = dev.compute(window, params)
+    ref = dev.compute(window, params, region=((m, m), (h, w)))     # the ROI's statistics, the window's maps
     out = output_raster(dev.compute_output("leader", None, got, params, fetch=None, level=0))
     want = output_raster(dev.compute_output("leader", None, ref, params, fetch=None, level=0))
     assert out.shape == (h, w)

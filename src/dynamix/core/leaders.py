@@ -577,7 +577,7 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
                 gamma: float = 0.0, p: float = 2.0, wse_rule: str = "dumeur", wse_depth: int = 1,
                 wse_width: float = 1.0, wse_beta: float = 0.25, edge: str = "mirror",
                 origin=(0, 0), block=None, anchor=None, resolution_side=None, methods=METHODS,
-                progress=None) -> dict:
+                region=None, progress=None) -> dict:
     """The three quantities on one band (or 1-D signal): the pyramid to J = log2 ``scale_max``,
     the local exponent over the levels from log2 ``scale_min``, the admissibility, and the
     quantities and bare coefficients over their valid cells as ``samples`` (the ``Samples``
@@ -625,7 +625,10 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
     if "wse" in methods:
         valid["wse"] = valid_cells(coef, [e_coef + (r if edge != "periodic" else 0) for r in reach],
                                    [seam_coef + (r if coef["seam"] else 0) for r in reach])
-    adm = admissibility(coef, one_domain(valid["coefficients"]), j_min, p)
+    # An ROI run's ``region`` (field pixels) in the working grid, which starts ``pad`` before it.
+    work_region = (None if region is None else
+                   (tuple(int(o) + int(q) for o, q in zip(region[0], coef["pad"])), tuple(region[1])))
+    adm = admissibility(coef, one_domain(valid["coefficients"], work_region), j_min, p)
     eta = adm["eta"]["integrated"]
     quantity = {}
     if "leaders" in methods:
@@ -648,9 +651,9 @@ def run_leaders(values, *, wavelet: str = "sym4", scale_min: int = 4, scale_max:
             "data_shape": coef["data_shape"], "pad": coef["pad"], "phase": coef["phase"], "block": coef["block"],
             "wavelet": wavelet, "gamma": float(gamma), "p": float(p),
             "coefficients": coef["mods"], "quantity": quantity, "oscillation": osc, "valid": valid,
-            "samples": sample_sets(quantity, coef["mods"], valid, scales, coef["data_shape"],
+            "samples": sample_sets(quantity, coef["mods"], valid, scales, coef["data_shape"], region=work_region,
                                    wse_schedule=schedule if wse_rule == "dumeur" else None),
-            "admissibility": adm, "local": local,
+            "admissibility": adm, "local": local, "work_region": work_region,
             "registration": coef["registration"], "border_cells": e, "wse_schedule": schedule,
             "wse_truncated": [any(D >= j for D, _ in lev) for j, lev in enumerate(schedule, 1)],
             "valid_cells": {k: [int(v.sum()) for v in vs] for k, vs in valid.items()},
