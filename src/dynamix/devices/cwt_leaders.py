@@ -47,7 +47,8 @@ class CwtLeaders:
     name = "cwt_leaders"
     label = "CWT leaders"
     origin = dataclasses.replace(FIRST_PARTY, citation="Jaffard 1994 Lemma 1; Jaffard, Lashermes & Abry 2006; "
-                                 "the cylinder supremum on the WTMM's transform (spec 30)")
+                                 "the cylinder supremum on the WTMM's transform (spec 30); "
+                                 "GMWLP histogram: Cardo & Corvalán (2009), Fractals")
     families = ("Regularity",)
     role = "primary"
     consumes = ((FIELD,),)
