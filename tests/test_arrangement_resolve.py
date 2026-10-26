@@ -206,14 +206,14 @@ def test_entries_default_to_the_canvas_constants(qtbot, arranged_window):
     """A layer with no ``ui.colormap``/``ui.color_vtrail`` tags at all -- every layer before this
     task, and every layer this task's own defaults leave untouched -- carries exactly what the
     scene already drew before these keys existed."""
-    from dynamix.shell.canvas import VTRAIL_COLOR
+    from dynamix.shell.canvas import DEFAULT_COLORMAP, VTRAIL_COLOR
 
     win, cached, pending, nogeoref = arranged_window
 
     win._toggle_center_view()
 
     entry = _entry_for(win, cached.layer_id)
-    assert entry["colormap"] == "viridis"
+    assert entry["colormap"] == DEFAULT_COLORMAP
     assert entry["vtrail_color"] == VTRAIL_COLOR
 
 
