@@ -132,7 +132,9 @@ def test_a_value_two_entries_share_counts_once():
 
 
 def test_the_estimate_follows_the_traced_memory_of_a_wtmm_result_and_its_topology(clean_registry):
-    """The two measured constants hold on a result they were not fitted on (n_oct 2, 256²)."""
+    """The two measured constants hold on a result they were not fitted on (n_oct 2, 256²). The
+    traced figure is what dropping the result and its topology frees: the FFT engine's plan cache
+    (FFTW keeps each plan's last input and output arrays) outlives the result and is not its memory."""
     import gc
     import tracemalloc
 
@@ -148,17 +150,17 @@ def test_the_estimate_follows_the_traced_memory_of_a_wtmm_result_and_its_topolog
     gc.collect()
     tracemalloc.start()
     try:
-        before = tracemalloc.get_traced_memory()[0]
-        result = wtmm.compute(field, params)
-        graph = topology.compute(result, {})
+        cache = Cache()
+        cache.put("wtmm", wtmm.compute(field, params))
+        cache.put("topology", topology.compute(cache.get("wtmm"), {}))
+        counted = cache.report()["results"]["bytes"]
         gc.collect()
-        traced = tracemalloc.get_traced_memory()[0] - before
+        held = tracemalloc.get_traced_memory()[0]
+        del cache
+        gc.collect()
+        traced = held - tracemalloc.get_traced_memory()[0]
     finally:
         tracemalloc.stop()
-    cache = Cache()
-    cache.put("wtmm", result)
-    cache.put("topology", graph)
-    counted = cache.report()["results"]["bytes"]
     assert abs(counted - traced) < 0.1 * traced
 
 
