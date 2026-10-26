@@ -10,6 +10,7 @@ Periodic extension's stamp or the ``periodic`` knob declares.
 """
 from __future__ import annotations
 
+import dataclasses
 import numpy as np
 
 from dynamix.core import disorder
@@ -17,6 +18,7 @@ from dynamix.devices.measures_common import (DETREND_PARAM, FLOOR_PARAM, SCHEME_
                                              deriv_record, periodized, scheme)
 from dynamix.model.contracts import CURVE, FIELD
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 __all__ = ["HessianMeasure"]
 
@@ -26,6 +28,8 @@ class HessianMeasure:
 
     name = "hessian_measure"
     label = "Hessian measure (Nathan–Gunaratne)"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Nathan & Gunaratne (2005), Phys. Rev. E "
+                                 "71, 035101")
     families = ("Measures",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)

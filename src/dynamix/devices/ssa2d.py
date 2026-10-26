@@ -27,10 +27,12 @@ is an option, off by default because in 2-D it adds rank (see ``edge_extension``
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 from dynamix.model.contracts import COMPONENTS, FIELD
 from dynamix.devices.precision import PRECISION_PARAM
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 #: Window entries (L_r * L_c) above which the dense lag-covariance route gets slow (~4 s at
@@ -55,6 +57,8 @@ class SSA2D:
 
     wants_cancel = True                  # the stop button reaches the eigensolver
     name = "ssa2d"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Golyandina & Usevich (2010); Golyandina, "
+                                 "Korobeynikov, Shlemov & Usevich (2015), J. Stat. Softw. 67(2)")
     capabilities = frozenset({"Cancellable", "RegionAware", "StripExtras", "Viewable"})
     label = "2-D SSA"
     families = ("Decomposition", "Reconstruction")

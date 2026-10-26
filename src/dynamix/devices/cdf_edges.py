@@ -39,9 +39,12 @@ with the shared pointed message.
 """
 from __future__ import annotations
 
+import dataclasses
+
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.model.contracts import EXTREMA, FIELD
 from dynamix.model.device import Output
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 
@@ -61,6 +64,9 @@ def _line_ids(mask, ys, xs):
 class CDFEdges:
     wants_cancel = True                  # the stop button reaches the snapshot loop
     name = "cdf_edges"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Araújo, Barbeiro, Cuesta & Durán (2017), "
+                                 "Cross-diffusion systems for image processing I and II; Barbeiro "
+                                 "(2023)")
     capabilities = frozenset({"Cancellable", "OutputProducer", "RegionAware", "Viewable"})
     role = "primary"
     chain_producer = True

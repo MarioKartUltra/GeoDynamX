@@ -11,9 +11,12 @@ segments of length ``r``, over ``rows * (width - r)`` positions.
 """
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 
 from dynamix.model.contracts import CURVE, FIELD
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 _KERNELS = None
@@ -73,6 +76,8 @@ class LinealPath:
 
     name = "lineal_path"
     label = "Lineal path"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Torquato (2002), Random Heterogeneous "
+                                 "Materials, Springer, §2.4")
     families = ("Microstructure",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)

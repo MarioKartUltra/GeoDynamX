@@ -28,6 +28,7 @@ import numpy as np
 
 from dynamix.model.contracts import FIELD, RECEIVED
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 __all__ = ["FILLED", "PeriodicExtension"]
 
@@ -47,6 +48,9 @@ class PeriodicExtension:
 
     name = "periodic_extension"
     label = "Periodic extension (DAF)"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Frishman, Hoffman, Rakauskas & Kouri "
+                                 "(1996); Hoffman, Gunaratne, Zhang & Kouri (2000): the Hermite "
+                                 "DAF and its periodic extension")
     families = ("Data preparation",)
     #: Not a field stage: over an ROI's processing window the gap would change the window's size,
     #: so the tool works on whole rasters (fork the output to analyse it on its own).

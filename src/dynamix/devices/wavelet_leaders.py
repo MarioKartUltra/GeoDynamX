@@ -14,6 +14,7 @@ h-map shows; switching it recomputes nothing.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
@@ -24,6 +25,7 @@ from dynamix.devices.wtmm import filled_block, filled_origin
 from dynamix.model.contracts import FIELD, HMAP, SAMPLES
 from dynamix.model.device import Output, defaults_for, keyed_params
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 __all__ = ["WaveletLeaders"]
 
@@ -46,6 +48,11 @@ class WaveletLeaders:
 
     name = "wavelet_leaders"
     label = "Wavelet leaders"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Jaffard, Lashermes & Abry (2006), Wavelet "
+                                 "Analysis and Applications, Birkhäuser, 201–246; p-leaders: "
+                                 "Jaffard et al. (2016), Leonarduzzi et al. (2017); (θ, "
+                                 "ω)-leaders: Dumeur et al. (2025); GMWLP histogram: Cardo & "
+                                 "Corvalán (2009), Fractals")
     families = ("Regularity",)
     #: A knob change marks the layer pending until Run: the three quantities are chosen before a
     #: run, the WSE costing about as much as the transform.

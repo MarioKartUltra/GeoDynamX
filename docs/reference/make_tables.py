@@ -40,8 +40,9 @@ _HEADER = ("% Written by make_tables.py from the device registry: change a decla
 _SPECIAL = {"\\": r"\textbackslash{}", "_": r"\_", "&": r"\&", "%": r"\%", "#": r"\#",
             "$": r"\$", "{": r"\{", "}": r"\}", "^": r"\^{}", "~": r"\~{}",
             "<": r"\textless{}", ">": r"\textgreater{}"}
-_SPELLED = {"–": "--", "—": "---", "ö": r"\"o", "é": r"\'e", "ô": r"\^o", "σ": r"$\sigma$",
-            "α": r"$\alpha$", "…": r"\ldots{}"}
+_SPELLED = {"–": "--", "—": "---", "ö": r"\"o", "ä": r"\"a", "é": r"\'e", "á": r"\'a", "ú": r"\'u", "ô": r"\^o",
+            "ç": r"\c{c}", "§": r"\S{}", "σ": r"$\sigma$", "α": r"$\alpha$", "θ": r"$\theta$",
+            "ω": r"$\omega$", "…": r"\ldots{}"}
 
 
 def tex(text: str) -> str:
@@ -140,9 +141,9 @@ def families_table() -> str:
 
 def origins_table() -> str:
     """Every tool's origin (``dynamix.model.origin``): the method it implements, as its citation."""
-    rows = [f"{_name(device)} & {tex(origin_of_device(device).citation)}"
+    rows = [f"{_name(device)} & {tex(origin_of_device(device).citation) or '---'}"
             for device in [*_listed(), *_dev()]]
-    return _longtable(_p(0.3) + _p(0.64),
+    return _longtable(_p(0.35) + _p(0.59),
                       r"\textbf{Origins}: the method each tool implements; code ported from another "
                       r"program is named in \texttt{NOTICE}.", "tab:origins", "Tool & Citation", rows)
 

@@ -1,7 +1,7 @@
 % Written by make_tables.py from the device registry: change a declaration, then
 % run python docs/reference/make_tables.py.
 \phantomsection\label{tab:origins}%
-\begin{longtable}{>{\raggedright\arraybackslash}p{0.3\textwidth}>{\raggedright\arraybackslash}p{0.64\textwidth}}
+\begin{longtable}{>{\raggedright\arraybackslash}p{0.35\textwidth}>{\raggedright\arraybackslash}p{0.59\textwidth}}
 \caption*{\textbf{Origins}: the method each tool implements; code ported from another program is named in \texttt{NOTICE}.}\\
 \toprule
 Tool & Citation \\ \midrule
@@ -9,59 +9,59 @@ Tool & Citation \\ \midrule
 \toprule
 Tool & Citation \\ \midrule
 \endhead
-\tool{Noise / dither}{noise} &  \\
-\tool{Fill}{fill} &  \\
-\tool{Periodic extension (DAF)}{periodic\_extension} &  \\
+\tool{Noise / dither}{noise} & --- \\
+\tool{Fill}{fill} & Pottier, Turiel \& Gar\c{c}on (2008), Remote Sens. Environ.: missing data from the turbulent cascade \\
+\tool{Periodic extension (DAF)}{periodic\_extension} & Frishman, Hoffman, Rakauskas \& Kouri (1996); Hoffman, Gunaratne, Zhang \& Kouri (2000): the Hermite DAF and its periodic extension \\
 \tool{Fractional integration (Fourier)}{fractional\_integration} & Bessel potential, Dumeur et al. (2025), Eq. 12; explicit reference length and mean-preserving Riesz option \\
 \tool{Dyadic interpolation (DD4)}{dyadic\_interpolation} & Deslauriers \& Dubuc, Interpolation dyadique, EPM/RT-87/22 (1987), classical four-point scheme \\
 \tool{DAF low-pass}{daf\_smoothing} & Hermite DAF gain; Hoffman et al. (2000), Eq. 5; US6847737 \\
 \tool{Interpolating wavelets (DD / DAF)}{interpolating\_wavelets} & DD predictor; US6847737 Eqs. 47--48 GLDAF shell; local half-transpose lifting update and DC normalization \\
 \tool{Interpolating wavelet filter (DD / DAF)}{interpolating\_wavelet\_filter} & DD predictor; US6847737 Eqs. 47--48 GLDAF shell; local half-transpose lifting update and DC normalization \\
-\tool{Band select}{band\_select} &  \\
+\tool{Band select}{band\_select} & --- \\
 \tool{WTMM 2D}{wtmm2d} & Arneodo, Decoster \& Roux (2000), Eur. Phys. J. B 15, 567; chaining and follow ported from xsmurf, Centre de Recherche Paul Pascal, Bordeaux (1999) \\
 \tool{WTMM 2D, ROI}{wtmm2d\_roi} & Arneodo, Decoster \& Roux (2000), Eur. Phys. J. B 15, 567; chaining and follow ported from xsmurf, Centre de Recherche Paul Pascal, Bordeaux (1999) \\
 \tool{Mallat--Zhong edges}{mz\_edges} & Mallat \& Zhong (1992), IEEE Trans. Pattern Anal. Mach. Intell. 14(7), 710; ported from LastWave's dwtrans2d 2.1 (1998--2002) \\
 \tool{Wavelet skeleton}{wavelet\_skeleton} & Mallat \& Hwang (1992), IEEE Trans. Inf. Theory 38(2), 617 \\
-\tool{CDF edges}{cdf\_edges} &  \\
+\tool{CDF edges}{cdf\_edges} & Ara\'ujo, Barbeiro, Cuesta \& Dur\'an (2017), Cross-diffusion systems for image processing I and II; Barbeiro (2023) \\
 \tool{Perona--Malik edges}{pm\_edges} & Perona \& Malik (1990), IEEE Trans. Pattern Anal. Mach. Intell. 12(7), 629 \\
-\tool{Microcanonical MFA, measure}{holder\_measure} &  \\
-\tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} &  \\
-\tool{PCA}{pca} &  \\
-\tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD} &  \\
-\tool{2-D SSA}{ssa2d} &  \\
-\tool{DWT}{dwt2d} &  \\
-\tool{Inpaint}{inpaint} &  \\
-\tool{Chain topology}{chain\_topology} &  \\
-\tool{Min V-chains per H-chain}{min\_vchains} &  \\
-\tool{Orientation wedge}{orientation\_wedge} &  \\
-\tool{Modulus threshold}{modulus\_threshold} &  \\
-\tool{H-chain length}{hline\_length} &  \\
-\tool{H-chain modulus}{hline\_modulus} &  \\
-\tool{H-chain H\"older}{hline\_holder} &  \\
-\tool{Chain H\"older}{chain\_holder} &  \\
-\tool{Chain modulus}{chain\_modulus} &  \\
-\tool{Chain length}{chain\_length} &  \\
-\tool{Seam classifier}{chain\_classify} &  \\
-\tool{Group filter}{group\_filter} &  \\
-\tool{Back-project points}{backproject} &  \\
-\tool{Lineal path}{lineal\_path} &  \\
-\tool{Disorder function}{disorder\_function} &  \\
-\tool{Hessian measure (Nathan--Gunaratne)}{hessian\_measure} &  \\
-\tool{Wavelet ridge (Passot--Newell)}{wavelet\_ridge} &  \\
-\tool{Wavelet leaders}{wavelet\_leaders} &  \\
-\tool{Directional scaling functions}{directional\_scaling} &  \\
+\tool{Microcanonical MFA, measure}{holder\_measure} & Turiel, Yahia \& P\'erez-Vicente (2008), J. Phys. A 41, 015501; Pont, Turiel \& P\'erez-Vicente (2006), Phys. Rev. E 74, 061110 \\
+\tool{Microcanonical MFA, multiaffine}{holder\_multiaffine} & Turiel, Yahia \& P\'erez-Vicente (2008), J. Phys. A 41, 015501; Pont, Turiel \& P\'erez-Vicente (2006), Phys. Rev. E 74, 061110; Turiel (2009) \\
+\tool{PCA}{pca} & Pearson (1901), Phil. Mag. 2, 559; Hotelling (1933), J. Educ. Psychol. 24, 417 \\
+\tool{Tucker (HOOI / HOSVD)}{tucker\_HOOI\_HOSVD} & De Lathauwer, De Moor \& Vandewalle (2000), SIAM J. Matrix Anal. Appl. 21, 1253 and 1324; Broomhead \& King (1986), Physica D 20, 217 \\
+\tool{2-D SSA}{ssa2d} & Golyandina \& Usevich (2010); Golyandina, Korobeynikov, Shlemov \& Usevich (2015), J. Stat. Softw. 67(2) \\
+\tool{DWT}{dwt2d} & Mallat (1989), IEEE Trans. PAMI 11, 674; the PyWavelets banks (Lee et al. 2019, J. Open Source Softw. 4, 1237); bl3 after Pottier, Turiel \& Gar\c{c}on (2008) \\
+\tool{Inpaint}{inpaint} & Pottier, Turiel \& Gar\c{c}on (2008), Remote Sens. Environ.: missing data from the turbulent cascade \\
+\tool{Chain topology}{chain\_topology} & --- \\
+\tool{Min V-chains per H-chain}{min\_vchains} & --- \\
+\tool{Orientation wedge}{orientation\_wedge} & --- \\
+\tool{Modulus threshold}{modulus\_threshold} & --- \\
+\tool{H-chain length}{hline\_length} & --- \\
+\tool{H-chain modulus}{hline\_modulus} & --- \\
+\tool{H-chain H\"older}{hline\_holder} & --- \\
+\tool{Chain H\"older}{chain\_holder} & --- \\
+\tool{Chain modulus}{chain\_modulus} & --- \\
+\tool{Chain length}{chain\_length} & --- \\
+\tool{Seam classifier}{chain\_classify} & --- \\
+\tool{Group filter}{group\_filter} & --- \\
+\tool{Back-project points}{backproject} & --- \\
+\tool{Lineal path}{lineal\_path} & Torquato (2002), Random Heterogeneous Materials, Springer, \S{}2.4 \\
+\tool{Disorder function}{disorder\_function} & Gunaratne, Jones, Ouyang \& Swinney (1995), Phys. Rev. Lett. 75, 3281 \\
+\tool{Hessian measure (Nathan--Gunaratne)}{hessian\_measure} & Nathan \& Gunaratne (2005), Phys. Rev. E 71, 035101 \\
+\tool{Wavelet ridge (Passot--Newell)}{wavelet\_ridge} & Passot \& Newell (1994), Physica D 74, 301; the q-Morlet of Borges, Tsallis, Miranda \& Andrade (2004), J. Phys. A 37, 9125 \\
+\tool{Wavelet leaders}{wavelet\_leaders} & Jaffard, Lashermes \& Abry (2006), Wavelet Analysis and Applications, Birkh\"auser, 201--246; p-leaders: Jaffard et al. (2016), Leonarduzzi et al. (2017); ($\theta$, $\omega$)-leaders: Dumeur et al. (2025); GMWLP histogram: Cardo \& Corval\'an (2009), Fractals \\
+\tool{Directional scaling functions}{directional\_scaling} & Ben Slimane et al. (2019), Symmetry 11, 825: the directional thermodynamic formalism on the hyperbolic wavelet basis \\
 \tool{CWT leaders}{cwt\_leaders} & Jaffard 1994 Lemma 1; Jaffard, Lashermes \& Abry 2006; the cylinder supremum on the WTMM's transform (spec 30) \\
-\dev{bus} &  \\
-\dev{holder\_map} &  \\
-\dev{band\_recon} &  \\
-\tool{Band reconstruction, measure}{band\_recon\_measure} &  \\
-\tool{Band reconstruction, multiaffine}{band\_recon\_multiaffine} &  \\
-\dev{tucker\_havok} &  \\
-\tool{Scale}{scale\_select} &  \\
-\dev{group\_paint} &  \\
-\dev{derived\_vectors} &  \\
-\dev{stub\_wavelet} &  \\
-\dev{stub\_holder} &  \\
-\dev{stub\_wedge} &  \\
+\dev{bus} & --- \\
+\dev{holder\_map} & Turiel, Yahia \& P\'erez-Vicente (2008), J. Phys. A 41, 015501; Pont, Turiel \& P\'erez-Vicente (2006), Phys. Rev. E 74, 061110 \\
+\dev{band\_recon} & Turiel \& del Pozo (2002), IEEE Trans. Image Process.: reconstruction from the most singular manifold \\
+\tool{Band reconstruction, measure}{band\_recon\_measure} & Turiel \& del Pozo (2002), IEEE Trans. Image Process.: reconstruction from the most singular manifold \\
+\tool{Band reconstruction, multiaffine}{band\_recon\_multiaffine} & Turiel \& del Pozo (2002), IEEE Trans. Image Process.: reconstruction from the most singular manifold \\
+\dev{tucker\_havok} & Brunton, Brunton, Proctor, Kaiser \& Kutz (2017), Nat. Commun. 8, 19 \\
+\tool{Scale}{scale\_select} & --- \\
+\dev{group\_paint} & --- \\
+\dev{derived\_vectors} & --- \\
+\dev{stub\_wavelet} & --- \\
+\dev{stub\_holder} & --- \\
+\dev{stub\_wedge} & --- \\
 \bottomrule
 \end{longtable}

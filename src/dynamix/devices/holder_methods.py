@@ -48,6 +48,7 @@ from dynamix.model.device import Output, keyed_params
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.devices import q_widths
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 
 def method_arrays(vals, method: str, params: dict, progress=None, extras=None):
@@ -460,6 +461,9 @@ def _compute(device, method: str, field, params: dict, progress=None) -> dict:
 
 class HolderMeasure:
     name = "holder_measure"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Turiel, Yahia & Pérez-Vicente (2008), J. "
+                                 "Phys. A 41, 015501; Pont, Turiel & Pérez-Vicente (2006), Phys. "
+                                 "Rev. E 74, 061110")
     capabilities = frozenset({"OutputProducer", "RegionAware", "StripExtras", "Viewable"})
     role = "primary"
     label = "Microcanonical MFA, measure"
@@ -532,6 +536,9 @@ class HolderMeasure:
 
 class HolderMultiaffine:
     name = "holder_multiaffine"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Turiel, Yahia & Pérez-Vicente (2008), J. "
+                                 "Phys. A 41, 015501; Pont, Turiel & Pérez-Vicente (2006), Phys. "
+                                 "Rev. E 74, 061110; Turiel (2009)")
     capabilities = frozenset({"OutputProducer", "RegionAware", "StripExtras", "Viewable"})
     role = "primary"
     label = "Microcanonical MFA, multiaffine"

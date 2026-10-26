@@ -16,11 +16,14 @@ pixels, ``2**j``).
 """
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 
 from dynamix.core.dwt import BANKS
 from dynamix.model.contracts import COMPONENTS, FIELD
 from dynamix.model.device import Output
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 MAX_LEVELS = 8
@@ -30,6 +33,9 @@ class DWT2D:
     """The orthogonal dyadic pyramid, one row per band and level."""
 
     name = "dwt2d"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Mallat (1989), IEEE Trans. PAMI 11, 674; "
+                                 "the PyWavelets banks (Lee et al. 2019, J. Open Source Softw. 4, "
+                                 "1237); bl3 after Pottier, Turiel & Garçon (2008)")
     capabilities = frozenset({"OutputProducer", "RegionAware", "Viewable"})
     label = "DWT"
     families = ("Decomposition",)

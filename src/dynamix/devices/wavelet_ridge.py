@@ -15,6 +15,7 @@ extension, whose stamp this tool reads.
 """
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
@@ -22,6 +23,7 @@ import numpy as np
 from dynamix.core import analytic_cwt, disorder, ridge
 from dynamix.model.contracts import COMPONENTS, FIELD
 from dynamix.model.device import Output
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 __all__ = ["WaveletRidge"]
@@ -46,6 +48,9 @@ class WaveletRidge:
 
     name = "wavelet_ridge"
     label = "Wavelet ridge (Passot–Newell)"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Passot & Newell (1994), Physica D 74, 301; "
+                                 "the q-Morlet of Borges, Tsallis, Miranda & Andrade (2004), J. "
+                                 "Phys. A 37, 9125")
     families = ("Patterns",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)

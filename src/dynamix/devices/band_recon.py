@@ -25,17 +25,22 @@ same estimator settings, so read the band off that display or the Slice histogra
 """
 from __future__ import annotations
 
+import dataclasses
+
 import numpy as np
 
 from dynamix.devices.holder_map import HolderMap, field_values_2d, holder_arrays
 from dynamix.devices.holder_methods import HolderMeasure, HolderMultiaffine
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.model.device import keyed_params
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 
 class BandRecon:
     name = "band_recon"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Turiel & del Pozo (2002), IEEE Trans. "
+                                 "Image Process.: reconstruction from the most singular manifold")
     capabilities = frozenset({"RegionAware"})
     role = "primary"
     # Either microcanonical method's band output rows reconstruct what this conflated device did.
@@ -179,6 +184,8 @@ def _split_arrays(method: str):
 
 class BandReconMeasure:
     name = "band_recon_measure"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Turiel & del Pozo (2002), IEEE Trans. "
+                                 "Image Process.: reconstruction from the most singular manifold")
     capabilities = frozenset({"RegionAware", "StripExtras"})
     role = "primary"
     superseded_by = "holder_measure"
@@ -237,6 +244,8 @@ class BandReconMeasure:
 
 class BandReconMultiaffine:
     name = "band_recon_multiaffine"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Turiel & del Pozo (2002), IEEE Trans. "
+                                 "Image Process.: reconstruction from the most singular manifold")
     capabilities = frozenset({"RegionAware", "StripExtras"})
     role = "primary"
     superseded_by = "holder_multiaffine"

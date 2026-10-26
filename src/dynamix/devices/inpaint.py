@@ -20,6 +20,7 @@ import numpy as np
 from dynamix.core.dwt import BANKS
 from dynamix.model.contracts import COMPONENTS, FIELD, RECEIVED, STACK
 from dynamix.model.device import Output
+from dynamix.model.origin import FIRST_PARTY
 from dynamix.model.param import Param, ParamKind
 
 _SPARSE = ("route", ("sparsity", "both"))
@@ -199,6 +200,8 @@ class Inpaint:
     """Fill the declared regions of the host band; the filled band is the result's raster."""
 
     name = "inpaint"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Pottier, Turiel & Garçon (2008), Remote "
+                                 "Sens. Environ.: missing data from the turbulent cascade")
     capabilities = frozenset({"Cancellable", "OutputProducer", "RegionAware", "SelfReporting", "Viewable"})
     label = "Inpaint"
     families = ("Reconstruction",)
@@ -304,6 +307,8 @@ class Fill:
     """The engine as a field stage: the host band filled ahead of the analyzer, stamped."""
 
     name = "fill"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Pottier, Turiel & Garçon (2008), Remote "
+                                 "Sens. Environ.: missing data from the turbulent cascade")
     capabilities = frozenset({"Cancellable", "FieldStage", "RegionAware", "SelfReporting"})
     label = "Fill"
     families = ("Data preparation",)

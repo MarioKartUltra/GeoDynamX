@@ -15,8 +15,10 @@ future step). Tucker-HAVOK takes scalar 2-D or multi-component fields alike.
 """
 from __future__ import annotations
 
+import dataclasses
 from dynamix.model.contracts import COMPONENTS, FIELD, STACK
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 
 def _field_values(field, device_name: str, *, min_comps: int = 1):
@@ -111,6 +113,8 @@ class PCADevice:
     """Principal component analysis across a stack's bands; shows one component raster."""
 
     name = "pca"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Pearson (1901), Phil. Mag. 2, 559; "
+                                 "Hotelling (1933), J. Educ. Psychol. 24, 417")
     capabilities = frozenset({"RegionAware", "Viewable"})
     label = "PCA"
     families = ("Decomposition",)
@@ -168,6 +172,8 @@ class TuckerHavok:
     or its residual."""
 
     name = "tucker_havok"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Brunton, Brunton, Proctor, Kaiser & Kutz "
+                                 "(2017), Nat. Commun. 8, 19")
     capabilities = frozenset({"RegionAware", "StripExtras", "Viewable"})
     superseded_by = "tucker_HOOI_HOSVD"
     #: Superseded by tucker_HOOI_HOSVD: listed in no family.
@@ -328,6 +334,9 @@ class TuckerHOOIHOSVD(TuckerHavok):
     as before."""
 
     name = "tucker_HOOI_HOSVD"
+    origin = dataclasses.replace(FIRST_PARTY, citation="De Lathauwer, De Moor & Vandewalle (2000), "
+                                 "SIAM J. Matrix Anal. Appl. 21, 1253 and 1324; Broomhead & King "
+                                 "(1986), Physica D 20, 217")
     capabilities = frozenset({"RegionAware", "StripExtras", "Viewable"})
     superseded_by = None                 # the successor, not superseded: the parent's mark stops here
     label = "Tucker (HOOI / HOSVD)"

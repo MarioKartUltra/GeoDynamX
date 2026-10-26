@@ -28,6 +28,7 @@ from dynamix.devices.wtmm import filled_block, filled_origin
 from dynamix.model.contracts import CURVE, FIELD
 from dynamix.model.device import keyed_params
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 __all__ = ["DirectionalScaling"]
 
@@ -46,6 +47,9 @@ class DirectionalScaling:
 
     name = "directional_scaling"
     label = "Directional scaling functions"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Ben Slimane et al. (2019), Symmetry 11, "
+                                 "825: the directional thermodynamic formalism on the hyperbolic "
+                                 "wavelet basis")
     families = ("Regularity",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)

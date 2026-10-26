@@ -24,12 +24,14 @@ refused here with a pointed message rather than mis-analysed.
 """
 from __future__ import annotations
 
+import dataclasses
 import numpy as np
 
 from dynamix.model.contracts import FIELD, HMAP
 from dynamix.devices.precision import PRECISION_PARAM
 from dynamix.model.device import keyed_params
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 
 def field_values_2d(field, device_name: str):
@@ -104,6 +106,9 @@ def holder_arrays(vals, params: dict, progress=None, extras=None):
 
 class HolderMap:
     name = "holder_map"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Turiel, Yahia & Pérez-Vicente (2008), J. "
+                                 "Phys. A 41, 015501; Pont, Turiel & Pérez-Vicente (2006), Phys. "
+                                 "Rev. E 74, 061110")
     capabilities = frozenset({"RegionAware"})
     role = "primary"
     superseded_by = "holder_measure"

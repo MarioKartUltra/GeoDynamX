@@ -24,6 +24,7 @@ from dynamix.devices.measures_common import (DETREND_PARAM, FLOOR_PARAM, SCHEME_
                                              deriv_record, periodized, scheme)
 from dynamix.model.contracts import CURVE, FIELD
 from dynamix.model.param import Param, ParamKind
+from dynamix.model.origin import FIRST_PARTY
 
 __all__ = ["DisorderFunction"]
 
@@ -36,6 +37,8 @@ class DisorderFunction:
 
     name = "disorder_function"
     label = "Disorder function"
+    origin = dataclasses.replace(FIRST_PARTY, citation="Gunaratne, Jones, Ouyang & Swinney (1995), "
+                                 "Phys. Rev. Lett. 75, 3281")
     families = ("Measures",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
