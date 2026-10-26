@@ -45,9 +45,12 @@ SIGNED_STACK_BUDGET = 512 * 1024 ** 2
 
 
 def _release(result) -> None:
-    """Remove a result's memory-mapped stack file, when it has one. Windows refuses while the
-    map is open; the start-up sweep takes it then."""
-    name = getattr((result or {}).get("signed"), "filename", None)
+    """Remove a result's memory-mapped stack file, when it has one. The result lets go of the map
+    first, since Windows refuses to delete a mapped file; a map still held elsewhere leaves the
+    file to the start-up sweep."""
+    signed = (result or {}).pop("signed", None)
+    name = getattr(signed, "filename", None)
+    del signed
     if name:
         try:
             Path(name).unlink()

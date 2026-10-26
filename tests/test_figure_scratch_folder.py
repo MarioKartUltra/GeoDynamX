@@ -6,6 +6,7 @@ removes its file when the result is replaced or the window closes, and the app s
 at start for whatever a crash left behind."""
 from __future__ import annotations
 
+import weakref
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +36,10 @@ def test_a_signed_stack_over_the_memory_budget_lands_in_the_scratch_folder(qtbot
     expected = cwt2d_scalar(np.asarray(field.values), w._computed["scales"],
                             wavelet=w.wavelet.currentText(), signed=True)["signed"]
     np.testing.assert_allclose(np.asarray(signed), expected, rtol=1e-5, atol=1e-6)
+    mapped = weakref.ref(signed)
+    del signed
     w.close()
+    assert mapped() is None                     # nothing holds the map, so Windows can delete it
     assert not path.exists()
 
 
