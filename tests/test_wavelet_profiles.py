@@ -139,6 +139,14 @@ def test_dwt_bank_levels_scale_by_two_and_level_one_is_off_ladder():
     assert wp.dwt_profile("sym7", 1).off_ladder and not p3.off_ladder
 
 
+def test_every_bank_the_dwt_devices_offer_has_a_profile():
+    from dynamix.core.dwt import BANKS
+
+    for bank in BANKS:                          # bl3 is built by the app, not named in PyWavelets
+        p = wp.dwt_profile(bank, 3)
+        assert np.isfinite(p.lambda_px) and np.abs(p.psi).max() == pytest.approx(1.0), bank
+
+
 def test_tang_you_profile_is_the_gradient_of_theta():
     p = wp.tang_you_profile("tang_you", 6.0)
     assert np.allclose(p.psi, -p.psi[::-1], atol=1e-6) and np.isfinite(p.lambda_px)

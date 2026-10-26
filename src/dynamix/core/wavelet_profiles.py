@@ -361,9 +361,9 @@ def mz_profile(level: int, alpha: float = 3.0) -> Profile:
 
 
 def _bank_filters(bank: str) -> tuple[np.ndarray, np.ndarray]:
-    import pywt
+    from dynamix.core.dwt import wavelet
 
-    w = pywt.Wavelet(bank)
+    w = wavelet(bank)
     return np.asarray(w.dec_lo, dtype=np.float64), np.asarray(w.dec_hi, dtype=np.float64)
 
 
@@ -373,9 +373,9 @@ def _bank_asymptotic_c(bank: str) -> float:
 
 
 def dwt_profile(bank: str, level: int) -> Profile:
-    """A PyWavelets bank's level-``level`` wavelet (scale 2^level) as its own cascade applies
-    it; level 1 of every bank peaks at Nyquist and is off the ladder."""
-    import pywt
+    """A DWT bank's level-``level`` wavelet (scale 2^level) as its own cascade applies it; level
+    1 of every bank peaks at Nyquist and is off the ladder."""
+    from dynamix.core.dwt import wavelet
 
     h, g = _bank_filters(bank)
     level = int(level)
@@ -385,7 +385,7 @@ def dwt_profile(bank: str, level: int) -> Profile:
     # The section is the cascade's limit function (the bank's continuous wavelet) dilated by
     # 2^level and centred on its peak; the level's taps are its samples, too few to draw at
     # the finest levels.
-    _phi, psi_c, x_c = pywt.Wavelet(bank).wavefun(level=8)
+    _phi, psi_c, x_c = wavelet(bank).wavefun(level=8)
     psi_c, x_c = np.asarray(psi_c, dtype=np.float64), np.asarray(x_c, dtype=np.float64)
     x = (x_c - x_c[np.argmax(np.abs(psi_c))]) * scale
     x, psi = _normalised(x, psi_c)
