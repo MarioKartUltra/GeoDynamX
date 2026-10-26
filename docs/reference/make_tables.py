@@ -139,18 +139,12 @@ def families_table() -> str:
 
 
 def origins_table() -> str:
-    """Every tool's origin (``dynamix.model.origin``): its authors, licence, kind and citation."""
-    rows = []
-    for device in [*_listed(), *_dev()]:
-        o = origin_of_device(device)
-        kind = {"first_party": "first party", "derived": "derived", "third_party": "third party"}[o.kind]
-        rows.append(f"{_name(device)} & {tex(', '.join(o.authors))} & {tex(o.license)} ({kind}) & "
-                    f"{tex(o.citation)}")
-    return _longtable(_p(0.22) + _p(0.3) + _p(0.16) + _p(0.26),
-                      r"\textbf{Origins}: who wrote each tool's code, under which licence, and the "
-                      "method it implements; a derived tool runs code ported from another program "
-                      r"(see \texttt{NOTICE}).", "tab:origins",
-                      "Tool & Authors & Licence & Citation", rows)
+    """Every tool's origin (``dynamix.model.origin``): the method it implements, as its citation."""
+    rows = [f"{_name(device)} & {tex(origin_of_device(device).citation)}"
+            for device in [*_listed(), *_dev()]]
+    return _longtable(_p(0.3) + _p(0.64),
+                      r"\textbf{Origins}: the method each tool implements; code ported from another "
+                      r"program is named in \texttt{NOTICE}.", "tab:origins", "Tool & Citation", rows)
 
 
 def contracts_table() -> str:
