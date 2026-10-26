@@ -1,8 +1,19 @@
 # GeoDynamix (beta)
 
+
+<img width="1251" height="324" alt="Screenshot 2026-10-20 at 1 40 25 PM" src="https://github.com/user-attachments/assets/421aa2e6-caf1-4f80-b7b0-711ce50facad" />
+<img width="415" height="402" alt="Screenshot 2026-10-21 at 1 30 53 PM" src="https://github.com/user-attachments/assets/3508bb35-8f3e-4eb6-b26f-7e08abb3a50b" />
+<img width="1233" height="671" alt="Screenshot 2026-10-22 at 3 26 12 AM" src="https://github.com/user-attachments/assets/d47c6280-6acd-44c5-82b8-4de801d7d6f6" />
+<img width="576" height="439" alt="Screenshot 2026-10-23 at 12 39 16 PM" src="https://github.com/user-attachments/assets/739886e6-b0a2-4449-8371-67965a01f29e" />
+<img width="521" height="336" alt="Screenshot 2026-10-22 at 11 01 49 PM" src="https://github.com/user-attachments/assets/87b351e2-803f-48e4-8368-9f5a2fbb4b8b" />
+<img width="659" height="524" alt="Screenshot 2026-10-23 at 2 19 42 AM" src="https://github.com/user-attachments/assets/476bd03e-b147-4d95-9552-ef0c7c0220b2" />
+
+
+
+
 [![tests](https://github.com/MarioKartUltra/GeoDynamX/actions/workflows/tests.yml/badge.svg)](https://github.com/MarioKartUltra/GeoDynamX/actions/workflows/tests.yml)
 
-GeoDynamix is an application for mapping and analysis of rasters. It started as a dedicated GUI for fast and efficient multiscale analysis of geoscientific rasters. I (Abe) particularly made the application for metamorphic geology (see Hobbs and Ord 2015). Metamorphic geology is far more generalized than metamorphic petrology, so a lot of the concepts translate to any other branch of geoscience involving multiple scales in time and or space. GeoDynamX can be especially useful in metamorphic geology, geomorphology, and tectonic geomorphology. Although if geochemists ever become interesting in asking how geochemistry is spatially organized (hint hint: what's the r**2 in your correlations and is it so low becasue spatial information is destroyed?). 
+GeoDynamix is an application for mapping and analysis of rasters. It started as a dedicated GUI for fast and efficient multiscale analysis of geoscientific rasters. I (Abe) particularly made the application for metamorphic geology (see Hobbs and Ord 2015). Metamorphic geology is far more generalized than metamorphic petrology, so a lot of the concepts translate to any other branch of geoscience involving multiple scales in time and or space. GeoDynamX can be especially useful in metamorphic geology, geomorphology, and tectonic geomorphology. Although if geochemists ever become interested in asking how geochemistry is spatially organized this app will be useful for them. 
 
 More generally, this application can be used in any discipline concerned with multiscale analysis and edge detection. 
 
@@ -40,14 +51,28 @@ Arneodo et al.'s 2-D wavelet transform modulus maxima method (WTMM):
     Consider the use of any analying wavelet other than g1 and g3 experimental for now and please check the code for mistakes in the alternative wavelets here (in development). By alternative wavelets, I am referring to the tuneable wavelets such as teh fractional bspline / gaussian wavelets and the Tsallis q-deformed wavelets of Borges et al. (2004). Rather than making some kind of statement about the physics or long range correlations, I attempted to make these wavelets available in 2D (so there were some changes in the scaling function) so that we can tune the wavelets when it's practical. For example, the q-mexican hat as a smoothing function can be tuned to 2 where the negative phase segments of the Ricker wavelet are quite flattened. The analyzing wavelet is then a q-g3 and we are able to have an analyzing wavelet with 3 vanishing moments (to see through smooth perturbations/polynomial trends) that emphasizes true edges much more than the convolution of the negative phase of the analyzing wavelet about the edge (consider a binary line as an impulse in 2D space convolved with a g0 vs g1 vs g2 etc... and what the horizontal extrema would look like). 
 
 
-    Also, DWT leaders 
+    Also, DWT leaders work on synthetic datasets but would like someone to take a look and give advice on edge cases. 
 
     
 
 
 - **Singularity analysis (microcanonical).** Per-pixel Hölder exponents from the gradient measure
   or from wavelet projections, the singularity spectrum by the histogram method, and
-  reconstruction of the field from a band of exponents. This is the method of Turiel et al., and if one chooses to go the DWT route, the default display is a map of holder exponent from the generalized multifractal wavelet leaders projection (Cardo and Corvalan 2008). Both the multiaffine functional and measure (gradient first then smooth) routes are available, and the punctual regression or full scale regression are also options. When tuning the wavelet transform, a nested wavelet scalebar appears for ease of use. 
+  reconstruction of the field from a band of exponents. This is the method of Turiel et al., and if one chooses to go the DWT route, the default display is a map of holder exponent from the generalized multifractal wavelet leaders projection (Cardo and Corvalan 2008). Both the multiaffine functional and measure (gradient first then smooth) routes are available, and the punctual regression or full scale regression are also options. When tuning the wavelet transform, a nested wavelet scalebar appears for ease of use.
+
+  **Generalized partition function and spectra**
+In metamorphic geology, non-convex Helmholtz energies are the necessary conditions for fabric formation. Oritz and Repetto (1999) demonstrate this in the context of single crystal plasticity, where each single-slip system has its own potential energy minimum. The Taylor-Von Misses criterion states for a homogenous deformation a crystal must have available at least 5 independent slip systems. If the deformation is inhomogenous, it needs like 9 or something. Lister and Hobbs demonstrated that this condition can be relaxed in some cases.
+
+Things get more interesting when we consider mono or polyphase aggregates. We would expect non-convex helmholtz energies, but let's say the next scale of interest is the grain scale. The landscape is so complicated that perhaps a statistical physics approach to the dissipation function can greatly simplify things. Considering the role of the Legendre transform in the thermodynamic formalism, there is a lot of analogy between generalized thermodynamics (Houslby and Puzrin hyperplasticity) and dynamical systems. In the multifractal formalism, D(h)/f(a) presumably takes the role of entropy. But how can we reconcile a concave entropy spectrum with a non-convex energy? The answer is in Jaffard and Meyer's work detailed below and further clarified by Hugo Touchette. 
+
+While I am not yet confident that this is being implemented correctly, it's close enough for me to consider it a good start. That is Touchette and Beck's generalized partition function to construct non-concave singularity spectra. We also have a means to generate the large deviation spectrum from wavelet leaders. Once these methods are more rigorously validated, it will be easy to tune the different multifractal formalisms such that the Legendre spectra are the concave envelope of the generalized spectra. Such tuning will enable the results of such analyses to be used more confidently in a data-driven approach to hyperplasticity. That is - using the LD spectrum or non concave singularity spectrum as an empirical thermomechanical dissipation function. A hyperplastic approach would ensure thermodynamic admissibility in principio. 
+
+
+<img width="697" height="351" alt="Screenshot 2026-10-22 at 3 02 28 AM" src="https://github.com/user-attachments/assets/e19d4c56-fb84-4ee2-9caa-382fca6508d7" />
+<img width="1075" height="494" alt="Screenshot 2026-10-23 at 2 20 04 AM" src="https://github.com/user-attachments/assets/71eb8add-bdac-469f-b316-fb6c68d8dbdf" />
+<img width="848" height="405" alt="Screenshot 2026-10-20 at 10 12 15 PM" src="https://github.com/user-attachments/assets/aca1470e-3d62-4e01-85ae-41417ea7a876" />
+
+  
 - **Multiscale edges.** The essence of geological mapping is that it is a form of information compression. As Shannon figured out, compression and prediction are mathematically equivalent. We like to use geological maps to make predictions, e.g. where an earthquake will occur or mineral deposit will be discoveered. Presumably, any sort of machine learning will be either biased or totally black-box unless it takes advantage of some connection to the underlying physics and chemistry. The WTMM method is especially intriguing because of the demonstration by Mallat and Zhong (1992) that multiscale edges contain most of the information from the original signal. This demonstration uses their dyadic spline wavelet which was probably used at the time for computational reasons (compact support enabled FIR filter to be  used). However, their method of projections + FFT can be used to recover a signal from WTMM edges from analysis inw hich the wavelet has no compact support. This goes back to Canny and Marr edge detectors. Meyer did show that they do not contain the complete information and demonstrated a wavelet that did, but it's kinda besides the point. 
 
 There are also other edge detector tools like Perona–Malik anirostropic diffusion (perhaps the best performign), complex (discrete) cross-diffusion filtering (Araujo, Barbeiro et al), and a medial-axis extractor (Tang-You 2003, You et al. 2006). 
