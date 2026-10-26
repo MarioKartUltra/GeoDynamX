@@ -18,6 +18,7 @@ docs/reference/*
 !docs/reference/devices_contract.md
 !docs/reference/devices_reference.pdf
 !docs/reference/make_figures.py
+!docs/reference/make_wavelet_figures.py
 !docs/reference/make_tables.py
 !docs/reference/figures/
 !docs/reference/tables/
