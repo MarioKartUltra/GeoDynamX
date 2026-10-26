@@ -675,7 +675,7 @@ is the Gaussian's within 3\,\%; the q-Gaussian's tails lengthen it above $q=1$ a
 below). The two new smoothers run on the device (mlx) on Apple Silicon and on FFTW3 elsewhere,
 exactly as the pair does; the three engines agree to float32 tolerance.
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{n\_oct} (Octaves) & 3 & $[1,12]$ & scale range: $a$ spans \texttt{n\_oct} octaves above $a_{\min}$ \\
 \texttt{n\_voice} & 4 & $[1,64]$ & scales per octave (grid density) \\
@@ -772,7 +772,7 @@ The parent's WTMM re-pointed at a native-resolution window: the knobs of \dev{wt
 the window itself. Used by the overview
 drill-down: draw an ROI on the decimated whole-extent, compute native.
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{roi\_row}, \texttt{roi\_col} & 0 & px & window origin (native pixels) \\
 \texttt{roi\_h}, \texttt{roi\_w} & 512 & $\ge 8$ px & window size \\
@@ -1031,7 +1031,7 @@ distrusted. On \texttt{input=gradient} the detector runs over $\lVert\nabla s\rV
 where a diffused scarp (an \emph{edge} in the signal) becomes a ribbon whose axis is the
 fault trace. Output is single-scale extrema (H-lines via \texttt{line\_id}).
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{s1} ($s_1$) & 6 & $[2,64]$ px & stage-1 scale = kernel support radius; should cover the ribbon width \\
 \texttt{s2} ($s_2$) & 6 & $[2,64]$ px & refinement-stage scale \\
@@ -1412,7 +1412,7 @@ the horizontal, vertical and diagonal details at each level (per-level outputs,
 \S\ref{sec:perscale}); \texttt{show} picks the displayed band. Figure~\ref{fig:atlas-interpolating}
 draws the atoms of both predictors in 1-D and in 3-D.
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{bank} (Predictor) & dd4 & dd4, gldaf & Deslauriers--Dubuc 4-point, or the Gaussian--Lagrange DAF shell \\
 \texttt{order} (Shell order $M$) & 3 & $[1,15]$, odd & under gldaf: the shell's polynomial order \\
@@ -1454,7 +1454,7 @@ DEM. A foreign value or structure send closes the cascade routes. Result: the fi
 \texttt{\_stop}, \texttt{\_variance\_error}, \texttt{\_heldout}, \texttt{\_eta\_distance},
 \texttt{\_amp\_distance}, \texttt{\_terms\_dropped}, \texttt{\_veil}, \texttt{\_fill\_kind}.
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{route} & sparsity & sparsity / cascade / both & the prior \\
 \texttt{wavelet} & sym7 & the orthogonal banks & the pyramid's bank \\
@@ -1704,7 +1704,7 @@ that produces an extrema stack (the \hyperref[tab:applicability]{applicability t
 \texttt{sup\_all\_scales}, \dev{hline\_modulus} also reads the V-chains threading each line,
 and \dev{hline\_holder} reads the per-point $\alpha$ the Mallat--Zhong analysis stamps.
 
-\begin{longtable}{L l l M}
+\begin{longtable}{P l R N}
 \toprule Device.param & Default & Range & Meaning \\ \midrule
 \dev{orientation\_wedge}.\texttt{centre} & 0 & deg & keep extrema whose gradient strike falls in the wedge \\
 \dev{orientation\_wedge}.\texttt{half\_width} & 90 & $[0,90]$ deg & wedge half-width ($90$ = no-op) \\
@@ -1928,7 +1928,6 @@ to their own tools. Inspector Apply actions reuse cached
 upstream coefficients when only moments, chaining or fit controls change.
 
 %======================================================================
-\clearpage
 \section{The wavelet atlas}\label{sec:atlas}
 Every analysing wavelet and smoothing function the app runs, drawn by
 \texttt{make\_wavelet\_figures.py} from the code the devices compute with (\texttt{core.smoothers},
