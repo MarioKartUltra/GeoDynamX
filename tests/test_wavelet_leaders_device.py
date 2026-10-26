@@ -349,7 +349,8 @@ def test_a_per_level_output_travels_as_its_decimated_cell_grid(dev, field):
     assert "raster" not in out
     assert out["cells"].shape == res["_quantity"]["leaders"][3].shape and out["cells"].dtype == np.float32
     raster = output_raster(out)
-    cells = np.where(res["_valid"]["leaders"][3], np.log2(res["_quantity"]["leaders"][3]), np.nan)
+    leader = np.asarray(res["_quantity"]["leaders"][3], dtype=np.float64)    # the device's log2 is float64
+    cells = np.where(res["_valid"]["leaders"][3], np.log2(leader), np.nan)
     np.testing.assert_array_equal(raster, leaders.paint(cells, 4, (512, 512), pad=res["_pad"]).astype(np.float32))
     assert retained_nbytes(out) < raster.nbytes / 50
 
