@@ -344,6 +344,11 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._frame_combo.addItems(["original", "integrated"])
         self._frame_combo.currentTextChanged.connect(lambda _t: self._refit())
         controls.addWidget(self._frame_combo)
+        # The strip wraps onto further rows: one row of everything had a minimum width wider
+        # than a laptop screen, and a window can never be narrower than its layout.
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        controls = QtWidgets.QHBoxLayout()
 
         # The fit mode (core/spectra.focus_regression): plain per-q slopes, or every q fitted
         # through one focus at the field extent. Chosen here, where the fit happens; the
@@ -367,6 +372,18 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._xaxis_combo.currentTextChanged.connect(self._on_xaxis_changed)
         controls.addWidget(self._xaxis_combo)
 
+        q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)
+        controls.addWidget(QtWidgets.QLabel("q"))
+        self._qmin_spin = QtWidgets.QDoubleSpinBox()
+        self._qmax_spin = QtWidgets.QDoubleSpinBox()
+        for spin, seed in ((self._qmin_spin, q.min()), (self._qmax_spin, q.max())):
+            spin.setRange(float(q.min()), float(q.max()))
+            spin.setSingleStep(0.5)
+            spin.setDecimals(2)
+            spin.setValue(float(seed))
+            spin.valueChanged.connect(lambda _v: self._on_q_range_changed())
+            controls.addWidget(spin)
+
         # Show: which method's spectra and partition functions are drawn, the primary included.
         self.show_button = QtWidgets.QToolButton()
         self.show_button.setText("Show")
@@ -379,8 +396,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             action.toggled.connect(lambda checked, n=name: self._on_source_toggled(n, checked))
         self.show_button.setMenu(self.show_menu)
         controls.addWidget(self.show_button)
-        # The strip wraps onto a second row here: one row of everything had a minimum width
-        # wider than a laptop screen, and a window can never be narrower than its layout.
         controls.addStretch(1)
         layout.addLayout(controls)
         controls = QtWidgets.QHBoxLayout()
@@ -444,17 +459,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             self.all_chains_check.toggled.connect(self._on_all_chains_toggled)
             controls.addWidget(self.all_chains_check)
 
-        q = np.asarray(self._current_hd()["q_list"], dtype=np.float64)
-        controls.addWidget(QtWidgets.QLabel("q"))
-        self._qmin_spin = QtWidgets.QDoubleSpinBox()
-        self._qmax_spin = QtWidgets.QDoubleSpinBox()
-        for spin, seed in ((self._qmin_spin, q.min()), (self._qmax_spin, q.max())):
-            spin.setRange(float(q.min()), float(q.max()))
-            spin.setSingleStep(0.5)
-            spin.setDecimals(2)
-            spin.setValue(float(seed))
-            spin.valueChanged.connect(lambda _v: self._on_q_range_changed())
-            controls.addWidget(spin)
 
         # The phase-transition break point (cell 49): settable here or by clicking either
         # bottom-row panel. Positive branch only, so the floor sits just above zero.
