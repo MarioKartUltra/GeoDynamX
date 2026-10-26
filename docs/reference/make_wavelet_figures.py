@@ -333,13 +333,14 @@ def fig_edges():
     fig = plt.figure(figsize=(6.5, 6.4))
     gs = fig.add_gridspec(3, 6, height_ratios=(1.0, 1.1, 1.1))
     a = fig.add_subplot(gs[0, 0:3])
-    for k, (mode, ls) in enumerate((("mz", "-"), ("marr", "--"))):
+    channels = (("mz", "-", "Re u, Canny (mz)"), ("marr", "--", "Im v, Marr (marr)"))
+    for k, (mode, ls, part) in enumerate(channels):
         for c, sigma in enumerate((2.0, 4.0, 8.0)):
             p = wp.cdf_profile(mode, sigma)
             a.plot(p.x_px, p.psi, ls, lw=0.9, color=plt.get_cmap("viridis")(c / 2),
-                   label=f"{mode}, σ = {sigma:g}")
+                   label=f"{part}, σ = {sigma:g}")
     a.set_xlim(-30, 30)
-    a.set_title("cdf_edges: the linear evolution's equivalent kernels")
+    a.set_title("cdf_edges: ∇G_σ behind Re u, θtΔG_σ behind Im v")
     a.set_xlabel("x (px)")
     a.legend(loc="lower left", ncol=2)
     b = fig.add_subplot(gs[0, 3:6])
@@ -365,22 +366,18 @@ def fig_edges():
 
 # -- A1--A8: the appendix of the tuneable-wavelets note ------------------------------------------
 
-def fig_a1_smoothers():
-    """A1. The WTMM smoothers morphing with their parameter at a = 8 px."""
+def _smoother_page(fams, name):
+    """A1's columns: θ, ψ = ∂θ and θ̂ swept over the parameter, and ψ stacked up it, at a = 8 px."""
     a = 8.0
     sigma = a * sm._SIGMA_PER_SCALE
     s_grid = np.linspace(0.0, 3.0, 600)
     zero = np.zeros_like(s_grid)
-    fams = [("fractional B-spline", "frac_bspline", "alpha", "α", np.linspace(1.0, 6.0, 26), "gaussian", "brg"),
-            ("q-Gaussian (σ matched)", "q_gaussian", "q", "q", np.linspace(0.3, 1.95, 26), "gaussian", "rainbow"),
-            ("q-Mexican hat", "q_mexican", "q", "q", np.linspace(0.7, 1.95, 26), "mexican", "brg"),
-            ("q-Meyer", "q_meyer", "q", "q", np.linspace(0.1, 1.95, 26), "gaussian", "rainbow")]
-    fig, ax = plt.subplots(4, 4, figsize=(6.5, 8.4), constrained_layout=True)
-    for j, (title, name, key, lab, vals, refname, cmap) in enumerate(fams):
+    fig, ax = plt.subplots(4, len(fams), figsize=(6.5, 8.4), constrained_layout=True)
+    for j, (title, smoother, key, lab, vals, refname, cmap, span) in enumerate(fams):
         ref = sm.smoother(refname)
 
-        def sec(v, order, name=name, key=key):
-            x, y = sm.smoother(name, {key: v}).section(a, order)
+        def sec(v, order, smoother=smoother, key=key):
+            x, y = sm.smoother(smoother, {key: v}).section(a, order)
             return x / sigma, _norm(y)
 
         def ref_sec(order, ref=ref):
@@ -389,17 +386,34 @@ def fig_a1_smoothers():
 
         _sweep(ax[0, j], vals, lambda v, sec=sec: sec(v, 0), cmap, lab, ref=ref_sec(0), ref_label=f"{refname} θ")
         _sweep(ax[1, j], vals, lambda v, sec=sec: sec(v, 1), cmap, lab, ref=ref_sec(1), ref_label=f"{refname} ψ")
-        _sweep(ax[2, j], vals, lambda v, name=name, key=key: (s_grid, sm.smoother(name, {key: v}).theta_hat(s_grid, zero)),
+        _sweep(ax[2, j], vals,
+               lambda v, smoother=smoother, key=key: (s_grid, sm.smoother(smoother, {key: v}).theta_hat(s_grid, zero)),
                cmap, lab, ref=(s_grid, ref.theta_hat(s_grid, zero)), ref_label=f"{refname} θ̂")
         _waterfall(ax[3, j], vals, lambda v, sec=sec: sec(v, 1), cmap, lab)
-        ax[0, j].set_title(f"{title}:\n{lab} from {vals[0]:g} to {vals[-1]:g}")
+        ax[0, j].set_title(f"{title}: {lab} from {vals[0]:g} to {vals[-1]:g}")
         for r in (0, 1, 3):
-            ax[r, j].set_xlim(-6, 6)
+            ax[r, j].set_xlim(-span, span)
         ax[3, j].set_xlabel("x/σ")
         ax[2, j].set_xlabel("s = a·k")
     for r, yl in enumerate(("θ (x/σ)", "ψ = ∂θ (x/σ)", "θ̂(s)", "ψ up the parameter")):
         ax[r, 0].set_ylabel(yl)
-    _save(fig, "atlas_a1_smoothers")
+    _save(fig, name)
+
+
+def fig_a1_smoothers():
+    """A1. The q-Gaussian and q-Mexican hat smoothers morphing with q at a = 8 px."""
+    _smoother_page([("q-Gaussian (σ matched)", "q_gaussian", "q", "q", np.linspace(0.3, 1.95, 26), "gaussian",
+                     "rainbow", 6.0),
+                    ("q-Mexican hat", "q_mexican", "q", "q", np.linspace(0.7, 1.95, 26), "mexican", "brg", 6.0)],
+                   "atlas_a1_smoothers")
+
+
+def fig_a1b_smoothers():
+    """A1, continued. The q-Meyer and the fractional B-spline morphing with their parameter."""
+    _smoother_page([("q-Meyer", "q_meyer", "q", "q", np.linspace(0.1, 1.95, 26), "gaussian", "rainbow", 12.0),
+                    ("fractional B-spline", "frac_bspline", "alpha", "α", np.linspace(1.0, 6.0, 26), "gaussian",
+                     "brg", 6.0)],
+                   "atlas_a1b_smoothers")
 
 
 def fig_a2_turiel():
@@ -448,7 +462,7 @@ def fig_a3_dyadic():
     ax[1, 0].set_xlabel("x (px)")
     sigmas = np.geomspace(1.0, 16.0, 26)
     _sweep(ax[0, 1], sigmas, lambda sg: (lambda p: (p.x_px, p.psi))(wp.cdf_profile("mz", sg)), "rainbow", "σ", log=True)
-    ax[0, 1].set_title("CDF edges, Canny channel: σ from 1 to 16 px")
+    ax[0, 1].set_title("CDF edges, Re u (Canny): σ from 1 to 16 px")
     ss = np.geomspace(2.0, 32.0, 26)
     _sweep(ax[1, 1], ss, lambda s_: (lambda p: (p.x_px, p.psi))(wp.tang_you_profile("tang_you", s_)), "rainbow", "s",
            log=True)
@@ -567,12 +581,15 @@ def fig_a5_meyer():
     zero = np.zeros_like(s_grid)
 
     def sections(q):
+        """θ and ψ out to ±26 σ (the registry's own section stops at ±12 σ, which the dilated
+        column would shrink to ±6.4 σ), from the same inverse transform of θ̂."""
         s = sm.smoother("q_meyer", {"q": q})
-        (x0, th), (x1, ps) = s.section(a, 0), s.section(a, 1)
-        return x0 / sigma, _norm(th), x1 / sigma, _norm(ps), s
+        x0, th = sm._central_row(s.theta_hat, 0, n=4096, du=1.0 / 32.0, span=26.0)
+        x1, ps = sm._central_row(s.theta_hat, 1, n=4096, du=1.0 / 32.0, span=26.0)
+        return x0, th, x1, ps, s
 
-    _, _, x1p, psi1, _ = sections(1.0)
-    dil = abs(x1p[np.argmax(psi1)])               # the q = 1 Meyer's ψ peak, in σ
+    x1p, psi1 = sm.smoother("q_meyer", {"q": 1.0}).section(a, 1)
+    dil = abs(x1p[np.argmax(psi1)]) / sigma       # the q = 1 Meyer's ψ peak in σ, the registry's section
     fig, ax = plt.subplots(3, 2, figsize=(6.5, 7.2), constrained_layout=True)
     modes = (("as the registry draws it: band peak λ* matched to the Gaussian's", 1.0),
              (f"dilated by 1/{dil:.2f}: ψ peaks at ±σ like the Gaussian's", dil))
@@ -742,7 +759,7 @@ def fig_a8_qmorlet_chirp():
 
 
 FIGURES = (fig_wtmm_3d, fig_microcanonical, fig_dwt_banks, fig_dwt_3d, fig_interpolating, fig_qmorlet_3d,
-           fig_edges, fig_a1_smoothers, fig_a2_turiel, fig_a3_dyadic, fig_a4_q_range, fig_a5_meyer,
+           fig_edges, fig_a1_smoothers, fig_a1b_smoothers, fig_a2_turiel, fig_a3_dyadic, fig_a4_q_range, fig_a5_meyer,
            fig_a6_meyer_rings, fig_a7_frac_grids, fig_a8_qmorlet_chirp)
 
 

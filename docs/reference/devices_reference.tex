@@ -1990,21 +1990,27 @@ and modulus for $q=0.7$, $1$ (the Morlet) and $1.5$.}\label{fig:atlas-qmorlet}
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_edges.pdf}
-\caption{Top: \dev{cdf\_edges}' equivalent kernels of the linear evolution at small $\theta$ (the Gaussian
-derivative behind the \texttt{mz} channel, the Mexican hat behind \texttt{marr}) at $\sigma=2, 4,
-8$\,px, and the three gradient wavelets of \dev{wavelet\_skeleton} at $s=8$\,px. Below: the skeleton's
+\caption{Top: \dev{cdf\_edges}' equivalent kernels of the linear evolution at small $\theta$ at $\sigma=2,
+4, 8$\,px: the Gaussian derivative $\nabla G_\sigma$ behind the real part $u$, whose gradient maxima
+are the Canny edges (\texttt{edge\_mode} \texttt{mz}), and the Mexican hat $\theta t\,\Delta G_\sigma$
+behind the imaginary part $v$, whose zero crossings are the Marr--Hildreth edges (\texttt{marr}), and the three gradient wavelets of \dev{wavelet\_skeleton} at $s=8$\,px. Below: the skeleton's
 smoothing kernels $\theta$ and their $x$-gradients in 3-D at $s=20$\,px.}\label{fig:atlas-edges}
 \end{figure}
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a1_smoothers.pdf}
 \caption{A1. WTMM smoothing functions at nominal scale $a=8$\,px: the smoother $\theta$, its gradient
-$\psi=\partial\theta$ (the analyser) and $\hat\theta(s)$, for the fractional B-spline (isotropic
-polyharmonic form, order $\alpha+1$), the q-Gaussian ($\sigma$ matched), the q-Mexican hat ($-\Delta$
-of the q-Gaussian; its analyser the q-\texttt{g3}) and the q-Meyer (Meyer's radial taper with
-Borges's q-cosine). 26 values per sweep as hairlines on a colour ramp; the bottom row stacks the
-sections up the parameter. The fractional B-spline's $\psi$ is not continuous in 2-D for $\alpha\le2$
-(the knob's soft floor).}\label{fig:a1}
+$\psi=\partial\theta$ (the analyser) and $\hat\theta(s)$, for the q-Gaussian ($\sigma$ matched) and
+the q-Mexican hat ($-\Delta$ of the q-Gaussian; its analyser the q-\texttt{g3}). 26 values per sweep
+as hairlines on a colour ramp; the bottom row stacks the sections up the parameter.}\label{fig:a1}
+\end{figure}
+
+\begin{figure}[p]
+\centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a1b_smoothers.pdf}
+\caption{A1, continued: the q-Meyer (Meyer's radial taper with Borges's q-cosine, drawn over the
+$\pm12\,\sigma$ of its section, where it still rings) and the fractional B-spline (isotropic
+polyharmonic form, order $\alpha+1$). The fractional B-spline's $\psi$ is not continuous in 2-D for
+$\alpha\le2$ (the knob's soft floor).}\label{fig:a1b}
 \end{figure}
 
 \begin{figure}[p]
@@ -2018,7 +2024,7 @@ $\beta(q)=1/(2(2-q))$, which holds the escort variance so the zero crossing stay
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a3_dyadic.pdf}
 \caption{A3. Dyadic banks and edge detectors: Mallat--Zhong edges across the spline order $\alpha$ ($\alpha=1$
-the box pair, $\alpha=3$ the quadratic spline) and across levels, the CDF edge detector across
+the box pair, $\alpha=3$ the quadratic spline) and across levels, the CDF edge detector's real part (the Canny channel) across
 $\sigma$, the Tang--You skeleton kernel across its support radius, and the sixteen DWT banks at level 3
 (\texttt{bl3} added since the note).}\label{fig:a3}
 \end{figure}
