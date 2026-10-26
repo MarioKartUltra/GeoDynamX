@@ -39,7 +39,7 @@ def _stripes(n: int, cycles: int, angle: float = 0.0) -> np.ndarray:
 
 
 def test_the_device_is_registered_under_measures_and_produces_a_curve(dev):
-    assert dev.label == "Disorder function (Gunaratne)" and dev.families == ("Measures",)
+    assert dev.label == "Disorder function" and dev.families == ("Measures",)
     assert dev.consumes == ((FIELD,),) and CURVE in dev.produces
 
 

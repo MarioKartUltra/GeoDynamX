@@ -75,7 +75,7 @@ LABELS = {
     "holder_multiaffine": "Microcanonical MFA, multiaffine",
     "wavelet_skeleton": "Wavelet skeleton",
     "lineal_path": "Lineal path",
-    "disorder_function": "Disorder function (Gunaratne)",
+    "disorder_function": "Disorder function",
     "hessian_measure": "Hessian measure (Nathan–Gunaratne)",
     "wavelet_ridge": "Wavelet ridge (Passot–Newell)",
     "wavelet_leaders": "Wavelet leaders",

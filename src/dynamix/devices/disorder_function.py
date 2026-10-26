@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""Disorder function (Gunaratne): the disorder of a locally striped field.
+"""Disorder function: the disorder of a locally striped field.
 
 The field-form disorder of Gunaratne, Hoffman and Kouri 1998 (PRE 57:5146, Eq. 2) — the mean
 δ̄(β), the total |Ω|·δ̄(β) and the rooted mean δ̄(β)^{1/β} — or the envelope form of the 1995 PRL
@@ -35,7 +35,7 @@ class DisorderFunction:
     """δ̄(β), δ(β) and δ_root(β) of a field, with D(x) and the envelope's rasters."""
 
     name = "disorder_function"
-    label = "Disorder function (Gunaratne)"
+    label = "Disorder function"
     families = ("Measures",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
