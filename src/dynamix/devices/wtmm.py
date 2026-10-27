@@ -35,14 +35,14 @@ _BETA_SMOOTHERS = ("q_gaussian", "q_mexican")
 
 #: The smoother choice and its two parameters, shared with the ROI device. The choice names
 #: the smoothing function θ; the analysing wavelets are its gradient components: g3 for the
-#: Mexican hat, g1 for the Gaussian, ∂θ for the fractional B-spline (degree α) and the
+#: Mexican hat, g1 for the Gaussian, ∂θ for the isotropic polyharmonic B-spline (degree α) and the
 #: q-Gaussian (Tsallis q), each parameter shown with its own smoother.
 SMOOTHER_PARAMS = (
     Param("wavelet", ParamKind.CHOICE, default="mexican",
           choices=("mexican", "gaussian", "frac_bspline", "q_gaussian", "q_mexican", "q_meyer"),
           label="Smoother θ",
           choice_labels=("mexican (ψ = g3)", "gaussian (ψ = g1)",
-                         "fractional B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
+                         "isotropic polyharmonic B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
                          "q-Mexican hat (ψ = q-g3)", "q-Meyer (ψ = ∂θ_q)")),
     Param("alpha", ParamKind.FLOAT, default=3.0, min=1.0, max=8.0, soft_min=2.0, soft_max=4.0,
           units="", label="α (degree)", active_when=("wavelet", ("frac_bspline",))),

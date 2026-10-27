@@ -21,7 +21,7 @@ def test_the_knob_offers_the_registry_with_its_parameters_active_beside_their_sm
     dev = WTMM2D()
     w = _param(dev, "wavelet")
     assert w.choices == ("mexican", "gaussian", "frac_bspline", "q_gaussian", "q_mexican", "q_meyer")
-    assert w.choice_labels[2:] == ("fractional B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
+    assert w.choice_labels[2:] == ("isotropic polyharmonic B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
                                    "q-Mexican hat (ψ = q-g3)", "q-Meyer (ψ = ∂θ_q)")
     a, q = _param(dev, "alpha"), _param(dev, "q_tsallis")
     assert (a.default, a.min, a.max, a.soft_min) == (3.0, 1.0, 8.0, 2.0)

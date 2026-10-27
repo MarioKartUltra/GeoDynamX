@@ -39,7 +39,7 @@ def test_the_fractional_bspline_matches_the_gaussians_width_at_the_same_scale():
     assert s.theta_hat(np.zeros(1), np.zeros(1))[0] == pytest.approx(1.0)
     sx = np.array([0.05, 0.1]); sy = np.zeros(2)
     np.testing.assert_allclose(s.theta_hat(sx, sy), np.exp(-sx ** 2), atol=2e-4)
-    assert s.theta_name.startswith("fractional B-spline") and "∂θ" in s.psi_name
+    assert s.theta_name.startswith("isotropic polyharmonic B-spline") and "∂θ" in s.psi_name
     with pytest.raises(ValueError, match="alpha"):
         sm.smoother("frac_bspline", {"alpha": 0.5})
 

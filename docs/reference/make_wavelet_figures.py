@@ -143,6 +143,27 @@ def _radial(profile, span_px, n=121):
 
 # -- the 3-D atlas --------------------------------------------------------------------------------
 
+#: The smoothers' names as the WTMM menu shows them.
+_SMOOTHER_NAMES = {"gaussian": "Gaussian", "mexican": "Mexican hat", "frac_bspline": "polyharmonic B-spline",
+                   "q_gaussian": "q-Gaussian", "q_mexican": "q-Mexican hat", "q_meyer": "q-Meyer"}
+
+
+def _polyharmonic_2d(alpha, order, span, n=129):
+    """θ, ∂θ/∂x or ∂θ/∂y of the isotropic polyharmonic B-spline on |u| ≤ ``span`` σ, evaluated in
+    the space domain (``dynamix.core.polyharmonic_exact``); max |field| = 1."""
+    from dynamix.core.polyharmonic_exact import evaluate
+
+    gamma = alpha + 1.0
+    h = np.sqrt(12.0 / gamma)                     # the knot spacing in σ
+    u = np.linspace(-span, span, n)
+    gx, gy = np.meshgrid(u, u)
+    if order == "dy":
+        field = evaluate(gy / h, gx / h, gamma, 1)
+    else:
+        field = evaluate(gx / h, gy / h, gamma, 0 if order is None else 1)
+    return u, field / np.abs(field).max()
+
+
 def fig_wtmm_3d():
     """θ, ψ₁ = ∂θ/∂x and ψ₂ = ∂θ/∂y of the six WTMM smoothers at their default settings."""
     cases = [("gaussian", 4.0), ("mexican", 4.5), ("frac_bspline", 4.0),
@@ -152,10 +173,12 @@ def fig_wtmm_3d():
     fig = plt.figure(figsize=(6.5, 9.0))
     for i, (name, span) in enumerate(cases):
         s = sm.smoother(name)
-        head = f"{name} ({_setting(s.params)})" if _setting(s.params) else name
+        label = _SMOOTHER_NAMES[name]
+        head = f"{label} ({_setting(s.params)})" if _setting(s.params) else label
         for j, (order, comp) in enumerate(parts):
             ax = fig.add_subplot(len(cases), 3, 3 * i + j + 1, projection="3d")
-            u, z = _kernel_2d(s, order, span)
+            u, z = (_polyharmonic_2d(s.params["alpha"], order, span) if name == "frac_bspline"
+                    else _kernel_2d(s, order, span))
             _surface(ax, u, u, z, f"{head}: ${comp}$")
     fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=0.98, wspace=0.0, hspace=0.08)
     _save(fig, "atlas_wtmm_3d")
@@ -414,9 +437,9 @@ def fig_a1_smoothers():
 
 
 def fig_a1b_smoothers():
-    """A1, continued. The q-Meyer and the fractional B-spline morphing with their parameter."""
+    """A1, continued. The q-Meyer and the isotropic polyharmonic B-spline morphing with their parameter."""
     _smoother_page([("q-Meyer", "q_meyer", "q", "q", np.linspace(0.1, 1.95, 26), "gaussian", "rainbow", 12.0),
-                    ("fractional B-spline", "frac_bspline", "alpha", "α", np.linspace(1.0, 6.0, 26), "gaussian",
+                    ("isotropic polyharmonic B-spline", "frac_bspline", "alpha", "α", np.linspace(1.0, 6.0, 26), "gaussian",
                      "brg", 6.0)],
                    "atlas_a1b_smoothers")
 
@@ -664,21 +687,36 @@ def fig_a6_meyer_rings():
 
 
 def fig_a7_frac_grids():
-    """A7. The fractional B-spline below α = 3 on three inverse-FFT grids."""
+    """A7. The isotropic polyharmonic B-spline below α = 3 on three inverse-FFT grids, against its
+    space-domain evaluation."""
+    from dynamix.core.polyharmonic_exact import evaluate
+
     grids = [(1.0 / 16.0, 1024, "tab:blue"), (1.0 / 64.0, 4096, "tab:orange"), (1.0 / 128.0, 8192, "k")]
     fig, ax = plt.subplots(1, 3, figsize=(6.5, 2.7), constrained_layout=True)
     for a_, alpha in zip(ax, (1.5, 2.0, 2.5)):
         h = np.sqrt(12.0 / (alpha + 1.0))         # the knot spacing in σ (the matched-σ spline)
+        def main_lobe(u, y, alpha=alpha):
+            """Unbounded at the knots (α < 2): scaled by the largest value a tenth of a knot
+            spacing from every knot and clipped; bounded: scaled by its own maximum."""
+            if alpha >= 2.0:
+                return y / np.abs(y).max()
+            knot = u / h
+            return np.clip(y / np.abs(y[np.abs(knot - np.round(knot)) > 0.1]).max(), -1.0, 1.0)
+
         for du, n, c in grids:
             u, y = sm._central_row(sm._frac_hat_factory(alpha), 1, n=n, du=du, span=4.0)
-            a_.plot(u, y, color=c, lw=0.6, alpha=0.85,
+            a_.plot(u, main_lobe(u, y), color=c, lw=0.6, alpha=0.85,
                     label=f"grid σ/{int(round(1 / du))}, Nyquist s = {np.pi * np.sqrt(2.0) / (2 * du):.0f}")
+        u = (np.arange(-512, 512) + 0.5) / 128.0
+        a_.plot(u, main_lobe(u, evaluate(u / h, 0.0, alpha + 1.0, 1)), color="tab:red", lw=0.9,
+                label="space domain (exact)")
         for k in (-2, -1, 1, 2):
             a_.axvline(k * h, color="0.85", lw=0.5, ls=":")
         a_.set_xlim(-4, 4)
+        a_.set_ylim(-1.15, 1.15)
         a_.set_title(f"α = {alpha:g}: knots at multiples of {h:.2f} σ")
         a_.set_xlabel("x/σ")
-    fig.legend(*ax[0].get_legend_handles_labels(), loc="outside lower center", ncol=3, frameon=False)
+    fig.legend(*ax[0].get_legend_handles_labels(), loc="outside lower center", ncol=4, frameon=False)
     _save(fig, "atlas_a7_frac_grids")
 
 

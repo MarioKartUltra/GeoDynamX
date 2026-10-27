@@ -21,7 +21,8 @@ Smoothers:
   separable β(x)β(y) would be anisotropic, and the WTMM reads gradient directions. The knot
   spacing h matches the Gaussian's σ at the same scale (θ̂ ≈ 1 − γ‖hω‖²/24): h = σ √(12/γ). A
   continuous gradient wavelet needs ψ̂ ~ ‖ω‖^(1−γ) integrable in 2-D, γ > 3: α > 2, where one
-  dimension needed α > 1.
+  dimension needed α > 1. Its sections are evaluated in the space domain
+  (:mod:`dynamix.core.polyharmonic_exact`), so they carry no truncation ringing.
 - ``q_gaussian``: the Tsallis q-Gaussian e_q(−ρ²/2σ²), σ = a/(π√2) (q → 1 the Gaussian exactly),
   its radial transform from :func:`dynamix.core.q_fourier.q_gaussian_ft` tabulated once per q.
   Finite mass in 2-D only for q < 2; a continuous ψ at the compact support's edge (q < 1) needs
@@ -203,13 +204,22 @@ def _central_row(theta_hat, deriv_order: int, n: int = 1024, du: float = 1.0 / 1
 
 @functools.lru_cache(maxsize=64)
 def _frac_section_u(alpha: float, deriv_order: int) -> tuple:
-    """The fractional B-spline's section, computed once per order (not separable). Below α = 3
-    the spectrum decays slowly (ψ̂ ~ ‖ω‖^(1−γ)) and the grid's Nyquist truncation rings between
-    the knots, so the grid is four times finer there; the spikes and jumps AT the knots are the
-    function itself (its Green's-function derivative ρ^(γ−3)), not the grid."""
-    fine = float(alpha) < 3.0
-    return _central_row(_frac_hat_factory(alpha), deriv_order, n=4096 if fine else 1024,
-                        du=1.0 / 64.0 if fine else 1.0 / 16.0)
+    """The polyharmonic B-spline's x-axis section in σ units, |u| ≤ 6, evaluated in the space domain
+    on a grid that never lands on a knot, scaled to max |y| = 1. Where the function is unbounded at
+    the knots (ψ below α = 2, θ at α = 1, its log), it is scaled by its largest value at least a
+    tenth of a knot spacing from every knot and clipped to ±1 there, so the main lobe reads as in
+    every other smoother's section; a bounded jump or cusp (ψ for 2 ≤ α < 3) is drawn whole."""
+    from dynamix.core.polyharmonic_exact import evaluate
+
+    gamma = float(alpha) + 1.0
+    h = np.sqrt(12.0 / gamma)                                 # the knot spacing in σ
+    u = (np.arange(-768, 768) + 0.5) / 128.0
+    y = evaluate(u / h, 0.0, gamma, int(deriv_order))
+    if not (alpha < 2.0 if deriv_order else alpha == 1.0):
+        return u, y / np.abs(y).max()
+    knot = u / h
+    away = np.abs(knot - np.round(knot)) > 0.1
+    return u, np.clip(y / np.abs(y[away]).max(), -1.0, 1.0)
 
 
 def _frac_section_factory(alpha: float):
@@ -414,7 +424,7 @@ def smoother(name: str, params: dict | None = None) -> Smoother:
         if not alpha >= 1.0:
             raise ValueError(f"frac_bspline needs alpha >= 1 (a continuous psi in 2-D needs "
                              f"alpha > 2), got {alpha!r}")
-        return Smoother("frac_bspline", f"fractional B-spline α = {alpha:g}", "∂θ_α",
+        return Smoother("frac_bspline", f"isotropic polyharmonic B-spline α = {alpha:g}", "∂θ_α",
                         {"alpha": alpha}, _frac_hat_factory(alpha), _frac_section_factory(alpha))
     if name == "q_gaussian":
         q = float(params.get("q", 1.5))

@@ -164,7 +164,7 @@ NEW_MODULES = ["hyperbolic_preview", "figure_fits", "figure_samples", "orientati
               "tensor_wtmm", "partition_tables",
               "spectra", "microcanonical", "sieve", "frac_bspline", "wavelet_skeleton", "wavelet_profiles",
               "cdf", "subpixel", "chain_groups", "follow2d", "pca", "tucker_havok", "ingest", "pm", "xsmurf_follow",
-              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "q_fourier",
+              "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "polyharmonic_exact", "q_fourier",
               "bus", "orientation", "anisotropy", "wtmm_levels", "dwt", "smoothers", "nonconcave", "undersampling", "reach", "edges", "daf",
               "disorder", "analytic_cwt", "ridge", "leaders", "large_deviation", "directional", "interpolating", "fractional", "sem_header", "cwt_leaders",
               "keys", "execution", "deferred"]

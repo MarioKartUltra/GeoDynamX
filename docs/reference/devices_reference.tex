@@ -653,11 +653,14 @@ is always its gradient. Four smoothers share one scale convention (a nominal sca
 real-space $\sigma=a/(\pi\sqrt2)$) and one Fourier construction, every derivative filter being
 $(\mathrm{i}s_x)^p(\mathrm{i}s_y)^q\,\hat\theta(s)$ with $s=a\,k$: the \emph{Gaussian}
 ($\psi=g_1$) and the \emph{Mexican hat} $|k|^2\hat G$ ($\psi=g_3$), the two xsmurf kernels; the
-\emph{fractional B-spline} of degree $\alpha$, taken in its isotropic polyharmonic form (Van De
+\emph{2-D isotropic polyharmonic B-spline} of degree $\alpha$ (Van De
 Ville, Blu \& Unser 2005: $\hat\theta=(V(\omega)/\|\omega\|^2)^{(\alpha+1)/2}$ with the
 localization $V=4\sin^2\tfrac{\omega_1}{2}+4\sin^2\tfrac{\omega_2}{2}-\tfrac83\sin^2\tfrac{\omega_1}{2}\sin^2\tfrac{\omega_2}{2}$,
 isotropic to fourth order, where a separable spline would bias the gradient directions the
-WTMM reads), its knot spacing chosen so its width matches the Gaussian's at the same $a$; and
+WTMM reads), its knot spacing chosen so its width matches the Gaussian's at the same $a$; it is
+a different function from the one-dimensional fractional B-spline of \dev{mz\_edges} (Unser \& Blu's
+symmetric spline, \S\ref{sec:mz-frac}), with which it shares only the order and the stored name
+\texttt{frac\_bspline}; and
 the \emph{q-Gaussian} $e_q(-\rho^2/2\sigma^2)$ through its radial q-Fourier transform
 (Borges et al.), the same kernel the microcanonical tools offer, $q\to1$ being the Gaussian
 exactly; the \emph{q-Mexican hat}, $-\Delta$ of that q-Gaussian smoother (its analyzer the
@@ -666,13 +669,16 @@ needs $q>2/3$ for a continuous analyzer at the support's edge; and a \emph{q-Mey
 smoother, the generalization Borges et al.\ leave open in their closing remark: Meyer's
 radial scaling-function taper with $\cos(\tfrac{\pi}{2}\nu)$ replaced by $\cos_q(x_0\nu)$,
 $x_0$ the q-cosine's first zero, so it is bandlimited and isotropic, its dilation fixed at
-$q=1$ so that its band peak is the Gaussian's. In two dimensions the fractional $\psi$ is continuous for $\alpha>2$ (the knob allows
+$q=1$ so that its band peak is the Gaussian's. In two dimensions the polyharmonic $\psi$ is continuous for $\alpha>2$ (the knob allows
 $\alpha\ge1$ for exploration, default 3) and the q-Gaussian has finite mass for $q<2$; its
 variance diverges from $q=5/3$, so its scale is matched by the parameter $\sigma$, never by the
 variance. The wavelet scale bar and the $a_{\min}$ reading draw each smoother's own section and
-locate its band peak $\lambda^*$ numerically ($\lambda^*$ of the fractional spline at $\alpha=3$
+locate its band peak $\lambda^*$ numerically ($\lambda^*$ of the polyharmonic spline at $\alpha=3$
 is the Gaussian's within 3\,\%; the q-Gaussian's tails lengthen it above $q=1$ and shorten it
-below). The two new smoothers run on the device (mlx) on Apple Silicon and on FFTW3 elsewhere,
+below). The polyharmonic spline's section is evaluated in the space domain, as the localized sum
+of Green's functions of $(-\Delta)^{(\alpha+1)/2}$ (\texttt{dynamix.core.polyharmonic\_exact}),
+so it carries no truncation ringing; below $\alpha=3$ it is singular at the knots and is drawn
+scaled by its main lobe and clipped there. The two new smoothers run on the device (mlx) on Apple Silicon and on FFTW3 elsewhere,
 exactly as the pair does; the three engines agree to float32 tolerance.
 
 \begin{longtable}{P l R N}
@@ -684,7 +690,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{q\_step} ($\Delta q$) & 0.5 & $[0.05,5]$ & the step between moment orders; the tables and the Partition functions window carry the list that ran \\
 \texttt{a\_min} ($a_{\min}$) & 1.0 & $[0.01,64]$ px & finest analyzed scale \\
 \texttt{wavelet} (Smoother $\theta$) & mexican & mexican / gaussian / frac\_bspline / q\_gaussian / q\_mexican / q\_meyer & the smoothing function; $\psi$ is its gradient: $g_3$, $g_1$, $\partial\theta_\alpha$, $\partial\theta_q$, q-$g_3$, $\partial\theta_q$ \\
-\texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the fractional B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
+\texttt{alpha} ($\alpha$) & 3 & $[1,8]$ & degree of the isotropic polyharmonic B-spline (shown with \texttt{frac\_bspline}); $\alpha>2$ for a continuous $\psi$ in 2-D \\
 \texttt{q\_tsallis} ($q$) & 1.5 & $(0,2)$ & Tsallis $q$ of the three q smoothers (shown with them); $q\to1$ is the Gaussian, the Mexican hat, the Meyer; the q-Mexican hat needs $q>2/3$ \\
 \texttt{dither} & off & bool & $\pm\tfrac12$\,LSB dither for quantized rasters \\
 \texttt{fracint\_alpha} ($\eta$) & 0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$; 0 leaves a chain's slope equal to its $h$) \\
@@ -881,7 +887,7 @@ on the filters and the table, so each selection caches on its own.
 \bottomrule
 \end{longtable}
 
-\textbf{Fractional B-spline.} \texttt{Wavelet} \emph{frac\_bspline} replaces the quadratic spline by
+\textbf{Fractional B-spline.}\label{sec:mz-frac} \texttt{Wavelet} \emph{frac\_bspline} replaces the quadratic spline by
 Unser \& Blu's symmetric fractional B-spline of order $\alpha\ge1$ as the smoothing function, the
 wavelet staying its derivative (one vanishing moment, maxima are edges). Its refinement filter is an
 infinite impulse response --- the fractional order has no compact support --- so the analysis runs the
@@ -1942,7 +1948,7 @@ normalizes every kernel to unit $L^1$ mass at every scale.
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_wtmm_3d.pdf}
 \caption{The six WTMM smoothers in 3-D: for each, the smoothing function $\theta$ and the two analyzing
 wavelets $\psi_1=\partial\theta/\partial x$ and $\psi_2=\partial\theta/\partial y$, at the default
-settings (fractional B-spline $\alpha=3$; q-Gaussian and q-Mexican hat $q=1.5$, $\beta_q=\tfrac12$;
+settings (polyharmonic B-spline $\alpha=3$; q-Gaussian and q-Mexican hat $q=1.5$, $\beta_q=\tfrac12$;
 q-Meyer $q=1.5$), on $|u|\le$ 4--9\,$\sigma$. Each surface is inverted from $\hat\theta$ and the
 derivative filters the WTMM transform builds, so it is the kernel a run convolves with. The Gaussian
 pair is Arn\'eodo's first-order wavelet (one vanishing moment), the Mexican pair his third-order one
@@ -2008,8 +2014,9 @@ as hairlines on a color ramp; the bottom row stacks the sections up the paramete
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a1b_smoothers.pdf}
 \caption{A1, continued: the q-Meyer (Meyer's radial taper with Borges's q-cosine, drawn over the
-$\pm12\,\sigma$ of its section, where it still rings) and the fractional B-spline (isotropic
-polyharmonic form, order $\alpha+1$). The fractional B-spline's $\psi$ is not continuous in 2-D for
+$\pm12\,\sigma$ of its section, where it still rings) and the 2-D isotropic polyharmonic B-spline
+(order $\alpha+1$, evaluated in the space domain; its singularities at the knots below $\alpha=3$
+are clipped). Its $\psi$ is not continuous in 2-D for
 $\alpha\le2$ (the knob's soft floor).}\label{fig:a1b}
 \end{figure}
 
@@ -2056,8 +2063,10 @@ broad hump.}\label{fig:a6}
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a7_frac_grids.pdf}
-\caption{A7. The fractional B-spline below $\alpha=3$ on three inverse-FFT grids: the zig-zag between the
-knots is Gibbs truncation of the display grid (it shrinks sevenfold from $\sigma/16$ to $\sigma/128$);
+\caption{A7. The isotropic polyharmonic B-spline below $\alpha=3$ on three inverse-FFT grids, against
+its space-domain evaluation (red), all scaled by the main lobe and clipped at the knots: the zig-zag
+between the knots is Gibbs truncation of the display grid (it shrinks as the grid refines and
+converges on the red curve);
 the spikes and jumps at the knots are the function itself, a localized Green's function of
 $(-\Delta)^{\gamma/2}$ whose gradient goes as $\rho^{\gamma-3}$ at every knot: divergent for $\alpha<2$,
 a jump at $\alpha=2$, a cusp for $2<\alpha<3$.}\label{fig:a7}
