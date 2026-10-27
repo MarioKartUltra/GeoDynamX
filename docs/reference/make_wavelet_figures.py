@@ -507,7 +507,7 @@ def fig_a3_dyadic():
     for k, lv in enumerate((1, 2, 3, 4, 5)):
         p = wp.mz_profile(lv, 3.0)
         ax[1, 2].plot(p.x_px, p.psi, color=plt.get_cmap("brg")(k / 4), lw=LW,
-                      label=f"level {lv}" + (" (off ladder)" if p.off_ladder else ""))
+                      label=f"level {lv}" + (" (λ* off the 2^j scale)" if p.off_ladder else ""))
     _legend_below(ax[1, 2], ncol=2, fontsize=5)
     ax[1, 2].set_title("Mallat–Zhong, α = 3: levels 1–5")
     ax[1, 2].set_xlabel("x (px)")

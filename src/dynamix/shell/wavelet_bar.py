@@ -248,7 +248,8 @@ class WaveletBar(_Drag, _Styled, pg.GraphicsWidgetAnchor, pg.GraphicsObject):
         if p.broad:
             parts.append("broad band")
         if p.off_ladder:
-            parts.append("off the dyadic ladder")
+            parts.append("a fine level: λ* misses c·2^j by more than 5 % (the cascade is too short "
+                         "to reach its limit shape)")
         return " · ".join(parts)
 
     def changeParent(self) -> None:

@@ -10177,7 +10177,7 @@ both ``Canvas`` signals report the
         if profile.broad:
             label += " · broad"
         if profile.off_ladder:
-            label += " · off ladder"
+            label += " · λ* off the 2^j scale"
         return label
 
     def _remember_bar(self, key: str, sub, offset) -> None:
