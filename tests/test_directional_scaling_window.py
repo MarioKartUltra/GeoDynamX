@@ -194,3 +194,11 @@ def test_the_level_line_window_draws_both_frontiers_and_refits_by_the_band(qtbot
         context = json.loads(str(saved['context']))
     assert context['estimator'] == 'level_line' and context['families'] == ['x-frontier', 'y-frontier']
     assert len(context['fit_ranges']) == len(d['alpha']) and 'resolution' in context['membership_index']
+
+
+def test_the_leaders_tab_draws_the_level_set_bound_for_the_chosen_and_the_isotropic_alpha(qtbot, level_line_result):
+    win = DirectionalScalingWindow(level_line_result, source='sheet')
+    qtbot.addWidget(win)
+    names = [item.name() for item in win.leader_plot.listDataItems()]
+    assert names == ['α = (1, 1)', f"α₁ = {level_line_result['_directional']['alpha'][win.alpha.currentIndex()]:g}"]
+    assert win.tabs.tabText(3) == 'Leaders and local maps' and win.tabs.isTabEnabled(3)

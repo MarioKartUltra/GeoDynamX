@@ -129,3 +129,65 @@ def test_the_bs19_literal_estimator_keeps_its_numbers(sheet):
     d = _run(sheet, estimator="gamma")
     assert _at2(d, "eta_e1") / 2 == pytest.approx(0.342, abs=0.002)
     assert _at2(d, "eta_e2") / 2 == pytest.approx(0.342, abs=0.002)
+
+
+# -- Phase B: hyperbolic wavelet leaders (Abry et al. 2015, (3.3)) and the local maps ------------
+
+def test_the_leaders_recursion_is_the_sup_over_sub_rectangles_and_the_neighbourhood():
+    rng = np.random.default_rng(0)
+    J = 3
+    shape = {l: (64 // 2 ** l, 64 // 2 ** l) for l in range(1, J + 1)}
+    mods = {(l1, l2): rng.random((shape[l2][0], shape[l1][1])) for l1 in range(1, J + 1) for l2 in range(1, J + 1)}
+    coef = {"levels": J, "mods": mods, "valid": {k: np.ones_like(v, bool) for k, v in mods.items()}}
+    out = dr.hyperbolic_leaders(coef)
+    for (l1, l2), d in out["leaders"].items():
+        rows, cols = d.shape
+        for (r, c) in ((0, 0), (rows // 2, cols // 3), (rows - 1, cols - 1)):
+            best = 0.0
+            for dr_ in (-1, 0, 1):
+                for dc in (-1, 0, 1):
+                    rr, cc = (r + dr_) % rows, (c + dc) % cols
+                    for m1 in range(1, l1 + 1):
+                        for m2 in range(1, l2 + 1):
+                            fx, fy = 2 ** (l1 - m1), 2 ** (l2 - m2)
+                            block = mods[(m1, m2)][rr * fy:(rr + 1) * fy, cc * fx:(cc + 1) * fx]
+                            best = max(best, float(block.max()))
+            assert d[r, c] == pytest.approx(best), (l1, l2, r, c)
+
+
+def test_the_strip_maps_read_each_half_of_a_two_anisotropy_field():
+    n = 1024
+    left, right = _sheet(n, 0.3, 0.7, seed=11), _sheet(n, 0.7, 0.3, seed=12)
+    f = np.concatenate([left[:, : n // 2], right[:, n // 2:]], axis=1)
+    coef = dr.coefficients(f, "sym4", 6, edge="periodic", complete=True)
+    maps = dr.strip_maps(dr.hyperbolic_leaders(coef), j_min=2, shape=f.shape)
+    for cols, (hx, hy) in ((slice(192, 320), (0.3, 0.7)), (slice(704, 832), (0.7, 0.3))):
+        assert np.nanmedian(maps["h_x"][:, cols]) == pytest.approx(hx, abs=0.1)
+        assert np.nanmedian(maps["h_y"][:, cols]) == pytest.approx(hy, abs=0.1)
+        assert np.nanmedian(maps["anisotropy"][:, cols]) == pytest.approx(2 * hy / (hx + hy), abs=0.25)
+
+
+def test_the_leader_bound_is_a_level_set_spectrum_bound_over_both_signs_of_p(sheet):
+    d = _run(sheet)
+    lead = d["leaders"]
+    assert (lead["p"] < 0).any() and (lead["p"] > 0).any()
+    L = np.asarray(lead["L_alpha"])
+    assert L.shape == (d["alpha"].size, lead["h"].size)
+    diag = int(np.argmin(np.abs(d["alpha"] - 1.0)))
+    top = lead["h"][int(np.nanargmax(L[diag]))]
+    assert np.nanmax(L) <= 2.0 + 1e-9 and np.nanmin(L) >= 0.0
+    assert 0.15 <= top <= 0.6                       # its peak near the field's smaller exponent
+
+
+def test_the_device_offers_the_maps_as_outputs(sheet):
+    from dynamix.devices.directional_scaling import DirectionalScaling
+
+    dev = DirectionalScaling()
+    assert {o.name for o in dev.outputs} == {"h_x", "h_y", "anisotropy"}
+    field = types.SimpleNamespace(values=sheet, provenance={}, frame=None,
+                                  x_axis=np.arange(1024.0), y_axis=np.arange(1024.0))
+    params = {q.name: q.default for q in dev.params}
+    res = dev.compute(field, dict(params, edge="periodic"))
+    out = dev.compute_output("h_x", sheet, res, dict(params, edge="periodic"), fetch=None)
+    assert out["raster"].shape == sheet.shape and np.isfinite(out["raster"]).mean() > 0.9
+    assert np.nanmedian(out["raster"]) == pytest.approx(0.3, abs=0.1)

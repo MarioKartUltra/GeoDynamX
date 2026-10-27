@@ -26,7 +26,7 @@ from dynamix.core import dwt
 from dynamix.devices.holder_map import field_values_2d
 from dynamix.devices.wtmm import filled_block, filled_origin
 from dynamix.model.contracts import CURVE, FIELD
-from dynamix.model.device import keyed_params
+from dynamix.model.device import Output, keyed_params
 from dynamix.model.param import Param, ParamKind
 from dynamix.model.origin import FIRST_PARTY
 
@@ -54,7 +54,13 @@ class DirectionalScaling:
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
     produces = frozenset({CURVE})
-    capabilities = frozenset({"SelfReporting", "RegionAware", "StripExtras"})
+    capabilities = frozenset({"SelfReporting", "RegionAware", "StripExtras", "OutputProducer"})
+    #: Local directional exponents from the hyperbolic leaders' strips (Abry et al. 2015, Thm 3.4).
+    outputs = (
+        Output("h_x", "raster", lazy=True, label="H_x, strip leaders"),
+        Output("h_y", "raster", lazy=True, label="H_y, strip leaders"),
+        Output("anisotropy", "raster", lazy=True, label="anisotropy α₁* = 2H_y/(H_x + H_y)"),
+    )
     uses_stage_cache = True
     params = (
         Param("wavelet", ParamKind.CHOICE, default="sym4", choices=dwt.BANKS, label="Wavelet"),
@@ -254,7 +260,9 @@ class DirectionalScaling:
             "eta_e1": [float(v) for v in d["eta_e1"]], "eta_e2": [float(v) for v in d["eta_e2"]],
             "alpha_star_e1": [float(v) for v in d["alpha_star_e1"]], "warnings": warnings,
         }
+        crop = None if region is None else (*region[0], *region[1])
         return {"_directional": d, "fitted_anisotropies": fitted, "params": dict(params),
+                "_strips": _strips(coef), "_map_crop": crop, "_map_shape": tuple(raw.shape),
                 "_shape": tuple(vals.shape), "_frame": getattr(field, "frame", None),
                 "record": record, "warnings": warnings}
 
@@ -288,6 +296,22 @@ class DirectionalScaling:
                                      if np.isfinite(knee) else "")))
         return out
 
+    def compute_output(self, name: str, values, result: dict, params: dict, *, fetch=None,
+                       progress=None, cancel=None, level=None) -> dict:
+        """H_x, H_y or the anisotropy at every pixel (of the ROI on an ROI run), NaN where a strip
+        reaches the border or a missing pixel. Their resolution is anisotropic: the coarsest fitted
+        cell along the fine axis, 3·scale_max px along the coarse one."""
+        if name not in ("h_x", "h_y", "anisotropy"):
+            raise ValueError(f"{self.name}: no lazy output named {name!r}")
+        maps = result.get("_maps")
+        if maps is None:
+            j_min, _J = self._levels(params)
+            maps = result["_maps"] = dr.strip_maps(result["_strips"], j_min, result["_map_shape"],
+                                                   crop=result.get("_map_crop"))
+        return {"raster": np.asarray(maps[name], dtype=np.float32),
+                "diag": {"levels": maps["levels"].tolist(), "coarse_level": maps["coarse_level"],
+                         "valid_fraction": float(np.isfinite(maps[name]).mean())}}
+
     def cache_key(self, source_id: str, params: dict) -> str:
         from dynamix.engine.cache import cache_key as _k
 
@@ -313,6 +337,17 @@ class DirectionalScaling:
                 parts.append(f"α₁* {lo:.3g}–{hi:.3g} at p = 2" if hi > lo else f"α₁* {lo:.3g} at p = 2")
         parts.append(f"{result['fitted_anisotropies']} of {d['alpha'].size} anisotropies fitted")
         return " · ".join(parts)
+
+
+def _strips(coef: dict) -> dict:
+    """The leaders the local maps read: fine along one axis and coarsest along the other."""
+    lead = dr.hyperbolic_leaders({"levels": coef["levels"],
+                                  "mods": {k: v for k, v in coef["mods"].items() if min(k) > 0},
+                                  "valid": {k: v for k, v in coef["valid"].items() if min(k) > 0}})
+    J = lead["levels"]
+    keep = {(l, J) for l in range(1, J + 1)} | {(J, l) for l in range(1, J + 1)}
+    return {"levels": J, "leaders": {k: lead["leaders"][k] for k in keep},
+            "valid": {k: lead["valid"][k] for k in keep}}
 
 
 def _fit_warnings(observed, coef: dict, d: dict, params: dict, roi=None) -> list:

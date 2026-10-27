@@ -61,6 +61,7 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         self._moments_tab()
         self._scaling_tab()
         self._basis_tab()
+        self._leaders_tab()
         footer = QtWidgets.QHBoxLayout()
         self.readout = QtWidgets.QLabel()
         self.readout.setWordWrap(True)
@@ -73,6 +74,7 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         if self.data is None:
             self.tabs.setTabEnabled(0, False)
             self.tabs.setTabEnabled(1, False)
+            self.tabs.setTabEnabled(3, False)
             self.tabs.setCurrentIndex(2)
             self.caption.setText('Basis preview · choose a bank and independent x/y levels. Run the directional tool for moment tables and scaling fits.')
         else:
@@ -233,6 +235,7 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
                     self.envelope_plot.plot(x, slope*x+intercept, pen=pg.mkPen(color, style=QtCore.Qt.DashLine))
         if 0 <= ri < family['x'].size:
             self.envelope_plot.addItem(pg.InfiniteLine(float(family['x'][ri]), pen=pg.mkPen(current().amber)))
+        self._draw_leaders()
         if self._level_line():
             xs = np.concatenate([f['x'] for f in families if f['x'].size]) if any(f['x'].size for f in families) else np.zeros(0)
             if xs.size:
@@ -361,6 +364,33 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
                         if finite_bound else 'No finite directional bound in this computed range')
         bounds.setLabel('bottom', 'H' + integrated)
         bounds.setLabel('left', 'upper bound on D(H, e)')
+
+    def _leaders_tab(self):
+        layout = self._page('Leaders and local maps')
+        self.leader_plot = self._plot('Level-set bound L_f(H, α) from the hyperbolic leaders')
+        layout.addWidget(self.leader_plot, 1)
+        note = QtWidgets.QLabel(
+            "Abry et al.'s hyperbolic wavelet leaders (2015, eq. 3.3), read by the level line over p of both "
+            "signs, bound the level-set spectrum of each anisotropy: L_f(H, α) = inf_p (Hp − ω(p, α) + 2) "
+            "(eq. 3.7), empty below 0. The chosen α in amber, the isotropic α = (1, 1) in white. The layer's "
+            "Outputs rows show the local maps H_x, H_y and the anisotropy α₁* = 2H_y/(H_x + H_y) from the "
+            "strip leaders; their resolution is the coarsest fitted cell along the fine axis and three "
+            "scale-max cells along the coarse one.")
+        note.setWordWrap(True)
+        layout.addWidget(note)
+
+    def _draw_leaders(self):
+        lead = (self.data or {}).get('leaders')
+        if lead is None or not hasattr(self, 'leader_plot'):
+            return
+        self.leader_plot.clear()
+        self.leader_plot.addLegend(offset=(4, 4))
+        alphas = np.asarray(self.data['alpha'], dtype=np.float64)
+        ai, diag = self.alpha.currentIndex(), int(np.argmin(np.abs(alphas - 1.0)))
+        for k, color, name in ((diag, current().ink, 'α = (1, 1)'), (ai, current().amber, f'α₁ = {alphas[ai]:g}')):
+            self.leader_plot.plot(lead['h'], lead['L_alpha'][k], pen=pg.mkPen(color, width=2), name=name)
+        self.leader_plot.setLabel('bottom', 'H')
+        self.leader_plot.setLabel('left', 'L_f(H, α), upper bound on d(H, α)')
 
     def _basis_tab(self):
         layout = self._page('Hyperbolic basis preview')

@@ -1022,24 +1022,61 @@ under 3 px), which also seeds the windows. Lazy outputs \texttt{leader} and \tex
 show $\log_2$ of either at the scale shown, with its radius in the reading; \texttt{show} picks
 the raster drawn.
 
-\subsection{\tool{Directional scaling functions}{directional\_scaling} --- the directional formalism on the hyperbolic DWT}
-The directional thermodynamic formalism of Ben Slimane et al.\ 2019 on the hyperbolic (fully
-separable) wavelet coefficients of a band: the anisotropic scaling function $\eta_\alpha(p)$ on an
-$\alpha_1$ grid of step $\tfrac18$ ($\alpha_2 = 2 - \alpha_1$), read along the index families
-$(j_1, j_2) = ([j\alpha_1], [j\alpha_2])$ as the slowest family's envelope slope over the levels no
-family clips (at least three); $\eta(p, e_1) = \sup_\alpha \eta_\alpha(p)/\alpha_1$ with the
-maximizing $\alpha_1$ as the anisotropy profile $\alpha_1^*(p)$, $\eta(p, e_2)$ by symmetry,
-$\eta(p)$ the diagonal, and the directional Legendre bound of their Theorem~6 capped at $d$.
-\texttt{wavelet}, \texttt{edge}, \texttt{scale\_min}, \texttt{scale\_max} and \texttt{gamma} are the
-Wavelet leaders' (the pyramid to $J = \log_2$ \texttt{scale\_max}, the fit from $\log_2$
-\texttt{scale\_min}; under \emph{periodic} no border is lost); the moment orders \texttt{p\_min},
-\texttt{p\_max}, \texttt{p\_step} are the formalism's $p > 0$. The readings are curves for the Curves
-window, $\eta(p, e_1)$, $\eta(p, e_2)$, $\eta(p)$ and $\alpha_1^*(p)$ against $p$, $L(H, e_1)$ and
-$L(H, e_2)$ against $H$; the two directional exponents $\eta(2, e)/2$ stand beside the WTMMM's $H_x$
-and $H_y$ in the Directional roughness window. Anisotropy needs depth: at the finest levels
-$[j\alpha]$ cannot resolve a fractional $\alpha$, and a run that keeps no anisotropy three unclipped
-levels says so. The record carries the bank, the edge used, the levels, $\gamma$, the orders, the
-levels per anisotropy and the three readings.
+\subsection{\tool{Directional scaling functions}{directional\_scaling} --- the directional formalism on the hyperbolic DWT}\label{sec:directional}
+The directional thermodynamic formalism of Ben Slimane, Ben Abid, Ben Omrane and Halouani (2019) on the
+hyperbolic (fully separable) wavelet coefficients of a band, L$^1$-normalized as Abry, Clausel, Jaffard,
+Roux and Vedel (2015, Def.~2.4). The anisotropic scaling function $\eta_\alpha(p)$ is read on an $\alpha_1$
+grid of step \texttt{alpha\_step} ($\alpha_2 = 2 - \alpha_1$) by one of three estimators (\texttt{estimator}):
+\begin{itemize}\itemsep1pt
+  \item \emph{level line} (default): every pair $(r_1, r_2)$ of resolution indices sits at Abry et al.'s
+        anisotropic level $m = \max(r_1/\alpha_1, r_2/\alpha_2)$ (2015, Prop.~4.7~(3)), the same liminf as
+        Ben Slimane et al.'s $\Gamma_j$ (every pair of $\Gamma_j$ has $j-2 \le m \le j$), read without
+        $\Gamma_j$'s floors and $\pm1$ margins, which turn a finite regression into a staircase. The level
+        sets are L-shaped; their two arms are the x- and y-frontiers (the largest $\log_2 S$ over the
+        partners coarser on the other axis), and $\eta_\alpha(p)$ is the smaller of their slopes against
+        $-m$. A frontier point is fitted when its fine cell lies between \texttt{scale\_min} and
+        \texttt{scale\_max}. The scaling branch $\varphi$ partners a frontier point as
+        \texttt{coarse\_partner} says: where every detail partner is rounding (\emph{fallback}, the
+        default: a layered field), always, or never; always is unbiased but doubles the spread on
+        $1024^2$ fractional Brownian sheets ($\pm0.05$ against $\pm0.03$). A pair whose mean $|c|$ is below
+        $10^{-12}$ of the largest pair's is rounding; an axis with no detail pair above it reads ``no
+        structure'' instead of a number.
+  \item \emph{$\Gamma$ union}: Ben Slimane et al.'s $\Gamma_j$ (eqs.~44--47) read literally, as the
+        union envelope's slope against $-r$; at the defaults it fits only $\alpha = (1, 1)$, so its
+        two directions read alike.
+  \item \emph{legacy}: the level-family approximation, families that never move excluded.
+\end{itemize}
+Then $\eta(p, e_1) = \sup_\alpha \eta_\alpha(p)/\alpha_1$ (their eq.~50, where the isotropic $\eta(p) > 0$,
+which it requires), read as the mean ratio over the interval of maximisers, every $\alpha$ within one
+standard error of the largest (a plateau of maximisers is the formalism's own; the largest of noisy
+estimates is biased up); $\alpha_1^*(p)$ the interval's largest; $\eta(p, e_2)$ by symmetry. The reading
+gives $H_x$ and $H_y$, the slopes of $\eta(p, e)$ against $p$, and the $\alpha_1^*$ interval at $p = 2$.
+Their Theorem~6 bounds the \emph{upper} spectrum $D(H, e) = \dim\{h(\cdot, e) \le H\}$, which never
+decreases: its flat top at $d$ is its shape (their Theorem~8 gives a fractional Brownian sheet's as a step
+from $-\infty$ to $d$ at $H_e$); it is empty below 0; its rising stretch is set by \texttt{p\_max}, and its
+knee approaches $H_e$ from below as \texttt{p\_max} grows.
+
+\texttt{wavelet}, \texttt{edge}, \texttt{scale\_min}, \texttt{scale\_max} and \texttt{gamma} are the Wavelet
+leaders' (the pyramid to $J = \log_2$ \texttt{scale\_max}; under \emph{periodic} no border is lost);
+\texttt{gamma} integrates the coefficients by $2^{\gamma(j_1+j_2)/2}$, order $\gamma/2$ per axis, and shifts
+each directional exponent by $\gamma/2$. The moment orders \texttt{p\_min}, \texttt{p\_max},
+\texttt{p\_step} are the formalism's $p > 0$.
+
+\textbf{Hyperbolic wavelet leaders and local maps.} Abry et al.'s leaders (2015, eq.~3.3), the sup of $|c|$
+over each dyadic rectangle's finer sub-rectangles and its $3\times3$ neighborhood, read by the level line
+over $p$ of both signs, bound each anisotropy's level-set spectrum, $L_f(H, \alpha) = \inf_p (Hp -
+\omega(p, \alpha) + 2)$ (eq.~3.7; the window's Leaders tab). The outputs \texttt{h\_x}, \texttt{h\_y} and
+\texttt{anisotropy} are local maps from the strip leaders (their Thm~3.4): $H_x$ at a pixel is the slope of
+$\log_2 d(l_1, J)$ over the fitted x-levels with the y-level held at the coarsest, $H_y$ the transpose,
+the anisotropy $\alpha_1^* = 2H_y/(H_x + H_y)$, 1 where isotropic. Their resolution is the coarsest fitted
+cell along the fine axis and three \texttt{scale\_max} cells along the coarse one; a mirror edge costs
+the border's cells on the coarse axis. The strips pair a fine detail with the coarsest detail, so a
+structure constant along the coarse axis (a straight step) is invisible to them.
+
+The window draws the level line's two frontiers and refits one anisotropy, or every one, over a band from
+the stored frontiers; the sup over $\alpha$ with its interval shaded; the bounds and their knees. The
+record carries the bank, the edge used, the levels, $\gamma$, the estimator, the coarse partner and the
+floor, the orders, the readings and the $\alpha_1^*$ interval.
 
 \subsection{\tool{Wavelet skeleton}{wavelet\_skeleton} --- medial-axis (modulus-minima) extractor}
 Tang--You 2003 (the constructed compact-support wavelet $\kappa$: support radius $=$

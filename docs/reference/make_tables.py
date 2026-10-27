@@ -42,7 +42,7 @@ _SPECIAL = {"\\": r"\textbackslash{}", "_": r"\_", "&": r"\&", "%": r"\%", "#": 
             "<": r"\textless{}", ">": r"\textgreater{}"}
 _SPELLED = {"–": "--", "—": "---", "ö": r"\"o", "ä": r"\"a", "é": r"\'e", "á": r"\'a", "ú": r"\'u", "ô": r"\^o",
             "ç": r"\c{c}", "§": r"\S{}", "σ": r"$\sigma$", "α": r"$\alpha$", "θ": r"$\theta$",
-            "ω": r"$\omega$", "…": r"\ldots{}"}
+            "ω": r"$\omega$", "₁": r"$_1$", "₂": r"$_2$", "…": r"\ldots{}"}
 
 
 def tex(text: str) -> str:

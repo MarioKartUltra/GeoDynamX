@@ -37,7 +37,8 @@ from dynamix.core import dwt
 from dynamix.core.leaders import _box
 
 __all__ = ["ALPHA_STEP", "FLOOR", "analyse", "coefficients", "directional_legendre", "directional_scaling",
-           "families", "level_line_scaling", "scaling_functions", "structure_functions"]
+           "families", "hyperbolic_leaders", "leader_scaling", "level_line_scaling", "scaling_functions",
+           "strip_maps", "structure_functions"]
 
 #: The anisotropy grid's step on α₁ ∈ (0, 2).
 ALPHA_STEP = 1.0 / 8.0
@@ -504,6 +505,81 @@ def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float 
             else float("nan")}
 
 
+def hyperbolic_leaders(coef: dict) -> dict:
+    """Abry et al.'s hyperbolic wavelet leaders (2015, eq. 3.3) on the detail pairs: d(l₁, l₂) is the
+    sup of |c| over the dyadic rectangle's finer sub-rectangles, D(l₁, l₂) = max(|c(l₁, l₂)|,
+    pool_x D(l₁ − 1, l₂), pool_y D(l₁, l₂ − 1)), then over its 3 × 3 neighbourhood. A leader is
+    valid where every cell it reads is (the border and missing pixels propagate up)."""
+    J = coef["levels"]
+    D, V = {}, {}
+    for l2 in range(1, J + 1):
+        for l1 in range(1, J + 1):
+            m = np.array(coef["mods"][(l1, l2)], dtype=np.float64)
+            v = np.array(coef["valid"][(l1, l2)], dtype=bool)
+            if l1 > 1:
+                m = np.maximum(m, np.maximum(D[(l1 - 1, l2)][:, 0::2], D[(l1 - 1, l2)][:, 1::2]))
+                v &= V[(l1 - 1, l2)][:, 0::2] & V[(l1 - 1, l2)][:, 1::2]
+            if l2 > 1:
+                m = np.maximum(m, np.maximum(D[(l1, l2 - 1)][0::2], D[(l1, l2 - 1)][1::2]))
+                v &= V[(l1, l2 - 1)][0::2] & V[(l1, l2 - 1)][1::2]
+            D[(l1, l2)], V[(l1, l2)] = m, v
+    return {"levels": J, "leaders": {k: _box(m, 1, np.maximum) for k, m in D.items()},
+            "valid": {k: _box(v, 1, np.logical_and) for k, v in V.items()}}
+
+
+def leader_scaling(coef: dict, p_list, j_min: int, *, step=ALPHA_STEP, h_grid=None) -> dict:
+    """The hyperbolic leaders' scaling function ω(p, α) by the level line, over p of both signs
+    (the leaders bound the small coefficients too), and Abry et al.'s level-set bound per
+    anisotropy, L_f(H, α) = inf_p (Hp − ω(p, α) + 2) (eq. 3.7), capped at d = 2 and empty below 0."""
+    positive = np.asarray(p_list, dtype=np.float64)
+    p = np.concatenate([-positive[::-1], positive])
+    lead = hyperbolic_leaders(coef)
+    scaling = level_line_scaling({"levels": lead["levels"], "mods": lead["leaders"], "valid": lead["valid"]},
+                                 p, j_min, step=step, coarse_partner="never")
+    h = np.linspace(-0.5, 2.5, 121) if h_grid is None else np.asarray(h_grid, dtype=np.float64)
+    omega = scaling["eta_alpha"]
+    L = np.full((omega.shape[1], h.size), np.nan)
+    for a in range(omega.shape[1]):
+        ok = np.isfinite(omega[:, a])
+        if ok.sum() < 2:
+            continue
+        L[a] = (h[:, None] * p[ok][None, :] - omega[ok, a][None, :] + 2.0).min(axis=1)
+    with np.errstate(invalid="ignore"):
+        L = np.where(L < 0.0, np.nan, np.minimum(L, 2.0))
+    return {"p": p, "alpha": scaling["alpha"], "eta_alpha": omega, "h": h, "L_alpha": L}
+
+
+def strip_maps(lead: dict, j_min: int, shape, crop=None) -> dict:
+    """Local directional exponents from the strip leaders (Abry et al. 2015, Thm 3.4): H_x at a
+    pixel is the slope of log2 d(l₁, J) over the fine x-levels l₁ = j_min … J − 1 with the y-level
+    held at the coarsest J, cells 2^{l₁} × 2^J px; H_y the transpose; the anisotropy
+    α₁* = 2H_y/(H_x + H_y), 1 where isotropic (the fractional Brownian sheet's maximiser). A pixel
+    whose strip reaches an invalid cell at any fitted level is NaN. Resolution: the coarsest fitted
+    level along the fine axis, 3·2^J px along the coarse one. ``crop`` = (row, col, h, w) cuts an
+    ROI out of the painted window."""
+    J = lead["levels"]
+    levels = np.arange(int(j_min), J, dtype=np.float64)
+    rows, cols = (int(n) for n in shape)
+
+    def painted(key, ly, lx):
+        d, v = lead["leaders"][key], lead["valid"][key]
+        with np.errstate(divide="ignore"):
+            cells = np.where(v & (d > 0), np.log2(np.where(d > 0, d, 1.0)), np.nan)
+        return np.repeat(np.repeat(cells, 2 ** ly, axis=0), 2 ** lx, axis=1)
+
+    def slope(stack):
+        x = (levels - levels.mean())[:, None, None]
+        return (x * (stack - stack.mean(axis=0))).sum(axis=0) / float((x ** 2).sum())
+
+    h_x = slope(np.stack([painted((int(l), J), J, int(l)) for l in levels]))
+    h_y = slope(np.stack([painted((J, int(l)), int(l), J) for l in levels]))
+    r0, c0, h, w = (0, 0, rows, cols) if crop is None else (int(v) for v in crop)
+    h_x, h_y = h_x[r0:r0 + h, c0:c0 + w], h_y[r0:r0 + h, c0:c0 + w]
+    with np.errstate(invalid="ignore", divide="ignore"):
+        anisotropy = np.where((h_x > 0) & (h_y > 0), 2.0 * h_y / (h_x + h_y), np.nan)
+    return {"h_x": h_x, "h_y": h_y, "anisotropy": anisotropy, "levels": levels, "coarse_level": J}
+
+
 def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float = 0.0,
             step: float = ALPHA_STEP, edge: str = "mirror", estimator="legacy", origin=(0, 0), block=None,
             coefficient_cache=None, coarse_partner: str = "fallback") -> dict:
@@ -535,6 +611,7 @@ def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float =
            "complete_basis": coef["complete"], "seam": coef["seam"],
            "origin": coef["origin"], "data_shape": coef["data_shape"], **scaling, **directional_scaling(scaling, p)}
     out["estimator_description"], out["estimator"] = scaling.get("estimator", estimator), estimator
+    out["leaders"] = leader_scaling(coef, p, j_min, step=step)
     for direction in (1, 2):
         leg = directional_legendre(scaling, p, direction=direction)
         out[f"L_e{direction}"] = leg
