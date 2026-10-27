@@ -9,7 +9,7 @@ kernel builders, ``scale_units.kernel_section`` for the WTMM pair), except the f
 Mallat-Zhong pair, which is the analytic limit its filter cascade is pinned to in
 tests/test_mz_frac.py. So a figure can never drift from what a tool computes. Profiles are
 radial sections in units of the scale r (the zero-crossing radius for the Mexican hats, the
-kernel's own width parameter for the positive kernels), scaled to 1 at the centre for
+kernel's own width parameter for the positive kernels), scaled to 1 at the center for
 comparison -- the app itself normalizes every kernel to unit L1 mass at every scale.
 """
 from __future__ import annotations

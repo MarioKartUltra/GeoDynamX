@@ -312,7 +312,7 @@ def contract_page() -> str:
              "device (the folder is not on the import path, so a file cannot import a sibling; `_*.py` and",
              "`test_*.py` are skipped). A package registers through the `geodynamix.devices` entry-point group.",
              "`python -m dynamix.new_device <id>` writes a file with a golden test beside it. A file that fails to",
-             "import or validate is a greyed browser row with its error; discovery runs once per start.", "",
+             "import or validate is a grayed browser row with its error; discovery runs once per start.", "",
              "## Capabilities", "", "| capability | probed attributes |", "|---|---|"]
     lines += [f"| `{name}` | " + ", ".join(f"`{a}`" for a in attrs) + " |" for name, attrs in PROBES.items()]
     lines += ["", "## Contracts", "", "| name | meaning |", "|---|---|"]

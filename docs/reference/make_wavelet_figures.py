@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
-"""The wavelet atlas of devices_reference.tex -- every analysing wavelet and smoothing function the
+"""The wavelet atlas of devices_reference.tex -- every analyzing wavelet and smoothing function the
 app runs, drawn from its own kernel code.
 
     python docs/reference/make_wavelet_figures.py   # writes docs/reference/figures/atlas_*.pdf
@@ -10,7 +10,7 @@ their k-space forms and the derivative filters the transform builds), ``core.wav
 (the microcanonical kernels, the dyadic and edge-detector banks), ``core.hyperbolic_preview`` (the
 DWT banks' cascades), ``core.interpolating``, ``core.daf``, ``core.analytic_cwt`` (the 2-D
 q-Morlet) and ``core.wavelet_skeleton``. Sections are scaled for comparison (the app itself
-normalises every kernel to unit L1 mass at every scale). Figures A1--A8 are the appendix of the
+normalizes every kernel to unit L1 mass at every scale). Figures A1--A8 are the appendix of the
 tuneable-wavelets note of 14 October 2026, redrawn from the same code.
 """
 from __future__ import annotations
@@ -51,26 +51,26 @@ def _ramp(values, cmap, log=False):
     return plt.get_cmap(cmap), (LogNorm if log else Normalize)(vmin=min(values), vmax=max(values))
 
 
-def _colourbar(fig, ax, cm, nm, label):
+def _colorbar(fig, ax, cm, nm, label):
     cb = fig.colorbar(ScalarMappable(norm=nm, cmap=cm), ax=ax, pad=0.01, fraction=0.05)
     cb.set_label(label)
     cb.ax.tick_params(labelsize=5)
 
 
-def _sweep(ax, values, curve, cmap, label, log=False, ref=None, ref_label=None):
-    """Hairlines coloured along the ramp, ``curve(v) -> (x, y)``, with the parameter's colour bar."""
+def _sweep(ax, values, curve, cmap, label, log=False, ref=None):
+    """Hairlines colored along the ramp, ``curve(v) -> (x, y)``, with the parameter's color bar;
+    ``ref`` is drawn dashed (the title names it)."""
     cm, nm = _ramp(values, cmap, log)
     for v in values:
         ax.plot(*curve(v), color=cm(nm(v)), lw=LW)
     if ref is not None:
-        ax.plot(*ref, "k--", lw=0.8, label=ref_label)
-        ax.legend(loc="upper right")
-    _colourbar(ax.figure, ax, cm, nm, label)
+        ax.plot(*ref, "k--", lw=0.8)
+    _colorbar(ax.figure, ax, cm, nm, label)
     ax.axhline(0.0, color="0.85", lw=0.5)
 
 
 def _waterfall(ax, values, curve, cmap, label, step=0.35, log=False):
-    """The sections stacked up the parameter axis, each normalised, coloured along the ramp."""
+    """The sections stacked up the parameter axis, each normalized, colored along the ramp."""
     cm, nm = _ramp(values, cmap, log)
     for i, v in enumerate(values):
         x, y = curve(v)
@@ -80,6 +80,11 @@ def _waterfall(ax, values, curve, cmap, label, step=0.35, log=False):
     ax.set_yticks([0.0, (len(values) - 1) * step])
     ax.set_yticklabels([f"{label} = {min(values):g}", f"{label} = {max(values):g}"])
     ax.spines[["top", "right"]].set_visible(False)
+
+
+def _legend_below(ax, ncol=2, **kw):
+    """The panel's legend under its x axis, clear of the curves."""
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=ncol, frameon=False, **kw)
 
 
 def _surface(ax, x, y, z, title, lines: int = 34):
@@ -241,7 +246,7 @@ def fig_dwt_3d():
 
 
 def _lifting_atom(band, levels=4, n=256, **bank):
-    """The interpolating transform's atom: one coefficient at the centre of ``band`` (``low``,
+    """The interpolating transform's atom: one coefficient at the center of ``band`` (``low``,
     ``horizontal`` = ψ(x)φ(y), ``vertical`` = φ(x)ψ(y), ``diagonal``) at the coarsest level,
     reconstructed by the device's own inverse."""
     from dynamix.core import interpolating as it
@@ -273,27 +278,27 @@ def fig_interpolating():
         ax.axhline(0.0, color="0.85", lw=0.5)
         ax.set_xlabel("x (coarse cells)")
         ax.set_title(title)
-    a_phi.legend(loc="upper left")
+    _legend_below(a_phi, ncol=1, fontsize=5)
     a_taps, a_gain = fig.add_subplot(gs[0, 6:9]), fig.add_subplot(gs[0, 9:12])
     f = np.linspace(0.0, 0.5, 501)
     for k, M in enumerate((0, 4, 12, 24)):
         taps = hermite_daf(3.0, M)
         j = np.arange(taps.size) - taps.size // 2
-        colour = plt.get_cmap("viridis")(k / 3)
-        a_taps.plot(j, taps / taps.max(), lw=0.9, color=colour, label=f"M = {M}")
-        a_gain.plot(f, daf_gain(2 * np.pi * f, 3.0, M), lw=0.9, color=colour, label=f"M = {M}")
+        color = plt.get_cmap("viridis")(k / 3)
+        a_taps.plot(j, taps / taps.max(), lw=0.9, color=color, label=f"M = {M}")
+        a_gain.plot(f, daf_gain(2 * np.pi * f, 3.0, M), lw=0.9, color=color, label=f"M = {M}")
     a_taps.set_xlim(-12, 12)
     a_taps.axhline(0.0, color="0.85", lw=0.5)
     a_taps.set_xlabel("j (px)")
     a_taps.set_title(r"Hermite DAF $\delta_M$, $\sigma = 3$ px")
-    a_taps.legend(loc="upper right")
+    _legend_below(a_taps, ncol=2, fontsize=5)
     a_gain.set_xlabel("frequency (cycles/px)")
     a_gain.set_title("DAF low-pass gain")
     for r, (label, bank) in enumerate(banks):
         for c, band in enumerate(("low", "horizontal", "diagonal")):
             x, _row, z = _lifting_atom(band, **bank)
-            centre = np.unravel_index(np.argmax(np.abs(z)), z.shape)
-            keep = slice(centre[0] - 64, centre[0] + 64), slice(centre[1] - 64, centre[1] + 64)
+            center = np.unravel_index(np.argmax(np.abs(z)), z.shape)
+            keep = slice(center[0] - 64, center[0] + 64), slice(center[1] - 64, center[1] + 64)
             u = np.arange(-64, 64) / 16.0
             ax = fig.add_subplot(gs[1 + r, 4 * c:4 * c + 4], projection="3d")
             factor = {"low": r"$\varphi(x)\varphi(y)$", "horizontal": r"$\psi(x)\varphi(y)$",
@@ -342,7 +347,7 @@ def fig_edges():
     a.set_xlim(-30, 30)
     a.set_title("cdf_edges: ∇G_σ behind Re u, θtΔG_σ behind Im v")
     a.set_xlabel("x (px)")
-    a.legend(loc="lower left", ncol=2)
+    _legend_below(a, ncol=2, fontsize=5)
     b = fig.add_subplot(gs[0, 3:6])
     for k, kernel in enumerate(kernels):
         p = wp.tang_you_profile(kernel, 8.0)
@@ -350,7 +355,7 @@ def fig_edges():
     b.set_xlim(-14, 14)
     b.set_title(r"wavelet_skeleton: $\partial\theta/\partial x$ at s = 8 px")
     b.set_xlabel("x (px)")
-    b.legend(loc="upper right")
+    _legend_below(b, ncol=3, fontsize=5)
     for ax in (a, b):
         ax.axhline(0.0, color="0.85", lw=0.5)
     n, s = 64, 20.0
@@ -384,13 +389,13 @@ def _smoother_page(fams, name):
             x, y = ref.section(a, order)
             return x / sigma, _norm(y)
 
-        _sweep(ax[0, j], vals, lambda v, sec=sec: sec(v, 0), cmap, lab, ref=ref_sec(0), ref_label=f"{refname} θ")
-        _sweep(ax[1, j], vals, lambda v, sec=sec: sec(v, 1), cmap, lab, ref=ref_sec(1), ref_label=f"{refname} ψ")
+        _sweep(ax[0, j], vals, lambda v, sec=sec: sec(v, 0), cmap, lab, ref=ref_sec(0))
+        _sweep(ax[1, j], vals, lambda v, sec=sec: sec(v, 1), cmap, lab, ref=ref_sec(1))
         _sweep(ax[2, j], vals,
                lambda v, smoother=smoother, key=key: (s_grid, sm.smoother(smoother, {key: v}).theta_hat(s_grid, zero)),
-               cmap, lab, ref=(s_grid, ref.theta_hat(s_grid, zero)), ref_label=f"{refname} θ̂")
+               cmap, lab, ref=(s_grid, ref.theta_hat(s_grid, zero)))
         _waterfall(ax[3, j], vals, lambda v, sec=sec: sec(v, 1), cmap, lab)
-        ax[0, j].set_title(f"{title}: {lab} from {vals[0]:g} to {vals[-1]:g}")
+        ax[0, j].set_title(f"{title}: {lab} from {vals[0]:g} to {vals[-1]:g}\n(dashed: the {refname} pair)")
         for r in (0, 1, 3):
             ax[r, j].set_xlim(-span, span)
         ax[3, j].set_xlabel("x/σ")
@@ -449,7 +454,8 @@ def fig_a3_dyadic():
     """A3. Dyadic banks and edge detectors across order, scale and support."""
     from dynamix.core.dwt import BANKS
 
-    fig, ax = plt.subplots(2, 3, figsize=(6.5, 4.6), constrained_layout=True)
+    fig, ax = plt.subplots(2, 3, figsize=(6.5, 5.6), constrained_layout=True,
+                           gridspec_kw={"width_ratios": (1.0, 1.0, 1.15)})
     alphas = np.linspace(1.0, 5.0, 26)
 
     def mz(al):
@@ -457,30 +463,30 @@ def fig_a3_dyadic():
         return p.x_px, p.psi
 
     _sweep(ax[0, 0], alphas, mz, "brg", "α")
-    ax[0, 0].set_title("Mallat–Zhong, level 3: α from 1 (box pair) to 5")
+    ax[0, 0].set_title("Mallat–Zhong, level 3:\nα from 1 (box pair) to 5")
     _waterfall(ax[1, 0], alphas, mz, "brg", "α")
     ax[1, 0].set_xlabel("x (px)")
     sigmas = np.geomspace(1.0, 16.0, 26)
     _sweep(ax[0, 1], sigmas, lambda sg: (lambda p: (p.x_px, p.psi))(wp.cdf_profile("mz", sg)), "rainbow", "σ", log=True)
-    ax[0, 1].set_title("CDF edges, Re u (Canny): σ from 1 to 16 px")
+    ax[0, 1].set_title("CDF edges, Re u (Canny):\nσ from 1 to 16 px")
     ss = np.geomspace(2.0, 32.0, 26)
     _sweep(ax[1, 1], ss, lambda s_: (lambda p: (p.x_px, p.psi))(wp.tang_you_profile("tang_you", s_)), "rainbow", "s",
            log=True)
-    ax[1, 1].set_title("Tang–You kernel: support radius s from 2 to 32 px")
+    ax[1, 1].set_title("Tang–You kernel:\nsupport radius s from 2 to 32 px")
     ax[1, 1].set_xlabel("x (px)")
     cm = plt.get_cmap("gist_rainbow")
     for k, b in enumerate(BANKS):
         p = wp.dwt_profile(b, 3)
         ax[0, 2].plot(p.x_px, p.psi, color=cm(k / (len(BANKS) - 1)), lw=LW, label=b)
-    ax[0, 2].legend(ncol=2, fontsize=4.5)
+    _legend_below(ax[0, 2], ncol=4, fontsize=4.5, handlelength=1.0, columnspacing=0.8)
     ax[0, 2].set_title(f"the {len(BANKS)} DWT banks at level 3")
     ax[0, 2].set_xlim(-40, 40)
     for k, lv in enumerate((1, 2, 3, 4, 5)):
         p = wp.mz_profile(lv, 3.0)
         ax[1, 2].plot(p.x_px, p.psi, color=plt.get_cmap("brg")(k / 4), lw=LW,
                       label=f"level {lv}" + (" (off ladder)" if p.off_ladder else ""))
-    ax[1, 2].legend()
-    ax[1, 2].set_title("Mallat–Zhong quadratic spline, levels 1–5")
+    _legend_below(ax[1, 2], ncol=2, fontsize=5)
+    ax[1, 2].set_title("Mallat–Zhong, α = 3: levels 1–5")
     ax[1, 2].set_xlabel("x (px)")
     for a_ in ax.ravel():
         a_.axhline(0.0, color="0.85", lw=0.5)
@@ -532,7 +538,7 @@ def fig_a4_q_range():
     u = np.linspace(-5, 5, 4001)
     rows = [("θ = e_q(−βu²), max 1", theta, "theta"), ("ψ = ∂θ (q-g1), slope −1 at 0", psi, "psi"),
             ("−Δθ (q-Mexican hat), value 1 at 0; q > ½", marr, "marr")]
-    fig, axes = plt.subplots(3, 2, figsize=(6.5, 7.6))
+    fig, axes = plt.subplots(3, 2, figsize=(6.5, 8.0))
     with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
         for i, (title, fn, kind) in enumerate(rows):
             for j, paired in enumerate((False, True)):
@@ -552,13 +558,11 @@ def fig_a4_q_range():
                     for key, y in closed(kind, u).items():
                         ax.plot(u, scale(y) if kind == "theta" else y, "k:", lw=0.8, zorder=6,
                                 label="closed forms" if key == "gaussian" else None)
-                if kind != "theta":
-                    ax.set_ylim(-2.2, 2.2)
-                ax.set_title(f"{title}\n" + ("β(q) = 1/(2(2−q)): escort variance held (dotted: closed forms)"
-                                             if paired else "β fixed at ½ (the support shrinks as q → −∞)"))
+                ax.set_ylim({"theta": (-0.05, 1.08), "psi": (-2.2, 2.2), "marr": (-0.5, 1.2)}[kind])
+                ax.set_title(f"{title}\n" + ("β(q) = 1/(2(2−q)): escort variance held" if paired
+                                             else "β fixed at ½: the support shrinks as q → −∞"))
                 ax.axhline(0.0, color="0.85", lw=0.5)
                 ax.set_xlim(-5, 5)
-                ax.legend(loc="upper right")
                 if i == 2:
                     ax.set_xlabel("u = x/σ (σ of the fixed-β Gaussian)")
     for k, (name, _qs, cmap, (lo, hi)) in enumerate(segments):
@@ -566,7 +570,9 @@ def fig_a4_q_range():
         cb = fig.colorbar(ScalarMappable(norm=Normalize(vmin=lo, vmax=hi), cmap=cmap), cax=cax)
         cb.set_label(f"q: {name}")
         cb.ax.tick_params(labelsize=5)
-    fig.subplots_adjust(left=0.07, right=0.87, bottom=0.06, top=0.95, hspace=0.45, wspace=0.18)
+    handles, labels = axes[0, 1].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=5, frameon=False, bbox_to_anchor=(0.47, 0.0))
+    fig.subplots_adjust(left=0.07, right=0.86, bottom=0.1, top=0.95, hspace=0.45, wspace=0.18)
     _save(fig, "atlas_a4_q_range")
 
 
@@ -600,36 +606,36 @@ def fig_a5_meyer():
             ax[1, j].plot(x1 / factor, ps, color=cm(nm(q)), lw=LW)
             ax[2, j].plot(s_grid, s.theta_hat(s_grid / factor, zero), color=cm(nm(q)), lw=LW)
         x0, th, x1, ps, s = sections(1.0)
-        ax[0, j].plot(x0 / factor, th, "k", lw=1.4, label="Meyer, q = 1")
-        ax[1, j].plot(x1 / factor, ps, "k", lw=1.4, label="Meyer ψ, q = 1")
-        ax[2, j].plot(s_grid, s.theta_hat(s_grid / factor, zero), "k", lw=1.4, label="Meyer θ̂, q = 1")
+        ax[0, j].plot(x0 / factor, th, "k", lw=1.4, label="Meyer, q = 1 (the reference)")
+        ax[1, j].plot(x1 / factor, ps, "k", lw=1.4)
+        ax[2, j].plot(s_grid, s.theta_hat(s_grid / factor, zero), "k", lw=1.4)
         (gx0, gth), (gx1, gps) = g.section(a, 0), g.section(a, 1)
-        ax[0, j].plot(gx0 / sigma, _norm(gth), "k--", lw=0.8, label="Gaussian θ")
-        ax[1, j].plot(gx1 / sigma, _norm(gps), "k--", lw=0.8, label="Gaussian ψ (g1)")
-        ax[2, j].plot(s_grid, g.theta_hat(s_grid, zero), "k--", lw=0.8, label="Gaussian θ̂")
+        ax[0, j].plot(gx0 / sigma, _norm(gth), "k--", lw=0.8, label="Gaussian pair (g0, g1)")
+        ax[1, j].plot(gx1 / sigma, _norm(gps), "k--", lw=0.8)
+        ax[2, j].plot(s_grid, g.theta_hat(s_grid, zero), "k--", lw=0.8)
         ax[0, j].set_title(mode)
         for i in (0, 1):
             ax[i, j].set_xlim(-12, 12)
             ax[i, j].axhline(0.0, color="0.85", lw=0.5)
         for i in range(3):
-            ax[i, j].legend(loc="upper right")
-            _colourbar(fig, ax[i, j], cm, nm, "q")
+            _colorbar(fig, ax[i, j], cm, nm, "q")
         ax[2, j].set_xlabel("s = a·k")
         ax[1, j].set_xlabel("x/σ")
     ax[0, 0].set_ylabel("θ")
     ax[1, 0].set_ylabel("ψ = ∂θ")
     ax[2, 0].set_ylabel("θ̂(s)")
+    fig.legend(*ax[0, 0].get_legend_handles_labels(), loc="outside lower center", ncol=2, frameon=False)
     _save(fig, "atlas_a5_meyer")
 
 
 def fig_a6_meyer_rings():
-    """A6. Why a bandlimited analyser looks wide: rings, their ρ⁻⁴ decay, the narrow band."""
+    """A6. Why a bandlimited analyzer looks wide: rings, their ρ⁻⁴ decay, the narrow band."""
     span = 40.0
     curves = [("q-Meyer ψ, q = 1.0", sm.smoother("q_meyer", {"q": 1.0}), "k"),
               ("q-Meyer ψ, q = 1.5", sm.smoother("q_meyer", {"q": 1.5}), "tab:red"),
               ("q-Meyer ψ, q = 0.5", sm.smoother("q_meyer", {"q": 0.5}), "tab:blue")]
     g = sm.smoother("gaussian")
-    fig, ax = plt.subplots(1, 3, figsize=(6.5, 2.4), constrained_layout=True)
+    fig, ax = plt.subplots(1, 3, figsize=(6.5, 3.1), constrained_layout=True)
     s_grid = np.linspace(0.0, 2.0, 800)
     zero = np.zeros_like(s_grid)
     for label, s, c in curves:
@@ -648,19 +654,19 @@ def fig_a6_meyer_rings():
     ax[2].axvline(1 / np.sqrt(2.0), color="0.8", lw=0.6)
     ax[0].set_title("q-Meyer ψ over ±40 σ")
     ax[1].set_title("|ψ| envelope")
-    ax[2].set_title("the analyser bands")
+    ax[2].set_title("the analyzer bands")
     ax[0].set_xlabel("x/σ")
     ax[1].set_xlabel("x/σ")
     ax[2].set_xlabel("s = a·k")
     for a_ in ax:
-        a_.legend(loc="upper right")
+        _legend_below(a_, ncol=1, fontsize=5)
     _save(fig, "atlas_a6_meyer_rings")
 
 
 def fig_a7_frac_grids():
     """A7. The fractional B-spline below α = 3 on three inverse-FFT grids."""
     grids = [(1.0 / 16.0, 1024, "tab:blue"), (1.0 / 64.0, 4096, "tab:orange"), (1.0 / 128.0, 8192, "k")]
-    fig, ax = plt.subplots(1, 3, figsize=(6.5, 2.4), constrained_layout=True)
+    fig, ax = plt.subplots(1, 3, figsize=(6.5, 2.7), constrained_layout=True)
     for a_, alpha in zip(ax, (1.5, 2.0, 2.5)):
         h = np.sqrt(12.0 / (alpha + 1.0))         # the knot spacing in σ (the matched-σ spline)
         for du, n, c in grids:
@@ -672,7 +678,7 @@ def fig_a7_frac_grids():
         a_.set_xlim(-4, 4)
         a_.set_title(f"α = {alpha:g}: knots at multiples of {h:.2f} σ")
         a_.set_xlabel("x/σ")
-        a_.legend(loc="upper right", fontsize=4.5)
+    fig.legend(*ax[0].get_legend_handles_labels(), loc="outside lower center", ncol=3, frameon=False)
     _save(fig, "atlas_a7_frac_grids")
 
 
@@ -713,7 +719,7 @@ def fig_a8_qmorlet_chirp():
     xs_log = np.geomspace(1e-3, 0.3, 300)
     cols = np.searchsorted(x, xs_log)
     image, ridge = [], {}
-    colours = {1.0: "k", 1.5: "tab:red", 0.7: "tab:blue"}
+    colors = {1.0: "k", 1.5: "tab:red", 0.7: "tab:blue"}
     for q in (1.0, 1.5, 0.7):
         pos, mod, re, im = [], [], [], []
         for a in scales:
@@ -733,10 +739,10 @@ def fig_a8_qmorlet_chirp():
     ax[0, 0].legend(loc="lower right")
     slope_amp = (h - beta / 2) / (1 + beta)
     for q, (pos, mod, re, im) in ridge.items():
-        ax[0, 1].loglog(scales, mod, color=colours[q], lw=1.0, label=f"|T| at the ridge, q = {q:g}")
+        ax[0, 1].loglog(scales, mod, color=colors[q], lw=1.0, label=f"|T| at the ridge, q = {q:g}")
         s = np.polyfit(np.log(scales), np.log(pos), 1)[0]
-        ax[1, 0].loglog(scales, pos, "o", ms=2.0, color=colours[q], label=f"ridge, q = {q:g} (slope {s:.3f})")
-        ax[1, 0].loglog(scales, (beta * scales / _k_q(q)) ** (1 / (1 + beta)), "--", color=colours[q], lw=0.6)
+        ax[1, 0].loglog(scales, pos, "o", ms=2.0, color=colors[q], label=f"ridge, q = {q:g} (slope {s:.3f})")
+        ax[1, 0].loglog(scales, (beta * scales / _k_q(q)) ** (1 / (1 + beta)), "--", color=colors[q], lw=0.6)
     pos, mod, re, im = ridge[1.0]
     ax[0, 1].loglog(scales, re, ".", ms=2.5, color="tab:green", label="|Re T| at the ridge, q = 1")
     ax[0, 1].loglog(scales, im, "x", ms=2.5, color="tab:orange", label="|Im T| at the ridge, q = 1")
@@ -750,9 +756,9 @@ def fig_a8_qmorlet_chirp():
     u = np.linspace(-6, 6, 1201)
     for q in (0.7, 1.0, 1.5):
         w = _q_morlet_1d(u, q)
-        ax[1, 1].plot(u, w.real / np.abs(w).max(), color=colours[q], lw=0.9,
+        ax[1, 1].plot(u, w.real / np.abs(w).max(), color=colors[q], lw=0.9,
                       label=f"Re ψ, q = {q:g}, $k_q$ = {_k_q(q):.2f}")
-        ax[1, 1].plot(u, sm._e_q(-0.5 * u * u, q), ":", color=colours[q], lw=0.7)
+        ax[1, 1].plot(u, sm._e_q(-0.5 * u * u, q), ":", color=colors[q], lw=0.7)
     ax[1, 1].set(xlabel="u", title="the q-Morlet: Re ψ and envelope (Borges eqs. 23, 29)")
     ax[1, 1].legend(loc="lower right")
     _save(fig, "atlas_a8_qmorlet_chirp")

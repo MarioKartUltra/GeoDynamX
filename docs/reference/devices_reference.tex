@@ -33,7 +33,7 @@ result (list indexes and masks --- scrubbing a filter knob redraws without recom
 Chains are always transforms-then-filters; interleaving is rejected at construction.
 
 Each tool has a display name and a device id. The device browser lists tools by scientific
-family and, like the chain strip, shows a tool's display name with its id in grey; this reference
+family and, like the chain strip, shows a tool's display name with its id in gray; this reference
 names a tool the same way: \tool{WTMM 2D}{wtmm2d}. Saved chains, rack files, layer
 names, cache keys and provenance record the device id. Each tool declares the data it consumes
 and produces, and one rule derived from those declarations says whether a step applies
@@ -50,7 +50,7 @@ Conventions that hold everywhere:
         kernel class its method admits, under the method's own names.
   \item \textbf{Inert knobs}: a parameter that binds only under one choice of another
         parameter (e.g.\ $q$ only for q-family wavelets) is ignored otherwise; where the device
-        declares it, the knob is \emph{greyed out} in the device box while it does not apply
+        declares it, the knob is \emph{grayed out} in the device box while it does not apply
         (its value is kept).
   \item \textbf{View-only knobs} (marked \emph{view} in the tables) choose what is shown from
         a result that is already computed and cached --- Show, Component, Group, Orientation,
@@ -123,7 +123,7 @@ a row \texttt{dataset @A} under its dataset. Selecting the ROI row makes it the 
 next tool runs on; results (\texttt{tool @A}) nest under it. The ROI row's H hides only its
 outline. An ROI cannot be deleted while results use it (delete them first). Analyzers read
 their own declared margin around the ROI; decompositions (\dev{pca},
-\dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}) analyse the ROI itself (margin $0$: a margin would mix
+\dev{tucker\_HOOI\_HOSVD}, \dev{ssa2d}) analyze the ROI itself (margin $0$: a margin would mix
 outside data into the statistic).
 
 \textbf{Output rows.} A result whose tool produces several things carries a collapsed
@@ -144,7 +144,7 @@ and stays cached; Freeze (the row's F) keeps it.
 \textbf{Progress} is live: every compute reports one increasing fraction from inside its own
 loops.
 
-\textbf{The right panel} shows what applies to the selected row: the colours, widths and
+\textbf{The right panel} shows what applies to the selected row: the colors, widths and
 arrows of the WTMM overlays appear with a result that has maxima or chains,
 \emph{Reconstruct\ldots} with an $h$ map, colormap, stretch and hillshade with a single-band
 display (a multiband display uses the Composite section), and the view-specific sections in
@@ -192,7 +192,7 @@ Right panel $\to$ Decomposition $\to$ \emph{Components\ldots}, on a \dev{ssa2d} 
 \dev{tucker\_HOOI\_HOSVD} result:
 \begin{itemize}\itemsep2pt
   \item \textbf{thumbnails} --- the eigenarrays (\dev{ssa2d}: the $L_r\times L_c$ window
-        patterns) or the component images, each labelled with its share;
+        patterns) or the component images, each labeled with its share;
   \item \textbf{the shares} on a log scale (group members in amber) --- a slowly decaying
         floor is noise;
   \item \textbf{the w-correlation matrix} (\dev{ssa2d}; black $0$ to white $1$) ---
@@ -224,15 +224,15 @@ changes the dataset's identity, so a result computed on the fuller stack is reco
 \textbf{Composite.} A multiband dataset draws as an RGB composite. The \emph{Composite}
 section of the right panel lists the bands with a channel (R, G, B or none; each channel
 takes one band) and Solo / Mute buttons: mute drops a band's channel; one solo shows that
-band alone in grey; several solos keep each in its channel. A picture whose file stores
-bytes (a colour PNG, JPEG or plain TIFF opens as a stack named R, G, B) draws at linear
+band alone in gray; several solos keep each in its channel. A picture whose file stores
+bytes (a color PNG, JPEG or plain TIFF opens as a stack named R, G, B) draws at linear
 0--255, so it reads as the file shows it, and a derivative forked with every band keeps
 the mix. Its \emph{Stretch} applies one type to all channels, each computed from its own
 band's values:
 
 \begin{longtable}{L M}
 \toprule Stretch & Mapping to $[0,1]$ \\ \midrule
-linear (min--max) & minimum to maximum (normalisation) \\
+linear (min--max) & minimum to maximum (normalization) \\
 percent clip & the $p$-th to $(100-p)$-th percentiles, clipped ($p=2$ is ENVI's linear 2\,\%) \\
 std-dev & mean $\pm k\sigma$, clipped \\
 log & $\log(1+v-\min v)$, then minimum to maximum \\
@@ -257,7 +257,7 @@ layer's rack (\dev{bus}), and a tool dropped after it analyses the bus's stack. 
 dataset row $\to$ \emph{Route bands to a new bus\ldots}:
 \begin{itemize}\itemsep2pt
   \item \textbf{Sends} are picked per band from every loaded dataset; a dataset on another
-        grid is listed greyed out with the reason. A send references the band in its file
+        grid is listed grayed out with the reason. A send references the band in its file
         (the file path and the band's grid id or index); the bus reads the band when it
         computes, over the window it needs.
   \item \textbf{Channel order} (drag to reorder) is the band axis the tool receives.
@@ -406,8 +406,8 @@ contract, so a tool from outside this build keeps working.
 \textbf{Where the rule is used.}
 \begin{itemize}\itemsep2pt
   \item \textbf{Browser.} A tool that cannot apply as the next step on the active layer is
-        greyed, with the reason in its tooltip. A greyed row still drags, and the step lands
-        drawn inactive. A tool that reads a Field or a Stack stays available on an analysed
+        grayed, with the reason in its tooltip. A grayed row still drags, and the step lands
+        drawn inactive. A tool that reads a Field or a Stack stays available on an analyzed
         layer, because dropping it there forks a sibling.
   \item \textbf{Chain strip.} Each step that does not apply is drawn inactive with its reason.
   \item \textbf{Fork.} A primary analyzer reads a Field or a Stack and produces neither: the
@@ -417,7 +417,7 @@ contract, so a tool from outside this build keeps working.
         \dev{band\_select}, a \dev{bus} with its sends), so it analyses the same field.
   \item \textbf{Shipping.} A filter on the parent moves to the sibling, with its knobs, when it
         applies after the sibling's analysis and does not apply after the parent's.
-  \item \textbf{Racks.} A rack is greyed where its first step cannot apply, and the rack editor
+  \item \textbf{Racks.} A rack is grayed where its first step cannot apply, and the rack editor
         runs the rule along the rack (\S\ref{sec:racks}).
 \end{itemize}
 
@@ -463,9 +463,9 @@ Editor & \emph{Racks $\to$ Rack Editor\ldots}: the family tree on the left and t
 Validation & live while editing: the order must be transforms-then-filters, and the contracts
              rule (\S\ref{sec:contracts}) runs along the rack from the input chosen under
              \emph{Validate from a}: a single-band field, a band stack or a point set \\
-Greyed & a rack whose first step cannot apply on the active layer is greyed with the reason. A
+Grayed & a rack whose first step cannot apply on the active layer is grayed with the reason. A
          rack file that names a device or a parameter this build lacks, or that cannot be
-         read, is listed greyed with the reason, and the other racks load \\
+         read, is listed grayed with the reason, and the other racks load \\
 Drop & split and merge: the rack's Transforms go after the chain's Transforms and its Filters
        after the chain's Filters, so the order stays legal. A rack Transform whose tool already
        runs in the chain is left out. A rack headed by a different primary analyzer forks a
@@ -501,7 +501,7 @@ resolves its Edge \texttt{auto} to \texttt{periodic}. Below 6 points per wavelen
 rough: the tool extends anyway and the warning under the band knob says so (lower the power fraction, or
 give a longer $\lambda_b$); WTMM's automatic edge handling reflects instead at that point. Only a stencil
 that cannot fit the field with its gap passes the field through unchanged. The reading under the knob
-gives $\lambda_b$, the gap and $\sigma$ for the field at hand. On an ROI it extends the ROI's own pixels, and the extended field is the row's result, placed at the ROI; a tool after it on that row works on the extended field, or fork the output to analyse it as its own dataset.
+gives $\lambda_b$, the gap and $\sigma$ for the field at hand. On an ROI it extends the ROI's own pixels, and the extended field is the row's result, placed at the ROI; a tool after it on that row works on the extended field, or fork the output to analyze it as its own dataset.
 
 \begin{longtable}{L l l M}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
@@ -543,7 +543,7 @@ $(L|k|)^{-s}$ acts at nonzero frequencies only. Both preserve the mean; $k$ is t
 per pixel and $L$ the reference length. Positive order smooths; negative order differentiates. The
 record carries the order, the operator, $L$ and the boundary, and the convention
 $h_{\text{original}} = h_{\text{integrated}} - s$. WTMM's \texttt{integration\_order} applies the same
-operator inside its own chain. WTMM's \texttt{fracint\_alpha}, labelled coefficient lift $\eta$,
+operator inside its own chain. WTMM's \texttt{fracint\_alpha}, labeled coefficient lift $\eta$,
 instead multiplies the wavelet coefficients by $a^\eta$. The fitter is seeded with the sum of input
 integration and coefficient lift, and subtracts that order when reporting exponents in the original
 frame. Bessel's low-frequency crossover and lacunary signals require care: a shift is not a universal
@@ -564,7 +564,7 @@ classical stencil $(-1, 9, 9, -1)/16$), band by band: $L$ refinements give $(n-1
 along each axis, the original nodes retained (rows and columns whose indices are multiples of
 $2^L$) and the spacing divided by $2^L$. The source axes must be uniformly spaced, and the native
 field is interpolated before any Periodic extension. The new samples are derived, so the result is
-marked to be forked: fork the derivative dataset and analyse it on its own grid. The reading under the
+marked to be forked: fork the derivative dataset and analyze it on its own grid. The reading under the
 knob gives the output size and the factor. Figure~\ref{fig:atlas-interpolating} draws the predictor's
 scaling function.
 
@@ -625,7 +625,7 @@ shell places it, and the browser lists it in the Dev group.
 \section{Primary analyzers}
 Each primary analyzer is its own representation of the field: it reads a single-band field
 (or a band stack) and produces an analysis. Dropping a different primary analyzer onto an
-analysed layer forks a sibling layer, and the filters that apply only after the new analyzer
+analyzed layer forks a sibling layer, and the filters that apply only after the new analyzer
 move with it (\S\ref{sec:contracts}).
 
 \subsection{\tool{WTMM 2D}{wtmm2d} --- canonical WTMM (Arn\'eodo)}
@@ -660,9 +660,9 @@ isotropic to fourth order, where a separable spline would bias the gradient dire
 WTMM reads), its knot spacing chosen so its width matches the Gaussian's at the same $a$; and
 the \emph{q-Gaussian} $e_q(-\rho^2/2\sigma^2)$ through its radial q-Fourier transform
 (Borges et al.), the same kernel the microcanonical tools offer, $q\to1$ being the Gaussian
-exactly; the \emph{q-Mexican hat}, $-\Delta$ of that q-Gaussian smoother (its analyser the
+exactly; the \emph{q-Mexican hat}, $-\Delta$ of that q-Gaussian smoother (its analyzer the
 q-$g_3$, in closed form by the chain rule on $e_q$; Borges's own index is $q_B=2-1/q$), which
-needs $q>2/3$ for a continuous analyser at the support's edge; and a \emph{q-Meyer}
+needs $q>2/3$ for a continuous analyzer at the support's edge; and a \emph{q-Meyer}
 smoother, the generalization Borges et al.\ leave open in their closing remark: Meyer's
 radial scaling-function taper with $\cos(\tfrac{\pi}{2}\nu)$ replaced by $\cos_q(x_0\nu)$,
 $x_0$ the q-cosine's first zero, so it is bandlimited and isotropic, its dilation fixed at
@@ -690,14 +690,14 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{fracint\_alpha} ($\eta$) & 0 & $[-6,6]$ & per-scale $a^{\eta}$ lift (pseudo fractional integration; shifts effective $h$ by $\eta$; 0 leaves a chain's slope equal to its $h$) \\
 \texttt{detector} (Detector) & nms & nms / follow & maxima detection: non-maxima suppression along the gradient, or xsmurf's \texttt{follow} (contour following of the zero-crossings of $\kappa$) \\
 \texttt{interpolate} & off & bool & subpixel refinement of each maximum along its gradient (\texttt{follow} always refines) \\
-\texttt{tie\_rule} (Ties) & asymmetric & asymmetric, strict, keep\_both & advanced, under \texttt{nms}: a pixel tied with its neighbour along the gradient. \emph{asymmetric} is xsmurf's NMS (its \texttt{wtmm2d} command, \texttt{Remove\_Gradient\_NonMaxima\_Slice\_2D}): a pixel must beat the neighbour ahead of the gradient and at least equal the one behind, so one pixel of a tie survives, the one ahead; within about $1.8^\circ$ of an axis ($|g|/\|g\| > 0.9995$) the neighbours are the nearest pixels. \emph{strict} keeps neither, \emph{keep\_both} (the rule before, interpolated, $\geq$ on both sides) keeps both \\
+\texttt{tie\_rule} (Ties) & asymmetric & asymmetric, strict, keep\_both & advanced, under \texttt{nms}: a pixel tied with its neighbor along the gradient. \emph{asymmetric} is xsmurf's NMS (its \texttt{wtmm2d} command, \texttt{Remove\_Gradient\_NonMaxima\_Slice\_2D}): a pixel must beat the neighbor ahead of the gradient and at least equal the one behind, so one pixel of a tie survives, the one ahead; within about $1.8^\circ$ of an axis ($|g|/\|g\| > 0.9995$) the neighbors are the nearest pixels. \emph{strict} keeps neither, \emph{keep\_both} (the rule before, interpolated, $\geq$ on both sides) keeps both \\
 \texttt{min\_chain\_len} & 2 & $[1,1024]$ & discard maxima lines spanning fewer scales \\
 \texttt{smooth} & off & bool & fill modulus dips along maxima lines before the single-max test \\
 \texttt{thresh} & 0.001 & $[0,1]$ & modulus floor for maxima detection (fraction) \\
 \texttt{dist2\_max} & 50 & $[0,10^6]$ px$^2$ & max squared jump when chaining maxima across scales \\
 \texttt{box\_ratio} & 1.0 & $[0.001,64]$ & chaining search-box anisotropy \\
 \texttt{similitude} & 0.8 & $[0,1]$ & cross-scale similarity acceptance for chaining \\
-\texttt{band\_per} & voice & voice, octave & where the similitude band applies: per voice, between neighbouring scales (xsmurf's vchain), or over a whole octave with each step taking its share, so the voices no longer change which $h$ can chain; the reading beside the similitude knob gives the chainable range of $h$ and the largest $h$ the analyzing wavelet resolves, $h < n_\psi$ \\
+\texttt{band\_per} & voice & voice, octave & where the similitude band applies: per voice, between neighboring scales (xsmurf's vchain), or over a whole octave with each step taking its share, so the voices no longer change which $h$ can chain; the reading beside the similitude knob gives the chainable range of $h$ and the largest $h$ the analyzing wavelet resolves, $h < n_\psi$ \\
 \texttt{chainer} & xsmurf\_bench & the chainers & which cross-scale chainer links the maxima (\texttt{dynamix.core.chaining}); the default is the benchmark, the xsmurf \texttt{vchain} port, and a recipe at that default keeps the key it had \\
 \texttt{angle\_test} & off & on, off & spec 14, advanced: a candidate also needs $1 - |\Delta\arg|/\pi$ above the angle similarity (a gradient flipped by $\pi$ accepted); off is xsmurf, whose \texttt{vchain} has the test commented out \\
 \texttt{angle\_threshold} & 0.8 & 0--1 & the angle similarity the angle test asks for \\
@@ -706,8 +706,8 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{tie\_break} & distance & distance, modulus & which claimant a coarser maximum keeps: the closest (xsmurf) or the one whose modulus is closest \\
 \texttt{border\_policy} & none & none, coi\_trim, coi\_drop & superseded by the Border cut and hidden on the whole-raster tool (a recipe naming it runs as before): chains near the image edge kept (xsmurf), cut at the first scale within $k$ scales of the edge, or dropped \\
 \texttt{coi\_k} & 2 & 0.1--10 & under \texttt{border\_policy}: the border zone in scales, $k\,a$ pixels from the edge \\
-\texttt{edge} (Edge) & auto & auto, reflect, periodic, edge\_pad, zero\_pad, gaussian\_taper & what lies beyond the raster for the FFT, whose convolution is circular: \emph{auto} is periodic on a Periodic extension output (\S\ref{sec:periodic-extension}) and reflect otherwise, and the reading beside the knob says which; \emph{reflect} the data mirrored without repeating the edge sample (JPEG2000's symmetric extension), \emph{edge\_pad} the edge values repeated and \emph{zero\_pad} zeros, each in a pad as wide as \texttt{pad\_width} gives (xsmurf cv2d's MIRROR, PADDING and 0\_PADDING); \emph{periodic} no padding, the raster wrapped onto itself, with a warning where its opposite edges differ more than three times its neighbouring pixels (the RMS of each); \emph{gaussian\_taper} the data rolled off to their mean in a band at the raster's edges, as wide as the field's dominant wavelength or the coarsest scale's reach, whichever is longer, with the band's maxima dropped (Jones and Gunaratne 1998), reflect and the reason on the knob where the band would take more than a quarter of the raster. Spec 22's \emph{cut} and \emph{daf\_periodic} are hidden: a recipe naming them runs as it did. On an ROI layer the halo reads the parent: \emph{auto} reflects past the parent's edges, and a chosen \emph{periodic}, \emph{edge\_pad} or \emph{zero\_pad} does too, with a warning; the Border cut runs on whole rasters only \\
-\texttt{extent} (Analyse) & real\_data & real\_data, whole\_field & on a Periodic extension output (\S\ref{sec:periodic-extension}): \emph{real\_data} keeps the maxima to the real block and reads the threshold from it, the filled gap being padding; \emph{whole\_field} analyses the extended field, gap included, so the two spectra can be compared; on any other field the two are the same \\
+\texttt{edge} (Edge) & auto & auto, reflect, periodic, edge\_pad, zero\_pad, gaussian\_taper & what lies beyond the raster for the FFT, whose convolution is circular: \emph{auto} is periodic on a Periodic extension output (\S\ref{sec:periodic-extension}) and reflect otherwise, and the reading beside the knob says which; \emph{reflect} the data mirrored without repeating the edge sample (JPEG2000's symmetric extension), \emph{edge\_pad} the edge values repeated and \emph{zero\_pad} zeros, each in a pad as wide as \texttt{pad\_width} gives (xsmurf cv2d's MIRROR, PADDING and 0\_PADDING); \emph{periodic} no padding, the raster wrapped onto itself, with a warning where its opposite edges differ more than three times its neighboring pixels (the RMS of each); \emph{gaussian\_taper} the data rolled off to their mean in a band at the raster's edges, as wide as the field's dominant wavelength or the coarsest scale's reach, whichever is longer, with the band's maxima dropped (Jones and Gunaratne 1998), reflect and the reason on the knob where the band would take more than a quarter of the raster. Spec 22's \emph{cut} and \emph{daf\_periodic} are hidden: a recipe naming them runs as it did. On an ROI layer the halo reads the parent: \emph{auto} reflects past the parent's edges, and a chosen \emph{periodic}, \emph{edge\_pad} or \emph{zero\_pad} does too, with a warning; the Border cut runs on whole rasters only \\
+\texttt{extent} (Analyze) & real\_data & real\_data, whole\_field & on a Periodic extension output (\S\ref{sec:periodic-extension}): \emph{real\_data} keeps the maxima to the real block and reads the threshold from it, the filled gap being padding; \emph{whole\_field} analyses the extended field, gap included, so the two spectra can be compared; on any other field the two are the same \\
 \texttt{pad\_width} (Padding) & measured\_reach & measured\_reach, fixed\_px, border\_pct & the pad under reflect, edge\_pad and zero\_pad, once for the whole transform at the widest scale's width: the coarsest scale's measured reach (\texttt{edge\_eps}; a scale whose reach does not converge takes the widest converged one, and the reading beside the Edge knob says so), \texttt{pad\_px} for every scale (the width before spec 25), or xsmurf's $\lfloor a \cdot \texttt{pad\_pct}\rfloor$ \\
 \texttt{pad\_px} (Padding px) & 32 & $[0,8192]$ px & advanced, under fixed\_px: the pad width \\
 \texttt{pad\_pct} (Padding \%) & 0.72 & $[0,10]$ & advanced, under border\_pct: the pad as a fraction of the scale \\
@@ -716,7 +716,7 @@ exactly as the pair does; the three engines agree to float32 tolerance.
 \texttt{border\_k} (Border k) & 2 & 0.1--10 & advanced, under k\_scale: the border in scales, $k\,a$ pixels \\
 \texttt{border\_scope} (Border scope) & largest & largest, per\_scale & advanced: every scale cut by the coarsest scale's border, as xsmurf's \texttt{rm\_ext} does, or each scale by its own \\
 \texttt{cut\_scope} (Cut scope) & largest & largest, per\_scale & hidden, under spec 22's \texttt{cut}: the coarsest scale's reach at every scale, or each scale's own, never wider than the coarsest's, which also stands in where a scale's reach does not converge \\
-\texttt{edge\_eps} (Edge $\varepsilon$) & 0.001 & $[10^{-6},0.1]$ & advanced: the share of the analysing wavelet's $|\psi|$ mass left outside its reach, measured on 1024 and 2048 grids and, where the run's own FFT grid is larger, on that grid too (the next power of two, at most 8192); where two radii differ by more than 25\% the reach does not converge, and an ROI reads the whole parent at that scale (up to 64\,Mpx) or warns \\
+\texttt{edge\_eps} (Edge $\varepsilon$) & 0.001 & $[10^{-6},0.1]$ & advanced: the share of the analyzing wavelet's $|\psi|$ mass left outside its reach, measured on 1024 and 2048 grids and, where the run's own FFT grid is larger, on that grid too (the next power of two, at most 8192); where two radii differ by more than 25\% the reach does not converge, and an ROI reads the whole parent at that scale (up to 64\,Mpx) or warns \\
 \texttt{show} (\emph{view}) & edges & 3 outputs & \texttt{edges} (the edge stack), or the \texttt{modulus} or \texttt{argument} at the shown level (the Outputs rows, \S\ref{sec:perscale}) \\
 \bottomrule
 \end{longtable}
@@ -741,7 +741,7 @@ WTMMM are the maxima of the modulus along each maxima line (xsmurf's \texttt{ssm
 Roux (2000, \S6): the density $P_a(\mathcal{A})$ at several scales, flat for an isotropic
 field; the WTMMM of one scale in the gradient plane $(T_{\psi_1},T_{\psi_2})$, round for an
 isotropic field; and the density of $\log_2\mathcal{M}$ in four axial sectors of
-$\mathcal{A}$ (mod $180^\circ$, centred on $0^\circ$, $45^\circ$, $90^\circ$, $135^\circ$),
+$\mathcal{A}$ (mod $180^\circ$, centered on $0^\circ$, $45^\circ$, $90^\circ$, $135^\circ$),
 whose shapes coincide when $\mathcal{M}$ and $\mathcal{A}$ are independent. Below them, Khalil,
 Joncas, Nekka, Kestener and Arn\'eodo's reading of the anisotropy as numbers (2006, ApJS 165:512,
 \S4.2.4): the two components of the WTMMM scale on their own, $T_{\psi_1}\sim a^{H_x}$ and
@@ -756,7 +756,7 @@ with $\beta_x=2H_x+1$, $\beta_y=2H_y+1$ and the radial $\beta$, and the moment o
 rescaled modulus pdfs $a^{-qH}\mathcal{M}^qP_a(\mathcal{M})$ keep their area within 10\,\% across
 the scales (their eq.~32: the $q$ the partition functions can carry). The anisotropy against scale
 is the peak of $P_a(\mathcal{A})$ modulo $180^\circ$: its height over the isotropic level and its
-angle, which sharpens and turns towards fine scales as $\tan\mathcal{A}\sim a^{H_y-H_x}$ (their
+angle, which sharpens and turns toward fine scales as $\tan\mathcal{A}\sim a^{H_y-H_x}$ (their
 eq.~38). When a wavelet-leaders result run with its directional option is landed on any layer,
 its $\eta(2,e_i)/2$ stand beside $H_x$, $H_y$ as the DWT's reading of the same exponents.
 
@@ -788,7 +788,7 @@ Zhong, Hwang et al.), ported to numba and matching its C bit for bit on square f
 wavelet transform is computed \`a trous by direct FIR convolution with the paper's Table~I filters
 ($h=\{\frac18,\frac38,\frac38,\frac18\}$ and a two-tap derivative $g$). The edges at scale $2^l$ px
 are \texttt{extrema2}'s gradient-modulus maxima: the gradient direction snapped to the row or column
-axis, a neighbour whose gradient points the opposite way counted lower, and a gap-filling pass at
+axis, a neighbor whose gradient points the opposite way counted lower, and a gap-filling pass at
 the finest scale; they are linked into per-scale H-lines (\texttt{line\_id}). Stored moduli carry
 LastWave's normalization (factors close to $1/\lambda_l$). \texttt{Border} \emph{mirror} runs the
 whole algorithm on the field mirrored to twice its size, for rasters whose edges do not wrap;
@@ -806,11 +806,11 @@ stored values the reconstruction uses are unchanged.
 
 \textbf{Reconstruction from the edges.} The Outputs rows show \emph{coarse} (the coarse channel
 $S_{2^J}$ in the data's units), \emph{thumbnail} ($S_{2^J}$ sampled every $2^J$ pixels, each block
-centred on its sample), \emph{recon (edges + coarse)}, \emph{recon (edges only)} (with $S=0$) and
+centered on its sample), \emph{recon (edges + coarse)}, \emph{recon (edges only)} (with $S=0$) and
 \emph{residual} (the data minus the reconstruction). The reconstruction is LastWave's
 \texttt{e2recons}: an initial pass, then alternating projections. Each iteration analyses the
 current image, restores the stored values at the maxima and spreads each correction between
-neighbouring maxima along rows ($W_x$) and columns ($W_y$) as a $\sinh$ interpolation with decay
+neighboring maxima along rows ($W_x$) and columns ($W_y$) as a $\sinh$ interpolation with decay
 $e^{-\kappa/2^l}$ per sample (row and column ends pinned to zero, as in the C), optionally clips the
 modulus to decrease away from each maximum, and synthesizes with the coarse channel held fixed.
 $\kappa=1$ is the paper's constant; LastWave uses $\kappa=2\ln 5.8\approx3.516$, which reconstructs
@@ -825,7 +825,7 @@ the tolerance, the iteration cap is reached, or the constraint residual rises th
 row, which returns the best iterate) or for a fixed count, with progress and Stop. With
 \texttt{Live} on, showing the recon row computes a one-iteration preview, Decay $\kappa$, Clip and
 Coarse recompute it as they change, and Run continues from it. Each recon row reads its iterations, why the run stopped and
-its SNR against the data (mean removed; for edges only, against the data minus the synthesised
+its SNR against the data (mean removed; for edges only, against the data minus the synthesized
 coarse part). ROI results do not reconstruct yet (their rows say so), and the thumbnail shows in the
 2-D view. Under \emph{printed} the reconstruction is the research port's alternating projections
 with its own \texttt{Mode}, run for the iteration count when a row is shown.
@@ -922,7 +922,7 @@ $3\times3$ block $3\lambda$ and every descendant (Jaffard; Dumeur et al.\ 2025, 
 \textbf{p-leader} $\ell^{(p)} = (\sum |d|^p\,2^{-2(j-j')})^{1/p}$ over the same set with
 Leonarduzzi et al.\ 2017's finite-resolution factor when $\eta(p) > 0$, and the
 \textbf{$(\theta,\omega)$-leader} $\ell^w$, the sup over a window of finer levels and
-neighbouring cells (Dumeur et al.\ 2025, Def.~2.2), Meyer's weak scaling exponent. Coefficients
+neighboring cells (Dumeur et al.\ 2025, Def.~2.2), Meyer's weak scaling exponent. Coefficients
 are $L^1$ ($2^{-j}$ times the orthonormal ones), every band rolled onto the field's dyadic grid by
 its atom's centroid, and cells within the bank's border of an edge or of a non-finite pixel are
 left out (\texttt{wavelet}: sym4 5 cells, sym7 6, db4 5, bl3 13). \texttt{edge} continues the field to the
@@ -932,7 +932,7 @@ the real block alone counts) and mirrors otherwise; \emph{mirror}, \emph{reflect
 \texttt{scale\_max} (powers of two) bound the fitted levels, at least three; \texttt{gamma} is a
 pseudo-fractional integration of the coefficients by $2^{\gamma j}$, every readout given in the
 integrated frame and shifted back ($\tau - \gamma q$, $h - \gamma$, $c_1 - \gamma$);
-\texttt{dither} perturbs quantised data by half a least significant bit; \texttt{p} is the
+\texttt{dither} perturbs quantized data by half a least significant bit; \texttt{p} is the
 p-leaders' order. The window of the $(\theta,\omega)$-leader follows \texttt{wse\_rule}: the
 paper's $\theta(j) = j + j^{\beta}$, $\omega(j') = j'$ in the resolution index (\texttt{wse\_beta},
 default $\tfrac14$), or a fixed \texttt{wse\_depth} of octaves below each level and
@@ -965,7 +965,7 @@ $3\lambda$). The record carries the bank, the levels, $\gamma$, $p$, the window 
 edge used and the border, the registration, the counts and the admissibility.
 
 \textbf{Footprint preview.} View $\to$ Edge Footprint shows the processing extent, the displayed
-level's dyadic grid, edge exclusions and a representative cell with its $3\lambda$ neighbourhood,
+level's dyadic grid, edge exclusions and a representative cell with its $3\lambda$ neighborhood,
 wavelet support and optional WSE window. A region includes its full halo and labels reflected
 file-edge support. Cycle spinning shows the base grid and reports the number of shifted grids.
 The preview reads geometry and sampled pixels without running the transform.
@@ -973,7 +973,7 @@ The preview reads geometry and sampled pixels without running the transform.
 \subsection{\tool{CWT leaders}{cwt\_leaders} --- Jaffard's leaders on the WTMM's continuous transform}
 
 The leader at a point and a scale $a$ is the supremum of the lifted modulus over the scale-space
-cylinder: every finer scale, within the disc of radius $R(a) = k\,c\,a$, where $c$ is the analysing
+cylinder: every finer scale, within the disc of radius $R(a) = k\,c\,a$, where $c$ is the analyzing
 kernel's 99\,\% energy radius per unit scale (\texttt{energy}, measured once from the kernel;
 \texttt{radius\_k} the multiple, 1 by default). It is the continuous form of the $3\lambda$ leader
 of the DWT pyramid (Jaffard 1994, Lemma 1; Jaffard, Lashermes \& Abry 2006), positive everywhere, so
@@ -982,7 +982,7 @@ WTMM's own: the smoother (\texttt{wavelet} and its knobs), the ladder (\texttt{n
 \texttt{n\_voice}, one voice per octave by default, \texttt{a\_min}), the lift
 \texttt{fracint\_alpha} applied to each scale's modulus before the supremum, and the edge handling,
 so the transform stage is shared with \tool{WTMM 2-D}{wtmm2d}. \texttt{operator} chooses the
-analysing kernel: the gradient of the smoother (the WTMM's modulus, the shared stage) or the
+analyzing kernel: the gradient of the smoother (the WTMM's modulus, the shared stage) or the
 smoother itself, which makes the Mexican smoothers the even wavelets $g_2$ and $q$-$g_2$ and the
 Gaussians zero-order mass kernels for nonnegative fields. \texttt{measure} chooses what is
 covered: every pixel (the leaders) or the WTMM's maxima only, Jaffard's repair of the
@@ -1005,7 +1005,7 @@ separable) wavelet coefficients of a band: the anisotropic scaling function $\et
 $\alpha_1$ grid of step $\tfrac18$ ($\alpha_2 = 2 - \alpha_1$), read along the index families
 $(j_1, j_2) = ([j\alpha_1], [j\alpha_2])$ as the slowest family's envelope slope over the levels no
 family clips (at least three); $\eta(p, e_1) = \sup_\alpha \eta_\alpha(p)/\alpha_1$ with the
-maximising $\alpha_1$ as the anisotropy profile $\alpha_1^*(p)$, $\eta(p, e_2)$ by symmetry,
+maximizing $\alpha_1$ as the anisotropy profile $\alpha_1^*(p)$, $\eta(p, e_2)$ by symmetry,
 $\eta(p)$ the diagonal, and the directional Legendre bound of their Theorem~6 capped at $d$.
 \texttt{wavelet}, \texttt{edge}, \texttt{scale\_min}, \texttt{scale\_max} and \texttt{gamma} are the
 Wavelet leaders' (the pyramid to $J = \log_2$ \texttt{scale\_max}, the fit from $\log_2$
@@ -1058,8 +1058,8 @@ $\sigma$ in px.
 \begin{itemize}\itemsep2pt
   \item \textbf{Canny (Re)}, stored as \texttt{mz}: the gradient-modulus maxima of the Re
         channel. The gradient is the central difference; its direction is snapped to the
-        nearest of the eight neighbour directions, and a pixel is kept where its modulus is
-        at least that of both neighbours along it (neighbours wrap at the field's edges).
+        nearest of the eight neighbor directions, and a pixel is kept where its modulus is
+        at least that of both neighbors along it (neighbors wrap at the field's edges).
         This is Canny's non-maximum suppression with a single floor,
         $|\nabla\mathrm{Re}|>\texttt{floor}\cdot\max|\nabla\mathrm{Re}|$, and no hysteresis:
         one threshold and no edge tracking. The Re channel is already the Gaussian-smoothed
@@ -1140,7 +1140,7 @@ $e^{-ik_0\cdot x}$ (Jones and Gunaratne 1998, \S4), and the density is $|\odot A
 carry the envelope's names, and $|A(x)|$ joins the rasters. \texttt{envelope} = \emph{wavelet
 ridge} takes the envelope from Passot and Newell's wavelet ridge instead (Physica D 74:301, 1994,
 Appendix A): the 2-D analytic q-Morlet of \texttt{dynamix.core.analytic\_cwt} --- a Gaussian in $k$
-centred where $aR_\theta k = \omega$ (A.15), the Morlet at $q = 1$, the q-Gaussian envelope of
+centered where $aR_\theta k = \omega$ (A.15), the Morlet at $q = 1$, the q-Gaussian envelope of
 Borges et al.\ 2004 through its closed 2-D transform otherwise --- is applied on a log-polar bank
 of wavevectors around $k_0$ (half an octave to an octave either side at 4 voices, 12 orientations
 over the half-plane about $k_0$'s direction), and at each pixel the fixed point $aR_\theta\nabla\Psi
@@ -1163,7 +1163,7 @@ Fourier multipliers: the papers' Hermite DAF (the default; its order \texttt{daf
 \texttt{daf\_sigma} = $\sigma/\Delta$ are knobs, PRE 57 p.~5147's M = 12 and 4 by default), a
 derivative of Gaussian of width \texttt{sigma\_d} px, or spectral derivatives, which
 need a periodized input --- a Periodic extension's stamp, or \texttt{periodic} declaring the field
-periodic as it stands. The two Helmholtz terms are filtered alike and the normalising
+periodic as it stands. The two Helmholtz terms are filtered alike and the normalizing
 $\langle|u|\rangle$ carries the same smoothing, so a perfect stripe reads exactly zero whatever the
 scheme; a non-periodic field is reflected past its edges by the kernel's reach first. \texttt{k0}
 is the minimum of $\bar\delta(1)$ over a bracket around the spectral peak (Gunaratne, Ratnaweera
@@ -1179,7 +1179,7 @@ of relative width 0.5 (full width at half maximum); or none.
 default grids; when asked for, the density is clipped at \texttt{beta\_floor} (0 takes $10^{-6}$ of
 the mean density), the floored pixels are counted and a warning says how much a tenfold higher
 floor would change the value. The record names the scheme, its reach, $k_0$ and how it was found,
-the filter, the normalisation of each published curve and the floor.
+the filter, the normalization of each published curve and the floor.
 
 \subsection{\tool{Hessian measure (Nathan--Gunaratne)}{hessian\_measure} --- a surface without a planform}\label{sec:hessian-measure}
 Family Measures. The tool computes the
@@ -1201,19 +1201,19 @@ where the transform's phase is stationary, $aR_\theta\nabla\Psi = \omega$ (A.12-
 found on a log-polar bank of wavevectors around the planform wavenumber $k_0$ (half an octave to an
 octave either side, 4 voices, 12 orientations over the half-plane) by interpolation with Aitken's
 $\Delta^2$. The wavelet is the 2-D analytic q-Morlet of \texttt{dynamix.core.analytic\_cwt}: a
-Gaussian in $k$ centred where $aR_\theta k = \omega$ (A.15), the Morlet at $q = 1$, the q-Gaussian
+Gaussian in $k$ centered where $aR_\theta k = \omega$ (A.15), the Morlet at $q = 1$, the q-Gaussian
 envelope of Borges et al.\ 2004 otherwise (\texttt{ridge\_q}, with its two widths
 \texttt{q\_pairing} and \texttt{q\_beta}); \texttt{omega} is the carrier (default 3, their 2-D
 runs), \texttt{anisotropy} the across/along stretch $\alpha_2/\alpha_1$ of A.16. The amplitude is
 $2|T|\,|\det N|^{1/2}/\sqrt{\alpha_1\alpha_2}$ with $N = R\,\mathrm{diag}(\alpha)R^T - ia^2H$ (A.19
 as the determinant it comes from, $H$ the Hessian of the ridge phase, smoothed over half the window)
-and the phase $\Psi + \tfrac12\arg\det N$ (A.8). \texttt{k0} centres the search: the spectral peak,
+and the phase $\Psi + \tfrac12\arg\det N$ (A.8). \texttt{k0} centers the search: the spectral peak,
 or a given wavelength \texttt{lambda0}. The ridge rasters are scale-free, chosen by \texttt{show}:
 $|A(x)|$ (default), $|K(x)|$, the roll direction $\vartheta(x)$ as a director in $[0, 180^\circ)$,
 the ridge scale $a_r(x) = |\omega|/|K|$ and the phase $\varphi(x)$; pixels where the ridge does not
 converge (defect cores, a local wavenumber outside the bank) are blank and counted. The transform
 the ridge is read from sits on the Scale slider: over the ladder \texttt{a\_min}, \texttt{n\_oct},
-\texttt{n\_voice}, each level offers $|T|$ maximised over \texttt{orientations} wavelets centred on
+\texttt{n\_voice}, each level offers $|T|$ maximized over \texttt{orientations} wavelets centered on
 $|\kappa| = \omega/a$ (\emph{modulus}), the orientation that wins and the phase there, computed on
 request and cached per level. Figure~\ref{fig:atlas-qmorlet} draws the q-Morlet's real and imaginary
 parts and modulus in 3-D for three $q$. The scale bar labels each level with $\lambda^* = 2\pi a/\omega$, the
@@ -1282,13 +1282,13 @@ reconstruction averages each pixel over the windows covering it.
 \begin{longtable}{P l R N}
 \toprule Parameter & Default & Range & Meaning \\ \midrule
 \texttt{embed} (Embedding) & delay\_2d & delay\_2d / delay / none & see above \\
-\texttt{axis} (Tape axis) & rows & rows / cols & the time axis of the 1-D tape (greyed out unless \texttt{delay}) \\
+\texttt{axis} (Tape axis) & rows & rows / cols & the time axis of the 1-D tape (grayed out unless \texttt{delay}) \\
 \texttt{n\_delays} (Delays) & 32 & $[2,512]$ & embedding dimension $L$ (patch $L\times L$ under delay\_2d); the lag between delays is 1 px \\
 \texttt{rank\_delay} (Rank: delay) & 4 & $[0,512]$ & delay patterns kept (both delay modes under delay\_2d); $0$ = full \\
 \texttt{rank\_time}, \texttt{rank\_space} & 0 & $[0,10^5]$ & ranks of the rows/cols ($y'$/$x'$) modes; $0$ = full \\
 \texttt{rank\_band} (Rank: band) & 0 & $[0,64]$ & rank of the band mode (multiband only); $0$ = full \\
 \texttt{method} (Method) & HOSVD & HOSVD / HOOI & the algorithm (a toggle button) \\
-\texttt{sweeps} (HOOI sweeps) & 2 & $[1,16]$ & HOOI refinement passes (greyed out under HOSVD) \\
+\texttt{sweeps} (HOOI sweeps) & 2 & $[1,16]$ & HOOI refinement passes (grayed out under HOSVD) \\
 \texttt{show} (\emph{view}) & recon & recon / residual / component & what the canvas shows \\
 \texttt{component} (\emph{view}) & 1 & $[1,64]$ & the component shown (Show $=$ component) \\
 \texttt{pairs} (Orientation; \emph{view}) & separate & separate / combined & component numbering under delay\_2d; also what a Group refers to \\
@@ -1342,13 +1342,13 @@ Def.~3.18) of the kept components --- the grouping aid shown in the Components w
 
 \textbf{Keeping and grouping} (Lopes et al.\ 2024). \emph{Keep: energy} treats
 \texttt{n\_components} as the most to find and keeps the fewest whose cumulative share reaches
-the threshold (the row note says when it was not reached). This 2D-SSA is uncentred, so on a raw
+the threshold (the row note says when it was not reached). This 2D-SSA is uncentered, so on a raw
 field the first eigentriple, the mean, often carries most of the energy on its own.
 \emph{Show: cluster} shows one group of an automatic grouping: average-linkage clustering on
 $1-|\text{w-correlation}|$, cut at the cluster distance, clusters ordered by share. The cluster knobs
 are view settings, so changing them never re-decomposes.
 
-\textbf{Edges.} A pixel near the edge of the analysed region is covered by fewer windows. On a
+\textbf{Edges.} A pixel near the edge of the analyzed region is covered by fewer windows. On a
 region of interest the tool reads a margin of real data around it (\texttt{margin\_windows}
 windows of $\max(L_r,L_c)-1$ pixels; at one window every ROI pixel is fully covered) and crops
 back. On the whole field there is no data beyond the edge. Lopes et al.'s mirror extension is
@@ -1403,7 +1403,7 @@ is the foundation of the wavelet-leader tools.
 A biorthogonal lifting transform built on an interpolating predictor. Each level splits rows and
 columns into even and odd samples, predicts the odd ones from the even ones and keeps the misfit as
 the detail, then updates the even ones by one half of the predictor's transpose (a local lifting
-design), with the midpoints normalised for DC. The predictor is either the four-point
+design), with the midpoints normalized for DC. The predictor is either the four-point
 Deslauriers--Dubuc stencil $(-1, 9, 9, -1)/16$ or the Gaussian--Lagrange DAF shell of US6847737
 (Eqs.~47--48), restricted to its polynomial stencil of odd order $M$ with Gaussian width $\sigma$ in
 coarse cells. This local construction is biorthogonal (the orthogonal banks are \dev{dwt2d}'s), and
@@ -1545,7 +1545,7 @@ paper's $q<3$ is the 1-D bound: in 2-D the Laplacian of $[e_q]^{2-q}$ vanishes i
 at $q=2$ and never changes sign above it, so the knob runs $-1\le q\le1.95$. For $q\ge0$
 the wavelet is bounded; for $q<0$ it diverges at its cutoff (still integrable) and the knob
 shows a warning. Because $[e_q]^{2-q}$ is itself a $q'$-Gaussian with $q'=1/(2-q)$, this is
-the family of Laplacians of q-Gaussians under a relabelled index: \texttt{q\_mexican} at $q$
+the family of Laplacians of q-Gaussians under a relabeled index: \texttt{q\_mexican} at $q$
 equals \texttt{lorentzian\_marr} at $\beta=(2-q)/(q-1)$ for $1<q<2$ (e.g.\ $q=1.5\equiv\beta=1$),
 with tail $\rho^{-2/(q-1)}$ and truncation $\gamma\ge2(2-q)/(q-1)$.
 
@@ -1566,7 +1566,7 @@ from the paper's two choices.
   \item The pairing exists exactly where the 2-D q-Mexican hat is admissible, $q<2$: the
         escort variance and the zero mean both need $d+2-dq>0$. A q-paired q-Gaussian
         therefore refuses $q\ge2$.
-  \item In real space the normalisation is done numerically at every scale, so the paper's
+  \item In real space the normalization is done numerically at every scale, so the paper's
         closed-form constants are not used. (In 2-D they happen to be elementary:
         $A_q=\sqrt{\beta(3-q)(1+q)/\pi}$ for the q-Mexican hat,
         $B_q=\sqrt{\beta(3-q)/\pi}$ for the modulated q-Gaussian. The flat Jacobian
@@ -1618,7 +1618,7 @@ $q$. The kernel is then band-limited rather than sampled.
 \caption{The q family. Left: \dev{holder\_measure}'s positive q-Gaussian, $-1\le q\le3$
 (compact below $q=1$). Right: \dev{holder\_multiaffine}'s q-Mexican hat (Borges et al.\
 2004, in 2-D), $-1\le q<2$; every curve crosses zero at $\rho=r$, and for $q<0$ the
-negative lobe diverges at the cutoff. Profiles scaled to 1 at the centre.}
+negative lobe diverges at the cutoff. Profiles scaled to 1 at the center.}
 \end{figure}
 
 \begin{figure}[h]
@@ -1641,8 +1641,8 @@ across the two tools, and $\gamma$ values are not comparable across wavelets.}
 \texttt{q\_tsallis} (Tsallis $q$, $q_T$) & 1.5 & $[-1,3]$ / $[-1,1.95]$ & q-family shape, measure / multiaffine (q\_gaussian / q\_mexican only); warns at measure $q\ge2$, multiaffine $q<0$ \\
 \texttt{beta} ($\beta$) & 1.0 & $[0.1,8]$ & Lorentzian tail exponent (Lorentzian family only) \\
 \texttt{frac\_n} ($n$) & 2.0 & $[0.05,8]$ & fractional order (frac\_gaussian only) \\
-\texttt{q\_pairing} (q width) & fixed & fixed / q-paired & the q-kernel's width $\beta$: fixed, or $\beta(q)=1/(2(2-q))$ (below); greyed out unless q\_gaussian / q\_mexican \\
-\texttt{q\_beta} (q $\beta$) & 0.5 & $[0.05,5]$ & the fixed width of $e_q^{-\beta\rho^2/r^2}$ (greyed out while q-paired) \\
+\texttt{q\_pairing} (q width) & fixed & fixed / q-paired & the q-kernel's width $\beta$: fixed, or $\beta(q)=1/(2(2-q))$ (below); grayed out unless q\_gaussian / q\_mexican \\
+\texttt{q\_beta} (q $\beta$) & 0.5 & $[0.05,5]$ & the fixed width of $e_q^{-\beta\rho^2/r^2}$ (grayed out while q-paired) \\
 \texttt{construction} (Wavelet space) & real & real / fourier & sample each kernel on the grid, or build it from its closed-form transform (above) \\
 \bottomrule
 \end{longtable}
@@ -1651,7 +1651,7 @@ across the two tools, and $\gamma$ values are not comparable across wavelets.}
 Both Microcanonical MFA tools reconstruct the field from a singularity band. The band
 $h\in[h_{\text{lo}},h_{\text{hi}})$ of the cached $h$ map, cleared of islands outside the size
 range, is the mask; the reconstruction is the gradient-restricted Fourier inversion of the
-analysed values on that mask (Turiel eq.~65, symmetric-extension border fix). Two output rows
+analyzed values on that mask (Turiel eq.~65, symmetric-extension border fix). Two output rows
 carry them, \emph{band reconstruction} (\texttt{band}) and \emph{band mask}
 (\texttt{band\_mask}), and \texttt{Show} picks what the canvas draws: the $h$ map, the band or
 its mask. The band row reads its PSNR against the data and the share of pixels in the band, the
@@ -1760,7 +1760,7 @@ transaction --- \dev{group\_paint} stamps committed group tags onto chain copies
 (\texttt{spec\_json}/\texttt{signature} are written by the commit flow, not hand-edited);
 \dev{group\_filter} keeps or drops one named group.
 
-\textbf{\tool{Back-project points}{backproject}}: registers a point catalogue onto a raster layer's grid
+\textbf{\tool{Back-project points}{backproject}}: registers a point catalog onto a raster layer's grid
 (the point-layer transform). \texttt{target} names the raster layer; the
 \texttt{\_target\_*} params are the resolved grid geometry, written by the shell ---
 not hand-edited.
@@ -1803,7 +1803,7 @@ lines here introduced, for instance, the Meyer wavelet or the sinc function.'' T
                 normalization there, such as unit $L^1$ norm.
         \end{itemize}
   \item \textbf{Built: the q-Meyer smoother} (\texttt{q\_meyer}), Meyer's radial taper with Borges's
-        q-cosine, matched to the Gaussian pair by its analyser's band peak (Figures~\ref{fig:a5}
+        q-cosine, matched to the Gaussian pair by its analyzer's band peak (Figures~\ref{fig:a5}
         and \ref{fig:a6}).
   \item \textbf{Built: the 2-D analytic q-Morlet} of \dev{wavelet\_ridge}
         (\texttt{dynamix.core.analytic\_cwt}, \S\ref{sec:wavelet-ridge}), the Morlet at $q=1$; its
@@ -1917,7 +1917,7 @@ Directional scaling's \texttt{alpha\_step} sets the anisotropy grid resolution.
 The Gamma estimator uses increasing-resolution indices and excludes unresolved
 coarse scaling crossovers; its finite fit remains an estimate. The legacy
 estimator remains selectable. Large deviations expose \texttt{h\_min} and
-\texttt{h\_max} for the histogram grid; adaptive tilted bins are labelled a
+\texttt{h\_max} for the histogram grid; adaptive tilted bins are labeled a
 heuristic and can miss nonconcave regions. Fixed epsilon sweeps are independent.
 The generalized Gaussian tool exposes its two moment grids and takes their
 finite-grid Legendre infimum rather than treating tilted means as a spectrum.
@@ -1929,18 +1929,18 @@ upstream coefficients when only moments, chaining or fit controls change.
 
 %======================================================================
 \section{The wavelet atlas}\label{sec:atlas}
-Every analysing wavelet and smoothing function the app runs, drawn by
+Every analyzing wavelet and smoothing function the app runs, drawn by
 \texttt{make\_wavelet\_figures.py} from the code the devices compute with (\texttt{core.smoothers},
 \texttt{core.wavelet\_profiles}, \texttt{core.hyperbolic\_preview}, \texttt{core.interpolating},
 \texttt{core.daf}, \texttt{core.analytic\_cwt}, \texttt{core.wavelet\_skeleton}), so a figure cannot
 drift from what a tool computes. The 3-D views follow Arn\'eodo, Decoster and Roux (2000), Fig.~1.
 Figures~\ref{fig:a1}--\ref{fig:a8} are the appendix of the author's note on tuneable wavelets
 (14 October 2026), redrawn from the current code. Sections are scaled for comparison; the app itself
-normalises every kernel to unit $L^1$ mass at every scale.
+normalizes every kernel to unit $L^1$ mass at every scale.
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_wtmm_3d.pdf}
-\caption{The six WTMM smoothers in 3-D: for each, the smoothing function $\theta$ and the two analysing
+\caption{The six WTMM smoothers in 3-D: for each, the smoothing function $\theta$ and the two analyzing
 wavelets $\psi_1=\partial\theta/\partial x$ and $\psi_2=\partial\theta/\partial y$, at the default
 settings (fractional B-spline $\alpha=3$; q-Gaussian and q-Mexican hat $q=1.5$, $\beta_q=\tfrac12$;
 q-Meyer $q=1.5$), on $|u|\le$ 4--9\,$\sigma$. Each surface is inverted from $\hat\theta$ and the
@@ -1959,8 +1959,8 @@ their radial surfaces.}\label{fig:atlas-micro}
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_dwt_banks.pdf}
-\caption{$\varphi$ (grey) and $\psi$ (black) of the sixteen orthogonal DWT banks at level 5, the cascades
-the pyramid applies, $\psi$ as the analysis atom (the taps reversed), each centred on its energy
+\caption{$\varphi$ (gray) and $\psi$ (black) of the sixteen orthogonal DWT banks at level 5, the cascades
+the pyramid applies, $\psi$ as the analysis atom (the taps reversed), each centered on its energy
 centroid. \texttt{bl3} is the Battle--Lemari\'e order-3 bank, built by the app.}\label{fig:atlas-dwt}
 \end{figure}
 
@@ -1983,7 +1983,7 @@ Hermite DAF's taps and gain at $\sigma=3$\,px for $M=0, 4, 12, 24$. Below: the 2
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_qmorlet_3d.pdf}
-\caption{The 2-D analytic q-Morlet of \dev{wavelet\_ridge} at its default carrier $\omega=3$, centred on
+\caption{The 2-D analytic q-Morlet of \dev{wavelet\_ridge} at its default carrier $\omega=3$, centered on
 $\kappa=2\pi/12$\,px$^{-1}$ ($a=5.7$\,px), with the zero-mean correction: real part, imaginary part
 and modulus for $q=0.7$, $1$ (the Morlet) and $1.5$.}\label{fig:atlas-qmorlet}
 \end{figure}
@@ -2000,9 +2000,9 @@ smoothing kernels $\theta$ and their $x$-gradients in 3-D at $s=20$\,px.}\label{
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a1_smoothers.pdf}
 \caption{A1. WTMM smoothing functions at nominal scale $a=8$\,px: the smoother $\theta$, its gradient
-$\psi=\partial\theta$ (the analyser) and $\hat\theta(s)$, for the q-Gaussian ($\sigma$ matched) and
-the q-Mexican hat ($-\Delta$ of the q-Gaussian; its analyser the q-\texttt{g3}). 26 values per sweep
-as hairlines on a colour ramp; the bottom row stacks the sections up the parameter.}\label{fig:a1}
+$\psi=\partial\theta$ (the analyzer) and $\hat\theta(s)$, for the q-Gaussian ($\sigma$ matched) and
+the q-Mexican hat ($-\Delta$ of the q-Gaussian; its analyzer the q-\texttt{g3}). 26 values per sweep
+as hairlines on a color ramp; the bottom row stacks the sections up the parameter.}\label{fig:a1}
 \end{figure}
 
 \begin{figure}[p]
@@ -2034,22 +2034,22 @@ $\sigma$, the Tang--You skeleton kernel across its support radius, and the sixte
 \caption{A4. The q family over its whole range from the app's own $e_q$: with $\beta$ responding to $q$ the
 kernels run box ($q\to-\infty$) $\to$ semicircle ($q=-1$) $\to$ parabola ($q=0$) $\to$ Gaussian
 ($q=1$) $\to$ heavy tails ($q\to2$) at one escort width; the closed forms (dotted) coincide with the
-software's curves to $10^{-4}$. Rows: $\theta$, the WTMM analyser $\psi$ (drawn with slope $-1$ at the
+software's curves to $10^{-4}$. Rows: $\theta$, the WTMM analyzer $\psi$ (drawn with slope $-1$ at the
 origin; its edge diverges for $q<0$), and $-\Delta\theta$ for $q>\tfrac12$.}\label{fig:a4}
 \end{figure}
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a5_meyer.pdf}
-\caption{A5. The q-Meyer two ways. Left, as the registry draws it: the analyser's band peak $\lambda^*$ matched
+\caption{A5. The q-Meyer two ways. Left, as the registry draws it: the analyzer's band peak $\lambda^*$ matched
 to the Gaussian's ($\lambda^*=\sqrt2\,a$), so the real-space lobe is $1.9\times$ wider and rings. Right,
-dilated to the Gaussian's real-space lobe for visualisation ($\lambda^*$ then $0.75\,a$). The plain
+dilated to the Gaussian's real-space lobe for visualization ($\lambda^*$ then $0.75\,a$). The plain
 Meyer ($q=1$) is the thick reference in both.}\label{fig:a5}
 \end{figure}
 
 \begin{figure}[p]
 \centering\includegraphics[width=\textwidth,height=0.86\textheight,keepaspectratio]{atlas_a6_meyer_rings.pdf}
-\caption{A6. Why a bandlimited analyser looks wide: the q-Meyer $\psi$ over $\pm40\,\sigma$ rings with the period
-of its cut-off ($4.2\,\sigma$) and decays as $\rho^{-4}$ (a $C^3$ taper); both analyser bands
+\caption{A6. Why a bandlimited analyzer looks wide: the q-Meyer $\psi$ over $\pm40\,\sigma$ rings with the period
+of its cut-off ($4.2\,\sigma$) and decays as $\rho^{-4}$ (a $C^3$ taper); both analyzer bands
 $s\hat\theta$ peak at $s^*=1/\sqrt2$, but the Meyer's band is a narrow triangle against the Gaussian's
 broad hump.}\label{fig:a6}
 \end{figure}
