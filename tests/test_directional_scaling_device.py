@@ -109,9 +109,13 @@ def test_an_empty_fit_says_what_starved_it(dev):
     res = dev.compute(make_field(holes), validate_params(dev, {}))
     text = " ".join(res["warnings"])
     assert res["fitted_anisotropies"] == 0 and "missing" in text and "Fill" in text
-    clean = dev.compute(make_field(fbm2d(256, 0.5, seed=4)), validate_params(dev, {}))
+    # The BS19-literal reading's Γ_j needs every member's cells: on 256² mirror none survives.
+    clean = dev.compute(make_field(fbm2d(256, 0.5, seed=4)), validate_params(dev, {"estimator": "gamma"}))
     assert clean["fitted_anisotropies"] == 0
     assert "db2 drops the fewest" in " ".join(clean["warnings"])
+    # The level line keeps four frontier points (4 to 32 px) and fits every anisotropy.
+    level = dev.compute(make_field(fbm2d(256, 0.5, seed=4)), validate_params(dev, {}))
+    assert level["fitted_anisotropies"] == 15
 
 
 def test_a_fit_without_a_bound_says_to_raise_gamma(dev):

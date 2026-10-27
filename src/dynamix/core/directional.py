@@ -4,10 +4,13 @@
 (Symmetry 11:825, 2019) on the hyperbolic (fully separable) wavelet coefficients of
 :func:`dynamix.core.dwt.hyperbolic`.
 
-The default device estimator constructs Γ in increasing-resolution coordinates
-from the complete separable basis, then fits the union envelope over resolved
-levels. The legacy API estimator described below remains selectable. Finite
-regressions do not establish the asymptotic bounds.
+Three estimators read the same moment tables. The default, ``level_line``, places every pair at
+Abry, Clausel, Jaffard, Roux and Vedel's anisotropic level m(j₁, j₂) = max(j₁/α₁, j₂/α₂) (Rev.
+Mat. Iberoam. 31, 2015, Prop. 4.7 (3)): the same liminf as Γ_j's, since every pair of Γ_j has
+j − 2 ≤ m ≤ j and the Γ_j cover every pair, read without Γ_j's floors and ±1 margins, which make
+a finite regression a staircase. ``gamma`` is Γ_j read literally (eqs. 44–47, the union
+envelope); ``legacy`` the level-family approximation. Finite regressions do not establish the
+asymptotic bounds.
 
 For an anisotropy α = (α₁, α₂), α_i > 0, α₁ + α₂ = 2, the anisotropic scaling function
 η_α(p) is read along the index sets Γ_j(α) of pairs (j₁, j₂) of detail levels around
@@ -33,11 +36,16 @@ import numpy as np
 from dynamix.core import dwt
 from dynamix.core.leaders import _box
 
-__all__ = ["ALPHA_STEP", "analyse", "coefficients", "directional_legendre", "directional_scaling",
-           "families", "scaling_functions", "structure_functions"]
+__all__ = ["ALPHA_STEP", "FLOOR", "analyse", "coefficients", "directional_legendre", "directional_scaling",
+           "families", "level_line_scaling", "scaling_functions", "structure_functions"]
 
 #: The anisotropy grid's step on α₁ ∈ (0, 2).
 ALPHA_STEP = 1.0 / 8.0
+
+#: A pair whose mean |c| sits below this share of the largest pair's is rounding, never structure:
+#: float64 transforms leave ~1e-16 of the largest coefficient where a field has no detail, and a
+#: smooth modulation of the field's own period still reaches ~1e-10 at the finest level of sym4.
+FLOOR = 1e-12
 
 
 def alpha_grid(step: float = ALPHA_STEP) -> np.ndarray:
@@ -160,6 +168,8 @@ def fitted_levels(j_min: int, j_max: int, alpha1: float, J: int, finite=None) ->
     for j in range(int(j_min), int(j_max) + 1):
         if math.floor(j * alpha1) + 1 > J or math.floor(j * (2.0 - alpha1)) + 1 > J:
             continue
+        if math.floor(j * alpha1) < 1 or math.floor(j * (2.0 - alpha1)) < 1:
+            continue                   # a family pinned at level 1 has a constant envelope
         if finite is not None and not all(finite[j1 - 1, j2 - 1] for fam in families(j, alpha1, J)
                                           for (j1, j2) in fam):
             continue
@@ -181,6 +191,8 @@ def scaling_functions(log2_S, j_min: int, j_max: int, *, step: float = ALPHA_STE
     finite = np.all(np.isfinite(log2_S), axis=0)
     for a, alpha1 in enumerate(alphas):
         js = fitted_levels(j_min, j_max, float(alpha1), J, finite)
+        if any(len({math.floor(j * axis) for j in js}) < 2 for axis in (alpha1, 2.0 - alpha1)):
+            js = js[:0]                # a family that never moves has a constant envelope: a zero slope
         n_levels[a] = js.size
         envelopes = np.full((n_p, 3, js.size), np.nan)
         members = [families(int(j), float(alpha1), J) for j in js]
@@ -227,6 +239,126 @@ def resolution_families(j: int, alpha1: float) -> tuple:
             [(x, y) for x in range(0, lo1) for y in high2])
 
 
+def _pair_tables(coef: dict, p) -> tuple:
+    """Per level pair: log2 of the mean of |c|^p over its valid cells (zeros kept in the count:
+    removing them changes sparse fields' exponents), and the mean |c| itself."""
+    tables, mean_abs = {}, {}
+    for pair, m in coef["mods"].items():
+        sample = m[coef["valid"][pair]]
+        if not sample.size:
+            tables[pair], mean_abs[pair] = np.full(p.size, np.nan), np.nan
+            continue
+        mean_abs[pair] = float(sample.mean())
+        positive = sample[sample > 0]
+        vals = []
+        for order in p:
+            if not positive.size:
+                vals.append(-np.inf)
+                continue
+            z = order * np.log(positive)
+            top = z.max()
+            vals.append((top + np.log(np.exp(z - top).sum()) - np.log(sample.size)) / np.log(2))
+        tables[pair] = np.array(vals)
+    return tables, mean_abs
+
+
+def _slope_se(x, y) -> tuple:
+    """The OLS slope of ``y`` on ``x`` and its standard error (NaN below three points)."""
+    x, y = np.asarray(x, dtype=np.float64), np.asarray(y, dtype=np.float64)
+    ok = np.isfinite(y)
+    if ok.sum() < 3:
+        return float("nan"), float("nan")
+    x, y = x[ok], y[ok]
+    slope, intercept = np.polyfit(x, y, 1)
+    resid = y - (slope * x + intercept)
+    sxx = float(((x - x.mean()) ** 2).sum())
+    return float(slope), float(np.sqrt((resid ** 2).sum() / (x.size - 2) / sxx)) if sxx > 0 else float("nan")
+
+
+#: When φ partners a frontier point: only where every detail partner is below the floor, always, never.
+COARSE_PARTNER = ("fallback", "always", "never")
+
+
+def level_line_scaling(coef, p_list, j_min, *, step=ALPHA_STEP, coarse_partner="fallback", floor=FLOOR):
+    """η_α(p) read by the anisotropic level m(r₁, r₂) = max(r₁/α₁, r₂/α₂) (Abry et al. 2015, Prop.
+    4.7 (3)) in resolution indices r = J − level (the scaling branch φ at −1).
+
+    The level sets {m = const} are L-shaped; their two arms are the frontiers. The x-frontier at
+    a fine index r₁ is the largest log2 S over the pairs (r₁, r₂) with r₂ ≤ r₁α₂/α₁, placed at
+    m = r₁/α₁; the y-frontier is its transpose. η_α(p) is the smaller of the two frontiers' slopes
+    against −m (the larger moment rules the level set). A frontier point is fitted when its fine
+    cell, 2^{J−r} px on its own axis, lies between 2^{j_min} px and 2^J px; its coarse partner is
+    any coarser detail index, and φ as ``coarse_partner`` says: "fallback" only where every detail
+    partner is below the floor (a layered field), "always", or "never". φ pairs rest on the
+    coarsest cells, so where details exist they add spread without bias (±0.05 against ±0.03 on
+    1024² fractional Brownian sheets). A pair whose mean |c| is below ``floor`` of the largest
+    pair's is rounding and never enters; an axis left with no detail pair carries no structure,
+    and its frontier is empty."""
+    J = coef["levels"]
+    p = np.asarray(p_list, float)
+    tables, mean_abs = _pair_tables(coef, p)
+
+    def res(level):
+        return -1 if level == 0 else J - level
+
+    top = max((v for v in mean_abs.values() if np.isfinite(v)), default=0.0)
+    live = {(res(l1), res(l2)): tables[(l1, l2)] for (l1, l2) in tables
+            if np.isfinite(mean_abs[(l1, l2)]) and mean_abs[(l1, l2)] > floor * top
+            and np.isfinite(tables[(l1, l2)]).all()}
+    no_structure = {"x": not any(r1 >= 0 for r1, _ in live), "y": not any(r2 >= 0 for _, r2 in live)}
+    if coarse_partner not in COARSE_PARTNER:
+        raise ValueError(f"coarse_partner must be one of {COARSE_PARTNER}")
+    fine = range(0, J - int(j_min) + 1)
+    alphas = alpha_grid(step)
+    eta = np.full((p.size, alphas.size), np.nan)
+    eta_se = np.full((p.size, alphas.size), np.nan)
+    n_levels = np.zeros(alphas.size, int)
+    fits = []
+    for a, alpha in enumerate(alphas):
+        weights = {"x": (float(alpha), 2.0 - float(alpha)), "y": (2.0 - float(alpha), float(alpha))}
+        arms = {}
+        for axis, (a_fine, a_coarse) in weights.items():
+            xs, env, members, fine_px = [], [], [], []
+            for rf in fine:
+                cap = rf * a_coarse / a_fine
+                row = [k for k in live if (k[0] if axis == "x" else k[1]) == rf
+                       and (k[1] if axis == "x" else k[0]) <= cap]
+                details = [k for k in row if min(k) >= 0]
+                phi = [k for k in row if min(k) < 0]
+                pairs = sorted(details + phi if coarse_partner == "always" else
+                               details if details or coarse_partner == "never" else phi)
+                if not pairs:
+                    continue
+                values = np.stack([live[k] for k in pairs])
+                xs.append(-rf / a_fine)
+                env.append(values.max(axis=0))
+                members.append(pairs)
+                fine_px.append(2 ** (J - rf))
+            env = np.asarray(env, dtype=np.float64).T.reshape(p.size, len(xs))
+            fitted = [_slope_se(xs, env[i]) for i in range(p.size)] if len(xs) >= 3 else []
+            arms[axis] = {"x": np.asarray(xs), "envelope": env, "members": members, "fine_px": fine_px,
+                          "slope": np.array([f[0] for f in fitted]) if fitted else np.full(p.size, np.nan),
+                          "se": np.array([f[1] for f in fitted]) if fitted else np.full(p.size, np.nan)}
+        n_levels[a] = max(arm["x"].size for arm in arms.values())
+        both = np.stack([arms["x"]["slope"], arms["y"]["slope"]])
+        se = np.stack([arms["x"]["se"], arms["y"]["se"]])
+        for i in range(p.size):
+            ok = np.isfinite(both[:, i])
+            if ok.any():
+                k = int(np.flatnonzero(ok)[np.argmin(both[ok, i])])
+                eta[i, a], eta_se[i, a] = both[k, i], se[k, i]
+        fits.append({"arms": arms, "admissible": bool(np.isfinite(eta[:, a]).any()),
+                     "xlabel": "−m, the anisotropic level max(r₁/α₁, r₂/α₂)"})
+    return {"alpha": alphas, "eta_alpha": eta, "eta_alpha_se": eta_se, "n_levels": n_levels,
+            "estimator": "level line (Abry et al. 2015, Prop. 4.7 (3))", "resolution_origin": J,
+            "diagnostic_fits": fits, "no_structure": no_structure, "coarse_partner": coarse_partner,
+            "floor": float(floor),
+            "moment_pairs": np.asarray(list(tables), dtype=int),
+            "log2_moments": np.stack(list(tables.values()), axis=1),
+            "moment_counts": np.asarray([int(coef["valid"][pair].sum()) for pair in tables]),
+            "moment_normalization": "mean over every valid cell; zeros retained in the count"}
+
+
 def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
     """Finite Γ-union envelope regression over the hyperbolic detail pairs.
 
@@ -238,24 +370,7 @@ def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
     """
     J = coef["levels"]
     p = np.asarray(p_list, float)
-    tables = {}
-    for pair, m in coef["mods"].items():
-        sample = m[coef["valid"][pair]]
-        if not sample.size:
-            tables[pair] = np.full(p.size, np.nan)
-            continue
-        vals = []
-        for order in p:
-            # For positive moments zeros contribute zero, but remain in the
-            # normalization count. Removing them changes sparse-field exponents.
-            positive = sample[sample > 0]
-            if not positive.size:
-                vals.append(-np.inf)
-                continue
-            z = order*np.log(positive)
-            top = z.max()
-            vals.append((top+np.log(np.exp(z-top).sum())-np.log(sample.size))/np.log(2))
-        tables[pair] = np.array(vals)
+    tables, _ = _pair_tables(coef, p)
     alphas = alpha_grid(step)
     eta = np.full((p.size, alphas.size), np.nan)
     n_levels = np.zeros(alphas.size, int)
@@ -301,30 +416,47 @@ def gamma_scaling(coef, p_list, j_min, *, step=ALPHA_STEP):
             "moment_normalization": "mean over every valid cell; zeros retained in the count"}
 
 
-def directional_scaling(scaling: dict) -> dict:
-    """η(p, e₁) = max_α η_α(p)/α₁ with the largest maximising α₁ as α₁*(p); η(p, e₂) by
-    symmetry (α₂ = 2 − α₁); η(p) the diagonal α₁ = 1."""
+def directional_scaling(scaling: dict, p_list=None) -> dict:
+    """η(p, e₁) = sup_α η_α(p)/α₁ and η(p, e₂) by symmetry (α₂ = 2 − α₁), where the isotropic η(p)
+    (the diagonal α₁ = 1) is positive, as Ben Slimane et al.'s eq. 50 requires, and the axis
+    carries structure. The maximisers form an interval, every α whose ratio lies within one
+    standard error of the largest (a plateau of maximisers is the formalism's own: a fractional
+    Brownian sheet's is exact), and the sup is read as the mean ratio over it: each is an estimate
+    of the same value, and the largest of noisy estimates is biased up. α₁*(p) is the interval's
+    largest α. Given ``p_list``, H_e is the slope of η(p, e) against p where it is read."""
     alphas, eta = scaling["alpha"], np.asarray(scaling["eta_alpha"], dtype=np.float64)
-    with np.errstate(invalid="ignore"):
-        r1 = eta / alphas[None, :]
-        r2 = eta / (2.0 - alphas)[None, :]
-
-    def best(ratio, axis_alpha):
-        out_eta, out_alpha = np.full(ratio.shape[0], np.nan), np.full(ratio.shape[0], np.nan)
-        for i in range(ratio.shape[0]):
-            row = ratio[i]
-            if not np.isfinite(row).any():
-                continue
-            top = np.nanmax(row)
-            hits = np.flatnonzero(np.isfinite(row) & (row >= top - 1e-9))
-            out_eta[i], out_alpha[i] = top, np.max(axis_alpha[hits])
-        return out_eta, out_alpha
-
-    eta_e1, alpha_star_e1 = best(r1, alphas)
-    eta_e2, alpha_star_e2 = best(r2, 2.0 - alphas)
+    se = np.asarray(scaling.get("eta_alpha_se", np.zeros_like(eta)), dtype=np.float64)
     diag = int(np.argmin(np.abs(alphas - 1.0)))
-    return {"eta_e1": eta_e1, "eta_e2": eta_e2, "eta_iso": eta[:, diag],
-            "alpha_star_e1": alpha_star_e1, "alpha_star_e2": alpha_star_e2}
+    positive = eta[:, diag] > 0
+    empty = scaling.get("no_structure", {})
+
+    def best(axis_alpha, axis):
+        n = eta.shape[0]
+        out_eta, out_alpha, interval = np.full(n, np.nan), np.full(n, np.nan), np.full((2, n), np.nan)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            ratio, band = eta / axis_alpha[None, :], se / axis_alpha[None, :]
+        for i in range(n):
+            row = ratio[i]
+            if not np.isfinite(row).any() or not positive[i] or empty.get(axis, False):
+                continue
+            k = int(np.nanargmax(row))
+            tol = band[i, k] if np.isfinite(band[i, k]) else 0.0
+            hits = np.flatnonzero(np.isfinite(row) & (row >= row[k] - max(tol, 1e-9)))
+            out_eta[i], out_alpha[i] = row[hits].mean(), np.max(axis_alpha[hits])
+            interval[:, i] = axis_alpha[hits].min(), axis_alpha[hits].max()
+        return out_eta, out_alpha, interval
+
+    eta_e1, alpha_star_e1, interval_e1 = best(alphas, "x")
+    eta_e2, alpha_star_e2, interval_e2 = best(2.0 - alphas, "y")
+    out = {"eta_e1": eta_e1, "eta_e2": eta_e2, "eta_iso": eta[:, diag],
+           "alpha_star_e1": alpha_star_e1, "alpha_star_e2": alpha_star_e2,
+           "alpha_star_e1_interval": interval_e1, "alpha_star_e2_interval": interval_e2,
+           "eta_positive": positive}
+    if p_list is not None:
+        p = np.asarray(p_list, dtype=np.float64)
+        for k in ("e1", "e2"):
+            out[f"H_{k}"] = _slope(p, out[f"eta_{k}"]) if np.isfinite(out[f"eta_{k}"]).sum() >= 2 else float("nan")
+    return out
 
 
 def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float = 2.0,
@@ -338,6 +470,7 @@ def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float 
     p = np.asarray(p_list, dtype=np.float64)
     h = np.linspace(-0.5, 2.5, 121) if h_grid is None else np.asarray(h_grid, dtype=np.float64)
     L = np.full(h.size, np.inf)
+    limited = np.zeros(h.size, dtype=bool)
     for a, alpha1 in enumerate(alphas):
         alpha2 = 2.0 - alpha1
         row = eta[:, a]
@@ -355,25 +488,40 @@ def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float 
         pp = np.r_[p_alpha, pp[keep]]
         ee = np.r_[np.interp(p_alpha, p[ok][order], row[ok][order]), ee[keep]]
         alpha_e = alpha1 if direction == 1 else alpha2
-        legendre = (alpha_e * h[:, None] * pp[None, :] - ee[None, :] + d).min(axis=1)
-        L = np.minimum(L, legendre / min(alpha1, alpha2))
+        terms = alpha_e * h[:, None] * pp[None, :] - ee[None, :] + d
+        legendre = terms.min(axis=1) / min(alpha1, alpha2)
+        lower = legendre < L
+        limited = np.where(lower, terms.argmin(axis=1) == pp.size - 1, limited)
+        L = np.minimum(L, legendre)
     L[~np.isfinite(L)] = np.nan
-    return {"h": h, "L": np.minimum(L, d)}
+    L = np.minimum(L, d)
+    reached = np.flatnonzero(L >= d - 1e-9)
+    with np.errstate(invalid="ignore"):
+        empty = L < 0.0
+    return {"h": h, "L": np.where(empty, np.nan, L), "limited": limited & np.isfinite(L) & (L < d - 1e-9),
+            "knee": float(h[reached[0]]) if reached.size else float("nan"),
+            "empty_below": float(h[np.flatnonzero(np.isfinite(L) & ~empty)[0]]) if (np.isfinite(L) & ~empty).any()
+            else float("nan")}
 
 
 def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float = 0.0,
             step: float = ALPHA_STEP, edge: str = "mirror", estimator="legacy", origin=(0, 0), block=None,
-            coefficient_cache=None) -> dict:
+            coefficient_cache=None, coarse_partner: str = "fallback") -> dict:
     """Everything the directional formalism reads off one band: the structure functions, η_α
     on the grid, η(p, e₁), η(p, e₂), η(p), α₁*(p) and L(H, e₁), L(H, e₂)."""
     p = np.asarray(p_list, dtype=np.float64)
-    if estimator not in ("legacy", "gamma"):
-        raise ValueError("directional estimator must be legacy or gamma")
+    if estimator not in ("level_line", "legacy", "gamma"):
+        raise ValueError("directional estimator must be level_line, gamma or legacy")
     coef = coefficient_cache if coefficient_cache is not None else coefficients(
-        values, name, level, gamma=gamma, edge=edge, origin=origin, block=block, complete=estimator == "gamma")
+        values, name, level, gamma=gamma, edge=edge, origin=origin, block=block,
+        complete=estimator in ("gamma", "level_line"))
     log2_S = structure_functions({**coef, "mods": {k: v for k, v in coef["mods"].items() if min(k) > 0}}, p)
-    scaling = (gamma_scaling(coef, p, j_min, step=step) if estimator == "gamma" else
-               scaling_functions(log2_S, j_min, coef["levels"], step=step))
+    if estimator == "level_line":
+        scaling = level_line_scaling(coef, p, j_min, step=step, coarse_partner=coarse_partner)
+    elif estimator == "gamma":
+        scaling = gamma_scaling(coef, p, j_min, step=step)
+    else:
+        scaling = scaling_functions(log2_S, j_min, coef["levels"], step=step)
     if estimator == "legacy":
         pairs = [(j1, j2) for j1 in range(1, level+1) for j2 in range(1, level+1)]
         scaling.update(moment_pairs=np.asarray(pairs),
@@ -385,7 +533,8 @@ def analyse(values, name: str, level: int, *, j_min: int, p_list, gamma: float =
                                     for j1 in range(1, coef["levels"] + 1)]),
            "border_cells": coef["border_cells"], "estimator": estimator,
            "complete_basis": coef["complete"], "seam": coef["seam"],
-           "origin": coef["origin"], "data_shape": coef["data_shape"], **scaling, **directional_scaling(scaling)}
+           "origin": coef["origin"], "data_shape": coef["data_shape"], **scaling, **directional_scaling(scaling, p)}
+    out["estimator_description"], out["estimator"] = scaling.get("estimator", estimator), estimator
     for direction in (1, 2):
         leg = directional_legendre(scaling, p, direction=direction)
         out[f"L_e{direction}"] = leg

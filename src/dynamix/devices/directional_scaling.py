@@ -68,8 +68,12 @@ class DirectionalScaling:
               units="px", label="Coarsest cell", dyadic=True),
         Param("gamma", ParamKind.FLOAT, default=0.0, min=-2.0, max=4.0, soft_min=0.0, soft_max=2.0,
               label="γ"),
-        Param("estimator", ParamKind.CHOICE, default="gamma", choices=("gamma", "legacy"),
-              choice_labels=("resolution-index Γ union", "legacy level-family approximation"), label="Estimator"),
+        Param("estimator", ParamKind.CHOICE, default="level_line", choices=("level_line", "gamma", "legacy"),
+              choice_labels=("level line (Abry et al. 2015, Prop. 4.7)", "Γ union, read literally (BS19 44–47)",
+                             "legacy level-family approximation"), label="Estimator"),
+        Param("coarse_partner", ParamKind.CHOICE, default="fallback", choices=dr.COARSE_PARTNER,
+              choice_labels=("where details are absent", "always", "never"), label="φ as coarse partner",
+              active_when=("estimator", ("level_line",))),
         Param("alpha_step", ParamKind.CHOICE, default="0.125", choices=("0.25", "0.125", "0.0625"),
               label="α₁ increment"),
         Param("p_min", ParamKind.FLOAT, default=0.5, min=0.05, max=20.0, soft_min=0.5, soft_max=4.0, label="p min"),
@@ -216,13 +220,13 @@ class DirectionalScaling:
         origin, block = filled_origin(field), filled_block(field)
         key = cache_key("directional-coefficients", _field_data_hash(field),
                         {"wavelet": params["wavelet"], "J": J, "gamma": params["gamma"], "edge": edge,
-                         "origin": origin, "block": block, "estimator": params["estimator"],
+                         "origin": origin, "block": block, "complete": params["estimator"] != "legacy",
                          "real": None if real is None else hashlib.sha1(np.packbits(real)).hexdigest()})
         if stage_cache is not None and key in stage_cache:
             coef = stage_cache[key]
         else:
             coef = dr.coefficients(vals, params["wavelet"], J, gamma=float(params["gamma"]), edge=edge,
-                                   origin=origin, block=block, complete=params["estimator"] == "gamma")
+                                   origin=origin, block=block, complete=params["estimator"] != "legacy")
             if stage_cache is not None:
                 stage_cache[key] = coef
         if region is not None:
@@ -231,7 +235,8 @@ class DirectionalScaling:
             vals = vals[r:r + h, c:c + w]
         d = dr.analyse(vals, params["wavelet"], J, j_min=j_min, p_list=p, gamma=float(params["gamma"]),
                        edge=edge, estimator=params["estimator"], step=float(params["alpha_step"]),
-                       origin=origin, block=block, coefficient_cache=coef)
+                       origin=origin, block=block, coefficient_cache=coef,
+                       coarse_partner=params.get("coarse_partner", "fallback"))
         warnings = _fit_warnings(raw if real is None else raw[real], coef, d, params,
                                  roi=None if region is None else region[1])
         fitted = int(np.isfinite(d["eta_alpha"]).any(axis=0).sum())
