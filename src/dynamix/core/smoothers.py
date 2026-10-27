@@ -17,12 +17,20 @@ Smoothers:
 - ``frac_bspline``: the isotropic polyharmonic B-spline of order γ = α + 1 (Van De Ville, Blu
   and Unser 2005), θ̂(ω) = (V(ω)/‖ω‖²)^(γ/2) with the fourth-order-isotropic localization
   V(ω) = 4 sin²(ω₁/2) + 4 sin²(ω₂/2) − (8/3) sin²(ω₁/2) sin²(ω₂/2), ω = 2π k h in knot units;
-  in one dimension it is Unser and Blu's symmetric fractional B-spline |sinc(ω/2)|^(α+1). A
-  separable β(x)β(y) would be anisotropic, and the WTMM reads gradient directions. The knot
+  in one dimension it is Unser and Blu's symmetric fractional B-spline |sinc(ω/2)|^(α+1). V is
+  isotropic to fourth order, but θ̂ = (V/‖ω‖²)^(γ/2) only to second: log θ̂ carries
+  γ|ω|⁴ sin²2φ/1440, so at the analyser's band peak |θ̂| is 2.4 % larger on the diagonals at α = 3
+  and the WTMM argument on an isotropic cusp tilts by a sin 4φ of about 1°. Its own merits are the
+  isotropic high-frequency decay ‖ω‖^(−γ) and the (−Δ)^(γ/2) structure. The knot
   spacing h matches the Gaussian's σ at the same scale (θ̂ ≈ 1 − γ‖hω‖²/24): h = σ √(12/γ). A
   continuous gradient wavelet needs ψ̂ ~ ‖ω‖^(1−γ) integrable in 2-D, γ > 3: α > 2, where one
   dimension needed α > 1. Its sections are evaluated in the space domain
   (:mod:`dynamix.core.polyharmonic_exact`), so they carry no truncation ringing.
+- ``frac_bspline_sep``: Unser and Blu's symmetric fractional B-spline as a tensor product,
+  θ̂ = |sinc(ω₁/2)|^γ |sinc(ω₂/2)|^γ with the same γ = α + 1 and knot spacing h = σ √(12/γ), so its
+  second order is the Gaussian's too. log θ̂ carries γ|ω|⁴ sin²2φ/5760 (|θ̂| 0.6 % larger on the
+  diagonals at the band peak at α = 3; a sin 4φ of about 0.2° on the cusp). Its sections come from
+  the exact 1-D series (:mod:`dynamix.core.frac_bspline_exact`). ψ is continuous for α > 1.
 - ``q_gaussian``: the Tsallis q-Gaussian e_q(−ρ²/2σ²), σ = a/(π√2) (q → 1 the Gaussian exactly),
   its radial transform from :func:`dynamix.core.q_fourier.q_gaussian_ft` tabulated once per q.
   Finite mass in 2-D only for q < 2; a continuous ψ at the compact support's edge (q < 1) needs
@@ -49,7 +57,7 @@ import numpy as np
 
 __all__ = ["NAMES", "Smoother", "derivative_filters", "smoother"]
 
-NAMES = ("gaussian", "mexican", "frac_bspline", "q_gaussian", "q_mexican", "q_meyer")
+NAMES = ("gaussian", "mexican", "frac_bspline", "frac_bspline_sep", "q_gaussian", "q_mexican", "q_meyer")
 
 #: Real-space Gaussian σ per unit nominal scale, the backend's convention (scale_units).
 _SIGMA_PER_SCALE = 1.0 / (np.pi * np.sqrt(2.0))
@@ -220,6 +228,34 @@ def _frac_section_u(alpha: float, deriv_order: int) -> tuple:
     knot = u / h
     away = np.abs(knot - np.round(knot)) > 0.1
     return u, np.clip(y / np.abs(y[away]).max(), -1.0, 1.0)
+
+
+def _sep_hat_factory(alpha: float):
+    gamma = alpha + 1.0
+    h_over_a = np.sqrt(12.0 / gamma) * _SIGMA_PER_SCALE     # the matched-σ knot spacing / a
+
+    def theta_hat(sx, sy):
+        return (np.abs(np.sinc(sx * h_over_a)) * np.abs(np.sinc(sy * h_over_a))) ** gamma
+    return theta_hat
+
+
+@functools.lru_cache(maxsize=64)
+def _sep_section_u(alpha: float, deriv_order: int) -> tuple:
+    """The separable spline's x-axis section in σ units, |u| ≤ 6, from the exact 1-D series:
+    θ(u, 0) ∝ β*^α(u/h) and ψ(u, 0) ∝ β*^α′(u/h), both bounded for α ≥ 1; max |y| = 1."""
+    from dynamix.core.frac_bspline_exact import beta_star, beta_star_derivative
+
+    h = np.sqrt(12.0 / (float(alpha) + 1.0))                  # the knot spacing in σ
+    u = (np.arange(-768, 768) + 0.5) / 128.0
+    y = (beta_star_derivative if deriv_order else beta_star)(u / h, float(alpha))
+    return u, y / np.abs(y).max()
+
+
+def _sep_section_factory(alpha: float):
+    def section(scale, deriv_order, n_points):
+        u, y = _sep_section_u(float(alpha), int(deriv_order))
+        return u * scale * _SIGMA_PER_SCALE, y
+    return section
 
 
 def _frac_section_factory(alpha: float):
@@ -411,7 +447,7 @@ def _width_label(q: float, beta: float, given: bool) -> str:
 
 def smoother(name: str, params: dict | None = None) -> Smoother:
     """The smoother ``name`` with its parameters: ``alpha`` for ``frac_bspline`` (≥ 1; a
-    continuous ψ in 2-D needs > 2), ``q`` for ``q_gaussian`` (0 < q < 2), and the q kernels'
+    continuous ψ in 2-D needs > 2) and ``frac_bspline_sep`` (≥ 1; continuous ψ above 1), ``q`` for ``q_gaussian`` (0 < q < 2), and the q kernels'
     width: ``beta`` (> 0, default ½) for ``q_gaussian`` and ``q_mexican``, ``pairing =
     "q-paired"`` for ``q_meyer`` (its band peak held for every q)."""
     params = dict(params or {})
@@ -426,6 +462,13 @@ def smoother(name: str, params: dict | None = None) -> Smoother:
                              f"alpha > 2), got {alpha!r}")
         return Smoother("frac_bspline", f"isotropic polyharmonic B-spline α = {alpha:g}", "∂θ_α",
                         {"alpha": alpha}, _frac_hat_factory(alpha), _frac_section_factory(alpha))
+    if name == "frac_bspline_sep":
+        alpha = float(params.get("alpha", 3.0))
+        if not alpha >= 1.0:
+            raise ValueError(f"frac_bspline_sep needs alpha >= 1 (a continuous psi needs alpha > 1), "
+                             f"got {alpha!r}")
+        return Smoother("frac_bspline_sep", f"separable fractional B-spline α = {alpha:g}", "∂θ_α",
+                        {"alpha": alpha}, _sep_hat_factory(alpha), _sep_section_factory(alpha))
     if name == "q_gaussian":
         q = float(params.get("q", 1.5))
         if not 0.0 < q < 2.0:

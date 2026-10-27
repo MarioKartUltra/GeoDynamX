@@ -27,7 +27,8 @@ _LEVEL_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "detecto
 
 #: The smoother knobs beside the ``wavelet`` choice: for each registry smoother outside the
 #: Gaussian pair, (the device's param name, the registry's key).
-_SMOOTHER_KNOBS = {"frac_bspline": ("alpha", "alpha"), "q_gaussian": ("q_tsallis", "q"),
+_SMOOTHER_KNOBS = {"frac_bspline": ("alpha", "alpha"), "frac_bspline_sep": ("alpha", "alpha"),
+                   "q_gaussian": ("q_tsallis", "q"),
                    "q_mexican": ("q_tsallis", "q"), "q_meyer": ("q_tsallis", "q")}
 
 #: The q smoothers with a width β; the q-Meyer taper has none (q-paired, it holds its band peak).
@@ -35,17 +36,19 @@ _BETA_SMOOTHERS = ("q_gaussian", "q_mexican")
 
 #: The smoother choice and its two parameters, shared with the ROI device. The choice names
 #: the smoothing function θ; the analysing wavelets are its gradient components: g3 for the
-#: Mexican hat, g1 for the Gaussian, ∂θ for the isotropic polyharmonic B-spline (degree α) and the
-#: q-Gaussian (Tsallis q), each parameter shown with its own smoother.
+#: Mexican hat, g1 for the Gaussian, ∂θ for the isotropic polyharmonic and the separable fractional
+#: B-splines (degree α) and the q-Gaussian (Tsallis q), each parameter shown with its own smoother.
 SMOOTHER_PARAMS = (
     Param("wavelet", ParamKind.CHOICE, default="mexican",
-          choices=("mexican", "gaussian", "frac_bspline", "q_gaussian", "q_mexican", "q_meyer"),
+          choices=("mexican", "gaussian", "frac_bspline", "frac_bspline_sep", "q_gaussian", "q_mexican",
+                   "q_meyer"),
           label="Smoother θ",
           choice_labels=("mexican (ψ = g3)", "gaussian (ψ = g1)",
-                         "isotropic polyharmonic B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
+                         "isotropic polyharmonic B-spline (ψ = ∂θ_α)",
+                         "separable fractional B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
                          "q-Mexican hat (ψ = q-g3)", "q-Meyer (ψ = ∂θ_q)")),
     Param("alpha", ParamKind.FLOAT, default=3.0, min=1.0, max=8.0, soft_min=2.0, soft_max=4.0,
-          units="", label="α (degree)", active_when=("wavelet", ("frac_bspline",))),
+          units="", label="α (degree)", active_when=("wavelet", ("frac_bspline", "frac_bspline_sep"))),
     # One q for the three q smoothers; the q-Mexican hat refuses q ≤ 2/3 at compute time (its
     # q-g3 would jump at the support's edge), the registry's own check.
     Param("q_tsallis", ParamKind.FLOAT, default=1.5, min=0.05, max=1.95, soft_min=0.5,

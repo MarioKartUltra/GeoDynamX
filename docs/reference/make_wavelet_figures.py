@@ -145,7 +145,8 @@ def _radial(profile, span_px, n=121):
 
 #: The smoothers' names as the WTMM menu shows them.
 _SMOOTHER_NAMES = {"gaussian": "Gaussian", "mexican": "Mexican hat", "frac_bspline": "polyharmonic B-spline",
-                   "q_gaussian": "q-Gaussian", "q_mexican": "q-Mexican hat", "q_meyer": "q-Meyer"}
+                   "frac_bspline_sep": "separable B-spline", "q_gaussian": "q-Gaussian",
+                   "q_mexican": "q-Mexican hat", "q_meyer": "q-Meyer"}
 
 
 def _polyharmonic_2d(alpha, order, span, n=129):
@@ -164,24 +165,106 @@ def _polyharmonic_2d(alpha, order, span, n=129):
     return u, field / np.abs(field).max()
 
 
-def fig_wtmm_3d():
-    """θ, ψ₁ = ∂θ/∂x and ψ₂ = ∂θ/∂y of the six WTMM smoothers at their default settings."""
-    cases = [("gaussian", 4.0), ("mexican", 4.5), ("frac_bspline", 4.0),
-             ("q_gaussian", 5.0), ("q_mexican", 4.5), ("q_meyer", 9.0)]
+def _separable_2d(alpha, order, span, n=129):
+    """θ, ∂θ/∂x or ∂θ/∂y of the separable fractional B-spline on |u| ≤ ``span`` σ, the product of
+    Unser & Blu's exact 1-D series; max |field| = 1."""
+    from dynamix.core.frac_bspline_exact import beta_star, beta_star_derivative
+
+    h = np.sqrt(12.0 / (alpha + 1.0))
+    u = np.linspace(-span, span, n)
+    b, db = beta_star(u / h, alpha), beta_star_derivative(u / h, alpha)
+    fx, fy = {None: (b, b), "dx": (db, b), "dy": (b, db)}[order]
+    field = np.outer(fy, fx)
+    return u, field / np.abs(field).max()
+
+
+def _wtmm_3d_page(cases, name):
+    """θ, ψ₁ = ∂θ/∂x and ψ₂ = ∂θ/∂y of the WTMM smoothers ``cases`` at their default settings."""
     parts = ((None, r"\theta"), ("dx", r"\psi_1=\partial\theta/\partial x"),
              ("dy", r"\psi_2=\partial\theta/\partial y"))
-    fig = plt.figure(figsize=(6.5, 9.0))
-    for i, (name, span) in enumerate(cases):
-        s = sm.smoother(name)
-        label = _SMOOTHER_NAMES[name]
+    fig = plt.figure(figsize=(6.5, 1.5 * len(cases)))
+    for i, (name_, span) in enumerate(cases):
+        s = sm.smoother(name_)
+        label = _SMOOTHER_NAMES[name_]
         head = f"{label} ({_setting(s.params)})" if _setting(s.params) else label
         for j, (order, comp) in enumerate(parts):
             ax = fig.add_subplot(len(cases), 3, 3 * i + j + 1, projection="3d")
-            u, z = (_polyharmonic_2d(s.params["alpha"], order, span) if name == "frac_bspline"
-                    else _kernel_2d(s, order, span))
+            exact = {"frac_bspline": _polyharmonic_2d, "frac_bspline_sep": _separable_2d}.get(name_)
+            u, z = exact(s.params["alpha"], order, span) if exact else _kernel_2d(s, order, span)
             _surface(ax, u, u, z, f"{head}: ${comp}$")
-    fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=0.98, wspace=0.0, hspace=0.08)
-    _save(fig, "atlas_wtmm_3d")
+    fig.subplots_adjust(left=0.0, right=1.0, bottom=0.0, top=1.0 - 0.25 / fig.get_figheight(), wspace=0.0,
+                        hspace=0.12)
+    _save(fig, name)
+
+
+def fig_wtmm_3d():
+    """The Gaussian pair, the q-Gaussian and the q-Mexican hat in 3-D."""
+    _wtmm_3d_page([("gaussian", 4.0), ("mexican", 4.5), ("q_gaussian", 5.0), ("q_mexican", 4.5)], "atlas_wtmm_3d")
+
+
+def fig_wtmm_3d_b():
+    """The q-Meyer and the two fractional B-splines in 3-D."""
+    _wtmm_3d_page([("q_meyer", 9.0), ("frac_bspline", 4.0), ("frac_bspline_sep", 4.0)], "atlas_wtmm_3d_b")
+
+
+def fig_bsplines():
+    """The separable fractional B-spline's sweep, and both splines' anisotropy: |θ̂| on the band-peak
+    circle against the angle, and the gradient-angle error on the isotropic cusp r^0.5."""
+    fig, ax = plt.subplots(2, 2, figsize=(6.5, 5.8), constrained_layout=True)
+    a = 8.0
+    sigma = a * sm._SIGMA_PER_SCALE
+    alphas = np.linspace(1.0, 6.0, 26)
+    for col, order in enumerate((0, 1)):
+        def sec(v, order=order):
+            x, y = sm.smoother("frac_bspline_sep", {"alpha": v}).section(a, order)
+            return x / sigma, y
+        g = sm.smoother("gaussian").section(a, order)
+        _sweep(ax[0, col], alphas, sec, "brg", "α", ref=(g[0] / sigma, _norm(g[1])))
+        ax[0, col].set_xlim(-5, 5)
+        ax[0, col].set_xlabel("x/σ")
+        ax[0, col].set_title(("θ" if order == 0 else "ψ = ∂θ/∂x") + ": separable fractional B-spline,\n"
+                             "α from 1 to 6 (dashed: the Gaussian pair)")
+    phi = np.linspace(0.0, np.pi / 2, 181)
+    colors = {"frac_bspline": "tab:red", "frac_bspline_sep": "tab:blue"}
+    for name, color in colors.items():
+        for alpha, ls in ((3.0, "-"), (1.5, "--")):
+            s = sm.smoother(name, {"alpha": alpha})
+            grid = np.linspace(1e-3, 3.0, 30001)
+            peak = grid[np.argmax(grid * s.theta_hat(grid, 0 * grid))]
+            ring = s.theta_hat(peak * np.cos(phi), peak * np.sin(phi)) / s.theta_hat(np.array([peak]), np.zeros(1))[0]
+            ax[1, 0].plot(np.degrees(phi), ring, ls, color=color, lw=1.0,
+                          label=f"{_SMOOTHER_NAMES[name]}, α = {alpha:g}")
+    ax[1, 0].axhline(1.0, color="k", lw=0.8, label="Gaussian")
+    ax[1, 0].set(xlabel="angle φ (deg)", ylabel="|θ̂(s*, φ)| / |θ̂(s*, 0)|",
+                 title="|θ̂| on the band-peak circle")
+    _legend_below(ax[1, 0], ncol=2, fontsize=5)
+    for name, color in (("gaussian", "k"), *colors.items()):
+        params = {} if name == "gaussian" else {"alpha": 3.0}
+        phi_, err = _cusp_angle_error(sm.smoother(name, params).theta_hat, 16.0)
+        order = np.argsort(phi_)
+        ax[1, 1].plot(np.degrees(phi_[order]), np.degrees(err[order]), ".", ms=1.5, color=color,
+                      label=_SMOOTHER_NAMES[name] + ("" if name == "gaussian" else ", α = 3"))
+    ax[1, 1].set(xlabel="angle φ (deg)", ylabel="arg T − φ (deg)", xlim=(-180, 180),
+                 title="gradient angle on the cusp r^0.5, half a scale out (a = 16 px)")
+    ax[1, 1].axhline(0.0, color="0.85", lw=0.5)
+    _legend_below(ax[1, 1], ncol=2, fontsize=5, markerscale=4)
+    _save(fig, "atlas_bsplines")
+
+
+def _cusp_angle_error(theta_hat, a, n=512, ring=0.5):
+    """The angle of the transform's gradient against the radial direction, on a ring of radius
+    ring·a around the isotropic cusp r^0.5, through the WTMM's own derivative filters."""
+    x = np.arange(n) - n // 2
+    gx, gy = np.meshgrid(x, x)
+    fft = fft_policy.double()
+    f_hat = fft.fft2(np.hypot(gx, gy) ** 0.5)
+    k = np.fft.fftfreq(n)
+    sx, sy = np.meshgrid(a * k, a * k)
+    filt = sm.derivative_filters(sx, sy, theta_hat(sx, sy), ("dx", "dy"), dtype=np.float64)
+    tx, ty = (np.real(fft.ifft2(f_hat * filt[d])) for d in ("dx", "dy"))
+    on = np.abs(np.hypot(gx, gy) - ring * a) < 0.5
+    phi = np.arctan2(gy[on], gx[on])
+    return phi, np.angle(np.exp(1j * (np.arctan2(ty[on], tx[on]) - phi)))
 
 
 def fig_microcanonical():
@@ -802,7 +885,7 @@ def fig_a8_qmorlet_chirp():
     _save(fig, "atlas_a8_qmorlet_chirp")
 
 
-FIGURES = (fig_wtmm_3d, fig_microcanonical, fig_dwt_banks, fig_dwt_3d, fig_interpolating, fig_qmorlet_3d,
+FIGURES = (fig_wtmm_3d, fig_wtmm_3d_b, fig_bsplines, fig_microcanonical, fig_dwt_banks, fig_dwt_3d, fig_interpolating, fig_qmorlet_3d,
            fig_edges, fig_a1_smoothers, fig_a1b_smoothers, fig_a2_turiel, fig_a3_dyadic, fig_a4_q_range, fig_a5_meyer,
            fig_a6_meyer_rings, fig_a7_frac_grids, fig_a8_qmorlet_chirp)
 

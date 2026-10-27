@@ -20,12 +20,14 @@ def _param(dev, name):
 def test_the_knob_offers_the_registry_with_its_parameters_active_beside_their_smoother():
     dev = WTMM2D()
     w = _param(dev, "wavelet")
-    assert w.choices == ("mexican", "gaussian", "frac_bspline", "q_gaussian", "q_mexican", "q_meyer")
-    assert w.choice_labels[2:] == ("isotropic polyharmonic B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
+    assert w.choices == ("mexican", "gaussian", "frac_bspline", "frac_bspline_sep", "q_gaussian",
+                         "q_mexican", "q_meyer")
+    assert w.choice_labels[2:] == ("isotropic polyharmonic B-spline (ψ = ∂θ_α)",
+                                   "separable fractional B-spline (ψ = ∂θ_α)", "q-Gaussian (ψ = ∂θ_q)",
                                    "q-Mexican hat (ψ = q-g3)", "q-Meyer (ψ = ∂θ_q)")
     a, q = _param(dev, "alpha"), _param(dev, "q_tsallis")
     assert (a.default, a.min, a.max, a.soft_min) == (3.0, 1.0, 8.0, 2.0)
-    assert a.active_when == ("wavelet", ("frac_bspline",))
+    assert a.active_when == ("wavelet", ("frac_bspline", "frac_bspline_sep"))
     assert (q.default, q.min, q.max) == (1.5, 0.05, 1.95)
     assert q.active_when == ("wavelet", ("q_gaussian", "q_mexican", "q_meyer"))
     assert not a.view and not q.view                              # keyed: they change the transform
@@ -33,6 +35,7 @@ def test_the_knob_offers_the_registry_with_its_parameters_active_beside_their_sm
     d = defaults_for(dev)
     assert smoother_params(d) is None
     assert smoother_params(dict(d, wavelet="frac_bspline", alpha=2.5)) == {"alpha": 2.5}
+    assert smoother_params(dict(d, wavelet="frac_bspline_sep", alpha=2.5)) == {"alpha": 2.5}
     assert smoother_params(dict(d, wavelet="q_gaussian", q_tsallis=1.2)) == {"q": 1.2}
     assert smoother_params(dict(d, wavelet="q_mexican", q_tsallis=1.2)) == {"q": 1.2}
     assert smoother_params(dict(d, wavelet="q_meyer", q_tsallis=0.8)) == {"q": 0.8}
@@ -41,6 +44,10 @@ def test_the_knob_offers_the_registry_with_its_parameters_active_beside_their_sm
     assert _param(roi, "wavelet").choices == w.choices
     assert _param(roi, "alpha").active_when == a.active_when
     assert _param(roi, "q_tsallis").active_when == q.active_when
+    from dynamix.devices.cwt_leaders import CwtLeaders
+    assert _param(CwtLeaders(), "wavelet").choices == w.choices
+    keyed = [dev.cache_key("src", dict(d, wavelet=name, alpha=3.0)) for name in ("frac_bspline", "frac_bspline_sep")]
+    assert keyed[0] != keyed[1]
 
 
 def test_the_bar_and_the_reading_follow_the_knob():
