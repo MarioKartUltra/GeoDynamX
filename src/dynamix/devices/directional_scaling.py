@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Directional scaling functions: the directional thermodynamic formalism of Ben Slimane,
-Ben Braiek, Ben Abid, Ben Omrane and Mabrouk (2019) on the hyperbolic (fully separable) wavelet
-coefficients of a band (:mod:`dynamix.core.directional`).
+Ben Abid, Ben Omrane and Halouani (Symmetry 11:825, 2019) on the hyperbolic (fully separable)
+wavelet coefficients of a band (:mod:`dynamix.core.directional`).
 
 The anisotropic scaling function η_α(p) on an α₁ grid of step ⅛ (α₂ = 2 − α₁), read along the
 index families (j₁, j₂) = ([jα₁], [jα₂]) as the slowest family's envelope slope over the levels
@@ -47,9 +47,9 @@ class DirectionalScaling:
 
     name = "directional_scaling"
     label = "Directional scaling functions"
-    origin = dataclasses.replace(FIRST_PARTY, citation="Ben Slimane et al. (2019), Symmetry 11, "
-                                 "825: the directional thermodynamic formalism on the hyperbolic "
-                                 "wavelet basis")
+    origin = dataclasses.replace(FIRST_PARTY, citation="Ben Slimane, Ben Abid, Ben Omrane & "
+                                 "Halouani (2019), Symmetry 11, 825: the directional thermodynamic "
+                                 "formalism on the hyperbolic wavelet basis")
     families = ("Regularity",)
     role = "primary"                    # a drop on a layer forks a sibling over the same field
     consumes = ((FIELD,),)
