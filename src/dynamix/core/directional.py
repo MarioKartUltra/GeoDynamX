@@ -506,10 +506,13 @@ def directional_legendre(scaling: dict, p_list, *, direction: int = 1, d: float 
 
 
 def hyperbolic_leaders(coef: dict) -> dict:
-    """Abry et al.'s hyperbolic wavelet leaders (2015, eq. 3.3) on the detail pairs: d(l₁, l₂) is the
-    sup of |c| over the dyadic rectangle's finer sub-rectangles, D(l₁, l₂) = max(|c(l₁, l₂)|,
-    pool_x D(l₁ − 1, l₂), pool_y D(l₁, l₂ − 1)), then over its 3 × 3 neighbourhood. A leader is
-    valid where every cell it reads is (the border and missing pixels propagate up)."""
+    """Abry et al.'s hyperbolic wavelet leaders (2015, eq. 3.3): d(l₁, l₂) is the sup of |c| over the
+    dyadic rectangle's finer sub-rectangles, D(l₁, l₂) = max(|c(l₁, l₂)|, pool_x D(l₁ − 1, l₂),
+    pool_y D(l₁, l₂ − 1)), then over its 3 × 3 neighbourhood. Their indices run over (ℕ ∪ {−1})²:
+    on the complete basis the φ rows (l₁, 0) and (0, l₂), a detail along one axis and the scaling
+    branch along the other, are the coarsest rectangles on that axis, D(l₁, 0) = max(|c(l₁, 0)|,
+    D(l₁, J), pool_x D(l₁ − 1, 0)); (φ, φ), the local mean, never enters. A leader is valid where
+    every cell it reads is (the border and missing pixels propagate up)."""
     J = coef["levels"]
     D, V = {}, {}
     for l2 in range(1, J + 1):
@@ -523,6 +526,21 @@ def hyperbolic_leaders(coef: dict) -> dict:
                 m = np.maximum(m, np.maximum(D[(l1, l2 - 1)][0::2], D[(l1, l2 - 1)][1::2]))
                 v &= V[(l1, l2 - 1)][0::2] & V[(l1, l2 - 1)][1::2]
             D[(l1, l2)], V[(l1, l2)] = m, v
+    if (1, 0) in coef["mods"]:
+        for l1 in range(1, J + 1):
+            m = np.maximum(np.asarray(coef["mods"][(l1, 0)], dtype=np.float64), D[(l1, J)])
+            v = np.asarray(coef["valid"][(l1, 0)], dtype=bool) & V[(l1, J)]
+            if l1 > 1:
+                m = np.maximum(m, np.maximum(D[(l1 - 1, 0)][:, 0::2], D[(l1 - 1, 0)][:, 1::2]))
+                v &= V[(l1 - 1, 0)][:, 0::2] & V[(l1 - 1, 0)][:, 1::2]
+            D[(l1, 0)], V[(l1, 0)] = m, v
+        for l2 in range(1, J + 1):
+            m = np.maximum(np.asarray(coef["mods"][(0, l2)], dtype=np.float64), D[(J, l2)])
+            v = np.asarray(coef["valid"][(0, l2)], dtype=bool) & V[(J, l2)]
+            if l2 > 1:
+                m = np.maximum(m, np.maximum(D[(0, l2 - 1)][0::2], D[(0, l2 - 1)][1::2]))
+                v &= V[(0, l2 - 1)][0::2] & V[(0, l2 - 1)][1::2]
+            D[(0, l2)], V[(0, l2)] = m, v
     return {"levels": J, "leaders": {k: _box(m, 1, np.maximum) for k, m in D.items()},
             "valid": {k: _box(v, 1, np.logical_and) for k, v in V.items()}}
 
@@ -551,8 +569,9 @@ def leader_scaling(coef: dict, p_list, j_min: int, *, step=ALPHA_STEP, h_grid=No
 
 def strip_maps(lead: dict, j_min: int, shape, crop=None) -> dict:
     """Local directional exponents from the strip leaders (Abry et al. 2015, Thm 3.4): H_x at a
-    pixel is the slope of log2 d(l₁, J) over the fine x-levels l₁ = j_min … J − 1 with the y-level
-    held at the coarsest J, cells 2^{l₁} × 2^J px; H_y the transpose; the anisotropy
+    pixel is the slope of log2 d(l₁, φ) over the fine x-levels l₁ = j_min … J − 1 with the y-index
+    held at the coarsest, φ (the coarsest y-detail J without the complete basis), cells 2^{l₁} × 2^J
+    px; ending at φ, the strip sees a structure constant along y; H_y the transpose; the anisotropy
     α₁* = 2H_y/(H_x + H_y), 1 where isotropic (the fractional Brownian sheet's maximiser). A pixel
     whose strip reaches an invalid cell at any fitted level is NaN. Resolution: the coarsest fitted
     level along the fine axis, 3·2^J px along the coarse one. ``crop`` = (row, col, h, w) cuts an
@@ -571,8 +590,9 @@ def strip_maps(lead: dict, j_min: int, shape, crop=None) -> dict:
         x = (levels - levels.mean())[:, None, None]
         return (x * (stack - stack.mean(axis=0))).sum(axis=0) / float((x ** 2).sum())
 
-    h_x = slope(np.stack([painted((int(l), J), J, int(l)) for l in levels]))
-    h_y = slope(np.stack([painted((J, int(l)), int(l), J) for l in levels]))
+    coarse = 0 if (1, 0) in lead["leaders"] else J
+    h_x = slope(np.stack([painted((int(l), coarse), J, int(l)) for l in levels]))
+    h_y = slope(np.stack([painted((coarse, int(l)), int(l), J) for l in levels]))
     r0, c0, h, w = (0, 0, rows, cols) if crop is None else (int(v) for v in crop)
     h_x, h_y = h_x[r0:r0 + h, c0:c0 + w], h_y[r0:r0 + h, c0:c0 + w]
     with np.errstate(invalid="ignore", divide="ignore"):

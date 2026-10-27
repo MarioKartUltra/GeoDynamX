@@ -1070,8 +1070,10 @@ over $p$ of both signs, bound each anisotropy's level-set spectrum, $L_f(H, \alp
 $\log_2 d(l_1, J)$ over the fitted x-levels with the y-level held at the coarsest, $H_y$ the transpose,
 the anisotropy $\alpha_1^* = 2H_y/(H_x + H_y)$, 1 where isotropic. Their resolution is the coarsest fitted
 cell along the fine axis and three \texttt{scale\_max} cells along the coarse one; a mirror edge costs
-the border's cells on the coarse axis. The strips pair a fine detail with the coarsest detail, so a
-structure constant along the coarse axis (a straight step) is invisible to them.
+the border's cells on the coarse axis. The strips end at the scaling branch $\varphi$ of the coarse axis (the
+leaders run over $(\mathbb{N}\cup\{-1\})^2$), so they see a structure constant along it, such as a straight
+step. Cells within about three coarse cells of a strong singularity read high: the coarse leaders reach it
+and the fine ones do not, the influence cone of every local leaders map.
 
 The window draws the level line's two frontiers and refits one anisotropy, or every one, over a band from
 the stored frontiers; the sup over $\alpha$ with its interval shaded; the bounds and their knees. The

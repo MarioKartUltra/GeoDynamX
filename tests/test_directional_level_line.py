@@ -191,3 +191,24 @@ def test_the_device_offers_the_maps_as_outputs(sheet):
     out = dev.compute_output("h_x", sheet, res, dict(params, edge="periodic"), fetch=None)
     assert out["raster"].shape == sheet.shape and np.isfinite(out["raster"]).mean() > 0.9
     assert np.nanmedian(out["raster"]) == pytest.approx(0.3, abs=0.1)
+
+
+def test_the_strips_see_a_structure_constant_along_their_coarse_axis():
+    """A straight jump along x is constant along y. Strips that end at the coarsest y-detail have
+    no detail of it and read the background there; strips that end at φ read it as h ≈ 0. Cells
+    within three coarse cells of it read high: the coarse leaders reach the jump and the fine ones
+    do not, the influence cone of every local leaders map."""
+    n = 1024
+    step = np.zeros((n, n))
+    step[:, n // 2:] = 1.0
+    f = step + 1e-3 * _sheet(n, 0.5, 0.5, seed=3)
+    coef = dr.coefficients(f, "sym4", 6, edge="periodic", complete=True)
+    at_phi = dr.strip_maps(dr.hyperbolic_leaders(coef), j_min=2, shape=f.shape)
+    details = {k: v for k, v in coef["mods"].items() if min(k) > 0}
+    at_j = dr.strip_maps(dr.hyperbolic_leaders({"levels": 6, "mods": details,
+                                                "valid": {k: coef["valid"][k] for k in details}}),
+                         j_min=2, shape=f.shape)
+    assert np.nanmedian(at_phi["h_x"][:, 508:516]) == pytest.approx(0.0, abs=0.15)
+    assert np.nanmedian(at_j["h_x"][:, 508:516]) == pytest.approx(0.5, abs=0.15)       # blind to it
+    for m in (at_phi, at_j):
+        assert np.nanmedian(m["h_x"][:, 100:300]) == pytest.approx(0.5, abs=0.1)       # far from it

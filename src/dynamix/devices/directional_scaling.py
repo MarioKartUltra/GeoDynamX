@@ -340,12 +340,12 @@ class DirectionalScaling:
 
 
 def _strips(coef: dict) -> dict:
-    """The leaders the local maps read: fine along one axis and coarsest along the other."""
-    lead = dr.hyperbolic_leaders({"levels": coef["levels"],
-                                  "mods": {k: v for k, v in coef["mods"].items() if min(k) > 0},
-                                  "valid": {k: v for k, v in coef["valid"].items() if min(k) > 0}})
+    """The leaders the local maps read: fine along one axis and coarsest along the other (φ there
+    on the complete basis)."""
+    lead = dr.hyperbolic_leaders(coef)
     J = lead["levels"]
-    keep = {(l, J) for l in range(1, J + 1)} | {(J, l) for l in range(1, J + 1)}
+    coarse = 0 if (1, 0) in lead["leaders"] else J
+    keep = {(l, coarse) for l in range(1, J + 1)} | {(coarse, l) for l in range(1, J + 1)}
     return {"levels": J, "leaders": {k: lead["leaders"][k] for k in keep},
             "valid": {k: lead["valid"][k] for k in keep}}
 
