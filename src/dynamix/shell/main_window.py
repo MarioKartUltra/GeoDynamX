@@ -3743,9 +3743,9 @@ both ``Canvas`` signals report the
         self._figure_selection_item.setData(np.asarray(selection["x"])+col, np.asarray(selection["y"])+row)
 
     def _directional_readings(self) -> list:
-        """``[(layer name, η(2, e₁)/2, η(2, e₂)/2)]`` from every landed Directional scaling
-        functions result: the DWT's reading of the two directional exponents, shown beside the
-        WTMMM's H_x and H_y."""
+        """``[(layer name, H_e₁, H_e₂)]`` from every landed Directional scaling functions result:
+        the DWT's reading of the two directional exponents, the slopes of η(p, e) against p (η(2,
+        e)/2 for a result read before they were kept), shown beside the WTMMM's H_x and H_y."""
         out = []
         for lid, res in self._landed_results.items():
             d = res.get("_directional") if isinstance(res, dict) else None
@@ -3756,7 +3756,8 @@ both ``Canvas`` signals report the
             at = np.flatnonzero(np.isclose(p, 2.0))
             if at.size == 0:
                 continue
-            e1, e2 = float(d["eta_e1"][at[0]]) / 2.0, float(d["eta_e2"][at[0]]) / 2.0
+            e1, e2 = ((float(d["H_e1"]), float(d["H_e2"])) if "H_e1" in d else
+                      (float(d["eta_e1"][at[0]]) / 2.0, float(d["eta_e2"][at[0]]) / 2.0))
             gamma = float((res.get("params") or {}).get("gamma", 0.0) or 0.0)
             # With coefficient integration the exponents are of the integrated coefficients.
             name = f"{layer.name} (γ = {gamma:g})" if gamma else layer.name

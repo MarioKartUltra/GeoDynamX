@@ -65,9 +65,9 @@ def test_fbm_reads_its_hurst_exponent_along_both_axes_and_the_curves_follow(dev)
     names = [c.name for c in curves_of(dev, res, field, p)]
     assert names == ["η(p, e₁), along x", "η(p, e₂), along y", "η(p), the diagonal α = (1, 1)",
                      "α₁*(p), the anisotropy profile of e₁",
-                     "L(H, e₁), the directional Legendre bound", "L(H, e₂), the directional Legendre bound"]
+                     "upper bound on D(H, e₁)", "upper bound on D(H, e₂)"]
     text = dev.reading(res, p)
-    assert text.startswith("η(2, e₁)/2 0.") and "α₁*(2)" in text and "anisotropies keep three unclipped levels" in text
+    assert text.startswith("H_x 0.") and "H_y 0." in text and "α₁*" in text and "anisotropies fitted" in text
     assert dev.reading({"values": 1}, p) == "no scaling functions — run the transform"
     assert curves_of(dev, {"values": 1}, field, p) == []
 

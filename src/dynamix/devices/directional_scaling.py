@@ -178,7 +178,7 @@ class DirectionalScaling:
             j_min, J = self._levels(params)
         except ValueError:
             return {}
-        e = 0 if self._edge(field, params) == "periodic" else dwt.border_cells(params["wavelet"])
+        e = 0 if self._edge(field, params) == "periodic" else dwt.border_cells(params["wavelet"]) - 1
         side = min(int(n) for n in (filled_block(field) or np.shape(values)[:2]))
         if all(side // 2 ** j - 2 * e >= 4 for j in range(j_min, J + 1)):
             return {}
@@ -243,7 +243,11 @@ class DirectionalScaling:
         record = {
             "method": self.name, "wavelet": params["wavelet"], "edge": {"asked": params["edge"], "used": edge},
             "levels": {"j_min": j_min, "J": J}, "gamma": float(params["gamma"]), "alpha_step": float(params["alpha_step"]),
-            "estimator": params["estimator"], "complete_basis": d["complete_basis"],
+            "estimator": params["estimator"], "estimator_description": d["estimator_description"],
+            "coarse_partner": d.get("coarse_partner"), "floor": d.get("floor"),
+            "no_structure": d.get("no_structure"), "H_e1": d.get("H_e1"), "H_e2": d.get("H_e2"),
+            "alpha_star_e1_interval": np.asarray(d["alpha_star_e1_interval"]).tolist(),
+            "complete_basis": d["complete_basis"],
             "resolution_origin": J, "origin": list(origin), "block": list(block) if block else None,
             "seam": d["seam"], "finite_scale_estimate": True,
             "p": [float(v) for v in p], "levels_per_alpha": [int(v) for v in d["n_levels"]],
@@ -263,18 +267,25 @@ class DirectionalScaling:
         if d is None:
             return []
         p = np.asarray(d["p"])
-        note = f"{int(np.sum(d['n_levels'] >= 3))} of {d['alpha'].size} anisotropies keep three unclipped levels"
+        fitted = int(np.isfinite(np.asarray(d["eta_alpha"])).any(axis=0).sum())
+        note = f"{fitted} of {d['alpha'].size} anisotropies fitted ({d.get('estimator_description', d['estimator'])})"
         if float(params.get("gamma", 0.0) or 0.0):
             note += f"; coefficient integration γ = {float(params['gamma']):g}, order γ/2 per axis"
         out = [Curve(name, p, np.asarray(d[key]), "p", "η", note=note)
                for key, name in (("eta_e1", "η(p, e₁), along x"), ("eta_e2", "η(p, e₂), along y"),
                                  ("eta_iso", "η(p), the diagonal α = (1, 1)"))]
         out.append(Curve("α₁*(p), the anisotropy profile of e₁", p, np.asarray(d["alpha_star_e1"]), "p", "α₁*",
-                         note="the largest maximiser of η_α(p)/α₁; 1 is isotropic"))
-        out += [Curve(name, np.asarray(d[key]["h"]), np.asarray(d[key]["L"]), "H", "L",
-                      note="Theorem 6's upper bound over p ≥ p_α, capped at d = 2")
-                for key, name in (("L_e1", "L(H, e₁), the directional Legendre bound"),
-                                  ("L_e2", "L(H, e₂), the directional Legendre bound"))]
+                         note="the largest α₁ within one standard error of the maximum of η_α(p)/α₁ "
+                              "(the window shows the whole interval); 1 is isotropic"))
+        for key, name in (("L_e1", "upper bound on D(H, e₁)"), ("L_e2", "upper bound on D(H, e₂)")):
+            leg = d[key]
+            knee = leg.get("knee", float("nan"))
+            out.append(Curve(name, np.asarray(leg["h"]), np.asarray(leg["L"]), "H", "D",
+                             note="Theorem 6 (Ben Slimane et al. 2019) bounds the upper spectrum "
+                                  "dim{h(·, e) ≤ H}, which never decreases; empty where no value is drawn; "
+                                  "its rising stretch is set by p max"
+                                  + (f"; knee at H = {knee:.2f}, below H_e by about d(1 − α_min)/(p_max α_e)"
+                                     if np.isfinite(knee) else "")))
         return out
 
     def cache_key(self, source_id: str, params: dict) -> str:
@@ -288,12 +299,19 @@ class DirectionalScaling:
             return "no scaling functions — run the transform"
         p = np.asarray(d["p"], dtype=np.float64)
         at = np.flatnonzero(np.isclose(p, 2.0))
+        empty = d.get("no_structure") or {}
         parts = []
+        if "H_e1" in d:
+            span = f"p {p.min():g}–{p.max():g}"
+            hx = "no structure along x" if empty.get("x") else f"H_x {d['H_e1']:.2f}"
+            hy = "no structure along y" if empty.get("y") else f"H_y {d['H_e2']:.2f}"
+            parts.append(f"{hx} · {hy} (slopes of η(p, e) over {span})")
         if at.size:
             i = at[0]
-            parts.append(f"η(2, e₁)/2 {d['eta_e1'][i] / 2:.2f} · η(2, e₂)/2 {d['eta_e2'][i] / 2:.2f} · "
-                         f"α₁*(2) {d['alpha_star_e1'][i]:.3g}")
-        parts.append(f"{result['fitted_anisotropies']} of {d['alpha'].size} anisotropies keep three unclipped levels")
+            lo, hi = np.asarray(d["alpha_star_e1_interval"])[:, i]
+            if np.isfinite(lo):
+                parts.append(f"α₁* {lo:.3g}–{hi:.3g} at p = 2" if hi > lo else f"α₁* {lo:.3g} at p = 2")
+        parts.append(f"{result['fitted_anisotropies']} of {d['alpha'].size} anisotropies fitted")
         return " · ".join(parts)
 
 
@@ -310,8 +328,19 @@ def _fit_warnings(observed, coef: dict, d: dict, params: dict, roi=None) -> list
             out.append(f"Levels above {largest} px keep fewer than 16 cells inside the {roi[0]} × {roi[1]} "
                        "px ROI: draw it wider or lower scale max.")
     fitted = np.flatnonzero(np.isfinite(d["eta_alpha"]).any(axis=0))
+    for axis, name in (("x", "e₁"), ("y", "e₂")):
+        if (d.get("no_structure") or {}).get(axis):
+            out.append(f"No structure along {axis}: every {axis}-detail pair is rounding (a field "
+                       f"layered along {axis}), so η(p, {name}) is not read.")
+    iso = np.asarray(d.get("eta_iso", []), dtype=np.float64)
+    bad = np.asarray(d["p"])[np.isfinite(iso) & (iso <= 0)]
+    if bad.size:
+        out.append(f"η(p) ≤ 0 at p = {', '.join(f'{v:g}' for v in bad)}: the directional sup (Ben Slimane "
+                   "et al.'s eq. 50) holds only where η(p) > 0, so those p are not read; raise γ.")
     if fitted.size == 0:
-        out.insert(0, f"No anisotropy has three resolutions with valid cells between {params['scale_min']} "
+        what = ("three frontier points" if d.get("estimator") == "level_line"
+                else "three resolutions")
+        out.insert(0, f"No anisotropy has {what} with valid cells between {params['scale_min']} "
                       f"and {params['scale_max']} px.")
         missing = float(np.mean(~np.isfinite(observed))) if np.size(observed) else 0.0
         if missing > 0:

@@ -149,3 +149,48 @@ def test_the_tools_warnings_head_the_window_and_gamma_names_the_integrated_field
     qtbot.addWidget(plain)
     assert plain.warning.isHidden()
     assert plain.scaling_plots[2].getAxis('bottom').labelText == 'H'
+
+
+@pytest.fixture(scope="module")
+def level_line_result():
+    from test_directional_level_line import _sheet
+
+    field = _sheet(512, 0.3, 0.7, seed=1)
+    data = dr.analyse(field, 'sym4', 6, j_min=2, p_list=np.arange(0.5, 6.01, 0.5), edge='periodic',
+                      estimator='level_line')
+    return {'_directional': data, 'params': {'wavelet': 'sym4', 'scale_max': 64, 'estimator': 'level_line'},
+            'record': {'method': 'directional_scaling'}}
+
+
+def test_the_level_line_window_draws_both_frontiers_and_refits_by_the_band(qtbot, level_line_result, tmp_path):
+    win = DirectionalScalingWindow(level_line_result, source='sheet')
+    qtbot.addWidget(win)
+    d = level_line_result['_directional']
+    names = [item.name() for item in win.envelope_plot.listDataItems() if item.name()]
+    assert any(n.startswith('x-frontier') for n in names) and any(n.startswith('y-frontier') for n in names)
+    assert win.same_range.isVisible() or not win.isVisible()
+    curves = [item.name() for item in win.scaling_plots[0].listDataItems() if item.name()]
+    assert curves[:3] == ['η(p), α=(1,1)', 'η(p,e₁)', 'η(p,e₂)']        # the isotropic curve beneath
+    import pyqtgraph as pg
+    shaded = [i for i in win.scaling_plots[3].getPlotItem().items if isinstance(i, pg.LinearRegionItem)]
+    assert shaded
+    for key in ('L_e1', 'L_e2'):
+        L = np.asarray(win._view[key]['L'], dtype=float)
+        assert np.isfinite(L).any() and np.all(L[np.isfinite(L)] >= 0.0)    # empty below, never negative
+    assert 'knee' in win.scaling_plots[2].plotItem.titleLabel.text
+    ai = win.alpha.currentIndex()
+    before = win._eta.copy()
+    lo, hi = win.fit_region.getRegion()
+    win.fit_region.setRegion((lo + 1.01, hi))           # drop the coarsest frontier points
+    win._on_fit_region(win.fit_region)
+    changed = np.flatnonzero(np.any(np.abs(np.nan_to_num(win._eta - before)) > 0, axis=0))
+    assert changed.tolist() == [ai] and win._ranges[ai][0] == pytest.approx(lo + 1.01)
+    win.same_range.setChecked(True)
+    win._on_fit_region(win.fit_region)
+    assert len(win._ranges) == len(d['alpha'])
+    path = tmp_path / 'level.npz'
+    win.export_data(path)
+    with np.load(path, allow_pickle=False) as saved:
+        context = json.loads(str(saved['context']))
+    assert context['estimator'] == 'level_line' and context['families'] == ['x-frontier', 'y-frontier']
+    assert len(context['fit_ranges']) == len(d['alpha']) and 'resolution' in context['membership_index']

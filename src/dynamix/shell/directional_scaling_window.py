@@ -9,6 +9,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
+from dynamix.core import directional as dr
 from dynamix.core import dwt
 from dynamix.core.hyperbolic_preview import axis_preview, tensor_preview
 from dynamix.shell.multifractal_window import Q_COLD, Q_WARM, _q_color
@@ -16,6 +17,12 @@ from dynamix.shell.plot_zoom import zoom_plot
 from dynamix.shell.settings import start_path
 from dynamix.shell.theme import current
 from dynamix.shell.window_fit import TOOL_WINDOW, fit_to_screen, show_while_inactive
+
+
+def _translucent(color, alpha: int):
+    c = pg.mkColor(color)
+    c.setAlpha(int(alpha))
+    return pg.mkBrush(c)
 
 
 class DirectionalScalingWindow(QtWidgets.QWidget):
@@ -26,6 +33,12 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         show_while_inactive(self)
         self.result = result or {}
         self.data = self.result.get('_directional')
+        # The window's own refits: η_α per anisotropy over its chosen fit range (level line).
+        self._ranges = {}
+        if self.data is not None:
+            self._eta = np.array(self.data['eta_alpha'], dtype=np.float64)
+            self._se = np.array(self.data.get('eta_alpha_se', np.zeros_like(self._eta)), dtype=np.float64)
+            self._view = self.data
         self.params = dict(self.result.get('params') or params or {})
         self.preview_params = dict(params or self.params)
         self.field = field
@@ -64,8 +77,10 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
             self.caption.setText('Basis preview · choose a bank and independent x/y levels. Run the directional tool for moment tables and scaling fits.')
         else:
             d = self.data
-            self.caption.setText(f"{source} · {self.params.get('wavelet', '')} · {d['estimator']} · "
-                                 f"{d['moment_normalization']}. Fits use the computed scale range; change the tool’s cell limits and Run to refit.")
+            refit = ('Drag the band on the envelope plot to refit the chosen anisotropy from the stored frontiers.'
+                     if self._level_line() else "Fits use the computed scale range; change the tool’s cell limits and Run to refit.")
+            self.caption.setText(f"{source} · {self.params.get('wavelet', '')} · "
+                                 f"{d.get('estimator_description', d['estimator'])} · {d['moment_normalization']}. {refit}")
             self._draw_moments()
             self._draw_scaling()
         self._draw_basis()
@@ -92,9 +107,33 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         row.addWidget(combo)
         return combo
 
+    def _level_line(self):
+        return self.data is not None and self.data['estimator'] == 'level_line'
+
     def _family_names(self):
+        if self._level_line():
+            return ['x-frontier', 'y-frontier']
         legacy = self.data is not None and self.data['estimator'] == 'legacy'
         return ['near diagonal', 'x-side', 'y-side'] if legacy else ['Γ union']
+
+    def _families(self, fit):
+        """The fit's families, each with its own abscissa: the level line's two frontiers (their
+        points sit at m = r/α on their own axis), or the Γ families on a shared one."""
+        if 'arms' in fit:
+            out = []
+            for name, key in (('x-frontier', 'x'), ('y-frontier', 'y')):
+                arm = fit['arms'][key]
+                x, env = np.asarray(arm['x'], dtype=np.float64), np.asarray(arm['envelope'], dtype=np.float64)
+                slope = np.asarray(arm['slope'], dtype=np.float64)
+                intercept = (np.nanmean(env, axis=1) - slope * x.mean()) if x.size else np.full(slope.size, np.nan)
+                out.append({'name': name, 'x': x, 'env': env, 'members': arm['members'],
+                            'slope': slope, 'intercept': intercept})
+            return out
+        names = self._family_names()
+        return [{'name': names[f] if f < len(names) else f'family {f}', 'x': np.asarray(fit['x']),
+                 'env': fit['envelopes'][:, f], 'members': [m[f] for m in fit['members']],
+                 'slope': fit['slopes'][:, f], 'intercept': fit['intercepts'][:, f]}
+                for f in range(fit['envelopes'].shape[1])]
 
     def _moments_tab(self):
         layout = self._page('Moments and scale fits')
@@ -104,6 +143,10 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         self.alpha = self._combo(bar, 'α₁ (α₂ = 2 − α₁)', [f'{a:g}' for a in d['alpha']] if d else [])
         self.family = self._combo(bar, 'Family', self._family_names())
         self.resolution = self._combo(bar, 'Fit sample', [])
+        # The level line refits one anisotropy, or every one, over the band on the envelope plot.
+        self.same_range = QtWidgets.QCheckBox('same range for every α')
+        self.same_range.setVisible(self._level_line())
+        bar.addWidget(self.same_range)
         bar.addStretch(1)
         layout.addLayout(bar)
         body = QtWidgets.QHBoxLayout()
@@ -128,12 +171,14 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
             return
         pi, ai = self.moment.currentIndex(), self.alpha.currentIndex()
         fit = d['diagnostic_fits'][ai]
-        fi = min(self.family.currentIndex(), fit['envelopes'].shape[1]-1)
+        families = self._families(fit)
+        fi = min(self.family.currentIndex(), len(families) - 1)
+        family = families[fi]
         self.resolution.blockSignals(True)
         previous = self.resolution.currentIndex()
         self.resolution.clear()
-        self.resolution.addItems([f'{x:g}' for x in fit['x']])
-        self.resolution.setCurrentIndex(min(max(previous, 0), len(fit['x'])-1))
+        self.resolution.addItems([f'{x:g}' for x in family['x']])
+        self.resolution.setCurrentIndex(min(max(previous, 0), len(family['x'])-1))
         self.resolution.blockSignals(False)
         ri = self.resolution.currentIndex()
         self.moment_plot.clear()
@@ -157,79 +202,165 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         self.moment_plot.setLabel('bottom', 'x DWT index jₓ (0 = scaling φ)')
         self.moment_plot.setLabel('left', 'y DWT index jᵧ (0 = scaling φ)')
         self.moment_plot.setAspectLocked(True)
-        members = fit['members'][ri][fi] if ri >= 0 else []
+        members = family['members'][ri] if 0 <= ri < len(family['members']) else []
+        if self._level_line():
+            # The level line's members are resolution indices (φ = −1): the table's DWT index is J − r.
+            members = [(0 if rx < 0 else depth - rx, 0 if ry < 0 else depth - ry) for rx, ry in members]
         if members:
             xy = np.asarray(members)
             self.moment_plot.plot(xy[:, 0], xy[:, 1], pen=None, symbol='s', symbolSize=13,
                                   symbolBrush=None, symbolPen=pg.mkPen(current().amber, width=2))
+        self.envelope_plot.setTitle('Frontiers and their fits · drag the band to refit' if self._level_line()
+                                    else 'Γ envelopes and retained fits')
         self.envelope_plot.setLabel('bottom', fit['xlabel'])
-        self.envelope_plot.setLabel('left', 'log₂ S (Γ envelope)')
+        self.envelope_plot.setLabel('left', 'log₂ S (frontier)' if self._level_line() else 'log₂ S (Γ envelope)')
         self.envelope_plot.addLegend(offset=(4, 4))
-        for order, p in enumerate(d['p']):
-            color = _q_color(order, len(d['p']))
-            if not np.isfinite(fit['envelopes'][order, fi]).any():
-                continue
-            self.envelope_plot.plot(fit['x'], fit['envelopes'][order, fi], pen=pg.mkPen(color),
-                                    symbol='o', symbolSize=5, name=f'p={p:g}')
-            slope, intercept = fit['slopes'][order, fi], fit['intercepts'][order, fi]
-            if np.isfinite(slope) and fit['x'].size:
-                x = np.array([min(fit['x']), max(fit['x'])])
-                self.envelope_plot.plot(x, slope*x+intercept, pen=pg.mkPen(color, style=QtCore.Qt.DashLine))
-        if ri >= 0:
-            self.envelope_plot.addItem(pg.InfiniteLine(float(fit['x'][ri]), pen=pg.mkPen(current().amber)))
+        shown = families if self._level_line() else [family]
+        for fam in shown:
+            colors = ({'x-frontier': Q_COLD, 'y-frontier': Q_WARM} if self._level_line() else {})
+            for order, p in enumerate(d['p']):
+                if self._level_line() and order != pi:
+                    continue
+                color = colors.get(fam['name'], _q_color(order, len(d['p'])))
+                if not np.isfinite(fam['env'][order]).any():
+                    continue
+                name = f"{fam['name']}, p={p:g}" if self._level_line() else f'p={p:g}'
+                self.envelope_plot.plot(fam['x'], fam['env'][order], pen=pg.mkPen(color),
+                                        symbol='o', symbolSize=5, name=name)
+                slope, intercept = fam['slope'][order], fam['intercept'][order]
+                if np.isfinite(slope) and fam['x'].size:
+                    x = np.array([min(fam['x']), max(fam['x'])])
+                    self.envelope_plot.plot(x, slope*x+intercept, pen=pg.mkPen(color, style=QtCore.Qt.DashLine))
+        if 0 <= ri < family['x'].size:
+            self.envelope_plot.addItem(pg.InfiniteLine(float(family['x'][ri]), pen=pg.mkPen(current().amber)))
+        if self._level_line():
+            xs = np.concatenate([f['x'] for f in families if f['x'].size]) if any(f['x'].size for f in families) else np.zeros(0)
+            if xs.size:
+                lo, hi = self._ranges.get(ai, (float(xs.min()), float(xs.max())))
+                self.fit_region = pg.LinearRegionItem((lo, hi), brush=_translucent(current().amber, 34))
+                self.fit_region.sigRegionChangeFinished.connect(self._on_fit_region)
+                self.envelope_plot.addItem(self.fit_region)
         n = d['n_levels'][ai]
         values = [f'({x},{y}): n={counts[y,x]}' for x, y in members]
+        admissible = np.isfinite(self._eta[:, ai]).any()
         self.moment_note.setText(f"log₂ S colour range {levels[0]:.3g} … {levels[1]:.3g} · "
-                                 f"α₁={d['alpha'][ai]:g} · {len(fit['x'])} retained samples · "
-                                 f"{'fit admissible' if fit['admissible'] else 'insufficient independent levels: no exponent fit'} · "
-                                 f"ηα({d['p'][pi]:g})={d['eta_alpha'][pi, ai]:.4g} · fitted levels {n}\n"
-                                 'Highlighted Γ members and valid-cell counts: ' + ('; '.join(values) if values else 'none'))
+                                 f"α₁={d['alpha'][ai]:g} · {len(family['x'])} retained samples · "
+                                 f"{'fit admissible' if admissible else 'insufficient independent levels: no exponent fit'} · "
+                                 f"ηα({d['p'][pi]:g})={self._eta[pi, ai]:.4g} · fitted levels {n}\n"
+                                 'Highlighted members and valid-cell counts: ' + ('; '.join(values) if values else 'none'))
         self._draw_scaling()
+
+    def _on_fit_region(self, region):
+        lo, hi = (float(v) for v in region.getRegion())
+        targets = range(len(self.data['alpha'])) if self.same_range.isChecked() else [self.alpha.currentIndex()]
+        for ai in targets:
+            self._refit(ai, lo, hi)
+        self._recompute()
+        self._draw_moments()
+
+    def _refit(self, ai, lo, hi):
+        """η_α over the frontier points inside [lo, hi] of −m: each frontier's slope over its points
+        there (three at least), the smaller of the two, as the estimator reads it."""
+        self._ranges[ai] = (lo, hi)
+        arms = self.data['diagnostic_fits'][ai]['arms']
+        n_p = len(self.data['p'])
+        best, err = np.full(n_p, np.nan), np.full(n_p, np.nan)
+        for arm in arms.values():
+            x = np.asarray(arm['x'], dtype=np.float64)
+            keep = (x >= lo - 1e-9) & (x <= hi + 1e-9)
+            if keep.sum() < 3:
+                continue
+            env = np.asarray(arm['envelope'], dtype=np.float64)
+            for i in range(n_p):
+                slope, se = dr._slope_se(x[keep], env[i][keep])
+                if np.isfinite(slope) and not slope >= best[i]:
+                    best[i], err[i] = slope, se
+        self._eta[:, ai], self._se[:, ai] = best, err
+
+    def _recompute(self):
+        d = self.data
+        scaling = {'alpha': d['alpha'], 'eta_alpha': self._eta, 'eta_alpha_se': self._se,
+                   'no_structure': d.get('no_structure', {})}
+        self._view = {**d, 'eta_alpha': self._eta, **dr.directional_scaling(scaling, d['p']),
+                      'L_e1': dr.directional_legendre(scaling, d['p'], direction=1),
+                      'L_e2': dr.directional_legendre(scaling, d['p'], direction=2)}
 
     def _scaling_tab(self):
         layout = self._page('Scaling and directional bounds')
         grid = QtWidgets.QGridLayout()
-        self.scaling_plots = [self._plot(t) for t in ('ηα(p) and x/y envelopes', 'Anisotropy profile', 'Directional Legendre upper bounds')]
+        self.scaling_plots = [self._plot(t) for t in ('ηα(p) and x/y envelopes', 'Anisotropy profile',
+                                                      'Upper bounds on D(H, e)', 'The sup over α')]
         grid.addWidget(self.scaling_plots[0], 0, 0)
-        grid.addWidget(self.scaling_plots[1], 0, 1)
-        grid.addWidget(self.scaling_plots[2], 1, 0, 1, 2)
+        grid.addWidget(self.scaling_plots[3], 0, 1)
+        grid.addWidget(self.scaling_plots[1], 1, 0)
+        grid.addWidget(self.scaling_plots[2], 1, 1)
         layout.addLayout(grid)
-        note = QtWidgets.QLabel('e₁ = native x axis · e₂ = native y axis · α is anisotropic dilation, not an angle. L(H,e) is the computed Theorem 6 upper bound, not a measured D(h).')
+        note = QtWidgets.QLabel('e₁ = native x axis · e₂ = native y axis · α is anisotropic dilation, not an angle. '
+                                'The bounds are Theorem 6 (Ben Slimane et al. 2019), on the upper spectrum '
+                                'D(H, e) = dim{h(·, e) ≤ H}, which never decreases: empty where nothing is drawn, '
+                                'the dashed stretch set by p max; not a measured D(h).')
         note.setWordWrap(True)
         layout.addWidget(note)
 
     def _draw_scaling(self):
         if self.data is None or not hasattr(self, 'scaling_plots'):
             return
-        d, ai = self.data, self.alpha.currentIndex()
+        d, v, ai, pi = self.data, self._view, self.alpha.currentIndex(), self.moment.currentIndex()
         for plot in self.scaling_plots:
             plot.clear()
             plot.addLegend(offset=(4, 4))
-        curves, profile, bounds = self.scaling_plots
+        curves, profile, bounds, sup = self.scaling_plots
         for col, a in enumerate(d['alpha']):
-            curves.plot(d['p'], d['eta_alpha'][:, col], pen=pg.mkPen(current().amber if col == ai else current().ink_muted, width=2 if col == ai else 1))
-        for key, name, color in [('eta_e1', 'η(p,e₁)', Q_COLD), ('eta_e2', 'η(p,e₂)', Q_WARM), ('eta_iso', 'η(p), α=(1,1)', current().ink)]:
-            curves.plot(d['p'], d[key], pen=pg.mkPen(color, width=2), name=name)
+            curves.plot(d['p'], self._eta[:, col], pen=pg.mkPen(current().amber if col == ai else current().ink_muted, width=2 if col == ai else 1))
+        # The isotropic curve first, so the directional ones are drawn over it.
+        for key, name, color in [('eta_iso', 'η(p), α=(1,1)', current().ink), ('eta_e1', 'η(p,e₁)', Q_COLD), ('eta_e2', 'η(p,e₂)', Q_WARM)]:
+            curves.plot(d['p'], v[key], pen=pg.mkPen(color, width=2), name=name)
         gamma = float(self.params.get('gamma', 0.0) or 0.0)
         integrated = (f' (coefficient integration γ = {gamma:g}, order γ/2 per axis)'
                       if gamma else '')
         curves.setLabel('bottom', 'Moment p')
         curves.setLabel('left', 'η' + integrated)
         # With one fitted α, η(p,e₁) = η(p,e₂) = η_iso by construction: that is no evidence of isotropy.
-        fitted = int(np.isfinite(d['eta_alpha']).any(axis=0).sum())
+        fitted = int(np.isfinite(self._eta).any(axis=0).sum())
         curves.setTitle(f"ηα(p) and x/y envelopes · {fitted} of {len(d['alpha'])} anisotropies fitted")
         profile.setTitle('Anisotropy profile' if fitted >= 2 else f'Anisotropy profile needs two fitted anisotropies ({fitted} fitted)')
         for key, color, name in [('alpha_star_e1', Q_COLD, 'α₁* for e₁'), ('alpha_star_e2', Q_WARM, 'α₂* for e₂')]:
-            if fitted >= 2 and np.isfinite(d[key]).any():
-                profile.plot(d['p'], d[key], pen=pg.mkPen(color), symbol='o', symbolSize=4, name=name)
+            if fitted >= 2 and np.isfinite(v[key]).any():
+                profile.plot(d['p'], v[key], pen=pg.mkPen(color), symbol='o', symbolSize=4, name=name)
         profile.setLabel('bottom', 'Moment p')
         profile.setLabel('left', 'Maximizing axis weight α*' + integrated)
-        for key, name, color in [('L_e1', 'L(H,e₁)', Q_COLD), ('L_e2', 'L(H,e₂)', Q_WARM)]:
-            bounds.plot(d[key]['h'], d[key]['L'], pen=pg.mkPen(color, width=2), name=name)
-        finite_bound = any(np.isfinite(d[key]['L']).any() for key in ('L_e1', 'L_e2'))
-        bounds.setTitle('Directional Legendre upper bounds' if finite_bound else 'No finite directional bound in this computed range')
+        # The sup over α at the chosen p: η_α/α₁ and η_α/α₂ against α₁, the α* intervals shaded.
+        alphas = np.asarray(d['alpha'], dtype=np.float64)
+        p_now = float(d['p'][pi])
+        with np.errstate(invalid='ignore', divide='ignore'):
+            ratios = ((self._eta[pi] / alphas, 'η_α/α₁ (e₁)', Q_COLD, 'alpha_star_e1_interval', lambda a: a),
+                      (self._eta[pi] / (2.0 - alphas), 'η_α/α₂ (e₂)', Q_WARM, 'alpha_star_e2_interval', lambda a: 2.0 - a))
+        for ratio, name, color, key, to_alpha1 in ratios:
+            sup.plot(alphas, ratio, pen=pg.mkPen(color, width=2), symbol='o', symbolSize=4, name=name)
+            interval = np.asarray(v.get(key, np.full((2, len(d['p'])), np.nan)))[:, pi]
+            if np.isfinite(interval).all():
+                lo, hi = sorted(to_alpha1(interval))
+                shade = pg.LinearRegionItem((lo - 1e-3, hi + 1e-3), movable=False, brush=_translucent(color, 51))
+                shade.setZValue(-10)
+                sup.addItem(shade)
+        sup.setTitle(f'The sup over α at p = {p_now:g} · shaded: α* within one standard error')
+        sup.setLabel('bottom', 'α₁ (α₂ = 2 − α₁)')
+        sup.setLabel('left', 'η_α(p)/α_e')
+        knees = []
+        for key, name, color in [('L_e1', 'D(H,e₁) bound', Q_COLD), ('L_e2', 'D(H,e₂) bound', Q_WARM)]:
+            leg = v[key]
+            h, L = np.asarray(leg['h']), np.asarray(leg['L'], dtype=np.float64)
+            limited = np.asarray(leg.get('limited', np.zeros(h.size, bool)), dtype=bool)
+            bounds.plot(h, np.where(limited, np.nan, L), pen=pg.mkPen(color, width=2), name=name)
+            if limited.any():
+                bounds.plot(h, np.where(limited, L, np.nan), pen=pg.mkPen(color, width=1, style=QtCore.Qt.DashLine))
+            if np.isfinite(leg.get('knee', np.nan)):
+                knees.append(f"{name.split()[0]} knee H ≈ {leg['knee']:.2f}")
+        finite_bound = any(np.isfinite(v[key]['L']).any() for key in ('L_e1', 'L_e2'))
+        bounds.setTitle(('Upper bounds on D(H, e)' + (' · ' + ' · '.join(knees) if knees else ''))
+                        if finite_bound else 'No finite directional bound in this computed range')
         bounds.setLabel('bottom', 'H' + integrated)
-        bounds.setLabel('left', 'L(H,e), upper bound')
+        bounds.setLabel('left', 'upper bound on D(H, e)')
 
     def _basis_tab(self):
         layout = self._page('Hyperbolic basis preview')
@@ -330,24 +461,30 @@ class DirectionalScalingWindow(QtWidgets.QWidget):
         if d is None:
             return
         rows, members = [], []
-        for alpha, fit in zip(d['alpha'], d['diagnostic_fits']):
-            for family in range(fit['envelopes'].shape[1]):
-                for i, xx in enumerate(fit['x']):
+        for ai, (alpha, fit) in enumerate(zip(d['alpha'], d['diagnostic_fits'])):
+            for family, fam in enumerate(self._families(fit)):
+                for i, xx in enumerate(fam['x']):
                     for pi, p in enumerate(d['p']):
-                        rows.append([alpha, p, family, xx, fit['envelopes'][pi, family, i], fit['slopes'][pi, family], fit['intercepts'][pi, family], fit['admissible']])
-                    members.extend([alpha, xx, family, jx, jy] for jx, jy in fit['members'][i][family])
+                        rows.append([alpha, p, family, xx, fam['env'][pi][i], fam['slope'][pi], fam['intercept'][pi],
+                                     np.isfinite(self._eta[:, ai]).any()])
+                    members.extend([alpha, xx, family, jx, jy] for jx, jy in fam['members'][i])
+        view = self._view
         context = {'source': self.source, 'analysis_key': (self.result.get('_landed') or {}).get('analysis_key'),
                    'shape': self.result.get('_shape'), 'params': self.result.get('params'), 'record': self.result.get('record'),
                    'normalization': d['moment_normalization'], 'envelope_columns': ['alpha1', 'p', 'family', 'x', 'log2_S', 'slope', 'intercept', 'admissible'],
                    'membership_columns': ['alpha1', 'x', 'family', 'jx', 'jy'],
+                   'membership_index': ('resolution r = J − level, φ = −1' if self._level_line() else 'DWT level, φ = 0'),
                    'estimator': d['estimator'], 'x': d['diagnostic_fits'][0]['xlabel'] if d['diagnostic_fits'] else None,
                    'resolution_origin_J': d.get('resolution_origin'), 'families': self._family_names(),
-                   'L_e1, L_e2': 'Theorem 6 upper bound on the directional spectrum over p >= p_alpha, capped at d = 2; not a measured D(h)',
+                   'fit_ranges': {f'{d["alpha"][ai]:g}': list(r) for ai, r in sorted(self._ranges.items())},
+                   'coarse_partner': d.get('coarse_partner'), 'no_structure': d.get('no_structure'),
+                   'L_e1, L_e2': 'Theorem 6 upper bound on the upper spectrum D(H, e) = dim{h(·, e) <= H} over p >= p_alpha, '
+                                 'capped at d = 2, empty below 0; not a measured D(h)',
                    'gamma': float(self.params.get('gamma', 0.0) or 0.0)}
-        curves = {key: d[key] for key in ('eta_e1', 'eta_e2', 'eta_iso', 'alpha_star_e1', 'alpha_star_e2')}
-        curves.update({f'{key}_{axis}': d[key][axis] for key in ('L_e1', 'L_e2') for axis in ('h', 'L')})
+        curves = {key: view[key] for key in ('eta_e1', 'eta_e2', 'eta_iso', 'alpha_star_e1', 'alpha_star_e2')}
+        curves.update({f'{key}_{axis}': view[key][axis] for key in ('L_e1', 'L_e2') for axis in ('h', 'L')})
         np.savez_compressed(path, **curves, moment_pairs=d['moment_pairs'], log2_moments=d['log2_moments'], valid_cells=d['moment_counts'],
-                            p=d['p'], alpha=d['alpha'], eta_alpha=d['eta_alpha'],
+                            p=d['p'], alpha=d['alpha'], eta_alpha=self._eta,
                             envelopes=np.asarray(rows).reshape(-1, 8), membership=np.asarray(members).reshape(-1, 5),
                             context=json.dumps(context, ensure_ascii=False))
 
