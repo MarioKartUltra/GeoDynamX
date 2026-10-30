@@ -704,9 +704,13 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
         "backend": type(backend).__module__+"."+type(backend).__qualname__,
         "fft": policy.name, "precision": policy.precision})
 
+    from dynamix.core.chaining import chainer, link
+
     scales = np.asarray([sh.a for sh in plan])
     n_scales = len(plan)
     extrema, roi_margins, coi_radii = [], [], []
+    # The cropped modulus per scale, held only for a chainer that climbs it.
+    mods = [] if chainer(resolved["chainer"]).reads_fields else None
     missing_mask = None
     for i, sh in enumerate(plan):
         if cancel is not None and cancel():
@@ -775,6 +779,8 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
                 from dynamix.core.subpixel import refine_extrema_stack
                 scale_extrema = refine_extrema_stack([scale_extrema], cwt["mod"])[0]
         extrema.append(_crop_to_roi(scale_extrema, oy, ox, h, w))
+        if mods is not None:
+            mods.append(np.asarray(cwt["mod"][0][oy:oy + h, ox:ox + w]))
         roi_margins.append({"a": float(a), "margin": margin, "real_frac": info["real_frac"],
                             "reflected_edges": info["reflected_edges"], "whole": sh.whole,
                             "real_px": info["real_px"], "synthetic_px": info["synthetic_px"]})
@@ -782,9 +788,8 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
         if progress is not None:
             progress(f"roi scale {i + 1}/{n_scales}", 1.0)
 
-    from dynamix.core.chaining import link
-
-    chains = link(extrema, scales, resolved, backend)
+    chains = link(extrema, scales, resolved, backend,
+                  fields=None if mods is None else np.stack(mods))
     if cut is not None:
         from dynamix.core.chaining import border_trimmed
         from dynamix.core.edges import chain_reach, drop_in_cone

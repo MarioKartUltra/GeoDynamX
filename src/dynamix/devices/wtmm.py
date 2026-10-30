@@ -13,6 +13,7 @@ import math
 
 import numpy as np
 
+from dynamix.core.chaining import TREE_PARENTS
 from dynamix.model.contracts import EXTREMA, FIELD, VCHAINS
 from dynamix.model.device import Output, keyed_params
 from dynamix.model.origin import XSMURF_DERIVED
@@ -556,8 +557,14 @@ class WTMM2D:
         # by default; not keyed at that default, so every recipe keyed before the knob existed
         # keeps its key.
         Param("chainer", ParamKind.CHOICE, default="xsmurf_bench",
-              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental"),
+              choices=("xsmurf_bench", "gradient_arg_horizontal", "vertical_experimental",
+                       "morse_cerf"),
               label="Chainer", keyed_at_default=False),
+        # The cascade tree's parent of a Morse/Cerf line that ends: recorded on the result for
+        # the tree pass, which reads the chains' ``succ`` or ``peak`` by it.
+        Param("tree_parent", ParamKind.CHOICE, default="basin_successor", choices=TREE_PARENTS,
+              label="Tree parent", keyed_at_default=False,
+              active_when=(("chainer", ("morse_cerf",)),)),
         *WTMM2D_CHAINING_OPTION_PARAMS,
         *BOUNDARY_PARAMS,
         # The raster drawn in place of the field: "edges" is the field itself under the
@@ -571,7 +578,8 @@ class WTMM2D:
     inspector_actions = {
         **dict.fromkeys(("q_min", "q_max", "q_step"), "Repartition"),
         **dict.fromkeys(("min_chain_len", "dist2_max", "box_ratio", "similitude", "band_per", "smooth",
-                         "chainer", *(p.name for p in WTMM2D_CHAINING_OPTION_PARAMS)), "Rechain"),
+                         "chainer", "tree_parent",
+                         *(p.name for p in WTMM2D_CHAINING_OPTION_PARAMS)), "Rechain"),
         **dict.fromkeys(("thresh", "tie_rule", "interpolate"), "Rebuild maxima / chains"),
     }
     params = _inspector_params(params, inspector_actions)
@@ -627,6 +635,7 @@ class WTMM2D:
                 "tie_rule": params["tie_rule"],
                 "band_per": params["band_per"],
                 "chainer": params["chainer"],
+                "tree_parent": params["tree_parent"],
                 **{p.name: params[p.name] for p in CHAINING_OPTION_PARAMS},
         }
         res, fell_back = None, None
@@ -907,7 +916,7 @@ class WTMM2D:
     # -- ROI runner ----------------------
     _ROI_KEYS = ("n_oct", "n_voice", "a_min", "wavelet", "fracint_alpha", "interpolate",
                  "detector", "min_chain_len", "smooth", "thresh", "dist2_max", "box_ratio",
-                 "similitude", "band_per", "chainer", "tie_rule")
+                 "similitude", "band_per", "chainer", "tree_parent", "tie_rule")
 
     def _halo_plan(self, params: dict, parent_shape=None) -> list:
         from dynamix.core.wtmm_backend import compute_scales2d

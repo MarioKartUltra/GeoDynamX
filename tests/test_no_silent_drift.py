@@ -158,6 +158,8 @@ EXTRACTED = {
 #: pinned in tests/test_wavelet_profiles.py against the kernels' own Fourier forms.
 #: deferred: the app's own module, a result's products built on their first read; pinned in
 #: tests/test_deferred_products.py.
+#: morse: the app's own module, the merge tree and the Morse/Cerf links of the morse_cerf chainer;
+#: pinned in tests/test_chaining_morse.py.
 NEW_MODULES = ["hyperbolic_preview", "figure_fits", "figure_samples", "orientation_net", "space_scale",
               "units", "scale_units", "pointset", "mzlib", "fftbackend", "mz_edges", "chain_pick",
               "chain_stats", "transect", "hlines", "hillshade", "stretch", "chain_product", "chaining",
@@ -167,7 +169,7 @@ NEW_MODULES = ["hyperbolic_preview", "figure_fits", "figure_samples", "orientati
               "fft_policy", "ssa2d", "derivative", "frac_bspline_exact", "polyharmonic_exact", "q_fourier",
               "bus", "orientation", "anisotropy", "wtmm_levels", "dwt", "smoothers", "nonconcave", "undersampling", "reach", "edges", "daf",
               "disorder", "analytic_cwt", "ridge", "leaders", "large_deviation", "directional", "interpolating", "fractional", "sem_header", "cwt_leaders",
-              "keys", "execution", "deferred"]
+              "keys", "execution", "deferred", "morse"]
 
 
 def _normalised(path: pathlib.Path) -> str:

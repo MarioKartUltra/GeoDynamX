@@ -16,6 +16,11 @@ the nine cells around it, and a coarser point keeps its closest claimant, as the
 They differ in what a finer point prefers: :class:`GradientArgHorizontal` takes the candidate
 nearest the ray along its own gradient argument, :class:`VerticalExperimental` the nearest
 candidate with no similitude band. Chains are anchored at the finest scale, as in the benchmark.
+
+:class:`MorseCerf` links the same single maxima through the topology of the modulus itself
+(:mod:`dynamix.core.morse`): the merge tree at each scale and mutual steepest-ascent climbs between
+neighbouring scales. It reads the per-scale modulus stack, which :func:`link` takes as ``fields``
+and the other chainers ignore, and its chains carry the line's events beside the one schema.
 """
 from __future__ import annotations
 
@@ -38,15 +43,29 @@ OPTION_DEFAULTS = {"angle_test": False, "angle_threshold": 0.8, "radius_rule": "
                    "coi_k": 2.0}
 BORDER_POLICIES = ("none", "coi_trim", "coi_drop")
 
+#: The cascade tree's parent of a line that ends (the WTMM device's ``tree_parent``, recorded on
+#: the result for the tree pass): the line its basin drains into one scale coarser, or the line
+#: holding its elder-rule parent peak. :class:`MorseCerf` chains carry both, as ``succ`` and
+#: ``peak``.
+TREE_PARENTS = ("basin_successor", "elder_rule")
+
+#: The keys a :class:`MorseCerf` chain carries beside the one schema: per point, and per chain.
+MORSE_POINT_KEYS = ("pers",)
+MORSE_CHAIN_KEYS = ("birth", "death", "line", "succ", "peak", "saddle")
+
 
 class Chainer(Protocol):
     name: str
+    #: Whether :meth:`link` reads ``fields``, the per-scale modulus stack: a caller that does not
+    #: hold the stack keeps one for such a chainer only.
+    reads_fields: bool
 
-    def link(self, extrema: list, scales, params: dict, backend) -> list:
+    def link(self, extrema: list, scales, params: dict, backend, *, fields=None) -> list:
         """V-chains from the per-scale ``extrema`` (``extrema2d``'s schema) over ``scales``
         (finest first); ``params`` is the resolved WTMM parameter set, ``backend`` the
         :class:`~dynamix.core.wtmm_backend.PythonWTMMBackend` whose single-maxima and chaining
-        passes a chainer may reuse."""
+        passes a chainer may reuse, ``fields`` the modulus the extrema were found on,
+        ``(n_scales, ny, nx)``."""
 
 
 class XsmurfBench:
@@ -55,8 +74,9 @@ class XsmurfBench:
     nearest-claimant competition)."""
 
     name = "xsmurf_bench"
+    reads_fields = False
 
-    def link(self, extrema: list, scales, params: dict, backend) -> list:
+    def link(self, extrema: list, scales, params: dict, backend, *, fields=None) -> list:
         opt = {k: params.get(k, v) for k, v in OPTION_DEFAULTS.items()}
         return backend.chains2d(extrema, scales, similitude=params["similitude"],
                                 box_ratio=params["box_ratio"], dist2_max=params["dist2_max"],
@@ -231,8 +251,9 @@ class GradientArgHorizontal:
     the maxima line crosses), the nearer one on a tie."""
 
     name = "gradient_arg_horizontal"
+    reads_fields = False
 
-    def link(self, extrema: list, scales, params: dict, backend) -> list:
+    def link(self, extrema: list, scales, params: dict, backend, *, fields=None) -> list:
         return _link_all(extrema, scales, params, backend, band=True, along_arg=True)
 
 
@@ -241,14 +262,87 @@ class VerticalExperimental:
     band, so a maximum whose modulus jumps across scales still chains."""
 
     name = "vertical_experimental"
+    reads_fields = False
 
-    def link(self, extrema: list, scales, params: dict, backend) -> list:
+    def link(self, extrema: list, scales, params: dict, backend, *, fields=None) -> list:
         return _link_all(extrema, scales, params, backend, band=False, along_arg=False)
+
+
+class MorseCerf:
+    """The single maxima linked by Morse/Cerf tracking of the modulus (:func:`dynamix.core.morse.
+    track`): per scale the merge tree of ``fields`` on the WTMM's thresholded domain; a finer
+    single maximum climbs the next scale's modulus to a maximum and takes the single maximum that
+    owns that basin (the largest modulus in it); the link holds when that point climbs the finer
+    modulus back into the finer point's basin, and a coarser point keeps the largest such
+    claimant. The WTMMM set is xsmurf's; only the linking differs from the benchmark's.
+
+    Chains are rooted at the finest scale, as the benchmark's; the lines born above it take part
+    in the links and the successors but are not chains. Beside the one schema each chain carries
+    ``pers`` (per point, the persistence of the maximum whose basin holds it), ``birth`` and
+    ``death`` (:data:`~dynamix.core.morse.BIRTHS`, :data:`~dynamix.core.morse.DEATHS`), ``line``
+    (its index in this list), ``succ`` (the ``line`` of its basin successor) and ``peak`` (of its
+    elder-rule peak), -1 for none or for a line that is not a chain, and ``saddle`` (x, y,
+    modulus of the merge saddle where its last basin dies, NaN for none)."""
+
+    name = "morse_cerf"
+    reads_fields = True
+
+    def link(self, extrema: list, scales, params: dict, backend, *, fields=None) -> list:
+        from dynamix.core import morse
+
+        if fields is None:
+            raise ValueError("the morse_cerf chainer climbs the modulus: pass its per-scale stack "
+                             "as fields")
+        sm = backend.single_maxima2d(extrema, smooth=params["smooth"])
+        nx = np.asarray(fields[0]).shape[1]
+        thresh = float(params.get("thresh", 0.0))
+        levels = (morse.merge_tree(M, morse.domain(M, thresh)) for M in fields)
+        points = [np.asarray(e["y"], np.int64) * nx + np.asarray(e["x"], np.int64) for e in sm]
+        tr = morse.track(levels, points, [e["mod"] for e in sm])
+        return _morse_chains(sm, tr, scales, int(params["min_chain_len"]))
+
+
+def _morse_chains(sm: list, tr: dict, scales, min_len: int) -> list:
+    """The chains of :class:`MorseCerf`: the lines of ``tr`` rooted at the finest scale and
+    spanning ``min_len`` scales or more, their points the single maxima ``sm``."""
+    from dynamix.core.morse import BIRTHS, DEATHS
+
+    n_sc = len(sm)
+    n0 = len(sm[0]["x"]) if n_sc else 0
+    length = tr["last"][:n0] + 1
+    keep = np.flatnonzero(length >= min_len)
+    chain_of = np.full(tr["n"], -1, np.int64)
+    chain_of[keep] = np.arange(keep.size)
+
+    def ref(line):
+        return int(chain_of[line]) if line >= 0 else -1
+
+    cols = {k: np.zeros((n0, n_sc)) for k in ("x", "y", "mod", "pers")}
+    for s in range(n_sc):
+        ln = tr["line"][s]
+        sel = np.flatnonzero(ln < n0)
+        for k in ("x", "y", "mod"):
+            cols[k][ln[sel], s] = np.asarray(sm[s][k])[sel]
+        cols["pers"][ln[sel], s] = tr["pers"][s][sel]
+    log2_scales = np.log2(np.asarray(scales, dtype=np.float64))
+    chains = []
+    for c, L in enumerate(keep):
+        k = int(length[L])
+        mod = cols["mod"][L, :k].copy()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log2_mod = np.log2(np.abs(mod))
+        chains.append({"x": cols["x"][L, :k].astype(np.int64),
+                       "y": cols["y"][L, :k].astype(np.int64), "mod": mod, "log2_mod": log2_mod, "log2_scales": log2_scales[:k].copy(),
+                       "pers": cols["pers"][L, :k].copy(),
+                       "birth": BIRTHS[tr["birth"][L]], "death": DEATHS[tr["death"][L]],
+                       "line": c, "succ": ref(tr["succ"][L]), "peak": ref(tr["peak"][L]),
+                       "saddle": tuple(float(v) for v in tr["saddle"][L])})
+    return chains
 
 
 #: Every chainer by name.
 CHAINERS: dict[str, Chainer] = {c.name: c for c in (XsmurfBench(), GradientArgHorizontal(),
-                                                     VerticalExperimental())}
+                                                     VerticalExperimental(), MorseCerf())}
 
 
 def chainer(name: str) -> Chainer:
@@ -290,10 +384,12 @@ def border_trimmed(chains: list, shape, policy: str, coi_k: float, min_len: int,
     return out
 
 
-def link(extrema: list, scales, params: dict, backend, *, shape=None) -> list:
+def link(extrema: list, scales, params: dict, backend, *, shape=None, fields=None) -> list:
     """V-chains by the chainer ``params["chainer"]`` names (:data:`DEFAULT` when absent), under
-    the border policy when ``shape`` (the image's ``(ny, nx)``) is given."""
-    chains = chainer(params.get("chainer", DEFAULT)).link(extrema, scales, params, backend)
+    the border policy when ``shape`` (the image's ``(ny, nx)``) is given; ``fields``, the
+    per-scale modulus stack, goes to the chainer (:attr:`Chainer.reads_fields`)."""
+    chains = chainer(params.get("chainer", DEFAULT)).link(extrema, scales, params, backend,
+                                                           fields=fields)
     return border_trimmed(chains, shape, params.get("border_policy", "none"),
                           float(params.get("coi_k", OPTION_DEFAULTS["coi_k"])),
                           int(params.get("min_chain_len", 2)))

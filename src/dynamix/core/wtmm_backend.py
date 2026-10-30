@@ -2093,6 +2093,9 @@ _WTMM2D_PARAM_DEFAULTS = {
     # The chainer (dynamix.core.chaining): the benchmark by default, so the chains stage's key is
     # what it was for every recipe that names none.
     "chainer": "xsmurf_bench",
+    # The cascade tree's parent of an ending line (chaining.TREE_PARENTS): recorded on the result
+    # for the tree pass, so it enters no stage key.
+    "tree_parent": "basin_successor",
     # Spec 14's chaining options, off by default (xsmurf's behaviour); see chaining.OPTION_DEFAULTS.
     **chaining.OPTION_DEFAULTS,
     "q_list": DEFAULT_Q,
@@ -2344,7 +2347,8 @@ def _load_extrema(path) -> list:
 def _chains_to_arrays(chains: list) -> dict:
     """Chain list -> CSR (x/y/mod flat + offsets); ``log2_mod``/``log2_scales`` are
     NOT stored -- they are pure functions of ``mod``/``scales`` and are rebuilt by
-    :func:`_arrays_to_chains` on load."""
+    :func:`_arrays_to_chains` on load. The Morse/Cerf chainer's keys
+    (``chaining.MORSE_POINT_KEYS``, ``MORSE_CHAIN_KEYS``) are stored when the chains carry them."""
     lens = [len(c["x"]) for c in chains]
     off = np.concatenate([[0], np.cumsum(lens)]).astype(np.int64)
 
@@ -2353,19 +2357,26 @@ def _chains_to_arrays(chains: list) -> dict:
             return np.concatenate([np.asarray(c[key], dtype=dtype) for c in chains])
         return np.zeros(0, dtype=dtype)
 
-    return {"x": cat("x", np.int64), "y": cat("y", np.int64),
-            "mod": cat("mod", np.float64), "off": off}
+    out = {"x": cat("x", np.int64), "y": cat("y", np.int64),
+           "mod": cat("mod", np.float64), "off": off}
+    if chains and "pers" in chains[0]:
+        out.update({k: cat(k, np.float64) for k in chaining.MORSE_POINT_KEYS})
+        out.update({k: np.asarray([c[k] for c in chains]) for k in chaining.MORSE_CHAIN_KEYS})
+    return out
 
 
 def _arrays_to_chains(d, scales) -> list:
     """Inverse of :func:`_chains_to_arrays`; ``d`` is any ``{"x", "y", "mod", "off"}``
     mapping. Rebuilds ``log2_mod = log2(|mod|)`` and ``log2_scales = log2(scales)[:k]``
-    per chain, exactly as :meth:`PythonWTMMBackend.chains2d` computes them."""
+    per chain, exactly as :meth:`PythonWTMMBackend.chains2d` computes them, and the Morse/Cerf
+    keys when stored."""
     off = np.asarray(d["off"])
     x, y, mod = d["x"], d["y"], np.asarray(d["mod"], dtype=np.float64)
     log2_scales_full = np.log2(np.asarray(scales, dtype=np.float64))
     with np.errstate(divide="ignore", invalid="ignore"):
         log2_mod_full = np.log2(np.abs(mod))
+    extra = ({k: np.asarray(d[k]) for k in chaining.MORSE_POINT_KEYS + chaining.MORSE_CHAIN_KEYS}
+             if "pers" in d else None)
     out = []
     for i in range(len(off) - 1):
         a, b = int(off[i]), int(off[i + 1])
@@ -2376,6 +2387,10 @@ def _arrays_to_chains(d, scales) -> list:
             "log2_mod": log2_mod_full[a:b].copy(),
             "log2_scales": log2_scales_full[:k].copy(),
         })
+        if extra is not None:
+            out[-1].update({key: extra[key][a:b].copy() for key in chaining.MORSE_POINT_KEYS})
+            out[-1].update({key: (tuple(extra[key][i].tolist()) if extra[key].ndim > 1
+                                  else extra[key][i].item()) for key in chaining.MORSE_CHAIN_KEYS})
     return out
 
 
@@ -2717,7 +2732,7 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
 
     def compute_chains():
         return chaining.link(extrema, scales, resolved, backend,
-                             shape=tuple(field.values.shape)[:2])
+                             shape=tuple(field.values.shape)[:2], fields=cwt["mod"])
 
     _ck()
     chains = run_stage("chains", chains_key, out_dir, field.name, compute_chains,
