@@ -9,8 +9,8 @@ and change only at folds, where a maximum and a saddle are born together or die 
 Publ. Math. IHES 39, 5; for Gaussian scale space, Damon 1995, J. Differential Equations 115, 368,
 and Lifshitz and Pizer 1990, IEEE PAMI 12, 529).
 
-Per scale, on the domain D = {M finite, M > 0, M >= thresh max M} (:func:`domain`), ties in M
-broken by pixel index:
+Per scale, on the domain D = {M finite, M > 0, M >= f} (:func:`domain`), f the floor the WTMM's
+detector keeps maxima above (thresh max M by default), ties in M broken by pixel index:
 
 * the maxima are the 8-neighbour local maxima of M on D;
 * the merge tree of the superlevel sets {M >= t} (Carr, Snoeyink and Axen 2003, Comput. Geom. 24,
@@ -199,13 +199,17 @@ def kernels() -> dict:
     return _KERNELS
 
 
-def domain(M, thresh: float):
-    """D = {M finite, M > 0, M >= thresh max M}: the pixels the WTMM's own threshold keeps."""
-    M = np.asarray(M)
+def domain(M, thresh: float, floor=None):
+    """D = {M finite, M > 0, M >= floor}: the pixels the WTMM's own threshold keeps. ``floor`` is
+    the detector's, ``thresh`` times the maximum it thresholds against, which on a real block or a
+    halo window is not ``M``'s own; ``thresh max M`` when None. Compared in float64, as the
+    detectors compare."""
+    M = np.asarray(M, dtype=np.float64)
     finite = np.isfinite(M)
-    top = float(M[finite].max()) if finite.any() else 0.0
+    if floor is None:
+        floor = float(thresh) * (float(M[finite].max()) if finite.any() else 0.0)
     with np.errstate(invalid="ignore"):
-        return finite & (M > 0) & (M >= float(thresh) * top)
+        return finite & (M > 0) & (M >= float(floor))
 
 
 def merge_tree(M, dom) -> dict:

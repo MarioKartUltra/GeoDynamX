@@ -2731,8 +2731,16 @@ def _run_wtmm2d_scalar(field, resolved: dict, *, out_dir, backend, progress,
             chains_key[name] = resolved[name]
 
     def compute_chains():
+        # The floor each scale's extrema were kept above: thresh times the real block's maximum
+        # for the NMS, the whole array's otherwise (follow thresholds before the block's cut).
+        top = cwt["mod"]
+        if real_block is not None and not follow:
+            (r0, c0), (rows, cols) = real_origin, real_block
+            top = top[:, r0:r0 + rows, c0:c0 + cols]
+        floors = resolved["thresh"] * np.asarray(top).max(axis=(1, 2)).astype(np.float64)
         return chaining.link(extrema, scales, resolved, backend,
-                             shape=tuple(field.values.shape)[:2], fields=cwt["mod"])
+                             shape=tuple(field.values.shape)[:2], fields=cwt["mod"],
+                             floors=floors)
 
     _ck()
     chains = run_stage("chains", chains_key, out_dir, field.name, compute_chains,

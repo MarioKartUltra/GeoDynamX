@@ -284,3 +284,47 @@ def test_the_halo_runs_hand_the_modulus_to_morse_cerf():
     res = WTMM2D().compute(_field(_labyrinth(128)), _params(chainer="morse_cerf"))
     assert res["_edge"]["mode"] == "gaussian_taper" and res["_edge"].get("fallback") is None
     assert res["chains"] and all(len(c["pers"]) == len(c["mod"]) for c in res["chains"])
+
+
+def _off_domain(monkeypatch, run) -> tuple:
+    """Per scale, how many of the single maxima ``run()`` hands the tracker lie off its domain,
+    and how many it hands in all."""
+    seen = {}
+    track = morse.track
+
+    def spy(levels, points, values):
+        seen["levels"], seen["points"] = list(levels), points
+        return track(seen["levels"], points, values)
+
+    monkeypatch.setattr(morse, "track", spy)
+    run()
+    pairs = list(zip(seen["levels"], seen["points"]))
+    return ([int((lv["R"][np.asarray(p)] < 0).sum()) for lv, p in pairs],
+            sum(len(p) for _, p in pairs))
+
+
+@pytest.mark.parametrize("edge", ["gaussian_taper", "daf_periodic"])
+def test_every_single_maximum_of_a_halo_run_lies_on_the_domain(monkeypatch, edge):
+    """The halo detectors keep maxima above thresh times the deep-real pixels' maximum, which
+    is not the cropped modulus's: the domain takes the detectors' floor."""
+    from dynamix.devices.wtmm import WTMM2D
+    from tests.test_edge_taper import _field, _labyrinth, _params
+
+    off, n = _off_domain(monkeypatch, lambda: WTMM2D().compute(
+        _field(_labyrinth(128)), _params(chainer="morse_cerf", thresh=0.3, edge=edge)))
+    assert n > 0 and off == [0] * len(off)
+
+
+def test_every_single_maximum_of_a_real_block_run_lies_on_the_domain(monkeypatch):
+    """A Periodic extension output whose gap holds the largest modulus: the NMS keeps maxima
+    above thresh times the block's maximum, and so does the domain."""
+    from dynamix.core.wtmm_backend import run_wtmm2d
+    from tests.test_edge_taper import _labyrinth
+
+    v = _labyrinth(128).astype(np.float64)
+    yy, xx = np.mgrid[0:128, 0:128]
+    v[:, 64:] = (10.0 + 20.0 * np.exp(-((yy - 64) ** 2 + (xx - 104) ** 2) / 32.0))[:, 64:]
+    off, n = _off_domain(monkeypatch, lambda: run_wtmm2d(make_field(v), {
+        "n_oct": 2, "n_voice": 4, "chainer": "morse_cerf", "thresh": 0.3,
+        "real_block": (128, 64)}))
+    assert n > 0 and off == [0] * len(off)

@@ -709,8 +709,9 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
     scales = np.asarray([sh.a for sh in plan])
     n_scales = len(plan)
     extrema, roi_margins, coi_radii = [], [], []
-    # The cropped modulus per scale, held only for a chainer that climbs it.
-    mods = [] if chainer(resolved["chainer"]).reads_fields else None
+    # The cropped modulus per scale and the floor its extrema were kept above, held only for a
+    # chainer that climbs it.
+    mods, floors = ([], []) if chainer(resolved["chainer"]).reads_fields else (None, None)
     missing_mask = None
     for i, sh in enumerate(plan):
         if cancel is not None and cancel():
@@ -753,6 +754,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
         # Same per-scale lift as the full run (_run_wtmm2d_scalar) -- an ROI recompute must
         # agree with the main result's moduli, chaining band and partition tables.
         cwt = _apply_fracint2d(cwt, [a], resolved["fracint_alpha"])
+        frac = _real_thresh(cwt["mod"][0], info, resolved["thresh"], depth)
         if follow:
             # Same detection as the full run's extrema stage, on the halo window BEFORE the
             # crop (kappa's probes need the halo pixels; the crop shifts x_sub/y_sub). No
@@ -764,15 +766,12 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
             # (dynamix.core.xsmurf_follow, parity-proven -- see wtmm_backend's own use of it).
             from dynamix.core.xsmurf_follow import follow_extrema_scale_exact
             scale_extrema = follow_extrema_scale_exact(
-                cwt["mod"][0], cwt["arg"][0], kapa, kapap,
-                thresh=_real_thresh(cwt["mod"][0], info, resolved["thresh"], depth))
+                cwt["mod"][0], cwt["arg"][0], kapa, kapap, thresh=frac)
             scale_extrema.pop("_xs_runs", None)
             scale_extrema.pop("_xs_closed", None)
         else:
-            scale_extrema = backend.extrema2d(cwt, [a],
-                                              thresh=_real_thresh(cwt["mod"][0], info,
-                                                                  resolved["thresh"], depth),
-                                              field=window, tie_rule=resolved["tie_rule"])[0]
+            scale_extrema = backend.extrema2d(cwt, [a], thresh=frac, field=window,
+                                              tie_rule=resolved["tie_rule"])[0]
             if resolved["interpolate"]:
                 # Same refinement as the full run's extrema stage, on the window's own lifted
                 # mod raster BEFORE the crop (the parabola's probes need the halo pixels).
@@ -781,6 +780,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
         extrema.append(_crop_to_roi(scale_extrema, oy, ox, h, w))
         if mods is not None:
             mods.append(np.asarray(cwt["mod"][0][oy:oy + h, ox:ox + w]))
+            floors.append(frac * float(np.max(cwt["mod"][0])))   # both detectors' floor
         roi_margins.append({"a": float(a), "margin": margin, "real_frac": info["real_frac"],
                             "reflected_edges": info["reflected_edges"], "whole": sh.whole,
                             "real_px": info["real_px"], "synthetic_px": info["synthetic_px"]})
@@ -789,7 +789,7 @@ def _wtmm2d_roi_core(window_for, h, w, resolved, plan, progress=None, cut=None,
             progress(f"roi scale {i + 1}/{n_scales}", 1.0)
 
     chains = link(extrema, scales, resolved, backend,
-                  fields=None if mods is None else np.stack(mods))
+                  fields=None if mods is None else np.stack(mods), floors=floors)
     if cut is not None:
         from dynamix.core.chaining import border_trimmed
         from dynamix.core.edges import chain_reach, drop_in_cone
