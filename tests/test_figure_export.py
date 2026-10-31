@@ -181,6 +181,9 @@ def test_the_command_renders_the_map_view_with_its_bars(qtbot, window, tmp_path,
     figure = _record(png)
     assert figure["view"] == "map view" and figure["scale_bar"] == scale_text
     assert figure["view_range"]["units"] == "map units" and figure["colorbar"] is None
+    assert figure["display"] is None
+    [row] = figure["rows"]                       # one raster row on the map, with its mapping
+    assert row["colormap"] == "RdBu" and row["limits"][0] < row["limits"][1]
     assert "gprv.check: valid" in w._status_message
 
 
@@ -192,3 +195,42 @@ def test_the_command_says_which_views_it_draws(qtbot, window, monkeypatch):
     window._center_view = "vector"
     window.commands["file.export_figure"].trigger()
     assert not asked and "Raster or the Map view" in window._status_message
+
+
+def test_the_record_says_what_the_colours_stand_for(qtbot, window, tmp_path, monkeypatch):
+    """The figure's mapping from values to colours: the colormap, the stretch, the raw values at
+    the ramp's two ends and the centre a diverging ramp is painted about with its resolved mode
+    (what the colour bar's ticks read), the overlays and the theme: a replay of the record's chain
+    can paint the same picture."""
+    from dynamix.core import stretch as st
+    from dynamix.shell.settings import load_settings
+
+    w = _signed(qtbot, window)
+    canvas = w.canvas
+    s = canvas._image_stride
+    small = np.asarray(canvas._field.values, dtype=np.float64)[::s, ::s]
+    lo, hi = st.stretch_limits(small, "linear", percent=2.0)
+    figure = _record(_export(w, monkeypatch, tmp_path / "h_figure.png"))
+    display = figure["display"]
+    assert display["colormap"] == "RdBu"
+    assert display["stretch"] == {"mode": "linear", "percent": 2.0}
+    assert display["center"] == {"value": 0.0, "mode": "value"}      # auto: the field crosses 0
+    assert display["limits"] == list(st.centered_limits(lo, hi, 0.0, False))
+    assert display["slice"] is None and display["bands"] is None and display["hillshade"] is None
+    assert figure["rows"] is None
+    assert figure["overlays"]["arrows"] in ("off", "wtmmm", "all")
+    assert figure["overlays"]["colors"]["color_hchain"].startswith("#")
+    assert figure["theme"] == load_settings().theme
+
+    w._on_display_style_changed("center_mode", "symmetric")
+    QtWidgets.QApplication.processEvents()
+    display = _record(_export(w, monkeypatch, tmp_path / "h_symmetric.png"))["display"]
+    assert display["center"] == {"value": 0.0, "mode": "symmetric"}
+    m = max(-lo, hi)
+    assert display["limits"] == [-m, m]
+
+    w._on_display_style_changed("center_mode", "none")
+    QtWidgets.QApplication.processEvents()
+    display = _record(_export(w, monkeypatch, tmp_path / "h_plain.png"))["display"]
+    assert display["center"] is None                                 # the plain min..max mapping
+    assert display["limits"] == [float(v) for v in canvas.image_item.getLevels()]

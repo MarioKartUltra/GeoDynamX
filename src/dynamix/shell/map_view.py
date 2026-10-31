@@ -96,6 +96,7 @@ class _RowPainter:
     _class_rgba = Canvas._class_rgba
     _display_scalars = Canvas._display_scalars
     _centring = Canvas._centring
+    _mapping_of = Canvas._mapping_of
 
     def __init__(self) -> None:
         self._colormap = DEFAULT_COLORMAP
@@ -105,6 +106,7 @@ class _RowPainter:
         self._bands = ("off", 0.0, 0.0, 6, 1.0)
         self._levels, self._levels_colors, self._levels_sieve = "", "", 0
         self._center, self._diverging = (0.0, "auto"), False
+        self.last = None                 # (field, stride) last painted, for the figure's record
 
     def apply_style(self, style: dict, composite) -> None:
         from dynamix.shell.ramps import is_diverging
@@ -317,6 +319,23 @@ class MapView(QtWidgets.QWidget):
         elif content.kind == "chains":
             self._draw_chains(row_id, content, opacity, z)
 
+    def display_mappings(self) -> list:
+        """The rows on show that paint a raster, each with the mapping from values to colours
+        that painted it (:meth:`Canvas._mapping_of`), top row last, for the figure's record."""
+        rows = []
+        for row_id, painter in self._painters.items():
+            item = self._items.get(row_id)
+            if item is None or not item.isVisible() or painter.last is None:
+                continue
+            field, s = painter.last
+            values = np.asarray(getattr(field, "values", field), dtype=np.float64)
+            if values.ndim == 3:
+                values = values[..., 0]
+            rows.append({"row": row_id, "opacity": float(item.opacity()), "z": float(item.zValue()),
+                         **painter._mapping_of(values[::s, ::s], item.getLevels())})
+        rows.sort(key=lambda r: r["z"])
+        return rows
+
     def set_row_opacity(self, row_id, opacity: float) -> None:
         """Fade a drawn row's items to ``opacity`` (a layer-stack slider tick)."""
         for item in (self._items.get(row_id), *self._vectors.get(row_id, ())):
@@ -378,6 +397,7 @@ class MapView(QtWidgets.QWidget):
         painter.apply_style(content.style, content.composite)
         raw = getattr(field, "values", field)
         s = lod_stride(np.shape(raw)[:2], MAX_DIM)
+        painter.last = (field, s)
         if mode == "affine":
             painter._paint(item, field, s)
             x0, y0, sx, sy = image_transform(field, s)

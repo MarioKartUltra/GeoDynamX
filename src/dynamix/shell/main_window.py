@@ -7888,8 +7888,10 @@ both ``Canvas`` signals report the
         (:mod:`dynamix.shell.figure_export`): the Map view's plot with its bars while the Map is
         shown, else the Raster canvas with its labels and bars, the colour bar per ``placement``.
         The record's print step names the view: its size, the range on show, the bars' labels,
-        the colour bar and whether the V-chains are drawn. Returns the status sentence, with the
-        record's gprv check."""
+        the colour bar, the mapping from values to colours that painted the picture (the Raster
+        canvas's, or each Map row's), the overlays drawn and the theme, so a replay of the
+        record's chain can paint the same figure. Returns the status sentence, with the record's
+        gprv check."""
         from dynamix.shell.figure_export import render_canvas, render_widget
 
         raster = self._center_view != "map"
@@ -7910,6 +7912,7 @@ both ``Canvas`` signals report the
             return f"figure not written: {path} could not be saved"
         (x0, x1), (y0, y1) = view.viewRange()
         wavelet = (self.canvas if raster else self.map_view).wavelet_bar
+        style = _display_style_of(self.layer)
         figure = {"view": "raster view" if raster else "map view", "scale": int(scale),
                   "size_px": [image.width(), image.height()],
                   # the Raster canvas draws in image pixels of the layer, the Map in map units
@@ -7918,7 +7921,15 @@ both ``Canvas`` signals report the
                   "scale_bar": scale_text or None,
                   "wavelet_bar": wavelet.label if wavelet.isVisible() and wavelet.label else None,
                   "colorbar": colorbar,
-                  "v_chains": self.right_panel.trails_check.isChecked()}
+                  "v_chains": self.right_panel.trails_check.isChecked(),
+                  # what the colours stand for: the raster view's one mapping, or one per Map row
+                  "display": self.canvas.display_mapping() if raster else None,
+                  "rows": None if raster else self.map_view.display_mappings(),
+                  "overlays": {"arrows": style["arrows"], "isolated": style["show_isolated"],
+                               "colors": {k: style[k] for k in ("color_hchain", "color_hchain_neg",
+                                                                "color_vtrail", "color_extrema",
+                                                                "color_points")}},
+                  "theme": load_settings().theme}
         tail = self._write_provenance(path, "figure_png", {"figure": figure})
         record = record_beside(path)
         if record is not None and tail.startswith(" · provenance "):

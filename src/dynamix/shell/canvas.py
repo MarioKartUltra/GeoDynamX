@@ -1702,6 +1702,64 @@ a bounded gather of at most :attr:`draw_cap` chains per
         cmap = _resolve_cmap(self._colormap or DEFAULT_COLORMAP) or _resolve_cmap(DEFAULT_COLORMAP)
         return breaks, cmap.map(np.linspace(0.0, 1.0, n), mode="byte")
 
+    def display_mapping(self):
+        """:meth:`_mapping_of` for the raster on top (the product while one is up): what each
+        colour of the picture stands for, for the figure's record. ``None`` with no raster."""
+        top = self._product is not None
+        field = self._product if top else self._field
+        if field is None:
+            return None
+        values = np.asarray(getattr(field, "values", field), dtype=np.float64)
+        if values.ndim == 3:
+            values = values[..., 0]
+        s = self._product_stride if top else self._image_stride
+        levels = (self.product_item if top else self.image_item).getLevels()
+        return self._mapping_of(values[::s, ::s], levels)
+
+    def _mapping_of(self, small, levels=None) -> dict:
+        """The mapping from values to colours that painted ``small`` (one band, LOD-strided),
+        from the state that painted it: the colormap, the stretch, the raw values at the ramp's
+        two ends (``limits``), the centre a diverging ramp is painted about with its resolved
+        mode, and the slice, Bands, hillshade or composite in force. ``levels`` are the image
+        item's own, which a linear stretch paints the raw values under. The colour bar's ticks
+        (:meth:`colorbar_content`) read the same limits. A replay that paints the same values
+        through this mapping reproduces the figure's colours."""
+        from dynamix.core import stretch as st
+
+        out = {"colormap": self._colormap or DEFAULT_COLORMAP,
+               "stretch": {"mode": self._stretch[0], "percent": float(self._stretch[1])}}
+        on, azimuth, altitude, z_factor = self._hillshade
+        out["hillshade"] = ({"sun_azimuth": float(azimuth), "sun_altitude": float(altitude),
+                             "z_factor": float(z_factor)} if on else None)
+        mode, period, phase, k, q = self._bands
+        out["bands"] = ({"mode": mode, "period": float(period), "phase": float(phase),
+                         "k": int(k), "q": float(q)} if mode != "off" else None)
+        out["slice"] = ({"levels": self._levels, "colors": self._levels_colors or None,
+                         "sieve": int(self._levels_sieve)} if self._levels else None)
+        out["composite"] = dict(self._composite) if self._composite else None
+        out["limits"] = out["center"] = None
+        small = np.asarray(small, dtype=np.float64)
+        finite = small[np.isfinite(small)] if small.ndim == 2 else np.empty(0)
+        if out["composite"] or not finite.size:
+            return out
+        stretch_mode, pct = self._stretch
+        centring = self._centring(small)
+        if centring is not None:
+            lo, hi = st.stretch_limits(small, stretch_mode, percent=pct)
+            c, symmetric = centring
+            lo_c, hi_c = st.centered_limits(lo, hi, c, symmetric)
+            out["limits"] = [float(lo_c), float(hi_c)]
+            out["center"] = {"value": float(c), "mode": "symmetric" if symmetric else "value"}
+            return out
+        if stretch_mode == "linear" and not on and levels is not None and np.ndim(levels) == 1:
+            lo, hi = levels[0], levels[1]
+        elif stretch_mode in st.LIMIT_STRETCHES:
+            lo, hi = st.stretch_limits(small, stretch_mode, percent=pct)
+        else:
+            lo, hi = finite.min(), finite.max()
+        out["limits"] = [float(lo), float(hi)]
+        return out
+
     def colorbar_content(self):
         """``(colours, ticks)`` of the colour bar for the raster on top (the product while one is
         up), from the state that painted it: the strip's RGBA bytes from its low end to its high
