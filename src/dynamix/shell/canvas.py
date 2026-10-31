@@ -829,7 +829,7 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._levels = ""                            # density-slice spec text ("" = off)
         self._levels_colors = ""                     # "#rrggbb,..." per-class colors ("" = LUT)
         self._levels_sieve = 0                       # min island px (0 = off; settle/apply only)
-        self._center = (0.0, False)                  # (centre value, symmetric) of a diverging ramp
+        self._center = (0.0, "auto")                 # (centre value, centre mode) of a diverging ramp
         self._diverging = False                      # whether the colormap is diverging
         # Derived overlay geometry, memoized on the INPUT OBJECT's identity -- same doctrine as
         # the COI cache below (results are cached and immutable; identity is the cheap honest
@@ -1535,17 +1535,30 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._bands = new
         self._refresh_image()
 
-    def set_center(self, center: float = 0.0, symmetric: bool = False) -> None:
-        """The value a diverging ramp's middle colour marks, and whether the two slopes about it
-        are equal (``dynamix.core.stretch.centered``). It applies while the colormap is
-        diverging, under a stretch with data-unit limits; a slice or Bands still win. View
-        state."""
-        new = (float(center), bool(symmetric))
+    def set_center(self, center: float = 0.0, mode: str = "auto") -> None:
+        """The value a diverging ramp's middle colour marks and how
+        (``dynamix.core.stretch.CENTER_MODES``: auto, none, value, symmetric; see
+        :meth:`_centring`). It applies while the colormap is diverging, under a stretch with
+        data-unit limits; a slice or Bands still win. View state."""
+        new = (float(center), str(mode))
         if new == self._center:
             return
         self._center = new
         if self._diverging:
             self._refresh_image()
+
+    def _centring(self, small):
+        """``(centre, symmetric)`` while the raster ``small`` is painted about the centre value:
+        a diverging ramp under a stretch with data-unit limits, its centre mode (``auto``
+        resolved on ``small``, :func:`dynamix.core.stretch.center_mode`) not ``none``. ``None``
+        otherwise: the stretch maps its limits as for any other ramp."""
+        from dynamix.core.stretch import LIMIT_STRETCHES, center_mode
+
+        if not self._diverging or self._stretch[0] not in LIMIT_STRETCHES or small.ndim != 2:
+            return None
+        center, mode = self._center
+        mode = center_mode(small, center, mode)
+        return None if mode == "none" else (center, mode == "symmetric")
 
     def set_levels(self, spec: str = "", colors: str = "", min_island: int = 0) -> None:
         """Density slice (ENVI): a class-count or data-unit-breaks spec
@@ -1632,12 +1645,12 @@ a bounded gather of at most :attr:`draw_cap` chains per
             from dynamix.core.stretch import auto_band_period, bands
             return bands(small, band_mode, period if period > 0 else auto_band_period(small),
                          phase=phase, k=k, q=q)
-        from dynamix.core.stretch import LIMIT_STRETCHES
-        if self._diverging and mode in LIMIT_STRETCHES and small.ndim == 2:
+        centring = self._centring(small)
+        if centring is not None:
             # A diverging ramp's middle colour on the centre value, between the stretch's limits.
             from dynamix.core.stretch import centered, stretch_limits
             lo, hi = stretch_limits(small, mode, percent=pct)
-            return centered(small, lo, hi, *self._center)
+            return centered(small, lo, hi, *centring)
         if mode != "linear" and small.ndim == 2:
             from dynamix.core.stretch import stretch
             return stretch(small, mode, percent=pct)
@@ -1696,7 +1709,8 @@ a bounded gather of at most :attr:`draw_cap` chains per
         classes in equal blocks with the breaks between them; Bands as the periodic colouring
         over the data range with the band edges; a continuous stretch as the ramp with nice
         values where the stretch puts them, the centre among them (first to keep its label) on a
-        diverging ramp. ``None`` for a composite or a raster with no finite value."""
+        diverging ramp painted about it (:meth:`_centring`). ``None`` for a composite or a raster
+        with no finite value."""
         from dynamix.core import stretch as st
 
         top = self._product is not None
@@ -1735,9 +1749,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
             return cmap.map(np.nan_to_num(t), mode="byte"), ticks
         colours = cmap.map(np.linspace(0.0, 1.0, 256), mode="byte")
         stretch_mode, pct = self._stretch
-        if self._diverging and stretch_mode in st.LIMIT_STRETCHES:
+        centring = self._centring(small)
+        if centring is not None:
             lo, hi = st.stretch_limits(small, stretch_mode, percent=pct)
-            c, symmetric = self._center
+            c, symmetric = centring
             lo_c, hi_c = st.centered_limits(lo, hi, c, symmetric)
             ticks = [(0.5, tick_text(c), 2)]
             for a, b in ((lo_c, c), (c, hi_c)):
@@ -2097,9 +2112,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
             # the same mapping, its limits taken from the samples the raster was painted from.
             mode, pct = self._stretch
             small = values[::self._image_stride, ::self._image_stride]
-            if self._diverging and mode in st.LIMIT_STRETCHES:
+            centring = self._centring(small)
+            if centring is not None:
                 lo, hi = st.stretch_limits(small, mode, percent=pct)
-                padded, levels = st.centered(padded, lo, hi, *self._center), (0.0, 1.0)
+                padded, levels = st.centered(padded, lo, hi, *centring), (0.0, 1.0)
             elif mode != "linear":
                 padded, levels = st.stretch_at(small, padded, mode, percent=pct), (0.0, 1.0)
             elif levels is None or np.ndim(levels) != 1:

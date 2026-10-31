@@ -6,8 +6,8 @@ Under a linear (min/max) stretch a single outlier crushes everything else to bla
 are the standard remote-sensing choices (ENVI's menu): percent clip, standard
 deviation, logarithmic, histogram equalisation. NaN stays NaN so masked cells stay
 transparent. A diverging colormap's middle colour marks a value (zero for h and for any signed
-field): :func:`centered` puts it there, two slopes meeting at the centre. Nothing here is
-analysis -- the WTMM never sees a stretched value.
+field): :func:`centered` puts it there, two slopes meeting at the centre, in the modes
+:func:`center_mode` names. Nothing here is analysis -- the WTMM never sees a stretched value.
 """
 from __future__ import annotations
 
@@ -132,6 +132,24 @@ def stretch_at(values, at, mode: str = "linear", *, percent: float = 2.0, k: flo
         raise ValueError(f"unknown stretch {mode!r}; one of {', '.join(STRETCHES)}")
     rank = np.clip(np.searchsorted(np.sort(f), a, side="left") / max(f.size - 1, 1), 0.0, 1.0)
     return np.where(np.isfinite(a), rank, np.nan)
+
+
+#: Where a diverging ramp's middle colour goes (:func:`center_mode`): ``none`` keeps the plain
+#: mapping between the stretch's limits, ``value`` puts it on the centre value with each side
+#: reaching its own limit, ``symmetric`` on the centre value with the limits centre ± the larger
+#: departure; ``auto`` is ``value`` for a field on both sides of the centre, ``none`` otherwise.
+CENTER_MODES = ("auto", "none", "value", "symmetric")
+
+
+def center_mode(values, center: float = 0.0, mode: str = "auto") -> str:
+    """``mode`` with ``auto`` resolved on ``values``: ``value`` when finite cells lie on both
+    sides of ``center`` (a signed field about zero), ``none`` otherwise, so a field on one side
+    of it (KAM, a modulus) keeps the whole ramp."""
+    if mode != "auto":
+        return mode
+    v = np.asarray(values, dtype=np.float64)
+    f = v[np.isfinite(v)]
+    return "value" if f.size and f.min() < center < f.max() else "none"
 
 
 def centered_limits(lo: float, hi: float, center: float = 0.0,

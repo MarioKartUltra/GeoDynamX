@@ -9,9 +9,9 @@ import matplotlib
 import numpy as np
 import pytest
 
-from dynamix.core.stretch import (DIVERGING, LIMIT_STRETCHES, STRETCHES, centered,
-                                  centered_limits, diverging_name, stretch, stretch_at,
-                                  stretch_limits)
+from dynamix.core.stretch import (CENTER_MODES, DIVERGING, LIMIT_STRETCHES, STRETCHES,
+                                  center_mode, centered, centered_limits, diverging_name,
+                                  stretch, stretch_at, stretch_limits)
 
 
 def test_the_centre_maps_to_mid_scale_and_each_side_is_linear_and_monotone():
@@ -41,6 +41,30 @@ def test_a_field_on_one_side_of_the_centre_uses_that_half_of_the_ramp():
     # A centre outside the limits widens them to reach it: the centre still reads mid-scale.
     assert centered_limits(2.0, 5.0, 0.0) == (0.0, 5.0)
     assert centered(np.array([0.0, 2.0, 5.0]), 2.0, 5.0) == pytest.approx([0.5, 0.7, 1.0])
+
+
+def test_the_centre_is_on_by_default_only_for_a_field_on_both_sides_of_it():
+    assert center_mode(np.array([-0.3, 0.0, 1.2])) == "value"
+    assert center_mode(np.array([0.0, 2.5, 5.0])) == "none"         # KAM: zero is its floor
+    assert center_mode(np.array([-4.0, -1.0, np.nan])) == "none"
+    assert center_mode(np.array([0.2, 0.6]), center=0.4) == "value"
+    assert center_mode(np.array([0.2, 0.6]), center=0.6) == "none"
+    assert center_mode(np.full(3, np.nan)) == "none"
+    for mode in CENTER_MODES[1:]:                                    # a chosen mode stands
+        assert center_mode(np.array([0.0, 5.0]), mode=mode) == mode
+        assert center_mode(np.array([-1.0, 5.0]), mode=mode) == mode
+
+
+def test_the_centre_mode_is_a_display_tag_read_as_auto_when_absent_or_unknown():
+    from dynamix.model.layer import Layer
+    from dynamix.shell.main_window import _display_style_of
+
+    assert _display_style_of(Layer(0, "h", "s0"))["center_mode"] == "auto"
+    for mode in CENTER_MODES:
+        assert _display_style_of(Layer(0, "h", "s0", tags={"ui.center_mode": mode}))[
+            "center_mode"] == mode
+    assert _display_style_of(Layer(0, "h", "s0", tags={"ui.center_mode": "middle"}))[
+        "center_mode"] == "auto"
 
 
 def test_degenerate_limits_stay_honest():
@@ -111,7 +135,7 @@ def test_a_garbled_diverging_list_in_the_settings_file_reads_as_none(tmp_path):
 
 
 #: The display settings the colour bar and the centre add, as a layer's tags hold them.
-_VIEW_TAGS = {"ui.colorbar": "True", "ui.center": repr(0.35), "ui.symmetric": "True",
+_VIEW_TAGS = {"ui.colorbar": "True", "ui.center": repr(0.35), "ui.center_mode": "symmetric",
               "ui.colorbar_label": "h", "ui.colormap": "RdBu"}
 
 
@@ -136,6 +160,7 @@ def test_the_colour_bar_and_the_centre_leave_the_recipe_and_its_record_unchanged
     assert recipe_identity(layer, FIELD) == key
     assert _no_time(record_for(project, layer, out, export="chains_npz")) == record
     layer.tags["ui.center"] = repr(-2.0)
+    layer.tags["ui.center_mode"] = "none"
     layer.tags["ui.colorbar"] = "False"
     assert recipe_identity(layer, FIELD) == key
     assert _no_time(record_for(project, layer, out, export="chains_npz")) == record

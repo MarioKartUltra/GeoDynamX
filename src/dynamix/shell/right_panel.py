@@ -27,7 +27,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
-from dynamix.core.stretch import BAND_MODES, STRETCHES
+from dynamix.core.stretch import BAND_MODES, CENTER_MODES, STRETCHES
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.shell.canvas import EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, VTRAIL_COLOR
@@ -246,7 +246,7 @@ class RightPanel(QtWidgets.QScrollArea):
 
     def apply_relevance(self, relevance: dict) -> None:
         """Show only what applies: ``relevance`` maps a section TITLE or a Display-row key
-        (``knob:<param>``, ``colormap``, ``colorbar``, ``stretch``, ``symmetric``,
+        (``knob:<param>``, ``colormap``, ``colorbar``, ``stretch``, ``center_mode``,
         ``reconstruct``, ``swatches``, ``swatch:<key>``, ``trails``, ``arrows``, ``hillshade``,
         ``surface``, ``depth``) to visible. Names it does not mention keep their current state."""
         for key, visible in relevance.items():
@@ -435,23 +435,26 @@ class RightPanel(QtWidgets.QScrollArea):
         self.stretch_combo.currentTextChanged.connect(
             lambda name: self.styleChanged.emit("stretch", name))
         layout.addWidget(self.stretch_combo)
-        # A diverging ramp's centre and its two slopes (equal, or each reaching its own limit),
-        # under the stretch whose limits the centre splits: the Centre knob is built with the
-        # other display knobs and laid out in this row.
+        # A diverging ramp's centre mode and value, under the stretch whose limits the centre
+        # splits: the Centre knob is built with the other display knobs and laid out in this row.
         centre_row = QtWidgets.QHBoxLayout()
+        self.center_mode_combo = QtWidgets.QComboBox()
+        for name in CENTER_MODES:
+            self.center_mode_combo.addItem(name)
+        self.center_mode_combo.setToolTip(
+            "Diverging ramp: where its middle colour goes. none: the stretch's limits as for any "
+            "ramp; value: on the centre value, each side reaching its own limit; symmetric: on "
+            "the centre value, limits centre ± the larger departure; auto: value when the data "
+            "lie on both sides of the centre, none otherwise")
+        self.center_mode_combo.currentTextChanged.connect(
+            lambda name: self.styleChanged.emit("center_mode", name))
+        centre_row.addWidget(self.center_mode_combo)
         centre = self._relevant_items.get("knob:center")
         if centre is not None:
             centre.setToolTip("Diverging ramp: the data value its middle colour marks")
             centre_row.addWidget(centre, 1)
-        self.symmetric_check = QtWidgets.QCheckBox("Symmetric")
-        self.symmetric_check.setToolTip(
-            "Diverging ramp: the limits become centre ± the larger departure, one slope on both "
-            "sides; off, each side runs from the centre to its own limit")
-        self.symmetric_check.toggled.connect(
-            lambda checked: self.styleChanged.emit("symmetric", checked))
-        centre_row.addWidget(self.symmetric_check)
         layout.addLayout(centre_row)
-        self._relevant_items["symmetric"] = self.symmetric_check
+        self._relevant_items["center_mode"] = self.center_mode_combo
         self.bands_combo = QtWidgets.QComboBox()
         for name in BAND_MODES:
             self.bands_combo.addItem(name)
@@ -550,10 +553,12 @@ class RightPanel(QtWidgets.QScrollArea):
         self.stretch_combo.blockSignals(True)
         self.stretch_combo.setCurrentText(style.get("stretch", "linear"))
         self.stretch_combo.blockSignals(False)
-        for check, key in ((self.symmetric_check, "symmetric"), (self.colorbar_check, "colorbar")):
-            check.blockSignals(True)
-            check.setChecked(bool(style.get(key, False)))
-            check.blockSignals(False)
+        self.center_mode_combo.blockSignals(True)
+        self.center_mode_combo.setCurrentText(style.get("center_mode", "auto"))
+        self.center_mode_combo.blockSignals(False)
+        self.colorbar_check.blockSignals(True)
+        self.colorbar_check.setChecked(bool(style.get("colorbar", False)))
+        self.colorbar_check.blockSignals(False)
         self.bands_combo.blockSignals(True)
         self.bands_combo.setCurrentText(style.get("bands", "off"))
         self.bands_combo.blockSignals(False)

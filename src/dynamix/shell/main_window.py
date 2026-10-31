@@ -61,7 +61,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from dynamix.shell.session_timing import (measure as _timed, enabled as _timing_enabled,
                                           fed as _timing_fed)
 
-from dynamix.core.stretch import BAND_MODES, STRETCHES
+from dynamix.core.stretch import BAND_MODES, CENTER_MODES, STRETCHES
 from dynamix.core.frames import LocalFrame, frames_compatible
 from dynamix.core.pointset import read_csv_points
 from dynamix.core.transect import chains_in_buffer, sample_profile
@@ -373,7 +373,8 @@ def _display_style_of(layer) -> dict:
     out["hillshade"] = tags.get("ui.hillshade") == "True"
     raw = tags.get("ui.stretch")
     out["stretch"] = raw if raw in STRETCHES else "linear"
-    out["symmetric"] = tags.get("ui.symmetric") == "True"         # equal slopes about the centre
+    raw = tags.get("ui.center_mode")                              # a diverging ramp's middle colour
+    out["center_mode"] = raw if raw in CENTER_MODES else "auto"
     out["colorbar"] = tags.get("ui.colorbar") == "True"           # the colour bar on the figure
     out["colorbar_label"] = tags.get("ui.colorbar_label", "")     # "" = the quantity and units
     raw = tags.get("ui.bands")
@@ -2527,7 +2528,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_show_isolated(style["show_isolated"])
             self.canvas.set_arrow_mode(style["arrows"])
             self.canvas.set_stretch(style["stretch"], style["stretch_pct"])
-            self.canvas.set_center(style["center"], style["symmetric"])
+            self.canvas.set_center(style["center"], style["center_mode"])
             self.canvas.set_bands(style["bands"], style["bands_period"], style["bands_phase"],
                                   int(style["bands_k"]), style["bands_q"])
             self.canvas.set_levels(style["levels"], style["levels_colors"],
@@ -2563,7 +2564,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if name in _DISPLAY_PARAM_NAMES:
             self.layer.tags[f"ui.{name}"] = repr(float(value))
         elif name in ("show_trails", "hillshade", "surface", "depth_positive", "wavelet_cascade",
-                      "show_isolated", "symmetric", "colorbar"):
+                      "show_isolated", "colorbar"):
             self.layer.tags[f"ui.{name}"] = "True" if value else "False"
         else:
             self.layer.tags[f"ui.{name}"] = str(value)
@@ -3606,7 +3607,8 @@ both ``Canvas`` signals report the
             "knob:bands_phase": single and style["bands"] != "off",
             "knob:bands_k": single and style["bands"] == "cycle",
             "knob:bands_q": single and style["bands"] == "wave",
-            "knob:center": diverging, "symmetric": diverging,
+            "knob:center": diverging and style["center_mode"] != "none",
+            "center_mode": diverging,
             "colormap": single, "stretch": single, "colorbar": single,
             "reconstruct": res.get("h_map") is not None,
             "swatches": has_ext or has_chains,

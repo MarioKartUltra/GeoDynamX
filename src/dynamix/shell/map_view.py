@@ -95,6 +95,7 @@ class _RowPainter:
     _paint = Canvas._paint
     _class_rgba = Canvas._class_rgba
     _display_scalars = Canvas._display_scalars
+    _centring = Canvas._centring
 
     def __init__(self) -> None:
         self._colormap = DEFAULT_COLORMAP
@@ -103,14 +104,14 @@ class _RowPainter:
         self._stretch = ("linear", 2.0)
         self._bands = ("off", 0.0, 0.0, 6, 1.0)
         self._levels, self._levels_colors, self._levels_sieve = "", "", 0
-        self._center, self._diverging = (0.0, False), False
+        self._center, self._diverging = (0.0, "auto"), False
 
     def apply_style(self, style: dict, composite) -> None:
         from dynamix.shell.ramps import is_diverging
 
         self._colormap = style["colormap"]
         self._diverging = is_diverging(style["colormap"])
-        self._center = (float(style.get("center", 0.0)), bool(style.get("symmetric", False)))
+        self._center = (float(style.get("center", 0.0)), str(style.get("center_mode", "auto")))
         self._stretch = (style["stretch"], float(style["stretch_pct"]))
         self._bands = (style["bands"], float(style["bands_period"]), float(style["bands_phase"]),
                        int(style["bands_k"]), float(style["bands_q"]))

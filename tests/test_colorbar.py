@@ -92,11 +92,42 @@ def test_the_centre_and_symmetric_move_the_middle_colour(qtbot):
     assert shown[90, 0] == pytest.approx(0.5)                     # h = 0.5 at column 90
     canvas.set_colorbar(True, "")
     assert (0.5, "0.5") in canvas.color_bar.ticks()
-    canvas.set_center(0.0, symmetric=True)                        # limits ±1.19
+    canvas.set_center(0.0, "symmetric")                           # limits ±1.19
     shown = np.asarray(canvas.image_item.image)
     assert shown[0, 0] == pytest.approx(0.5 - 0.5 * 0.4 / 1.19)
     rgba = canvas.color_bar.colours()
     assert np.array_equal(rgba, _resolve_cmap("RdBu").map(np.linspace(0, 1, 256), mode="byte"))
+
+
+def test_centre_none_keeps_the_plain_mapping_and_auto_picks_it_for_a_field_on_one_side(qtbot):
+    from dynamix.core.stretch import centered, stretch, stretch_limits
+
+    kam = np.abs(_H) * 3.0                                  # on one side of zero, touching it
+    plain = _canvas(qtbot, kam, colormap="viridis")         # the path every ramp took before
+    spectral = _canvas(qtbot, kam, colormap="Spectral")     # auto: no crossing, so none
+    for canvas in (plain, spectral):
+        canvas.set_colorbar(True, "KAM (deg)")
+    assert spectral._diverging and spectral._center == (0.0, "auto")
+    assert np.array_equal(spectral.image_item.image, kam.T)
+    assert np.array_equal(spectral.image_item.getLevels(), plain.image_item.getLevels())
+    assert spectral.color_bar.ticks() == plain.color_bar.ticks()     # no centre tick at 0.5
+    spectral.set_center(0.0, "none")
+    assert np.array_equal(spectral.image_item.image, kam.T)
+    for canvas in (plain, spectral):
+        canvas.set_stretch("percent", 2.0)
+    assert np.array_equal(spectral.image_item.image, plain.image_item.image)
+    assert np.array_equal(spectral.image_item.image, stretch(kam, "percent").T)
+    assert spectral.color_bar.ticks() == plain.color_bar.ticks()
+    # Asked for, the centre takes the upper half of the ramp; the bar marks it.
+    spectral.set_center(0.0, "value")
+    lo, hi = stretch_limits(kam, "percent")
+    assert np.array_equal(spectral.image_item.image, centered(kam, lo, hi, 0.0).T)
+    assert (0.5, "0") in spectral.color_bar.ticks()
+    # A signed field: auto centres it, none paints it as any ramp would.
+    signed = _canvas(qtbot, _H, colormap="RdBu")
+    assert np.allclose(signed.image_item.image, centered(_H, _H.min(), _H.max()).T)
+    signed.set_center(0.0, "none")
+    assert np.array_equal(signed.image_item.image, _H.T)
 
 
 def test_the_bar_of_a_slice_shows_its_classes_as_blocks_with_the_breaks(qtbot):
@@ -216,22 +247,41 @@ def test_the_centre_controls_show_for_a_diverging_ramp_and_reach_the_canvas(qtbo
     loaded = _load(qtbot, window, _H[:16, :24], "h")
     panel = loaded.right_panel
     centre = panel._relevant_items["knob:center"]
-    symmetric = panel._relevant_items["symmetric"]
-    assert centre.isHidden() and symmetric.isHidden()             # binary_r: nothing to centre
+    mode = panel._relevant_items["center_mode"]
+    assert centre.isHidden() and mode.isHidden()                  # binary_r: nothing to centre
     loaded._on_display_style_changed("colormap", "coolwarm")
-    assert not centre.isHidden() and not symmetric.isHidden()
+    assert not centre.isHidden() and not mode.isHidden()
     loaded._on_display_style_changed("center", 0.25)
-    loaded._on_display_style_changed("symmetric", True)
-    assert loaded.layer.tags["ui.center"] == repr(0.25) and loaded.layer.tags["ui.symmetric"] == "True"
-    assert loaded.canvas._center == (0.25, True) and loaded.canvas._diverging
+    loaded._on_display_style_changed("center_mode", "symmetric")
+    assert loaded.layer.tags["ui.center"] == repr(0.25)
+    assert loaded.layer.tags["ui.center_mode"] == "symmetric"
+    assert loaded.canvas._center == (0.25, "symmetric") and loaded.canvas._diverging
     shown = np.asarray(loaded.canvas.image_item.image)
     values = _H[:16, :24]
     from dynamix.core.stretch import centered
 
     assert np.allclose(shown.T, centered(values, values.min(), values.max(), 0.25, True))
     loaded._sync_display_controls(loaded.layer)
-    assert panel.symmetric_check.isChecked()
+    assert panel.center_mode_combo.currentText() == "symmetric"
     assert panel._display_controls["center"]._value == pytest.approx(0.25)
+
+
+def test_centre_mode_none_hides_the_centre_value_and_reaches_the_canvas(qtbot, window):
+    from dynamix.core.stretch import centered
+
+    kam = np.abs(_H[:16, :24])
+    loaded = _load(qtbot, window, kam, "KAM", "deg")
+    loaded._on_display_style_changed("colormap", "Spectral")
+    panel = loaded.right_panel
+    centre = panel._relevant_items["knob:center"]
+    assert panel.center_mode_combo.currentText() == "auto" and not centre.isHidden()
+    assert np.array_equal(loaded.canvas.image_item.image, kam.T)
+    loaded._on_display_style_changed("center_mode", "none")
+    assert loaded.layer.tags["ui.center_mode"] == "none" and centre.isHidden()
+    assert loaded.canvas._center == (0.0, "none")
+    loaded._on_display_style_changed("center_mode", "value")
+    assert not centre.isHidden()
+    assert np.allclose(loaded.canvas.image_item.image, centered(kam, kam.min(), kam.max()).T)
 
 
 def test_the_ramp_editor_flags_a_diverging_ramp(qtbot):
@@ -264,3 +314,11 @@ def test_the_map_view_paints_a_diverging_row_about_its_centre(qtbot):
     painter.apply_style(_display_style_of(layer), None)
     shown = painter._display_scalars(_H)
     assert np.allclose(shown, centered(_H, _H.min(), _H.max(), 0.2))
+    # A row on one side of its centre keeps the plain mapping unless the centre is asked for.
+    kam = np.abs(_H)
+    layer = Layer(0, "KAM", "s0", tags={"ui.colormap": "Spectral"})
+    painter.apply_style(_display_style_of(layer), None)
+    assert painter._display_scalars(kam) is None                  # raw values under the LUT
+    layer.tags["ui.center_mode"] = "value"
+    painter.apply_style(_display_style_of(layer), None)
+    assert np.allclose(painter._display_scalars(kam), centered(kam, 0.0, kam.max(), 0.0))
