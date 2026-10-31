@@ -7860,6 +7860,74 @@ both ``Canvas`` signals report the
             tail += self._write_provenance(path, "derived_npz", shown or None)
             self._notify(f"derived raster exported — {path}{tail}", "status")
 
+    def _on_export_figure_clicked(self) -> None:
+        """File > Export Figure: the view on screen, the Raster canvas or the Map view, as a PNG
+        at the scale factor the options ask for (the canvas's colour bar over the image or
+        beside it), with its record beside it in the export's own folder."""
+        from dynamix.shell.figure_export import FigureExportDialog
+
+        if self.layer is None or self._center_view not in ("raster", "map"):
+            self._notify("Export Figure draws the Raster or the Map view: show one of them first",
+                         "status")
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export figure", start_path(f"{self.layer.name}_figure.png"),
+            "PNG image (*.png)")
+        if not path:
+            return
+        colorbar = self._center_view == "raster" and self.canvas.color_bar.isVisible()
+        dialog = FigureExportDialog(colorbar=colorbar, parent=self)
+        if not dialog.exec():
+            return
+        path = bundle_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._notify(self._export_figure(path, dialog.scale(), dialog.placement()), "status")
+
+    def _export_figure(self, path, scale: int = 2, placement: str = "over") -> str:
+        """Render the view on screen into the PNG ``path``, ``scale`` times its size
+        (:mod:`dynamix.shell.figure_export`): the Map view's plot with its bars while the Map is
+        shown, else the Raster canvas with its labels and bars, the colour bar per ``placement``.
+        The record's print step names the view: its size, the range on show, the bars' labels,
+        the colour bar and whether the V-chains are drawn. Returns the status sentence, with the
+        record's gprv check."""
+        from dynamix.shell.figure_export import render_canvas, render_widget
+
+        raster = self._center_view != "map"
+        if raster:
+            widget, view = self.canvas, self.canvas.view
+            image = render_canvas(widget, scale, placement)
+            label = widget.scale_bar_label
+            scale_text = "" if label.isHidden() else label.text()
+            bar = widget.color_bar
+            colorbar = ({"placement": placement, "title": bar.label, **bar.style()}
+                        if bar.isVisible() else None)
+        else:
+            widget, view = self.map_view.plot, self.map_view.view
+            image = render_widget(widget, scale)
+            scale_text = self.map_view.scale_bar.text.toPlainText()
+            colorbar = None
+        if not image.save(str(path), "PNG"):
+            return f"figure not written: {path} could not be saved"
+        (x0, x1), (y0, y1) = view.viewRange()
+        wavelet = (self.canvas if raster else self.map_view).wavelet_bar
+        figure = {"view": "raster view" if raster else "map view", "scale": int(scale),
+                  "size_px": [image.width(), image.height()],
+                  # the Raster canvas draws in image pixels of the layer, the Map in map units
+                  "view_range": {"x": [x0, x1], "y": [y0, y1],
+                                 "units": "image px" if raster else "map units"},
+                  "scale_bar": scale_text or None,
+                  "wavelet_bar": wavelet.label if wavelet.isVisible() and wavelet.label else None,
+                  "colorbar": colorbar,
+                  "v_chains": self.right_panel.trails_check.isChecked()}
+        tail = self._write_provenance(path, "figure_png", {"figure": figure})
+        record = record_beside(path)
+        if record is not None and tail.startswith(" · provenance "):
+            import gprv
+
+            problems = gprv.check(record.read_bytes())
+            tail += " · gprv.check: " + ("valid" if not problems else "; ".join(map(str, problems)))
+        return f"figure exported — {path}{tail}"
+
     def _derived_export_field(self, layer):
         """The derived dataset ``layer`` exports, or ``None``. While a per-level output is on
         show its provenance also names the step's output (``<device>/<output>``), the level
@@ -11487,7 +11555,7 @@ both ``Canvas`` signals report the
         window = weakref.ref(self)
         has_field = lambda: (w := window()) is not None and w.field is not None
         return {cid: has_field for cid in ("chain.run", "file.export_chains", "file.export_derived",
-                                           "layer.roi", "layer.fast_fork")}
+                                           "file.export_figure", "layer.roi", "layer.fast_fork")}
 
     def _open_cache_inspector(self):
         from dynamix.shell.cache_inspector import CacheInspector
@@ -11530,6 +11598,7 @@ both ``Canvas`` signals report the
             "file.open_overview": self._on_open_overview_clicked,
             "file.export_chains": self._on_export_chains_clicked,
             "file.export_derived": self._on_export_derived_clicked,
+            "file.export_figure": self._on_export_figure_clicked,
             "file.write_provenance": self._on_write_provenance,
             "layer.roi": self._on_roi_tool_clicked,
             "layer.fast_fork": self._fast_fork,

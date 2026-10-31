@@ -217,13 +217,18 @@ class ColorBar(pg.GraphicsObject):
         self.update()
         self.place()
 
+    def content_rect(self) -> QtCore.QRectF:
+        """The strip, its labels and its title in the bar's own coordinates, without the margin
+        the bounding rect keeps for the outline."""
+        return self._rect.adjusted(3.0, 3.0, -3.0, -3.0)
+
     def place(self) -> None:
         """On the chosen side of the view, centred along it, ``MARGIN_PX`` in from its edge."""
         view = self.parentItem()
         if view is None:
             return
         area = view.boundingRect()
-        rect = self._rect.adjusted(3.0, 3.0, -3.0, -3.0)
+        rect = self.content_rect()
         side = self._style["side"]
         if side in ("left", "right"):
             x = area.right() - MARGIN_PX - rect.width() if side == "right" else area.left() + MARGIN_PX
