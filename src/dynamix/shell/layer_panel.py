@@ -434,6 +434,7 @@ class LayerPanel(QtWidgets.QTreeWidget):
             self._source_rows.clear()
             self._masters.clear()
             self._roi_items.clear()
+            self._band_groups.clear()
             self._roi_rows.clear()
             self._output_groups.clear()
             self._output_rows.clear()

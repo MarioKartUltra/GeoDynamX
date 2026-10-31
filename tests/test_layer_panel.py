@@ -1492,3 +1492,42 @@ def test_a_temporary_derivative_row_offers_save_as(panel, project, qtbot):
     with qtbot.waitSignal(panel.saveDerivativeRequested) as blocker:
         menu.actions()[0].trigger()
     assert blocker.args == [source.source_id]
+
+
+# --------------------------------------------------------------------------- reset_project
+
+
+def _band_layer(panel, project, source, band_id):
+    """A band row: tagged ``band.id`` directly under the dataset's master, which puts it in the
+    source's "Bands" group."""
+    master = project.layers[-1] if project.layers else None
+    if master is None or master.source_id != source.source_id:
+        master = _layer(project, "dataset", source.source_id)
+        panel.add_layer_row(master, None)
+    layer = _layer(project, band_id, source.source_id, parent_id=master.layer_id,
+                   tags={"band.id": band_id})
+    panel.add_layer_row(layer, None)
+    return layer
+
+
+def test_reset_project_forgets_the_band_groups(panel, project):
+    """Opening a second project in the same window: the first project's "Bands" group went with
+    the cleared tree, so the same source id must get a fresh group (a QTreeWidgetItem the tree
+    deleted raises on use)."""
+    source = project.add_source("/data/stack.npz")
+    _band_layer(panel, project, source, "b1")
+    stale = panel._band_groups[source.source_id]
+    assert stale.parent() is panel._source_headers[source.source_id]
+
+    fresh_project = Project(title="u")
+    panel.reset_project(fresh_project)
+    assert panel._band_groups == {}
+
+    again = fresh_project.add_source("/data/stack.npz")
+    assert again.source_id == source.source_id          # the same file: the same id
+    band = _band_layer(panel, fresh_project, again, "b1")
+    group = panel._band_groups[again.source_id]
+    assert group is not stale
+    assert group.parent() is panel._source_headers[again.source_id]
+    assert group.childCount() == 1
+    assert group.child(0) is panel._layer_items[band.layer_id]
