@@ -2089,9 +2089,20 @@ a bounded gather of at most :attr:`draw_cap` chains per
                      & ((cols >= 0) & (cols < shown_w * k))[None, :])
         padded[on_raster] = np.nan
         if out > 0 and np.isfinite(padded).any():
+            from dynamix.core import stretch as st
+
             levels = self.image_item.getLevels()
             values = np.asarray(getattr(self._field, "values", padded), dtype=np.float64)
-            if levels is None or np.ndim(levels) != 1:
+            # A stretched raster is painted from [0, 1] display scalars: the halo goes through
+            # the same mapping, its limits taken from the samples the raster was painted from.
+            mode, pct = self._stretch
+            small = values[::self._image_stride, ::self._image_stride]
+            if self._diverging and mode in st.LIMIT_STRETCHES:
+                lo, hi = st.stretch_limits(small, mode, percent=pct)
+                padded, levels = st.centered(padded, lo, hi, *self._center), (0.0, 1.0)
+            elif mode != "linear":
+                padded, levels = st.stretch_at(small, padded, mode, percent=pct), (0.0, 1.0)
+            elif levels is None or np.ndim(levels) != 1:
                 finite = values[np.isfinite(values)]
                 levels = (float(finite.min()), float(finite.max())) if finite.size else (0.0, 1.0)
             self.footprint_image_item.setImage(padded.T, levels=tuple(levels))

@@ -6,6 +6,7 @@ inside it, registered like every other overlay (pixel centres on integers, the w
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from PySide6 import QtCore
 
 from dynamix.core.frames import LocalFrame
@@ -109,6 +110,32 @@ def test_an_roi_footprint_sits_on_the_roi_and_only_the_mirror_is_drawn(qtbot):
     assert np.isnan(shown[1:, 2:]).all()                                       # on the dataset
     rect = canvas.footprint_image_item.mapRectToView(canvas.footprint_image_item.boundingRect())
     assert (rect.x(), rect.y()) == (-1.5, -2.5)
+
+
+@pytest.mark.parametrize("ramp, mode", [("viridis", "linear"), ("RdBu", "linear"),
+                                        ("RdBu", "percent"), ("viridis", "histogram")])
+def test_the_halo_takes_the_rasters_colour_at_the_same_value(qtbot, ramp, mode):
+    """A diverging ramp or a stretch paints the raster from [0, 1] display scalars; the mirrored
+    halo goes through the same mapping, so a mirrored sample is the colour of its source pixel."""
+    n = 16
+    values = np.arange(n * n, dtype=np.float64).reshape(n, n) - 192.0          # signed, -192..63
+    field = RasterField(name="f", values=values, frame=LocalFrame(),
+                        x_axis=np.arange(float(n)), y_axis=np.arange(float(n)))
+    canvas = Canvas()
+    qtbot.addWidget(canvas)
+    canvas.set_colormap(ramp)
+    canvas.set_stretch(mode)
+    canvas.set_field(field)
+    canvas.set_footprint({**_footprint(n=n, border=0), "padded": np.pad(values, 4, mode="reflect")})
+    canvas.image_item.render()
+    canvas.footprint_image_item.render()
+    raster, halo = canvas.image_item.qimage, canvas.footprint_image_item.qimage
+    for col in range(n):
+        # The halo's first row (row -4) mirrors raster row 4; both go through one ramp's LUT,
+        # so a channel differs by at most the LUT's byte rounding.
+        a = np.array(raster.pixelColor(col, 4).getRgb())
+        b = np.array(halo.pixelColor(col + 4, 0).getRgb())
+        assert np.abs(a - b).max() <= 1, (col, a, b)
 
 
 def test_a_directional_roi_footprint_outlines_the_halo_it_reads(qtbot):
