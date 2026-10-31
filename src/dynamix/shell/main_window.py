@@ -268,6 +268,10 @@ _DISPLAY_PARAMS = (
     # Stretch: the percent-clip for ui.stretch == "percent" (core.stretch).
     Param("stretch_pct", ParamKind.FLOAT, default=2.0, min=0.0, max=49.0,
           soft_min=0.5, soft_max=10.0, units="%", label="Clip %"),
+    # Centre: the data value a diverging ramp's middle colour marks (core.stretch.centered);
+    # zero is h's step and any signed field's neutral value.
+    Param("center", ParamKind.FLOAT, default=0.0, min=-1e12, max=1e12,
+          soft_min=-1.0, soft_max=1.0, label="Centre"),
     # Bands (core.stretch.bands): the period in data units (0 = a sixteenth of the shown
     # range), where the first band starts, the colours a cycle steps through, the wave's power.
     Param("bands_period", ParamKind.FLOAT, default=0.0, min=0.0, max=1e12,
@@ -369,6 +373,9 @@ def _display_style_of(layer) -> dict:
     out["hillshade"] = tags.get("ui.hillshade") == "True"
     raw = tags.get("ui.stretch")
     out["stretch"] = raw if raw in STRETCHES else "linear"
+    out["symmetric"] = tags.get("ui.symmetric") == "True"         # equal slopes about the centre
+    out["colorbar"] = tags.get("ui.colorbar") == "True"           # the colour bar on the figure
+    out["colorbar_label"] = tags.get("ui.colorbar_label", "")     # "" = the quantity and units
     raw = tags.get("ui.bands")
     out["bands"] = raw if raw in BAND_MODES else "off"
     out["levels"] = tags.get("ui.levels", "")   # density slice: "" = off
@@ -1073,6 +1080,8 @@ class MainWindow(QtWidgets.QMainWindow):
         # compute mints a new array), with the strong ref so a reused id() can never alias a
         # dead array. See ``_sync_holder_raster``.
         self._holder_raster_ref: "tuple | None" = None
+        #: ``(id(h_map), note)``: what the derived raster on show is, as its row names it.
+        self._shown_note: "tuple | None" = None
         #: (layer_id, field) when the active row's chain ends on a field stage (noise alone,
         #: a band row, a bus) -- what that row shows, and what a fork takes from it.
         self._active_field: "tuple | None" = None
@@ -2518,12 +2527,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_show_isolated(style["show_isolated"])
             self.canvas.set_arrow_mode(style["arrows"])
             self.canvas.set_stretch(style["stretch"], style["stretch_pct"])
+            self.canvas.set_center(style["center"], style["symmetric"])
             self.canvas.set_bands(style["bands"], style["bands_period"], style["bands_phase"],
                                   int(style["bands_k"]), style["bands_q"])
             self.canvas.set_levels(style["levels"], style["levels_colors"],
                                    style["levels_sieve"])
             self.canvas.set_hillshade(style["hillshade"], style["sun_azimuth"],
                                       style["sun_altitude"], style["z_factor"])
+            self._sync_colorbar()
         # The point-layer scatter reuses ui.point_size (one size knob, two overlays --
         # the design's instruction) rather than a new one. Always runs, point layer active or
         # not -- the one setter a point layer's own selection is allowed to reach.
@@ -2552,7 +2563,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if name in _DISPLAY_PARAM_NAMES:
             self.layer.tags[f"ui.{name}"] = repr(float(value))
         elif name in ("show_trails", "hillshade", "surface", "depth_positive", "wavelet_cascade",
-                      "show_isolated"):
+                      "show_isolated", "symmetric", "colorbar"):
             self.layer.tags[f"ui.{name}"] = "True" if value else "False"
         else:
             self.layer.tags[f"ui.{name}"] = str(value)
@@ -3580,6 +3591,8 @@ both ``Canvas`` signals report the
         overlays = has_ext or has_chains or points
         style = _display_style_of(self.layer)
         shade = single and style["hillshade"]
+        from dynamix.shell.ramps import is_diverging
+        diverging = single and is_diverging(style["colormap"])
         arrangement = getattr(self, "_center_view", "raster") in ("vector", "geo")
         stacked = getattr(self, "_center_view", "raster") != "raster"
         tables = res.get("hd_std") is not None and res.get("hd_cmax") is not None
@@ -3593,7 +3606,8 @@ both ``Canvas`` signals report the
             "knob:bands_phase": single and style["bands"] != "off",
             "knob:bands_k": single and style["bands"] == "cycle",
             "knob:bands_q": single and style["bands"] == "wave",
-            "colormap": single, "stretch": single,
+            "knob:center": diverging, "symmetric": diverging,
+            "colormap": single, "stretch": single, "colorbar": single,
             "reconstruct": res.get("h_map") is not None,
             "swatches": has_ext or has_chains,
             "swatch:color_hchain": has_lines, "swatch:color_vtrail": has_chains,
@@ -3615,6 +3629,7 @@ both ``Canvas`` signals report the
             _RECON_TITLE: self._recon_step() is not None,
             "Layers": stacked,
         })
+        self._sync_colorbar()
 
     def _refresh_anisotropy(self) -> None:
         """Enable the Anisotropy button for a result with per-scale maxima, and feed an OPEN
@@ -4962,6 +4977,7 @@ both ``Canvas`` signals report the
                     note = "h(x)"
                 self.layer_list.set_layer_name(self.layer.layer_id,
                                                f"{self.layer.name} · {note}")
+                self._shown_note = (id(h_map), note)        # the colour bar's quantity
                 psnr = result.get("psnr_db")
                 if psnr is not None:
                     self._notify(f"band reconstruction: {psnr:.1f} dB "
@@ -4976,6 +4992,40 @@ both ``Canvas`` signals report the
             if self.layer is not None:
                 self.layer_list.set_layer_name(self.layer.layer_id, self.layer.name)
             self._holder_raster_ref = None
+        self._sync_colorbar()
+
+    def _colorbar_label(self) -> str:
+        """The colour bar's title: the layer's own (``ui.colorbar_label``, from the bar's
+        Title…), else the quantity on the canvas: the derived raster's name as its row reads it
+        (h(x), an output's label) while one is up, else the displayed field's name with its
+        units. A derived raster's units are not known, so none are printed for it."""
+        own = self.layer.tags.get("ui.colorbar_label", "").strip() if self.layer is not None else ""
+        if own:
+            return own
+        ref, note = self._holder_raster_ref, self._shown_note
+        if ref is not None and note is not None and note[0] == ref[0]:
+            return note[1]
+        field = getattr(self.canvas, "_field", None)
+        name, units = str(getattr(field, "name", "") or ""), str(getattr(field, "units", "") or "")
+        return f"{name} ({units})" if units else name
+
+    def _sync_colorbar(self) -> None:
+        """Show the active layer's colour bar (``ui.colorbar``) with its title, or hide it."""
+        if self.layer is None or self._is_point_layer(self.layer):
+            return
+        self.canvas.set_colorbar(_display_style_of(self.layer)["colorbar"], self._colorbar_label())
+
+    def _on_colorbar_label_edited(self, text: str) -> None:
+        """The bar's Title…: the layer's own title, or "" for the automatic one."""
+        if self.layer is not None:
+            self._on_display_style_changed("colorbar_label", text)
+
+    def _on_colorbar_style_changed(self, style: dict) -> None:
+        """The bar's menu changed its side, size, colour or outline: remembered for every
+        layer (``view_options["colorbar"]``)."""
+        options = dict(load_settings().view_options)
+        options["colorbar"] = dict(style)
+        update_settings(view_options=options)
 
     def _strided_display_field(self, result: dict, raster):
         """The display field of an output drawn on its own coarser grid (``result[
@@ -10118,6 +10168,10 @@ both ``Canvas`` signals report the
         self.canvas.set_scale_bar_style(self._bar_styles["scale"])
         self.canvas.scaleBarStyleChanged.connect(
             lambda s: self._on_bar_style_changed("scale", s))
+        stored = load_settings().view_options.get("colorbar")
+        self.canvas.color_bar.set_style(stored if isinstance(stored, dict) else {})
+        self.canvas.color_bar.styleChanged.connect(self._on_colorbar_style_changed)
+        self.canvas.color_bar.labelEdited.connect(self._on_colorbar_label_edited)
 
     def _on_bar_style_changed(self, kind: str, style: dict) -> None:
         """A bar's menu changed its style: every bar of that kind follows, the labels re-read

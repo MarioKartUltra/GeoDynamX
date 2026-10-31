@@ -125,11 +125,12 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
     # resolve through theme directly (the canvas.py precedent), so a theme edit must rebuild it.
     # wavelet_bar.py, map_view.py, skeleton_dialog.py, anisotropy_window.py, curve_window.py and
     # components_window.py read theme roles the same way, and map_view hosts a canvas, so they join
-    # the widening in leaf-to-window order.
+    # the widening in leaf-to-window order. colorbar.py's text follows the theme's scale-bar role.
     assert devloop.modules_to_reload({"theme"}) == [
             "dynamix.shell.theme",
             "dynamix.shell.canvas",
             "dynamix.shell.wavelet_bar",
+            "dynamix.shell.colorbar",
             "dynamix.shell.map_view",
             "dynamix.shell.inspector",
             "dynamix.shell.right_panel",
@@ -183,6 +184,7 @@ def test_devloop_scan_detects_a_touched_file_and_resolves_its_dependents():
             "dynamix.shell.theme",
             "dynamix.shell.canvas",
             "dynamix.shell.wavelet_bar",
+            "dynamix.shell.colorbar",
             "dynamix.shell.map_view",
             "dynamix.shell.inspector",
             "dynamix.shell.right_panel",

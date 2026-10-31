@@ -11,6 +11,7 @@ testable without a window:
 - :func:`vchain_trails` -- every V-chain's scale-drift as ONE NaN-separated polyline.
 - :func:`lod_stride` -- display decimation so a huge raster still paints at interactive rates.
 - :func:`nice_round_scalebar` -- the 1/2/5 x 10^n "nice length" ladder for the distance scale bar.
+- :func:`colorbar_ticks` -- the same ladder's multiples across a colour bar's range.
 - :func:`dilate_coi_mask` -- the per-scale growth of a missing-data mask into its COI.
 - :func:`coi_outline` -- NaN-joined isocurve segments around a (dilated) missing-data mask.
 - :func:`wavelet_bar_scale_factor` -- the wavelet-bar duo's shared amplitude-normalization factor.
@@ -57,6 +58,8 @@ __all__ = [
     "classify_chains",
     "lod_stride",
     "nice_round_scalebar",
+    "colorbar_ticks",
+    "tick_text",
     "dilate_coi_mask",
     "coi_outline",
     "wavelet_bar_scale_factor",
@@ -629,6 +632,32 @@ def nice_round_scalebar(view_width_units: float) -> tuple[str, float]:
     return f"{value:g}", value
 
 
+def colorbar_ticks(lo: float, hi: float) -> tuple[np.ndarray, float]:
+    """``(values, step)``: the multiples of the 1/2/5 x 10^n step :func:`nice_round_scalebar`
+    gives the span ``hi - lo`` (four intervals or more) that lie in [lo, hi]; ``lo`` alone, step
+    0, when the span is empty."""
+    lo, hi = float(lo), float(hi)
+    if not (np.isfinite(lo) and np.isfinite(hi)):
+        return np.empty(0), 0.0
+    if hi <= lo:
+        return np.array([lo]), 0.0
+    _, step = nice_round_scalebar(hi - lo)
+    first, last = np.ceil(lo / step - 1e-9), np.floor(hi / step + 1e-9)
+    return np.arange(first, last + 1.0) * step, step
+
+
+def tick_text(value: float, step: float = 0.0) -> str:
+    """``value`` printed to the decimals of a 1/2/5 x 10^n ``step`` (four significant digits
+    without one), with a true minus sign and no negative zero."""
+    if step > 0 and np.isfinite(step) and abs(value) < 1e7:
+        text = f"{value:.{max(0, -int(np.floor(np.log10(step))))}f}"
+    else:
+        text = f"{value:.4g}"
+    if float(text) == 0.0:
+        text = text.lstrip("-")
+    return text.replace("-", "−")
+
+
 def dilate_coi_mask(mask, radius: int) -> np.ndarray:
     """Grow a bool missing-data mask by ``radius`` px -- the COI (cone of influence) at one scale:
     everywhere within reach of an originally-missing (zero-filled) pixel, that scale's kernel
@@ -785,6 +814,9 @@ class Canvas(pg.GraphicsLayoutWidget):
         # one call rather than needing scale_bar_label to already exist.
         self.scale_bar_label = None
         self.wavelet_label = None
+        self.color_bar = None              # built below; the display setters update it from then on
+        self._colorbar_on = False          # set_colorbar: the layer's ui.colorbar
+        self._colorbar_label = ""
         self._wavelet_curve = None
         self._field = None                 # set by set_field(); None until a layer is loaded
         self._image_stride = 1             # set_field's decimation, reused by _refresh_image
@@ -797,6 +829,8 @@ class Canvas(pg.GraphicsLayoutWidget):
         self._levels = ""                            # density-slice spec text ("" = off)
         self._levels_colors = ""                     # "#rrggbb,..." per-class colors ("" = LUT)
         self._levels_sieve = 0                       # min island px (0 = off; settle/apply only)
+        self._center = (0.0, False)                  # (centre value, symmetric) of a diverging ramp
+        self._diverging = False                      # whether the colormap is diverging
         # Derived overlay geometry, memoized on the INPUT OBJECT's identity -- same doctrine as
         # the COI cache below (results are cached and immutable; identity is the cheap honest
         # key), with the same strong-ref discipline: `_geom_refs` anchors every cached input so
@@ -1123,6 +1157,11 @@ class Canvas(pg.GraphicsLayoutWidget):
 
         self.wavelet_cascade = WaveletCascade()
         self.wavelet_cascade.setParentItem(self.view)
+        # The colour bar of the raster on top (set_colorbar), centred on one side of the view.
+        from dynamix.shell.colorbar import ColorBar
+
+        self.color_bar = ColorBar()
+        self.color_bar.setParentItem(self.view)
 
         # Built BEFORE scale_bar_label: the `is None` guard above keys off scale_bar_label, so
         # every label _reposition_overlays touches has to exist by the time that one does.
@@ -1451,8 +1490,14 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.image_item.setColorMap(cmap)
         self.product_item.setColorMap(cmap)
         self._colormap = str(name)
-        if self._hillshade[0]:
-            self._refresh_image()          # the shaded RGBA bakes the colormap in
+        from dynamix.shell.ramps import is_diverging
+
+        diverging, self._diverging = self._diverging, is_diverging(self._colormap)
+        if self._hillshade[0] or diverging != self._diverging:
+            # The shaded RGBA bakes the colormap in; a diverging ramp is painted about its centre.
+            self._refresh_image()
+        else:
+            self._update_colorbar()
 
     def set_hillshade(self, enabled: bool, azimuth: float = 315.0, altitude: float = 45.0,
                       z_factor: float = 1.0) -> None:
@@ -1490,6 +1535,18 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._bands = new
         self._refresh_image()
 
+    def set_center(self, center: float = 0.0, symmetric: bool = False) -> None:
+        """The value a diverging ramp's middle colour marks, and whether the two slopes about it
+        are equal (``dynamix.core.stretch.centered``). It applies while the colormap is
+        diverging, under a stretch with data-unit limits; a slice or Bands still win. View
+        state."""
+        new = (float(center), bool(symmetric))
+        if new == self._center:
+            return
+        self._center = new
+        if self._diverging:
+            self._refresh_image()
+
     def set_levels(self, spec: str = "", colors: str = "", min_island: int = 0) -> None:
         """Density slice (ENVI): a class-count or data-unit-breaks spec
         (``dynamix.core.stretch.parse_levels``); active it REPLACES the continuous stretch so
@@ -1505,6 +1562,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         if self._product is not None:
             # The dataset beneath draws without the slice while a product is up.
             self._paint(self.product_item, self._product, self._product_stride)
+            self._update_colorbar()
         else:
             self._refresh_image()
 
@@ -1574,10 +1632,135 @@ a bounded gather of at most :attr:`draw_cap` chains per
             from dynamix.core.stretch import auto_band_period, bands
             return bands(small, band_mode, period if period > 0 else auto_band_period(small),
                          phase=phase, k=k, q=q)
+        from dynamix.core.stretch import LIMIT_STRETCHES
+        if self._diverging and mode in LIMIT_STRETCHES and small.ndim == 2:
+            # A diverging ramp's middle colour on the centre value, between the stretch's limits.
+            from dynamix.core.stretch import centered, stretch_limits
+            lo, hi = stretch_limits(small, mode, percent=pct)
+            return centered(small, lo, hi, *self._center)
         if mode != "linear" and small.ndim == 2:
             from dynamix.core.stretch import stretch
             return stretch(small, mode, percent=pct)
         return None
+
+    def set_colorbar(self, visible: bool, label: str = "") -> None:
+        """The colour bar of the raster on top (:class:`dynamix.shell.colorbar.ColorBar`), titled
+        ``label``: drawn from :meth:`colorbar_content` while ``visible``, refreshed by every
+        repaint. View state."""
+        new = (bool(visible), str(label))
+        if new == (self._colorbar_on, self._colorbar_label):
+            return
+        self._colorbar_on, self._colorbar_label = new
+        self._update_colorbar()
+
+    def _update_colorbar(self) -> None:
+        if self.color_bar is None:
+            return
+        content = self.colorbar_content() if self._colorbar_on else None
+        if content is None:
+            self.color_bar.hide()
+            return
+        self.color_bar.set_content(*content, self._colorbar_label)
+        self.color_bar.show()
+
+    def _slice_classes(self, small):
+        """``(breaks, RGBA bytes per class)`` of the density slice the raster on top is painted
+        with (:meth:`_class_rgba` and :meth:`_display_scalars` read it so: explicit class colours
+        when they parse and match the classes, the colormap at k/(n − 1) otherwise), or ``None``
+        when no slice applies."""
+        from dynamix.core.stretch import parse_class_colors, parse_levels, resolve_breaks
+
+        if not self._levels:
+            return None
+        try:
+            spec = parse_levels(self._levels)
+            breaks = resolve_breaks(small, spec) if spec is not None else None
+        except (ValueError, TypeError):
+            return None
+        if breaks is None:
+            return None
+        n = breaks.size + 1
+        try:
+            colors = parse_class_colors(self._levels_colors) if self._levels_colors else None
+        except ValueError:
+            colors = None
+        if colors is not None and len(colors) == n:
+            return breaks, np.asarray(colors, dtype=np.uint8)
+        cmap = _resolve_cmap(self._colormap or DEFAULT_COLORMAP) or _resolve_cmap(DEFAULT_COLORMAP)
+        return breaks, cmap.map(np.linspace(0.0, 1.0, n), mode="byte")
+
+    def colorbar_content(self):
+        """``(colours, ticks)`` of the colour bar for the raster on top (the product while one is
+        up), from the state that painted it: the strip's RGBA bytes from its low end to its high
+        end, and the ticks ``(position along it, text, priority)``. A density slice reads as its
+        classes in equal blocks with the breaks between them; Bands as the periodic colouring
+        over the data range with the band edges; a continuous stretch as the ramp with nice
+        values where the stretch puts them, the centre among them (first to keep its label) on a
+        diverging ramp. ``None`` for a composite or a raster with no finite value."""
+        from dynamix.core import stretch as st
+
+        top = self._product is not None
+        field = self._product if top else self._field
+        if field is None:
+            return None
+        values = np.asarray(getattr(field, "values", field), dtype=np.float64)
+        if values.ndim == 3:
+            if self._composite:
+                return None
+            values = values[..., 0]
+        s = self._product_stride if top else self._image_stride
+        small = values[::s, ::s]
+        finite = small[np.isfinite(small)]
+        if small.ndim != 2 or not finite.size:
+            return None
+        classes = self._slice_classes(small)
+        if classes is not None:
+            breaks, colours = classes
+            n = breaks.size + 1
+            return colours, [((i + 1) / n, tick_text(b), 1) for i, b in enumerate(breaks)]
+        cmap = _resolve_cmap(self._colormap or DEFAULT_COLORMAP) or _resolve_cmap(DEFAULT_COLORMAP)
+        lo_v, hi_v = float(finite.min()), float(finite.max())
+        mode, period, phase, k, q = self._bands
+        if mode != "off":
+            period = period if period > 0 else st.auto_band_period(small)
+            first = np.ceil((lo_v - phase) / period)
+            last = np.floor((hi_v - phase) / period)
+            samples = int(np.clip(16 * (last - first + 2), 512, 8192))
+            v = np.linspace(lo_v, hi_v, samples)
+            t = st.bands(v, mode, period, phase=phase, k=k, q=q)
+            edges = phase + period * np.arange(first, last + 1.0)
+            edges = edges[::max(1, edges.size // 32)]
+            span = hi_v - lo_v
+            ticks = [((e - lo_v) / span if span > 0 else 0.5, tick_text(e), 1) for e in edges]
+            return cmap.map(np.nan_to_num(t), mode="byte"), ticks
+        colours = cmap.map(np.linspace(0.0, 1.0, 256), mode="byte")
+        stretch_mode, pct = self._stretch
+        if self._diverging and stretch_mode in st.LIMIT_STRETCHES:
+            lo, hi = st.stretch_limits(small, stretch_mode, percent=pct)
+            c, symmetric = self._center
+            lo_c, hi_c = st.centered_limits(lo, hi, c, symmetric)
+            ticks = [(0.5, tick_text(c), 2)]
+            for a, b in ((lo_c, c), (c, hi_c)):
+                vals, step = colorbar_ticks(a, b)
+                vals = vals[np.abs(vals - c) > 1e-6 * step]          # the centre is ticked above
+                at = st.centered(vals, lo, hi, c, symmetric)
+                ticks += [(float(p), tick_text(v, step), 1) for v, p in zip(vals, at)]
+            return colours, ticks
+        limits = None
+        if stretch_mode == "linear" and not self._hillshade[0]:
+            # The raw values under the LUT: the image item's own levels.
+            levels = (self.product_item if top else self.image_item).getLevels()
+            if levels is not None and np.ndim(levels) == 1:
+                limits = (float(levels[0]), float(levels[1]))
+        if limits is not None:
+            lo, hi = limits
+        elif stretch_mode in st.LIMIT_STRETCHES:
+            lo, hi = st.stretch_limits(small, stretch_mode, percent=pct)
+        else:
+            lo, hi = lo_v, hi_v
+        vals, step = colorbar_ticks(lo, hi)
+        at = st.stretch_at(small, vals, stretch_mode, percent=pct, limits=limits)
+        return colours, [(float(p), tick_text(v, step), 1) for v, p in zip(vals, at)]
 
     def set_composite(self, spec: "dict | None") -> None:
         """The multiband display law: ``{"r"/"g"/"b": band index or None, "solo": [...],
@@ -1597,6 +1780,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
                     sliced=self._product is None)
         if self._product is not None:
             self._paint(self.product_item, self._product, self._product_stride)
+        self._update_colorbar()
 
     def _paint(self, item, field, s: int, sliced: bool = True) -> None:
         """``field`` on ``item`` at decimation ``s``: plain values through the LUT, or the
@@ -2501,6 +2685,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self._paint(self.product_item, field, self._product_stride)
         self.product_item.setRect(self._pinned_rect(field, values.shape, self._product_stride))
         self.product_item.setVisible(True)
+        self._update_colorbar()
 
     def clear_product(self) -> None:
         """Take the product off: ``product_item`` empty and hidden, the dataset alone."""
@@ -2510,6 +2695,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.product_item.setVisible(False)
         if had and self._levels:
             self._paint(self.image_item, self._field, self._image_stride)
+        self._update_colorbar()
 
     def result_xy(self, xy) -> tuple[float, float]:
         """A data-space point back in the drawn result's own sample grid: the inverse of the
@@ -2968,6 +3154,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         for text in self._saved_roi_labels:
             text.setColor(t.roi)
         self.set_scale_bar_style({})
+        self.color_bar.update()
         self.setBackground(t.surround)
 
     def _scale_bar_menu(self, pos) -> None:

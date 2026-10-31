@@ -96,6 +96,9 @@ class Settings:
     #: The user's own colour ramps, ``{name: [[position, "#rrggbb"], ...]}`` with positions in
     #: [0, 1] (:mod:`dynamix.shell.ramps`); a ramp with fewer than two valid stops is left out.
     ramps: dict = dataclasses.field(default_factory=dict)
+    #: The names of the user's ramps that are diverging: their middle colour lands on the layer's
+    #: centre value (:func:`dynamix.shell.ramps.is_diverging`).
+    diverging_ramps: list[str] = dataclasses.field(default_factory=list)
     #: Where each floating window was left, ``{key: [x, y, w, h]}`` in screen pixels
     #: (``dynamix.shell.window_fit.remember_geometry``); a saved geometry that lands on no
     #: screen is ignored on restore.
@@ -213,6 +216,8 @@ def load_settings() -> Settings:
         fast_fork=_fast_fork(d.get("fast_fork")),
         working_folder=d["working_folder"] if isinstance(d.get("working_folder"), str) else None,
         ramps=_ramps(d.get("ramps")),
+        diverging_ramps=[n for n in d.get("diverging_ramps", []) if isinstance(n, str)]
+        if isinstance(d.get("diverging_ramps"), list) else [],
         theme=d["theme"] if isinstance(d.get("theme"), str) and d["theme"] else "restrained_dark",
     )
 

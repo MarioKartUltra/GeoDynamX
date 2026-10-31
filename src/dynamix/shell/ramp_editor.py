@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The colour-ramp editor: pyqtgraph's gradient (click to add a stop, drag to move it, double-click
-to recolour, right-click to remove), a name, and Save or Delete into the user's ramp library
-(:mod:`dynamix.shell.ramps`)."""
+to recolour, right-click to remove), a name, whether the ramp is diverging, and Save or Delete into
+the user's ramp library (:mod:`dynamix.shell.ramps`)."""
 from __future__ import annotations
 
 import numpy as np
@@ -45,6 +45,12 @@ class RampEditorDialog(QtWidgets.QDialog):
         self.name_edit = QtWidgets.QLineEdit(start if own else "")
         row.addWidget(self.name_edit, 1)
         layout.addLayout(row)
+        self.diverging_check = QtWidgets.QCheckBox("Diverging: the middle colour marks the centre")
+        self.diverging_check.setToolTip("The ramp's middle colour lands on the layer's centre "
+                                        "value (Display: Centre), as a built-in diverging "
+                                        "colormap's does")
+        self.diverging_check.setChecked(ramps.is_diverging(start))
+        layout.addWidget(self.diverging_check)
         self.message = QtWidgets.QLabel()
         self.message.setWordWrap(True)
         layout.addWidget(self.message)
@@ -67,7 +73,8 @@ class RampEditorDialog(QtWidgets.QDialog):
 
     def save(self) -> bool:
         try:
-            ramps.save_ramp(self.name_edit.text(), self.stops())
+            ramps.save_ramp(self.name_edit.text(), self.stops(),
+                            diverging=self.diverging_check.isChecked())
         except ValueError as exc:
             self.message.setText(str(exc))
             return False

@@ -103,9 +103,14 @@ class _RowPainter:
         self._stretch = ("linear", 2.0)
         self._bands = ("off", 0.0, 0.0, 6, 1.0)
         self._levels, self._levels_colors, self._levels_sieve = "", "", 0
+        self._center, self._diverging = (0.0, False), False
 
     def apply_style(self, style: dict, composite) -> None:
+        from dynamix.shell.ramps import is_diverging
+
         self._colormap = style["colormap"]
+        self._diverging = is_diverging(style["colormap"])
+        self._center = (float(style.get("center", 0.0)), bool(style.get("symmetric", False)))
         self._stretch = (style["stretch"], float(style["stretch_pct"]))
         self._bands = (style["bands"], float(style["bands_period"]), float(style["bands_phase"]),
                        int(style["bands_k"]), float(style["bands_q"]))

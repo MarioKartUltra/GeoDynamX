@@ -5,13 +5,32 @@
 Under a linear (min/max) stretch a single outlier crushes everything else to black. These
 are the standard remote-sensing choices (ENVI's menu): percent clip, standard
 deviation, logarithmic, histogram equalisation. NaN stays NaN so masked cells stay
-transparent. Nothing here is analysis -- the WTMM never sees a stretched value.
+transparent. A diverging colormap's middle colour marks a value (zero for h and for any signed
+field): :func:`centered` puts it there, two slopes meeting at the centre. Nothing here is
+analysis -- the WTMM never sees a stretched value.
 """
 from __future__ import annotations
 
 import numpy as np
 
 STRETCHES = ("linear", "percent", "stddev", "log", "histogram", "bipolar")
+
+#: The stretches that scale linearly between two data-unit limits (:func:`stretch_limits`), the
+#: ones :func:`centered` can split at a centre value.
+LIMIT_STRETCHES = ("linear", "percent", "stddev", "bipolar")
+
+#: matplotlib's diverging colormaps: its Diverging family and the dark-centred berlin, managua and
+#: vanimo. Their ``_r`` reverses and pyqtgraph's colorcet ``CET-D`` maps diverge too
+#: (:func:`diverging_name`).
+DIVERGING = ("PiYG", "PRGn", "BrBG", "PuOr", "RdGy", "RdBu", "RdYlBu", "RdYlGn", "Spectral",
+             "coolwarm", "bwr", "seismic", "berlin", "managua", "vanimo")
+
+
+def diverging_name(name) -> bool:
+    """Whether the built-in colormap ``name`` is diverging: its middle colour marks a neutral
+    value and its two ends departures from it of opposite sign."""
+    name = str(name)
+    return name.removesuffix("_r") in DIVERGING or name.startswith("CET-D")
 
 
 def _scale(v: np.ndarray, lo: float, hi: float) -> np.ndarray:
@@ -44,24 +63,16 @@ def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.
     if not finite.any():
         return np.full(v.shape, np.nan)
     f = v[finite]
-    if mode == "linear":
-        lo, hi = (float(limits[0]), float(limits[1])) if limits is not None else (float(f.min()), float(f.max()))
-        out = _scale(v, lo, hi)
-    elif mode == "percent":
-        lo, hi = np.percentile(f, [percent, 100.0 - percent])
-        out = _scale(v, float(lo), float(hi))
-    elif mode == "stddev":
-        m, s = float(f.mean()), float(f.std())
-        out = _scale(v, m - k * s, m + k * s)
+    if mode in LIMIT_STRETCHES:
+        lo, hi = stretch_limits(v, mode, percent=percent, k=k, limits=limits)
+        if mode == "bipolar" and hi <= 0.0:
+            out = np.full(v.shape, 0.5)                                # all zero: mid-scale
+        else:
+            out = _scale(v, lo, hi)
     elif mode == "log":
         shifted = v - float(f.min())
         lg = np.log1p(np.where(finite, shifted, 0.0))
         out = _scale(lg, 0.0, float(np.log1p(float(f.max()) - float(f.min()))))
-    elif mode == "bipolar":
-        m = float(np.percentile(np.abs(f), 100.0 - percent))
-        if m <= 0.0:
-            m = float(np.abs(f).max())
-        out = _scale(v, -m, m) if m > 0.0 else np.full(v.shape, 0.5)   # all zero: mid-scale
     else:  # histogram
         order = np.argsort(f, kind="stable")
         ranks = np.empty(f.size, dtype=np.float64)
@@ -70,6 +81,90 @@ def stretch(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.
         out[finite] = ranks / max(f.size - 1, 1)
     out = np.asarray(out, dtype=np.float64)
     out[~finite] = np.nan
+    return out
+
+
+def stretch_limits(values, mode: str = "linear", *, percent: float = 2.0, k: float = 2.0,
+                   limits=None) -> tuple[float, float]:
+    """The data-unit ``(lo, hi)`` a limit stretch (:data:`LIMIT_STRETCHES`) maps onto 0 and 1, as
+    :func:`stretch` describes each: min..max or ``limits``, the percentiles, mean ± kσ, ±m.
+    ``(nan, nan)`` for a field with no finite cell."""
+    if mode not in LIMIT_STRETCHES:
+        raise ValueError(f"{mode!r} has no data-unit limits; one of {', '.join(LIMIT_STRETCHES)}")
+    v = np.asarray(values, dtype=np.float64)
+    f = v[np.isfinite(v)]
+    if mode == "linear" and limits is not None:
+        return float(limits[0]), float(limits[1])
+    if not f.size:
+        return np.nan, np.nan
+    if mode == "linear":
+        return float(f.min()), float(f.max())
+    if mode == "percent":
+        lo, hi = np.percentile(f, [percent, 100.0 - percent])
+        return float(lo), float(hi)
+    if mode == "stddev":
+        m, s = float(f.mean()), float(f.std())
+        return m - k * s, m + k * s
+    m = float(np.percentile(np.abs(f), 100.0 - percent))
+    if m <= 0.0:
+        m = float(np.abs(f).max())
+    return -m, m
+
+
+def stretch_at(values, at, mode: str = "linear", *, percent: float = 2.0, k: float = 2.0,
+               limits=None) -> np.ndarray:
+    """Where the data values ``at`` sit on the [0, 1] scale :func:`stretch` maps ``values`` onto
+    under ``mode``: the positions of a colour bar's ticks. A limit stretch scales ``at`` between
+    its limits, ``log`` takes ``log1p`` of its offset from the minimum, ``histogram`` its rank
+    among the finite cells."""
+    a = np.asarray(at, dtype=np.float64)
+    v = np.asarray(values, dtype=np.float64)
+    f = v[np.isfinite(v)]
+    if not f.size:
+        return np.full(a.shape, np.nan)
+    if mode in LIMIT_STRETCHES:
+        lo, hi = stretch_limits(f, mode, percent=percent, k=k, limits=limits)
+        return np.full(a.shape, 0.5) if mode == "bipolar" and hi <= 0.0 else _scale(a, lo, hi)
+    if mode == "log":
+        low = float(f.min())
+        return _scale(np.log1p(np.maximum(a - low, 0.0)), 0.0, float(np.log1p(float(f.max()) - low)))
+    if mode != "histogram":
+        raise ValueError(f"unknown stretch {mode!r}; one of {', '.join(STRETCHES)}")
+    rank = np.clip(np.searchsorted(np.sort(f), a, side="left") / max(f.size - 1, 1), 0.0, 1.0)
+    return np.where(np.isfinite(a), rank, np.nan)
+
+
+def centered_limits(lo: float, hi: float, center: float = 0.0,
+                    symmetric: bool = False) -> tuple[float, float]:
+    """The limits :func:`centered` maps onto 0 and 1: ``lo``..``hi`` widened to reach ``center``
+    when it lies outside them, or with ``symmetric`` ``center`` ∓ max(|lo − center|,
+    |hi − center|), one slope on both sides. A limit that is not finite reads as the centre."""
+    c = float(center)
+    lo = float(lo) if np.isfinite(lo) else c
+    hi = float(hi) if np.isfinite(hi) else c
+    lo, hi = min(lo, c), max(hi, c)
+    if symmetric:
+        m = max(c - lo, hi - c)
+        lo, hi = c - m, c + m
+    return lo, hi
+
+
+def centered(values, lo: float, hi: float, center: float = 0.0,
+             symmetric: bool = False) -> np.ndarray:
+    """Two slopes meeting at ``center``: lo..center onto 0..0.5 and center..hi onto 0.5..1, each
+    linear and clipped, so a diverging ramp's middle colour lands on ``center`` whatever the
+    limits are (:func:`centered_limits` widens them to reach it, or makes them symmetric). A side
+    of zero width sends what lies beyond the centre to its end. NaN preserved."""
+    v = np.asarray(values, dtype=np.float64)
+    lo, hi = centered_limits(lo, hi, center, symmetric)
+    c = float(center)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        below = (0.5 * np.clip((v - lo) / (c - lo), 0.0, 1.0) if c > lo
+                 else np.where(v < c, 0.0, 0.5))
+        above = (0.5 + 0.5 * np.clip((v - c) / (hi - c), 0.0, 1.0) if hi > c
+                 else np.where(v > c, 1.0, 0.5))
+    out = np.asarray(np.where(v <= c, below, above), dtype=np.float64)
+    out[~np.isfinite(v)] = np.nan
     return out
 
 

@@ -246,9 +246,9 @@ class RightPanel(QtWidgets.QScrollArea):
 
     def apply_relevance(self, relevance: dict) -> None:
         """Show only what applies: ``relevance`` maps a section TITLE or a Display-row key
-        (``knob:<param>``, ``colormap``, ``stretch``, ``reconstruct``, ``swatches``,
-        ``swatch:<key>``, ``trails``, ``arrows``, ``hillshade``, ``surface``, ``depth``) to
-        visible. Names it does not mention keep their current state."""
+        (``knob:<param>``, ``colormap``, ``colorbar``, ``stretch``, ``symmetric``,
+        ``reconstruct``, ``swatches``, ``swatch:<key>``, ``trails``, ``arrows``, ``hillshade``,
+        ``surface``, ``depth``) to visible. Names it does not mention keep their current state."""
         for key, visible in relevance.items():
             widget = self._sections.get(key) or self._relevant_items.get(key)
             if widget is not None:
@@ -306,6 +306,17 @@ class RightPanel(QtWidgets.QScrollArea):
                             ("swatches", self._build_swatch_row())):
             self._relevant_items[key] = widget
             column.addWidget(widget)
+            if key == "colormap":
+                # The colour bar of the raster on the canvas, in the figure and its export.
+                self.colorbar_check = QtWidgets.QCheckBox("Colour bar")
+                self.colorbar_check.setToolTip(
+                    "A colour bar for this layer's raster on the canvas and in its exports: the "
+                    "ramp, the stretch, the slice or Bands and the centre as painted, titled with "
+                    "the quantity and units (right-click it for side, size and title)")
+                self.colorbar_check.toggled.connect(
+                    lambda checked: self.styleChanged.emit("colorbar", checked))
+                column.addWidget(self.colorbar_check)
+                self._relevant_items["colorbar"] = self.colorbar_check
         self._relevant_items["reconstruct"] = self.band_button
         for key, button in self._swatch_buttons.items():
             self._relevant_items[f"swatch:{key}"] = button
@@ -424,6 +435,23 @@ class RightPanel(QtWidgets.QScrollArea):
         self.stretch_combo.currentTextChanged.connect(
             lambda name: self.styleChanged.emit("stretch", name))
         layout.addWidget(self.stretch_combo)
+        # A diverging ramp's centre and its two slopes (equal, or each reaching its own limit),
+        # under the stretch whose limits the centre splits: the Centre knob is built with the
+        # other display knobs and laid out in this row.
+        centre_row = QtWidgets.QHBoxLayout()
+        centre = self._relevant_items.get("knob:center")
+        if centre is not None:
+            centre.setToolTip("Diverging ramp: the data value its middle colour marks")
+            centre_row.addWidget(centre, 1)
+        self.symmetric_check = QtWidgets.QCheckBox("Symmetric")
+        self.symmetric_check.setToolTip(
+            "Diverging ramp: the limits become centre ± the larger departure, one slope on both "
+            "sides; off, each side runs from the centre to its own limit")
+        self.symmetric_check.toggled.connect(
+            lambda checked: self.styleChanged.emit("symmetric", checked))
+        centre_row.addWidget(self.symmetric_check)
+        layout.addLayout(centre_row)
+        self._relevant_items["symmetric"] = self.symmetric_check
         self.bands_combo = QtWidgets.QComboBox()
         for name in BAND_MODES:
             self.bands_combo.addItem(name)
@@ -522,6 +550,10 @@ class RightPanel(QtWidgets.QScrollArea):
         self.stretch_combo.blockSignals(True)
         self.stretch_combo.setCurrentText(style.get("stretch", "linear"))
         self.stretch_combo.blockSignals(False)
+        for check, key in ((self.symmetric_check, "symmetric"), (self.colorbar_check, "colorbar")):
+            check.blockSignals(True)
+            check.setChecked(bool(style.get(key, False)))
+            check.blockSignals(False)
         self.bands_combo.blockSignals(True)
         self.bands_combo.setCurrentText(style.get("bands", "off"))
         self.bands_combo.blockSignals(False)
