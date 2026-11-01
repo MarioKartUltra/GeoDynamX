@@ -205,6 +205,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._h_map_method = str(h_map_method or "")
         self._dh_legend_entries: list = []
         self._in_dh_legend: dict = {}
+        #: The D(h) comparison drawn here: ``(plot, item)`` per drawn piece, ``(curve, display
+        #: name, full name)`` per legend entry, ``(line, tangent)`` per carried tangent.
+        self._board_items: list = []
+        self._board_legend: list = []
+        self._board_tangents: list = []
+        self._board_connected = False
         #: The box-counting construction ``(h, D, dD)`` of an h-map result (eq. 20 across r).
         self._dh_box = tuple(dh_box) if dh_box is not None else None
         #: Other layers' landed results, each a dict with ``name`` and ``hd_std``/``hd_cmax``
@@ -266,6 +272,9 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._build_ui(eta_seed, forward_note)
         self._rebuild_family()
         self._refit()
+        from dynamix.shell.spectra_board import board_of
+
+        self.attach_board(board_of(self))
 
     @property
     def _family_items(self) -> list:
@@ -606,6 +615,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             self._spectrum_plots["D"].addItem(item, ignoreBounds=True)   # spans the view: no auto-range
         self._spectrum_plots["D"].getViewBox().sigXRangeChanged.connect(
             lambda *_a: self._update_phase_tangent())
+        self._spectrum_plots["D"].getViewBox().sigXRangeChanged.connect(
+            lambda *_a: self._update_board_tangents())
 
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
@@ -870,6 +881,89 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                 sent += send(self, entry, f"{source['name']}: the histogram has no finite D(h)")
         return sent
 
+    # -- the D(h) comparison: what was sent, drawn beside the fit ------------------------------
+    def attach_board(self, board) -> None:
+        """Draw ``board``'s visible entries beside this window's fit, again on every change."""
+        if board is None:
+            return
+        self._detach_board()
+        self.spectra_board = board
+        board.boardChanged.connect(self._draw_board)
+        self._board_connected = True
+        self._draw_board()
+
+    def _detach_board(self) -> None:
+        if self._board_connected:
+            self.spectra_board.boardChanged.disconnect(self._draw_board)
+            self._board_connected = False
+
+    def closeEvent(self, event) -> None:
+        super().closeEvent(event)
+        if event.isAccepted():
+            self._detach_board()
+
+    def hideEvent(self, event) -> None:
+        self._detach_board()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        if getattr(self, "spectra_board", None) is not None and not self._board_connected:
+            self.attach_board(self.spectra_board)
+        super().showEvent(event)
+
+    def _add_board_item(self, plot, item) -> None:
+        # Outside the auto-range: a sent spectrum never sets the panel's extent.
+        plot.addItem(item, ignoreBounds=True)
+        self._board_items.append((plot, item))
+
+    def _draw_board(self) -> None:
+        """Every visible board entry in board order: on D(h) in its colour (a construction as
+        points, a fit as a line through its points), its error bars when shown, its tangent
+        dashed when shown; on τ(q) when it carries τ."""
+        for plot, item in self._board_items:
+            plot.removeItem(item)
+        self._board_items, self._board_legend, self._board_tangents = [], [], []
+        d_plot, tau_plot = self._spectrum_plots["D"], self._spectrum_plots["tau"]
+        for entry in self.spectra_board.entries() if self._board_connected else []:
+            if not entry.visible:
+                continue
+            colour = pg.mkColor(entry.colour)
+            points = entry.kind in ("histogram", "boxcount")
+            pen = None if points else pg.mkPen(colour, width=1.4)
+            curve = pg.PlotDataItem(entry.h, entry.D, pen=pen, connect="finite", symbol="o",
+                                    symbolSize=4, symbolPen=None, symbolBrush=colour)
+            self._add_board_item(d_plot, curve)
+            finite = np.isfinite(entry.h) & np.isfinite(entry.D)
+            if entry.show_errors and entry.has_errors and finite.any():
+                bars = {"x": entry.h[finite], "y": entry.D[finite]}
+                for key, err in (("height", entry.dD), ("width", entry.dh)):
+                    if err is not None:
+                        bars[key] = np.where(np.isfinite(err[finite]), 2.0 * err[finite], 0.0)
+                self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars))
+            if entry.show_tangent and entry.tangent is not None:
+                line = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.2, style=QtCore.Qt.DashLine))
+                self._add_board_item(d_plot, line)
+                self._board_tangents.append((line, entry.tangent))
+            if entry.tau is not None:
+                self._add_board_item(tau_plot, pg.PlotDataItem(entry.q, entry.tau, pen=pen, connect="finite",
+                                                               symbol="o", symbolSize=3, symbolPen=None,
+                                                               symbolBrush=colour))
+            self._board_legend.append((curve, entry.name, entry.full_name))
+        self._update_board_tangents()
+        self._sync_dh_legend()
+
+    def _update_board_tangents(self) -> None:
+        """The carried tangents across the D(h) view, as the fit's own is drawn."""
+        x = np.asarray(self._spectrum_plots["D"].getViewBox().viewRange()[0], dtype=np.float64)
+        for line, tangent in self._board_tangents:
+            line.setData(x, tangent["intercept"] + tangent["slope"] * x)
+
+    def drawn_spectra(self) -> list:
+        """What D(h) draws from the comparison, in legend order, as a figure record lists it."""
+        if not self._board_connected:
+            return []
+        return [entry.record() for entry in self.spectra_board.entries() if entry.visible]
+
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:
         return (q >= self._qmin_spin.value()) & (q <= self._qmax_spin.value())
@@ -993,31 +1087,33 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         return str(name).rsplit(" · ", 1)[-1].strip()
 
     def _dh_legend_names(self) -> list:
-        """The short names in the legend row, in order."""
-        return [self._short_name(name) for _item, name in self._in_dh_legend.get("order", [])]
+        """The names in the legend row, in order."""
+        return [name for _item, name, _tip in self._in_dh_legend.get("order", [])]
 
     def _sync_dh_legend(self) -> None:
         """The legend row under D(h) lists exactly what is drawn on D(h) and c(q): the primary,
         the histogram and box-counting constructions, the cumulant spectrum, every source, the
-        c(q) fit, its cumulant expansion and the log-normal reference. Four entries per line."""
+        c(q) fit, its cumulant expansion, the log-normal reference, then every spectrum drawn
+        from the D(h) comparison by its display name. The full name is each entry's tooltip.
+        Four entries per line."""
         if not hasattr(self, "_dh_legend_row"):
             return
-        wanted = [(item, name_of()) for item, name_of in self._dh_legend_entries
-                  if self._drawn(item)]
+        wanted = [(item, self._short_name(name_of()), name_of())
+                  for item, name_of in self._dh_legend_entries if self._drawn(item)]
+        wanted += [entry for entry in self._board_legend if self._drawn(entry[0])]
         if wanted == self._in_dh_legend.get("order"):
             return
         from pyqtgraph.graphicsItems.LegendItem import ItemSample
 
         row = self._dh_legend_row
         row.clear()
-        for i, (item, name) in enumerate(wanted):
+        for i, (item, name, tip) in enumerate(wanted):
             line, col = divmod(i, 4)
             sample = ItemSample(item)
             sample.setMinimumSize(20, 20)
             sample.setMaximumSize(20, 20)
-            label = pg.LabelItem(self._short_name(name), size="9pt",
-                                 color=current().ink_muted, justify="left")
-            label.setToolTip(str(name))
+            label = pg.LabelItem(name, size="9pt", color=current().ink_muted, justify="left")
+            label.setToolTip(str(tip))
             row.addItem(sample, line, 2 * col)
             row.addItem(label, line, 2 * col + 1)
         # Entries pack to the left: a stretch column after them takes the slack.

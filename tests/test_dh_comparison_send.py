@@ -262,6 +262,85 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
 
 
+# --------------------------------------------------------------------------- the comparison
+
+def _entry(name, kind="large_deviations", shift=0.0, **kw):
+    from dynamix.model.spectra_board import SentSpectrum
+
+    h = np.linspace(0.1, 0.9, 9)
+    return SentSpectrum(name=name, full_name=f"{name} · a long provenance name", kind=kind, h=h,
+                        D=2.0 - 5.0 * (h - 0.5) ** 2 + shift, identity={"n": name}, **kw)
+
+
+def _drawn_curves(plot):
+    return [i for i in plot.listDataItems() if i.isVisible() and i.xData is not None and len(i.xData)]
+
+
+def test_the_comparison_draws_the_fit_and_exactly_the_visible_entries(qtbot, host):
+    window = _fitter(qtbot, host, *_pair())                       # std: concave, no tangent
+    d_plot, tau_plot = window._spectrum_plots["D"], window._spectrum_plots["tau"]
+    assert len(_drawn_curves(d_plot)) == 1                       # empty until something is sent
+    board = host.spectra_board
+    a = board.add(_entry("A"))
+    b = board.add(_entry("B", shift=-0.2, q=np.arange(9.0), tau=np.arange(9.0) - 2.0))
+    assert len(_drawn_curves(d_plot)) == 3
+    assert len(_drawn_curves(tau_plot)) == 2                     # the fit's τ and B's
+    board.set_visible(a, False)
+    assert len(_drawn_curves(d_plot)) == 2
+    curve = window._board_legend[0][0]
+    np.testing.assert_allclose(curve.yData, board.get(b).D)
+    assert curve.opts["pen"].color().name() == board.get(b).colour
+    board.remove(b)
+    board.set_visible(a, True)
+    assert len(_drawn_curves(d_plot)) == 2 and window._board_legend[0][1] == "A"
+
+
+def test_an_entry_draws_its_bars_and_its_tangent_in_its_colour_while_shown(qtbot, host):
+    import pyqtgraph as pg
+
+    window = _fitter(qtbot, host, *_pair())
+    d_plot = window._spectrum_plots["D"]
+    tangent = {"q_c": -1.0, "h_c": 0.9, "D_c": 1.2, "slope": -1.0, "intercept": 2.1}
+    key = host.spectra_board.add(_entry("A", kind="canonical", dD=np.full(9, 0.05), tangent=tangent))
+    colour = host.spectra_board.get(key).colour
+    bars = [i for _p, i in window._board_items if isinstance(i, pg.ErrorBarItem)]
+    assert len(bars) == 1 and bars[0].opts["pen"].color().name() == colour
+    np.testing.assert_allclose(bars[0].opts["height"], 0.1)
+    [(line, carried)] = window._board_tangents
+    assert line.opts["pen"].style() == pg.QtCore.Qt.PenStyle.DashLine
+    assert line.opts["pen"].color().name() == colour
+    x, y = line.getData()
+    np.testing.assert_allclose(x, d_plot.getViewBox().viewRange()[0])
+    np.testing.assert_allclose(y, 2.1 - x)
+    d_plot.setXRange(-1.0, 3.0, padding=0.0)                    # the view moves: so does the line
+    np.testing.assert_allclose(line.getData()[0], [-1.0, 3.0])
+    host.spectra_board.set_show_errors(key, False)
+    host.spectra_board.set_show_tangent(key, False)
+    assert not any(isinstance(i, pg.ErrorBarItem) for _p, i in window._board_items)
+    assert window._board_tangents == []
+
+
+def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
+    window = _fitter(qtbot, host, *_pair())
+    key = host.spectra_board.add(_entry("A"))
+    names = window._dh_legend_names()
+    assert names[0] == "canonical (Arneodo WTMM)" and names[-1] == "A"
+    labels = [i for i in window._dh_legend_row.items if hasattr(i, "text") and i.text == "A"]
+    assert labels and labels[0].toolTip() == "A · a long provenance name"
+    host.spectra_board.rename(key, "mine")
+    assert window._dh_legend_names()[-1] == "mine"
+
+
+def test_a_closed_window_stops_drawing_and_a_reopened_one_catches_up(qtbot, host):
+    window = _fitter(qtbot, host, *_pair())
+    window.show()
+    window.hide()
+    host.spectra_board.add(_entry("A"))
+    assert window._board_legend == []
+    window.show()
+    assert [n for _c, n, _f in window._board_legend] == ["A"]
+
+
 def test_the_main_window_owns_the_board_and_names_a_send_on_its_status_line(qtbot, window):
     main = window
     assert isinstance(main.spectra_board, SpectraBoardModel)
