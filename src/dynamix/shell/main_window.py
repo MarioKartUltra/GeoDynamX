@@ -108,6 +108,7 @@ from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.shared_range import SharedScaleRange
+from dynamix.shell.spectra_board import SpectraBoardModel
 from dynamix.shell.canvas import (Canvas, DEFAULT_COLORMAP, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
                                   VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
@@ -1671,6 +1672,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._structure_window = self._cumulants_window = self._ld_window = None
         # The hidden shared scale range the fitting windows shake hands over (shared_range).
         self._shared_range = SharedScaleRange(self)
+        #: The D(h) comparison: the spectra the fitting windows sent, for this session only.
+        self.spectra_board = SpectraBoardModel(self)
+        self.spectra_board.sent.connect(self._on_spectrum_sent)
         #: The latest fit each fitting window published, by its name.
         self._published_fits: dict = {}
         spectrum_lay.addWidget(self._structure_button)
@@ -3980,6 +3984,9 @@ both ``Canvas`` signals report the
         if (fitter is not None and self.sender() is fitter._frame_combo
                 and window is not None and window.isVisible()):
             window.set_frame(frame)
+
+    def _on_spectrum_sent(self, text: str) -> None:
+        self._notify(text, "status")
 
     def _on_fit_published(self, fit) -> None:
         """A fitting window's fit, kept by name (the latest of each) and handed to an open
