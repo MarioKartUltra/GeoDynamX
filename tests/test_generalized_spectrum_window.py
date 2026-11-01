@@ -280,6 +280,35 @@ def test_a_gamma_capped_minimum_joins_the_curve_once_it_stops_falling(qtbot):
         assert w.current_fit()["gamma_converged"]["n"] == 3 - sum(falling)
 
 
+def test_the_gamma_gate_judges_only_the_minima_held_by_the_largest_gamma(qtbot):
+    """τ = c_γ − q² on q ∈ {−1, 0, 1}, γ ∈ {0, 1, 2, 3}, c = (0, 1, 0, 0.5): at h = 0 the profile
+    is −c_γ, smallest at γ = 1 with q = 0, a minimum inside the grid (no limit, no γ cap). The
+    profile's last step falls by 0.5, so the per-step rule calls h = 0 unconverged, but that
+    rule speaks only for a minimum the largest γ holds: the point is on the curve and inside
+    the grid-bracketed range."""
+    from dynamix.core.nonconcave import generalized_legendre
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    q, g, h = np.array([-1.0, 0.0, 1.0]), np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.0])
+    tau = (np.array([0.0, 1.0, 0.0, 0.5])[None, :] - (q * q)[:, None])[:, :, None]
+    fit = generalized_legendre(tau, q, g, h, delta_list=[0.0])
+    assert (fit["gamma_star"][0], fit["q_star"][0]) == (1.0, 0.0)
+    assert not fit["boundary"][0] and not fit["gamma_cap"][0]
+    ensemble = {"q": q, "gamma": g, "delta": np.array([0.0]), "scales": scales[:3], "n_scales": 3,
+                "tau_r2": np.ones(tau.shape), "reference_amplitude": 1.0, "tau": tau,
+                "log_partition": np.zeros(tau.shape + (3,))}
+    w._completed(w._generation, _diagnose({**fit, "ensemble": ensemble,
+                                           "settings": {"lo": 1.0, "hi": 3.0, "amplitude": 1.0}}))
+    landed = w.current_fit()
+    assert not landed["convergence"]["converged"][0] and landed["convergence"]["decrease"][0] == pytest.approx(0.5)
+    assert landed["solid"][0] and not landed["open"][0] and not landed["pinned"][0]
+    np.testing.assert_allclose(w.curve.getData()[1], [-1.0])
+    assert _points(w.open_points) == 0 and _points(w.boundary_points) == 0
+    assert landed["grid_bracketed"] == (0.0, 0.0) and "minima inside the grid for h in [0, 0]" in w.readout.text()
+
+
 SCALES = 2.0 ** np.arange(1, 6.01, 0.5)                 # eleven scales, 2 to 64 px
 LOG2_L = 8.0
 

@@ -41,7 +41,7 @@ def _diagnose(result: dict, cancel=None) -> dict:
     cap = np.asarray(result.get("gamma_cap", np.zeros(h.size, bool)), bool)
     finite = np.isfinite(D)
     pinned = finite & boundary & ~cap
-    solid = finite & ~pinned & convergence["converged"]
+    solid = finite & ~pinned & (convergence["converged"] | ~cap)
     zero = np.flatnonzero(gammas == 0.0)
     legendre = None
     if zero.size:
