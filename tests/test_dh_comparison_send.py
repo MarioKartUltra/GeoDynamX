@@ -341,6 +341,80 @@ def test_a_closed_window_stops_drawing_and_a_reopened_one_catches_up(qtbot, host
     assert [n for _c, n, _f in window._board_legend] == ["A"]
 
 
+# ---------------------------------------------------------------------------- the inspector
+
+def _rows(window, qtbot):
+    inspector = window.inspector
+    qtbot.waitUntil(lambda: inspector.table.rowCount() == len(window.spectra_board))
+    return inspector.table
+
+
+def test_the_inspector_lists_the_entries_and_edits_them(qtbot, host, monkeypatch):
+    from PySide6 import QtCore, QtGui
+
+    window = _fitter(qtbot, host, *_pair())
+    assert not window.inspector.isVisibleTo(window)              # empty: nothing to inspect
+    board = host.spectra_board
+    tangent = {"q_c": -1.0, "h_c": 0.9, "D_c": 1.2, "slope": -1.0, "intercept": 2.1}
+    a = board.add(_entry("A", kind="canonical", dD=np.full(9, 0.05), tangent=tangent))
+    b = board.add(_entry("B"))
+    table = _rows(window, qtbot)
+    assert window.inspector.isVisibleTo(window)
+    I = window.inspector
+    assert [table.item(r, I.NAME).text() for r in range(2)] == ["A", "B"]
+    assert all(table.item(1, c).toolTip() == "B · a long provenance name" for c in range(5))
+    flags = QtCore.Qt.ItemFlag.ItemIsEnabled
+    assert table.item(0, I.ERRORS).flags() & flags and table.item(0, I.TANGENT).flags() & flags
+    assert not table.item(1, I.ERRORS).flags() & flags            # B has no bars, no tangent
+    assert not table.item(1, I.TANGENT).flags() & flags
+    table.item(0, I.SHOWN).setCheckState(QtCore.Qt.CheckState.Unchecked)
+    assert not board.get(a).visible and [n for _c, n, _f in window._board_legend] == ["B"]
+    table.item(0, I.SHOWN).setCheckState(QtCore.Qt.CheckState.Checked)
+    table.item(0, I.ERRORS).setCheckState(QtCore.Qt.CheckState.Unchecked)
+    table.item(0, I.TANGENT).setCheckState(QtCore.Qt.CheckState.Unchecked)
+    assert not board.get(a).show_errors and not board.get(a).show_tangent
+    table.item(1, I.NAME).setText("mine")                         # an edit committed
+    assert board.get(b).name == "mine" and board.get(b).full_name == "B · a long provenance name"
+    assert window._dh_legend_names()[-1] == "mine"
+    monkeypatch.setattr(QtWidgets.QColorDialog, "getColor", lambda *a, **k: QtGui.QColor("#102030"))
+    table.cellClicked.emit(0, I.COLOUR)
+    assert board.get(a).colour == "#102030"
+    qtbot.waitUntil(lambda: table.item(0, I.COLOUR).background().color().name() == "#102030")
+    table.cellWidget(1, 5).click()                                # B up
+    assert [e.key for e in board.entries()] == [b, a]
+    table = _rows(window, qtbot)
+    qtbot.waitUntil(lambda: table.item(0, I.NAME).text() == "mine")
+    table.cellWidget(0, 6).click()                                # and down again
+    assert [e.key for e in board.entries()] == [a, b]
+    qtbot.waitUntil(lambda: table.item(0, I.NAME).text() == "A")
+    table.cellWidget(0, 7).click()                                # remove A
+    assert [e.key for e in board.entries()] == [b]
+    assert _rows(window, qtbot).rowCount() == 1
+
+
+def test_a_name_edit_commits_on_enter_and_reverts_on_escape(qtbot, host):
+    from PySide6 import QtCore
+
+    window = _fitter(qtbot, host, *_pair())
+    window.show()
+    qtbot.waitExposed(window)
+    key = host.spectra_board.add(_entry("A"))
+    table = _rows(window, qtbot)
+    item = table.item(0, window.inspector.NAME)
+
+    def edit(text, key_):
+        table.editItem(item)
+        [editor] = [e for e in table.viewport().findChildren(QtWidgets.QLineEdit) if e.isVisible()]
+        editor.setText(text)
+        qtbot.keyClick(editor, key_)
+        qtbot.wait(10)                                            # the closed editor goes
+
+    edit("dropped", QtCore.Qt.Key.Key_Escape)
+    assert host.spectra_board.get(key).name == "A"
+    edit("kept", QtCore.Qt.Key.Key_Return)
+    assert host.spectra_board.get(key).name == "kept"
+
+
 def test_the_main_window_owns_the_board_and_names_a_send_on_its_status_line(qtbot, window):
     main = window
     assert isinstance(main.spectra_board, SpectraBoardModel)

@@ -11,12 +11,12 @@ finds it through its parents (:func:`board_of`). A sender builds a
 from __future__ import annotations
 
 import numpy as np
-from PySide6 import QtCore
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
-__all__ = ["BOARD_HUES", "SpectraBoardModel", "board_of", "from_fit", "generalized_entry", "say", "send",
-           "tool_identity"]
+__all__ = ["BOARD_HUES", "SpectraBoardInspector", "SpectraBoardModel", "board_of", "from_fit",
+           "generalized_entry", "say", "send", "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
 #: Theme-Rule carve-out the partition fitter's source hues document, as numeric RGB.
@@ -201,3 +201,102 @@ def send(window, spectrum: "SentSpectrum | None", nothing: str = "nothing to sen
         return False
     board.add(spectrum)
     return True
+
+
+class SpectraBoardInspector(QtWidgets.QWidget):
+    """The board's inspector, one row per entry in board order: shown, its colour (a click opens
+    the colour dialog), its display name (a double click edits it, Enter commits, Esc reverts,
+    an empty name restores the full name), its error bars and its tangent where it has them,
+    Up, Down and Remove. Every cell's tooltip is the full name. The owner sets ``board`` and
+    calls :meth:`refresh` when the board changes; the rows are rebuilt on the event loop's next
+    turn, so an edit or a button that changed the board never has its own cell replaced while
+    its signal is being delivered."""
+
+    SHOWN, COLOUR, NAME, ERRORS, TANGENT = range(5)
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.board: "SpectraBoardModel | None" = None
+        self.table = QtWidgets.QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(["shown", "", "name", "bars", "tangent", "", "", ""])
+        self.table.verticalHeader().hide()
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked
+                                   | QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(self.NAME, QtWidgets.QHeaderView.ResizeMode.Stretch)
+        self.table.itemChanged.connect(self._on_item_changed)
+        self.table.cellClicked.connect(self._on_cell_clicked)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.table)
+        self._keys: list = []
+        self._rebuild_timer = QtCore.QTimer(self)
+        self._rebuild_timer.setSingleShot(True)
+        self._rebuild_timer.setInterval(0)
+        self._rebuild_timer.timeout.connect(self._rebuild)
+
+    def _key(self, row: int) -> str:
+        return self._keys[row]
+
+    @staticmethod
+    def _check(on: bool, enabled: bool = True) -> QtWidgets.QTableWidgetItem:
+        item = QtWidgets.QTableWidgetItem()
+        flags = QtCore.Qt.ItemFlag.ItemIsUserCheckable
+        if enabled:
+            flags |= QtCore.Qt.ItemFlag.ItemIsEnabled
+        item.setFlags(flags)
+        item.setCheckState(QtCore.Qt.CheckState.Checked if on and enabled else QtCore.Qt.CheckState.Unchecked)
+        return item
+
+    def refresh(self) -> None:
+        self._rebuild_timer.start()
+
+    def _rebuild(self) -> None:
+        entries = self.board.entries() if self.board is not None else []
+        self.table.blockSignals(True)
+        self._keys = [e.key for e in entries]
+        self.table.setRowCount(len(entries))
+        for row, e in enumerate(entries):
+            swatch = QtWidgets.QTableWidgetItem()
+            swatch.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled)
+            swatch.setBackground(QtGui.QColor(e.colour))
+            name = QtWidgets.QTableWidgetItem(e.name)
+            name.setFlags(QtCore.Qt.ItemFlag.ItemIsEnabled | QtCore.Qt.ItemFlag.ItemIsEditable)
+            items = (self._check(e.visible), swatch, name, self._check(e.show_errors, e.has_errors),
+                     self._check(e.show_tangent, e.tangent is not None))
+            for col, item in enumerate(items):
+                item.setToolTip(e.full_name)
+                self.table.setItem(row, col, item)
+            for col, (text, tip, step) in enumerate((("↑", "Up", -1), ("↓", "Down", 1), ("×", "Remove", 0)), 5):
+                button = QtWidgets.QToolButton()
+                button.setText(text)
+                button.setToolTip(tip)
+                board, key = self.board, e.key
+                button.clicked.connect(lambda _c=False, board=board, key=key, step=step:
+                                       board.move(key, step) if step else board.remove(key))
+                self.table.setCellWidget(row, col, button)
+        self.table.blockSignals(False)
+        rows = sum(self.table.rowHeight(r) for r in range(min(len(entries), 5)))
+        self.table.setFixedHeight(self.table.horizontalHeader().height() + rows + 2 * self.table.frameWidth())
+
+    def _on_item_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
+        key, col = self._key(item.row()), item.column()
+        checked = item.checkState() == QtCore.Qt.CheckState.Checked
+        if col == self.NAME:
+            self.board.rename(key, item.text())
+        elif col == self.SHOWN:
+            self.board.set_visible(key, checked)
+        elif col == self.ERRORS:
+            self.board.set_show_errors(key, checked)
+        elif col == self.TANGENT:
+            self.board.set_show_tangent(key, checked)
+
+    def _on_cell_clicked(self, row: int, col: int) -> None:
+        if col != self.COLOUR:
+            return
+        entry = self.board.get(self._key(row))
+        colour = QtWidgets.QColorDialog.getColor(QtGui.QColor(entry.colour), self, f"Colour of {entry.name}")
+        if colour.isValid():
+            self.board.set_colour(entry.key, colour.name())

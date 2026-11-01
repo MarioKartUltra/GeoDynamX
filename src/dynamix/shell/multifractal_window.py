@@ -513,6 +513,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
+        from dynamix.shell.spectra_board import SpectraBoardInspector
+
+        #: The D(h) comparison's entries, editable; shown while the board holds any.
+        self.inspector = SpectraBoardInspector(self)
+        self.inspector.setVisible(False)
+        layout.addWidget(self.inspector)
         #: The fit window in log₂ a and, through ``physical_of_log2a``, in physical length.
         self.range_label = QtWidgets.QLabel("")
         self.range_label.setProperty("reading", "true")
@@ -887,7 +893,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         if board is None:
             return
         self._detach_board()
-        self.spectra_board = board
+        self.spectra_board = self.inspector.board = board
         board.boardChanged.connect(self._draw_board)
         self._board_connected = True
         self._draw_board()
@@ -951,6 +957,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             self._board_legend.append((curve, entry.name, entry.full_name))
         self._update_board_tangents()
         self._sync_dh_legend()
+        self.inspector.setVisible(self._board_connected and len(self.spectra_board) > 0)
+        self.inspector.refresh()
 
     def _update_board_tangents(self) -> None:
         """The carried tangents across the D(h) view, as the fit's own is drawn."""
