@@ -495,6 +495,41 @@ def test_the_family_panels_can_read_log2_of_the_physical_length_on_the_bottom_ax
     window.refresh_physical_axes()                                   # a units change re-reads
 
 
+def test_the_fitter_is_a_producer_with_a_send_row_and_no_comparison_panel(qtbot):
+    """The fitter sends (its fit with or without the tangent, its histogram and box-counting
+    constructions, the landed results) and holds no D(h) comparison: an entry on the board draws
+    nothing on its D(h) and there is no board inspector; the comparison is the construction
+    window's."""
+    import pyqtgraph as pg
+    from PySide6 import QtWidgets
+
+    from dynamix.model.spectra_board import SentSpectrum
+    from dynamix.shell.spectra_board import SpectraBoardModel
+
+    host = QtWidgets.QWidget()
+    qtbot.addWidget(host)
+    host.spectra_board = SpectraBoardModel(host)
+    window = MultifractalWindow(*_pair(), parent=host)
+    qtbot.addWidget(window)
+    d_plot = window._spectrum_plots["D"]
+
+    def drawn():
+        return [i for i in d_plot.listDataItems() if isinstance(i, pg.PlotDataItem) and i.isVisible()
+                and i.xData is not None and len(i.xData)]
+
+    before = drawn()
+    h = np.linspace(0.1, 0.9, 9)
+    host.spectra_board.add(SentSpectrum(name="A", full_name="A", kind="histogram", h=h, D=2.0 - h))
+    assert window.send_primary() and len(host.spectra_board) == 2
+    assert drawn() == before
+    assert not any(isinstance(w, QtWidgets.QTableWidget) for w in window.findChildren(QtWidgets.QWidget))
+    assert window.send_button.text() == "Send to D(h) comparison"
+    assert window.send_hist_button.text() == window.send_box_button.text() == "Send"
+    assert window.send_landed_button.text() == "Send landed results…"
+    assert window.with_tangent_check.text() == "with tangent"
+    assert [window.tangent_combo.itemText(i) for i in range(3)] == ["off", "at the kink", "at the dragged q"]
+
+
 def test_other_methods_are_sent_from_the_landed_list_and_the_show_menu_toggles_the_primary(qtbot):
     """Another layer's landed tables draw nothing until sent: "Send landed results…" fits them
     under the primary's window and fit mode and sends the spectrum to the board, a histogram

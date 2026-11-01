@@ -2,7 +2,8 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The main window's fitting tools over a result's sample sets: the two buttons follow the
 Samples contract, each click opens that tool on the active result, every tool's fit is kept by
-name and handed to the construction window, where the methods are compared."""
+name, and a fit sent to the D(h) comparison is drawn in the construction window, where the methods
+are compared."""
 from __future__ import annotations
 
 import numpy as np
@@ -63,7 +64,7 @@ def test_the_large_deviations_tool_opens_on_the_wtmm_s_maxima_too(win, qtbot):
     assert list(win._published_fits) == ["layer · maxima lines, log-cumulants", fit["name"]]
 
 
-def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_construction_window(win, qtbot):
+def test_each_click_opens_the_tool_on_the_active_result_and_a_sent_fit_reaches_the_construction_window(win, qtbot):
     win._active_result = _leaders_result()
     win._refresh_samples_buttons()
     win._refresh_dh_button()
@@ -85,14 +86,23 @@ def test_each_click_opens_the_tool_on_the_active_result_and_its_fit_reaches_the_
     assert list(win._published_fits) == [sf_name, lc_name, wse_name]
     sf.set_combo.setCurrentText("leaders")                                   # the same name: the latest wins
     assert list(win._published_fits) == [sf_name, lc_name, wse_name]
-    win._on_dh_button_clicked()                                              # the construction window opens with them
+    win._on_dh_button_clicked()                                              # nothing arrives by itself
     cw = win._spectrum_construction_window
     qtbot.addWidget(cw)
-    assert set(cw._fit_items) == set(win._published_fits)
     cw.show()
-    lc.set_combo.setCurrentText("WSE leaders")                               # a live window follows a new fit
+    assert cw._fit_items == {} and cw._board_legend == [] and not cw.show_button.isVisibleTo(cw)
+    lc.send_button.click()                                                   # a sent fit is drawn
+    assert [full for _c, _n, full in cw._board_legend] == [lc_name]
+    lc.set_combo.setCurrentText("WSE leaders")                               # a new fit stays in its tool
+    assert [full for _c, _n, full in cw._board_legend] == [lc_name]
+    lc.send_button.click()                                                   # until it is sent too
     new_name = "layer · DWT sym4 · WSE leaders, log-cumulants"
-    np.testing.assert_allclose(cw._fit_items[new_name]["tau"].getData()[1], lc.current_fit()["tau"])
+    assert [full for _c, _n, full in cw._board_legend] == [lc_name, new_name]
+    np.testing.assert_allclose(win.spectra_board.entries()[-1].tau, lc.current_fit()["tau"])
+    win._on_dh_button_clicked()                                              # opened again: the board as it stands
+    fresh = win._spectrum_construction_window
+    qtbot.addWidget(fresh)
+    assert fresh._fit_items == {} and [full for _c, _n, full in fresh._board_legend] == [lc_name, new_name]
     win._on_structure_button_clicked()                                       # a fresh window replaces the old
     assert win._structure_window is not sf
 
@@ -195,9 +205,9 @@ def test_replaced_fitting_widgets_are_released(win, opener, attr):
     assert gone() is None                    # nothing outside the window holds its Python side
 
 
-def test_an_adaptive_large_deviation_fit_reaches_an_open_construction_window(win, qtbot):
-    """The adaptive route publishes its tilts q beside h and D, and no τ: the construction window
-    draws its D(h) and leaves the τ(q) panels to the methods that have one."""
+def test_a_sent_adaptive_large_deviation_fit_reaches_an_open_construction_window(win, qtbot):
+    """The adaptive route publishes its tilts q beside h and D, and no τ: sent, the construction
+    window draws its D(h) and leaves the τ(q) panel to the methods that have one."""
     from test_multifractal_window import _pair
     from test_samples import _chains
 
@@ -213,9 +223,12 @@ def test_an_adaptive_large_deviation_fit_reaches_an_open_construction_window(win
     qtbot.addWidget(win._ld_window)
     fit = win._ld_window.current_fit()
     assert fit.get("q") is not None and "tau" not in fit
-    items = cw._fit_items[fit["name"]]
-    np.testing.assert_allclose(items["D"].getData()[1], fit["D"])
-    assert items["tau"].getData()[0] is None
+    assert cw._fit_items == {} and cw._board_legend == []                    # published, not sent
+    win._ld_window.send_button.click()
+    [(curve, _name, full)] = cw._board_legend
+    assert full == fit["name"]
+    np.testing.assert_allclose(curve.getData()[1], fit["D"])
+    assert not [i for p, i in cw._board_items if p is cw.method_plots["tau"]]
 
 
 def test_the_histogram_windows_count_only_the_full_chain_cells_of_a_leaders_h_map(win, qtbot):

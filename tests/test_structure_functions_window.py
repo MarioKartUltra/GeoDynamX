@@ -227,39 +227,47 @@ def _landed_tools(qtbot):
 
 def test_a_gamma_sweep_replaces_the_one_published_fit_and_keeps_the_table_cache_small(qtbot, clean_registry):
     """A hundred values of γ, then δ and the q grid, leave one fit under the set's name in the
-    main window and one curve set in the construction, its legend reading the live γ and δ; the
-    table cache keeps the latest few tables, and the published τ is the fit of a fresh
-    generalized table at the last γ."""
+    main window and nothing in the construction until it is sent; the table cache keeps the
+    latest few tables, and the published τ is the fit of a fresh generalized table at the last
+    γ. Sent, the construction draws it under the label naming the live γ and δ."""
     win, sf, cw = _landed_tools(qtbot)
     name = "layer · DWT sym4 · leaders, WLSF"
     for gamma in np.arange(1, 101) * 0.05:
         sf.gamma_spin.setValue(gamma)
-        assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and list(cw._fit_items) == [name]
+        assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and cw._fit_items == {}
     assert sf.gamma_spin.value() == 5.0
     fresh = leaders.generalized_table(_samples(), "leaders", sf._q_list(), 5.0, 0.0, length_px=64.0)
     expect = leaders.structure_fit(fresh, 2.0, 5.0, d=2)
     np.testing.assert_allclose(win._published_fits[name]["tau"], expect["tau"], equal_nan=True)
-    np.testing.assert_allclose(cw._fit_items[name]["tau"].getData()[1], expect["tau"], equal_nan=True)
+    sf.send_button.click()
+    [entry] = win.spectra_board.entries()
+    np.testing.assert_allclose(entry.tau, expect["tau"], equal_nan=True)
     legend = [text for _item, text in cw._in_legend["order"]]
     assert f"{name}, γ = 5 δ = 0" in legend and not any("γ = 4.95" in text for text in legend)
     sf.delta_spin.setValue(0.5)
     sf.qstep_spin.setValue(1.0)
-    assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and list(cw._fit_items) == [name]
+    assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and cw._fit_items == {}
     assert list(win._published_fits[name]["q"]) == list(np.arange(-3.0, 6.01, 1.0))
+    sf.send_button.click()                                       # a new γ, δ: a second entry
     assert f"{name}, γ = 5 δ = 0.5" in [text for _item, text in cw._in_legend["order"]]
 
 
 def test_another_set_publishes_its_own_fit_beside_the_first(qtbot, clean_registry):
     """A set is part of the fit's identity: switching the set publishes a second fit beside the
-    first, the construction draws both, and a γ change on the new set leaves the first as it was."""
+    first, both sent are drawn in the construction, and a γ change on the new set leaves the first
+    as it was sent."""
     win, sf, cw = _landed_tools(qtbot)
     first = "layer · DWT sym4 · leaders, WLSF"
     tau = np.array(win._published_fits[first]["tau"])
+    sf.send_button.click()
     sf.set_combo.setCurrentText("p-leaders")
     second = "layer · DWT sym4 · p-leaders, p-leader structure functions"
     sf.gamma_spin.setValue(1.0)
-    assert list(win._published_fits) == [first, second] and set(cw._fit_items) == {first, second}
-    np.testing.assert_allclose(cw._fit_items[first]["tau"].getData()[1], tau, equal_nan=True)
+    sf.send_button.click()
+    assert list(win._published_fits) == [first, second] and cw._fit_items == {}
+    one, two = win.spectra_board.entries()
+    assert len(cw._board_legend) == 2 and two.identity["table"] != one.identity["table"]
+    np.testing.assert_allclose(one.tau, tau, equal_nan=True)
     assert win._published_fits[second]["generalized"] == {"gamma": 1.0, "delta": 0.0}
 
 

@@ -236,14 +236,28 @@ def test_the_record_says_what_the_colours_stand_for(qtbot, window, tmp_path, mon
     assert display["limits"] == [float(v) for v in canvas.image_item.getLevels()]
 
 
-def test_a_figure_from_the_partition_fitter_lists_the_spectra_drawn_with_their_identities(
-        qtbot, window, tmp_path, monkeypatch):
-    """The fitter's Export figure… renders its plots and the record names its own fit and every
-    spectrum it draws from the D(h) comparison: the display and full names, the kind, the
-    identity, the scale window, the fit mode, the table, whether its bars were drawn and the
-    tangent drawn with it; a hidden entry is not drawn and not listed."""
-    from dynamix.model.spectra_board import SentSpectrum
+def _export_window(window, monkeypatch, chosen) -> tuple:
+    """A spectrum window's Export figure… with the save dialog answering ``chosen`` and the
+    options their defaults (2x): the PNG's path in its bundle and the name the dialog offered."""
     from dynamix.shell.figure_export import FigureExportDialog
+
+    offered = []
+
+    def save(*args, **_kw):
+        offered.append(args[2])
+        return str(chosen), ""
+
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", save)
+    monkeypatch.setattr(FigureExportDialog, "exec", lambda dialog: 1)
+    QtWidgets.QApplication.processEvents()                     # the inspector's rows settle
+    window.export_button.click()
+    return chosen.parent / chosen.stem / chosen.name, pathlib.Path(offered[0]).name
+
+
+def test_a_figure_from_the_partition_fitter_records_its_own_fit_only(qtbot, window, tmp_path, monkeypatch):
+    """The fitter's Export figure… renders its plots and the record names its own fit: the name,
+    kind, scale window, fit mode, table, settings and the tangent drawn; it draws no D(h)
+    comparison, so its record lists no spectra even while the board holds some."""
     from dynamix.shell.multifractal_window import MultifractalWindow
     from tests.test_multifractal_window import _broken_pair
 
@@ -252,6 +266,38 @@ def test_a_figure_from_the_partition_fitter_lists_the_spectra_drawn_with_their_i
     qtbot.addWidget(fitter)
     fitter.show()
     qtbot.waitExposed(fitter)
+    fitter._table_combo.setCurrentText("sup (cmax)")
+    fitter._region.setRegion((1.0, 6.0))
+    fitter.send_primary()
+    assert len(w.spectra_board) == 1
+    png, offered = _export_window(fitter, monkeypatch, tmp_path / "fit.png")
+    assert offered == f"{w.layer.name}_partition_functions.png"
+    image = QtGui.QImage(str(png))
+    assert (image.width(), image.height()) == (2 * fitter._glw.width(), 2 * fitter._glw.height())
+    figure = _record(png)
+    assert figure["view"] == "partition functions" and figure["view_range"]["units"] == "h, D(h)"
+    assert figure["fit"]["name"] == "canonical (Arneodo WTMM) · sup (cmax)"
+    assert figure["fit"]["scale_window"] == [1.0, 6.0] and figure["fit"]["table"] == "cmax"
+    assert figure["fit"]["tangent"]["q_c"] == pytest.approx(fitter._tangent_now()["q_c"])
+    assert "spectra" not in figure
+    assert "gprv.check: valid" in w._status_message
+
+
+def test_a_figure_from_the_construction_window_lists_the_spectra_drawn_with_their_identities(
+        qtbot, window, tmp_path, monkeypatch):
+    """The construction window's Export figure… renders its plots and the record names its own
+    canonical fit with its bars and every spectrum it draws from the D(h) comparison: the display
+    and full names, the kind, the identity, the scale window, the fit mode, the table, whether
+    its bars were drawn and the tangent drawn with it; a hidden entry is not drawn and not
+    listed."""
+    from dynamix.model.spectra_board import SentSpectrum
+    from dynamix.shell.multifractal_window import MultifractalWindow
+    from dynamix.shell.spectrum_window import SpectrumWindow
+    from tests.test_multifractal_window import _broken_pair
+
+    w = _signed(qtbot, window)
+    fitter = MultifractalWindow(*_broken_pair(), parent=w)
+    qtbot.addWidget(fitter)
     fitter._table_combo.setCurrentText("sup (cmax)")
     fitter.with_tangent_check.setChecked(True)
     fitter.send_primary()
@@ -264,18 +310,19 @@ def test_a_figure_from_the_partition_fitter_lists_the_spectra_drawn_with_their_i
     board.set_show_errors(second.key, False)
     hidden = board.add(SentSpectrum(name="hidden", full_name="hidden", kind="histogram", h=first.h, D=first.D))
     board.set_visible(hidden, False)
-    chosen = tmp_path / "fit.png"
-    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **k: (str(chosen), ""))
-    monkeypatch.setattr(FigureExportDialog, "exec", lambda dialog: 1)
-    QtWidgets.QApplication.processEvents()                     # the inspector's rows settle
-    fitter.export_button.click()
-    png = chosen.parent / chosen.stem / chosen.name
+    construction = SpectrumWindow(*_broken_pair(), parent=w)
+    qtbot.addWidget(construction)
+    construction.show()
+    qtbot.waitExposed(construction)
+    png, offered = _export_window(construction, monkeypatch, tmp_path / "dh.png")
+    assert offered == f"{w.layer.name}_dh_comparison.png"
     image = QtGui.QImage(str(png))
-    assert (image.width(), image.height()) == (2 * fitter._glw.width(), 2 * fitter._glw.height())
+    assert (image.width(), image.height()) == (2 * construction._glw.width(), 2 * construction._glw.height())
     figure = _record(png)
-    assert figure["view"] == "partition functions" and figure["view_range"]["units"] == "h, D(h)"
-    assert figure["fit"]["name"] == "canonical (Arneodo WTMM) · sup (cmax)"
-    assert figure["fit"]["scale_window"] == [1.0, 6.0] and figure["fit"]["table"] == "cmax"
+    assert figure["view"] == "D(h) construction" and figure["view_range"]["units"] == "h, D(h)"
+    fit = figure["fit"]
+    assert fit["name"] == "canonical (Arneodo direct)" and fit["kind"] == "canonical" and fit["errors"] is True
+    assert fit["table"] == "std" and fit["fit_mode"] == "naive"
     a, b = figure["spectra"]                                   # the hidden entry is not drawn
     assert (a["name"], a["full_name"]) == ("cmax, full window", first.full_name)
     assert a["kind"] == "canonical" and a["table"] == "cmax" and a["fit_mode"] == "naive"

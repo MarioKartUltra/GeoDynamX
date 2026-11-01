@@ -202,13 +202,14 @@ _DEPENDS_ON = {
     # The interactive multifractal-spectrum window -- imports ``theme``
     # for its background/inks (the ``canvas.py`` precedent) plus ``dynamix.core.spectra``; no
     # other ``dynamix.shell.*`` module.
-    # The D(h) comparison board, its send path and its inspector: no other dynamix.shell module.
+    # The D(h) comparison board, its send path, its drawing on a D(h) panel and its inspector: no
+    # other dynamix.shell module.
     "spectra_board": (),
     "multifractal_window": ("plot_zoom", "theme", "shared_range", "window_fit", "spectra_board", ),
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
-    # core.spectra/core.chain_groups/core.microcanonical.
-    "spectrum_window": ("theme", "multifractal_window", "window_fit", "gc_guard", ),
+    # core.spectra/core.chain_groups/core.microcanonical, and spectra_board (the D(h) comparison it draws).
+    "spectrum_window": ("theme", "multifractal_window", "window_fit", "gc_guard", "spectra_board", ),
     # The methods' own fitting tools -- theme, the fitter's shared plot helpers, window_fit, and
     # core/model modules outside the shell.
     "structure_functions_window": ("theme", "shared_range", "multifractal_window", "window_fit", "spectra_board", ),

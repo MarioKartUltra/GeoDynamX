@@ -37,11 +37,14 @@ at construction. The scale window can also be DRIVEN by an open MultifractalWind
 (``set_scale_window`` -- main_window connects the fitter's ``scaleWindowChanged``), the
 workbook's cell-49-inherits-cell-47 coupling.
 
-**The methods compared.** Under D(h), three panels, τ(q), h(q) and c(q): every fit a method's
-fitting tool publishes (the WTMM fitter's partition functions, the wavelet leaders' structure
-functions, their log-cumulant expansion) is drawn on all four panels in its own hue, named in the
-legend, so the spectra of different methods are read against each other here and fitted each in
-its own tool (``set_fits``).
+**The D(h) comparison.** Every spectrum sent to the D(h) comparison
+(:mod:`dynamix.shell.spectra_board`: each fitting window's Send to D(h) comparison, and this
+window's "Send landed results…" for the other layers' landed tables) draws on D(h) beside this
+window's own construction, its τ(q) on the τ panel, named in the legend by its display name with
+the full name as tooltip; the board's inspector sits under the panels while the board holds
+entries. Nothing arrives by itself: the comparison shows what was sent. Three panels, τ(q), h(q)
+and c(q), sit beside D(h); ``set_fits`` draws fits handed to it on all four panels in their own
+hues, with a Show menu and a Spectra… list while it holds any.
 
 **Lifecycle** is main_window's, the SkeletonDialog pattern: fresh window per click, previous
 one closed first, parented to the main window.
@@ -55,9 +58,12 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core import chain_groups, spectra
+from dynamix.model.spectra_board import plain
 from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
                                                 WheelAxisViewBox, add_zero_lines)
+from dynamix.shell.spectra_board import (BoardComparison, ancestor_with, board_of, dh_view_range, kind_of_method,
+                                         send_landed)
 from dynamix.shell.theme import current
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
@@ -171,9 +177,9 @@ class SpectraInspector(QtWidgets.QWidget):
             action.setChecked(item.checkState() == QtCore.Qt.CheckState.Checked)
 
 
-class SpectrumWindow(QtWidgets.QDialog):
+class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
     """D(h) construction: canonical points, optional Legendre hull, microcanonical histogram,
-    and the dominant/non-dominant chain-group overlay."""
+    the dominant/non-dominant chain-group overlay, and the D(h) comparison."""
 
     #: The latest dominant/non-dominant membership (bool per chain), emitted on every change.
     groupingChanged = QtCore.Signal(object)
@@ -185,9 +191,14 @@ class SpectrumWindow(QtWidgets.QDialog):
                  log2_L: "float | None" = None, parent=None, all_tables=None,
                  filter_note: str = "", dh_curves=None, gh_field=None,
                  source: str = "canonical (Arneodo direct)", kind: str = "partition",
-                 per_scale: "dict | None" = None, tables: "dict | None" = None, fits=None):
+                 per_scale: "dict | None" = None, tables: "dict | None" = None, fits=None,
+                 sources=None):
         super().__init__(parent, TOOL_WINDOW)
         show_while_inactive(self)
+        #: Other layers' landed results, each a dict with ``name`` and ``hd_std``/``hd_cmax``
+        #: and/or ``dh_hist``: listed by "Send landed results…".
+        self._landed = [dict(s) for s in (sources or [])]
+        self._h_map_method = str(h_map_method or "")
         #: The published fits of the methods' fitting tools, by name; their items by name.
         self._fits: dict = {}
         self._fit_items: dict = {}
@@ -262,6 +273,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         self._build_ui(eta_seed, forward_note)
         self._recompute()
         self.set_fits(fits or [])
+        self.attach_board(board_of(self))
 
     # -- public -----------------------------------------------------------------------------
     def current_fit(self) -> dict | None:
@@ -321,6 +333,8 @@ class SpectrumWindow(QtWidgets.QDialog):
             items["hull"].setData(np.asarray(hull["h"]) if hull else [], np.asarray(hull["D"]) if hull else [])
             self._apply_shown(name, sync=False)
         self._fits = wanted
+        for button in (self.show_button, self.spectra_button):
+            button.setVisible(bool(wanted))
         self._sync_legend()
         self._refresh_spectra_inspector()
         if hasattr(self, "_chord"):
@@ -356,6 +370,54 @@ class SpectrumWindow(QtWidgets.QDialog):
             return
         self.spectra_inspector.refresh([(name, self._fit_label(name), action.isChecked(), self._fit_hues.get(name, "w"))
                                         for name, action in self._show_actions.items() if name in self._fits])
+
+    def fit_mode(self) -> str:
+        """The fit mode as :func:`dynamix.core.spectra.fit_spectra` names it."""
+        return {"naive": "naive", "fixed focus": "fixed_focus",
+                "focus": "focus"}[self._fitmode_combo.currentText()]
+
+    def _table_key(self) -> str:
+        """The table the construction reads: ``std`` or ``cmax``, or a named table's name."""
+        text = self._table_combo.currentText()
+        return {"no-sup (std)": "std", "sup (cmax)": "cmax"}.get(text, text)
+
+    def _fit_settings(self) -> dict:
+        return {"eta": float(self._eta_spin.value()), "frame": self._frame_combo.currentText(),
+                "all_chains": bool(self.all_chains_check is not None and self.all_chains_check.isChecked())}
+
+    def send_landed_results(self, names=None) -> int:
+        """Send the other layers' landed results named in ``names`` (asked in a list when None),
+        fitted under this window's scale window, fit mode, η, frame and table. Returns how many
+        spectra were sent."""
+        lo, hi = self._scale_window()
+        return send_landed(self, self._landed, names, lo=lo, hi=hi, mode=self.fit_mode(),
+                           eta=float(self._eta_spin.value()), frame=self._frame_combo.currentText(),
+                           log2_L=self._log2_L, table=self._table_key(), settings=self._fit_settings())
+
+    def _export_figure(self) -> None:
+        main = ancestor_with(self.parentWidget(), "_export_comparison_figure")
+        if main is not None:
+            main._export_comparison_figure(self, "dh_comparison")
+
+    def drawn_fit(self) -> "dict | None":
+        """The construction's canonical points as a figure record names them: the name and kind,
+        the scale window, the fit mode, the table, the settings, its error bars and the tangent
+        drawn on D(h); None for a histogram-only window."""
+        if self._fit is None:
+            return None
+        got = self._phase_tangent()
+        tangent = None if got is None else {"q_c": got["q_c"], "h_c": got["h_c"], "D_c": got["D_c"],
+                                            "slope": got["q_c"], "intercept": got["intercept"]}
+        return plain({"name": self._source, "kind": kind_of_method(self._h_map_method),
+                      "scale_window": list(self._scale_window()), "fit_mode": self.fit_mode(),
+                      "table": self._table_key(), "settings": self._fit_settings(), "errors": True,
+                      "tangent": tangent})
+
+    def figure_record(self) -> dict:
+        """What an exported figure of this window records: the D(h) range on show, the
+        construction's own canonical fit and every spectrum drawn from the D(h) comparison."""
+        return {"view": "D(h) construction", "view_range": dh_view_range(self._plot),
+                "fit": self.drawn_fit(), "spectra": self.drawn_spectra()}
 
     def current_grouping(self) -> "np.ndarray | None":
         """The latest dominant/non-dominant membership, or None without chains."""
@@ -486,6 +548,24 @@ class SpectrumWindow(QtWidgets.QDialog):
                                         "nonconcave point admits no supporting line")
         self._geometry_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self._geometry_check)
+        self.tangent_check = QtWidgets.QCheckBox("tangent at q_c")
+        self.tangent_check.setChecked(True)
+        self.tangent_check.setToolTip("The tangent to D(h) at the phase transition, at the convexity-loss q_c of "
+                                      "the negative branch; off, no tangent is drawn")
+        self.tangent_check.toggled.connect(lambda _c: self._update_tangent())
+        controls.addWidget(self.tangent_check)
+        self.send_landed_button = QtWidgets.QPushButton("Send landed results…")
+        self.send_landed_button.setToolTip("Fit the other layers' landed results under this window's scale "
+                                           "window, fit mode, η and frame, and send the chosen ones to the "
+                                           "D(h) comparison")
+        self.send_landed_button.setEnabled(bool(self._landed))
+        self.send_landed_button.clicked.connect(lambda _c=False: self.send_landed_results())
+        controls.addWidget(self.send_landed_button)
+        self.export_button = QtWidgets.QPushButton("Export figure…")
+        self.export_button.setToolTip("These plots as a PNG, with a record naming the construction and every "
+                                      "spectrum drawn from the D(h) comparison")
+        self.export_button.clicked.connect(lambda _c=False: self._export_figure())
+        controls.addWidget(self.export_button)
         # Show: each published spectrum on or off, on every panel.
         self.show_button = QtWidgets.QToolButton()
         self.show_button.setText("Show")
@@ -681,6 +761,7 @@ class SpectrumWindow(QtWidgets.QDialog):
             # ends would make it span a larger view, without end.
             self._plot.addItem(item, ignoreBounds=True)
         self._plot.getViewBox().sigXRangeChanged.connect(lambda *_a: self._update_tangent())
+        layout.addWidget(self._build_board(self._plot, self.method_plots["tau"]))
         # The window's own fit on the method panels, in the ink, under the published ones.
         self._own_items = {k: pg.PlotDataItem(pen=pg.mkPen(current().ink, width=1.6), connect="finite")
                            for k in ("tau", "h", "cq")}
@@ -823,18 +904,28 @@ class SpectrumWindow(QtWidgets.QDialog):
         return item.isVisible() and x is not None and len(x) > 0
 
     def _sync_legend(self) -> None:
-        """The legend lists exactly the items that are drawn, under their current names."""
+        """The legend lists exactly the items that are drawn, under their current names, then
+        every spectrum drawn from the D(h) comparison by its display name, its full name the
+        tooltip."""
         if not hasattr(self, "_legend"):
             return
         entries = list(self._legend_entries) + [
             (curve, lambda r=r_rel: f"histogram at r = {r:.3g} L")
             for curve, (r_rel, _h, _D) in zip(self._scale_curves, self._dh_curves)]
         wanted = [(item, name_of()) for item, name_of in entries if self._drawn(item)]
+        wanted += [(curve, name) for curve, name, _full in self._board_legend if self._drawn(curve)]
         if wanted != self._in_legend.get("order"):
+            tips = {curve: full for curve, _name, full in self._board_legend}
             self._legend.clear()
             for item, name in wanted:
                 self._legend.addItem(item, name)
+                if item in tips:
+                    self._legend.items[-1][1].setToolTip(tips[item])
             self._in_legend = {"order": wanted}
+
+    def _on_board_drawn(self) -> None:
+        self._sync_legend()
+        self._update_kink_geometry()
 
     def _on_boxcount_toggled(self, checked: bool) -> None:
         if not checked:
@@ -894,8 +985,7 @@ class SpectrumWindow(QtWidgets.QDialog):
         hd = self._current_hd()
         if hd is not None:
             lo, hi = float(self._lo_spin.value()), float(self._hi_spin.value())
-            mode = {"naive": "naive", "fixed focus": "fixed_focus",
-                    "focus": "focus"}[self._fitmode_combo.currentText()]
+            mode = self.fit_mode()
             self._fit = spectra.fit_spectra(
                 hd, lo, hi, eta=self._eta_spin.value(), frame=self._frame_combo.currentText(),
                 fit_mode=mode, log2_L=self._log2_L if mode != "naive" else None)
@@ -1057,22 +1147,28 @@ class SpectrumWindow(QtWidgets.QDialog):
             self._chord.setData(ends, np.interp(ends, hull["h"], hull["D"]))
         else:
             self._chord.setVisible(False)
-        for f in self._fits.values():
-            if f.get("kind") == "generalized spectrum" and f.get("h") is not None and f.get("D") is not None:
-                left = spectra.envelope_departure(hull["h"], hull["D"], f["h"], f["D"])
-                if left is not None:
-                    text += f" · the generalized spectrum leaves D** on ({left[0]:.2f}, {left[1]:.2f})"
-                break
+        generalized = [(f["h"], f["D"]) for f in self._fits.values()
+                       if f.get("kind") == "generalized spectrum" and f.get("h") is not None and f.get("D") is not None]
+        generalized += [(e.h, e.D) for e in self._board_drawn if e.kind == "generalized"]
+        if generalized:
+            left = spectra.envelope_departure(hull["h"], hull["D"], *generalized[0])
+            if left is not None:
+                text += f" · the generalized spectrum leaves D** on ({left[0]:.2f}, {left[1]:.2f})"
         self._kink_label.setText(text)
         self._kink_label.setPos(got["q_c"], got["tau_c"])
 
-    def _update_tangent(self) -> None:
-        """The tangent at the phase transition off the current fit, drawn across the view."""
+    def _phase_tangent(self) -> "dict | None":
+        """The tangent at the phase transition off the current fit while the tangent is on."""
         fit = getattr(self, "_fit", None)
+        if fit is None or not self.tangent_check.isChecked():
+            return None
+        return spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+
+    def _update_tangent(self) -> None:
+        """The tangent at the phase transition off the current fit, drawn across the view;
+        hidden while the tangent is off."""
         items = (self._tangent_line, self._tangent_marker, self._tangent_label)
-        got = None
-        if fit is not None:
-            got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+        got = self._phase_tangent()
         for item in items:
             item.setVisible(got is not None)
         if got is None:

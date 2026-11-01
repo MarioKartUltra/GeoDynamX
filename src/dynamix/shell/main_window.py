@@ -3486,8 +3486,8 @@ both ``Canvas`` signals report the
 
     def _spectrum_sources(self, result) -> list:
         """Every OTHER layer's landed result that carries partition tables or an h-map, named by
-        method and layer, with its device and tool identity: the list the fitter's "Send landed
-        results…" sends to the D(h) comparison from."""
+        method and layer, with its device and tool identity: the list the Partition functions and
+        the D(h) construction windows' "Send landed results…" sends to the D(h) comparison from."""
         from dynamix.core.microcanonical import dh_histogram_errors
 
         active = self.layer.layer_id if self.layer is not None else None
@@ -3994,8 +3994,8 @@ both ``Canvas`` signals report the
         self._notify(text, "status")
 
     def _on_fit_published(self, fit) -> None:
-        """A fitting window's fit, kept by name (the latest of each) and handed to an open
-        construction window, where the methods' spectra are compared."""
+        """A fitting window's fit, kept by name (the latest of each) under the layer it was
+        fitted on. The construction window draws only what is sent to the D(h) comparison."""
         if not fit:
             return
         if fit.get("valid") is False:
@@ -4003,9 +4003,6 @@ both ``Canvas`` signals report the
         else:
             fit["layer_id"] = self.layer.layer_id if self.layer is not None else None
             self._published_fits[fit["name"]] = fit
-        win = self._spectrum_construction_window
-        if win is not None and win.isVisible():
-            win.set_fits(list(self._published_fits.values()))
 
     def _forget_layer_tools(self, layer_id) -> None:
         """A layer landed anew or went: the fits its tools published under the previous result
@@ -4022,9 +4019,6 @@ both ``Canvas`` signals report the
                     window.close()
                     window.deleteLater()
                     setattr(self, attr, None)
-        win = self._spectrum_construction_window
-        if stale and win is not None and win.isVisible():
-            win.set_fits(list(self._published_fits.values()))
 
     def _on_dh_button_clicked(self) -> None:
         """"D(h) construction…" clicked -- a fresh :class:`SpectrumWindow` on the active
@@ -4041,8 +4035,6 @@ both ``Canvas`` signals report the
         chains = result.get("chains") or None
         scales = result.get("scales") if chains else None
         if self._reopen_tool("_spectrum_construction_window", result):
-            # Fits published while it was closed reach it now.
-            self._spectrum_construction_window.set_fits(list(self._published_fits.values()))
             return
         if self._spectrum_construction_window is not None:
             self._spectrum_construction_window.close()
@@ -4067,7 +4059,7 @@ both ``Canvas`` signals report the
             dh_curves=result.get("dh_curves"), gh_field=gh_field,
             source=self._tables_source(result, "canonical (Arneodo direct)"),
             kind=result.get("hd_kind", "partition"), per_scale=sample_sets(result),
-            fits=list(self._published_fits.values()))
+            sources=self._spectrum_sources(result))
         window._opened_on = self._tool_identity(result)
         self._spectrum_construction_window = window
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
@@ -7895,14 +7887,15 @@ both ``Canvas`` signals report the
         path.parent.mkdir(parents=True, exist_ok=True)
         self._notify(self._export_figure(path, dialog.scale(), dialog.placement()), "status")
 
-    def _export_comparison_figure(self, window) -> None:
-        """The partition fitter's Export figure…: its plots as a PNG at the scale factor the
-        options ask for, with its record beside it in the export's own folder."""
+    def _export_comparison_figure(self, window, stem: str) -> None:
+        """A spectrum window's Export figure… (the Partition functions or the D(h) construction
+        window): its plots as a PNG at the scale factor the options ask for, named
+        ``<layer>_<stem>.png`` by default, with its record beside it in the export's own folder."""
         from dynamix.shell.figure_export import FigureExportDialog
 
-        name = self.layer.name if self.layer is not None else "partition"
+        name = self.layer.name if self.layer is not None else "spectra"
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            window, "Export figure", start_path(f"{name}_dh_comparison.png"), "PNG image (*.png)")
+            window, "Export figure", start_path(f"{name}_{stem}.png"), "PNG image (*.png)")
         if not path:
             return
         dialog = FigureExportDialog(parent=window)
@@ -7914,19 +7907,18 @@ both ``Canvas`` signals report the
 
     def _export_figure(self, path, scale: int = 2, placement: str = "over", window=None) -> str:
         """Render the view on screen into the PNG ``path``, ``scale`` times its size
-        (:mod:`dynamix.shell.figure_export`): the partition fitter ``window``'s plots when one is
-        given, else the Map view's plot with its bars while the Map is shown, else the Raster
+        (:mod:`dynamix.shell.figure_export`): a spectrum ``window``'s plots when one is given,
+        else the Map view's plot with its bars while the Map is shown, else the Raster
         canvas with its labels and bars, the colour bar per ``placement``. The record's print
         step names the view: its size, the range on show, the bars' labels, the colour bar, the
         mapping from values to colours that painted the picture (the Raster canvas's, or each Map
         row's), the overlays drawn and the theme, so a replay of the record's chain can paint
-        the same figure; for the fitter, its own fit and every spectrum drawn from the D(h)
-        comparison with its identity. Returns the status sentence, with the record's gprv
-        check."""
+        the same figure; for a spectrum window, what :meth:`_export_window_figure` records.
+        Returns the status sentence, with the record's gprv check."""
         from dynamix.shell.figure_export import render_canvas, render_widget
 
         if window is not None:
-            return self._export_fitter_figure(path, scale, window)
+            return self._export_window_figure(path, scale, window)
         raster = self._center_view != "map"
         if raster:
             widget, view = self.canvas, self.canvas.view
@@ -7965,11 +7957,13 @@ both ``Canvas`` signals report the
                   "theme": load_settings().theme}
         return self._figure_written(path, figure)
 
-    def _export_fitter_figure(self, path, scale: int, window) -> str:
-        """The partition fitter's plots as :meth:`_export_figure` renders a view; the record
-        names the D(h) range on show, the fitter's own fit and the spectra drawn from the D(h)
-        comparison (:meth:`MultifractalWindow.drawn_spectra`). A fitter opened on another layer
-        than the active one gets no record: the record describes the active layer's chain."""
+    def _export_window_figure(self, path, scale: int, window) -> str:
+        """A spectrum window's plots as :meth:`_export_figure` renders a view; the record is the
+        window's own (``figure_record``: the Partition functions window's names the D(h) range
+        and its fit, the D(h) construction window's names the D(h) range, its canonical fit and
+        every spectrum drawn from the D(h) comparison with its identity). A window opened on
+        another layer than the active one gets no record: the record describes the active
+        layer's chain."""
         from dynamix.shell.figure_export import render_widget
 
         image = render_widget(window._glw, scale)
@@ -7977,13 +7971,9 @@ both ``Canvas`` signals report the
             return f"figure not written: {path} could not be saved"
         opened = getattr(window, "_opened_on", None)
         if opened is not None and (self.layer is None or opened[0] != self.layer.layer_id):
-            return (f"figure exported — {path} · no provenance record: the fitter was opened on another "
+            return (f"figure exported — {path} · no provenance record: the window was opened on another "
                     "layer; select it and export again")
-        (x0, x1), (y0, y1) = window._spectrum_plots["D"].getViewBox().viewRange()
-        figure = {"view": "partition functions", "scale": int(scale),
-                  "size_px": [image.width(), image.height()],
-                  "view_range": {"x": [x0, x1], "y": [y0, y1], "units": "h, D(h)"},
-                  "fit": window.drawn_fit(), "spectra": window.drawn_spectra(),
+        figure = {**window.figure_record(), "scale": int(scale), "size_px": [image.width(), image.height()],
                   "theme": load_settings().theme}
         return self._figure_written(path, figure)
 

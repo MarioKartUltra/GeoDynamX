@@ -437,6 +437,42 @@ def test_the_methods_published_fits_are_drawn_on_the_four_panels_and_named(qtbot
     assert "L1 · leaders" not in [name for _item, name in window._in_legend["order"]]
 
 
+def test_a_published_fit_draws_nothing_here_and_the_construction_stays(qtbot, clean_registry):
+    """The construction window draws only what is sent to the D(h) comparison: a fit a tool
+    publishes is kept by the main window and never drawn here, whether the window was open or
+    opens after; the canonical points with their bars stay the primary, and the Show menu and the
+    Spectra… list, which only list fits handed to the window, are hidden."""
+    from dynamix.shell.main_window import MainWindow
+    from test_fitting_tools_shell import _leaders_result
+
+    win = MainWindow(steps=())
+    qtbot.addWidget(win)
+    std, cmax = _pair()
+    win._active_result = {**_leaders_result(), "hd_std": std, "hd_cmax": cmax}
+    win._on_dh_button_clicked()
+    cw = win._spectrum_construction_window
+    qtbot.addWidget(cw)
+    cw.show()
+    q = np.arange(-2.0, 4.01, 0.5)
+    win._on_fit_published({"name": "L1 · leaders", "q": q, "tau": 0.5 * q - 2, "h": np.full(q.size, 0.5),
+                           "D": np.full(q.size, 2.0), "cq": np.zeros(q.size)})
+    assert "L1 · leaders" in win._published_fits and cw._fit_items == {}
+    assert not cw.show_button.isVisibleTo(cw) and not cw.spectra_button.isVisibleTo(cw)
+    fit = cw.current_fit()
+    finite = np.isfinite(fit["h"]) & np.isfinite(fit["D"])
+    np.testing.assert_allclose(cw._canon_curve.getData()[1], fit["D"][finite])
+    np.testing.assert_allclose(cw._canon_err.opts["height"], 2.0 * np.nan_to_num(fit["D_err"][finite]))
+    names = _legend_names(cw._plot)
+    assert names[0] == "canonical (Arneodo direct)" and "L1 · leaders" not in names
+    win._on_dh_button_clicked()                                      # opened again: still nothing
+    again = win._spectrum_construction_window
+    qtbot.addWidget(again)
+    assert again._fit_items == {} and _legend_names(again._plot) == names
+    again.set_fits([{"name": "handed", "q": q, "tau": 0.5 * q - 2, "h": np.full(q.size, 0.5),
+                     "D": np.full(q.size, 2.0), "cq": np.zeros(q.size)}])
+    assert again.show_button.isVisibleTo(again) and again.spectra_button.isVisibleTo(again)
+
+
 def test_a_leaders_h_map_is_the_gmwlp_and_its_histogram_says_so(qtbot):
     """The eq-21 histogram of a leaders device's h-map is Cardo & Corvalán's GMWLP, Turiel's
     single-resolution density formula on extrapolated exponents: the label names it and its r₀;

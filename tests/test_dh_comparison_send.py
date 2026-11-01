@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """Send to D(h) comparison (spec 45): every window that produces a spectrum sends it to the main
-window's board; the partition fitter draws its own fit beside what was sent, with each entry's
-colour, error bars and tangent, names it in the legend by its display name, and edits the board
-in its inspector."""
+window's board; the D(h) construction window draws its own construction beside what was sent,
+each entry in its colour with its error bars and tangent, names it in the legend by its display
+name, and edits the board in its inspector; the Partition functions window sends and draws no
+comparison of its own."""
 from __future__ import annotations
 
 import numpy as np
@@ -12,7 +13,8 @@ from PySide6 import QtWidgets
 
 from dynamix.core import spectra
 from dynamix.shell.multifractal_window import MultifractalWindow
-from dynamix.shell.spectra_board import SpectraBoardModel
+from dynamix.shell.spectra_board import SpectraBoardModel, landed_dialog
+from dynamix.shell.spectrum_window import SpectrumWindow
 from tests.test_multifractal_window import _broken_pair, _pair
 from tests.test_shell_window import stub_devices, window  # noqa: F401
 
@@ -47,6 +49,30 @@ def _fitter(qtbot, host, *tables, **kw):
     window = MultifractalWindow(*(tables or _broken_pair()), parent=host, **kw)
     qtbot.addWidget(window)
     return window
+
+
+def _construction(qtbot, host, *tables, **kw):
+    """The D(h) construction window over ``tables`` (the clean pair: concave, no tangent)."""
+    window = SpectrumWindow(*(tables or _pair()), parent=host, **kw)
+    qtbot.addWidget(window)
+    return window
+
+
+def _landed():
+    hd_a, hd_b = _pair()
+    return [{"name": "moments · B", "hd_std": hd_b, "hd_cmax": hd_b, "method": "holder_measure",
+             "identity": {"recipe": "r", "layer_id": 7, "layer": "B", "filters": "None"}},
+            {"name": "dyadic leaders · C", "hd_std": hd_a, "hd_cmax": hd_a, "method": "wavelet_leaders",
+             "identity": {"recipe": "s", "layer_id": 8, "layer": "C", "filters": "None"}}]
+
+
+def _choose(row):
+    """A QDialog.exec that ticks ``row`` of the list and accepts."""
+    def exec_(dialog):
+        rows = dialog.findChild(QtWidgets.QListWidget)
+        rows.item(row).setCheckState(rows.item(row).checkState().Checked)
+        return 1
+    return exec_
 
 
 # ---------------------------------------------------------------------------- the senders
@@ -168,22 +194,13 @@ def test_the_leaders_table_sends_as_its_leaders(qtbot, host):
 
 
 def test_send_landed_results_lists_the_other_layers_and_sends_the_chosen(qtbot, host, monkeypatch):
-    hd_a, hd_b = _pair()
-    sources = [{"name": "moments · B", "hd_std": hd_b, "hd_cmax": hd_b, "method": "holder_measure",
-                "identity": {"recipe": "r", "layer_id": 7, "layer": "B", "filters": "None"}},
-               {"name": "dyadic leaders · C", "hd_std": hd_a, "hd_cmax": hd_a, "method": "wavelet_leaders",
-                "identity": {"recipe": "s", "layer_id": 8, "layer": "C", "filters": "None"}}]
+    sources = _landed()
+    hd_a = sources[1]["hd_std"]
     window = _fitter(qtbot, host, hd_a, hd_a, sources=sources)
-    dialog, rows = window.landed_dialog()
+    dialog, rows = landed_dialog(window, window._landed)
     assert [rows.item(i).text() for i in range(rows.count())] == ["moments · B", "dyadic leaders · C"]
     dialog.deleteLater()
-
-    def choose_second(dialog):
-        rows = dialog.findChild(QtWidgets.QListWidget)
-        rows.item(1).setCheckState(rows.item(1).checkState().Checked)
-        return 1
-
-    monkeypatch.setattr(QtWidgets.QDialog, "exec", choose_second)
+    monkeypatch.setattr(QtWidgets.QDialog, "exec", _choose(1))
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
     assert entry.kind == "dwt_leaders" and entry.full_name == "dyadic leaders · C"
@@ -294,35 +311,58 @@ def _entry(name, kind="large_deviations", shift=0.0, **kw):
 
 
 def _drawn_curves(plot):
-    return [i for i in plot.listDataItems() if i.isVisible() and i.xData is not None and len(i.xData)]
+    import pyqtgraph as pg
+
+    return [i for i in plot.listDataItems() if isinstance(i, pg.PlotDataItem) and i.isVisible()
+            and i.xData is not None and len(i.xData)]
 
 
-def test_the_comparison_draws_the_fit_and_exactly_the_visible_entries(qtbot, host):
-    window = _fitter(qtbot, host, *_pair())                       # std: concave, no tangent
-    d_plot, tau_plot = window._spectrum_plots["D"], window._spectrum_plots["tau"]
-    assert len(_drawn_curves(d_plot)) == 1                       # empty until something is sent
+def _legend(window):
+    """The construction's legend: ``(name, tooltip)`` per entry, in order."""
+    return [(label.text, label.toolTip()) for _sample, label in window._plot.legend.items]
+
+
+TANGENT = {"q_c": -1.0, "h_c": 0.9, "D_c": 1.2, "slope": -1.0, "intercept": 2.1}
+
+
+def test_the_construction_draws_its_own_points_and_exactly_the_visible_entries(qtbot, host):
+    window = _construction(qtbot, host)
+    d_plot, tau_plot = window._plot, window.method_plots["tau"]
+    assert _drawn_curves(d_plot) == [window._canon_curve]        # empty until something is sent
+    assert len(_drawn_curves(tau_plot)) == 1
     board = host.spectra_board
     a = board.add(_entry("A"))
     b = board.add(_entry("B", shift=-0.2, q=np.arange(9.0), tau=np.arange(9.0) - 2.0))
     assert len(_drawn_curves(d_plot)) == 3
-    assert len(_drawn_curves(tau_plot)) == 2                     # the fit's τ and B's
+    assert len(_drawn_curves(tau_plot)) == 2                     # the construction's τ and B's
     board.set_visible(a, False)
     assert len(_drawn_curves(d_plot)) == 2
     curve = window._board_legend[0][0]
     np.testing.assert_allclose(curve.yData, board.get(b).D)
     assert curve.opts["pen"].color().name() == board.get(b).colour
+    assert window._canon_err.opts["height"] is not None          # the primary keeps its bars
     board.remove(b)
     board.set_visible(a, True)
     assert len(_drawn_curves(d_plot)) == 2 and window._board_legend[0][1] == "A"
+    board.remove(a)
+    assert _drawn_curves(d_plot) == [window._canon_curve]
+
+
+def test_a_construction_draws_as_points_and_a_fit_as_a_line(qtbot, host):
+    window = _construction(qtbot, host)
+    host.spectra_board.add(_entry("hist", kind="histogram"))
+    host.spectra_board.add(_entry("fit", kind="canonical", shift=-0.1))
+    (hist, _n, _f), (fit, _m, _g) = window._board_legend
+    assert hist.opts["pen"] is None and hist.opts["symbol"] == "o"
+    assert fit.opts["pen"] is not None
 
 
 def test_an_entry_draws_its_bars_and_its_tangent_in_its_colour_while_shown(qtbot, host):
     import pyqtgraph as pg
 
-    window = _fitter(qtbot, host, *_pair())
-    d_plot = window._spectrum_plots["D"]
-    tangent = {"q_c": -1.0, "h_c": 0.9, "D_c": 1.2, "slope": -1.0, "intercept": 2.1}
-    key = host.spectra_board.add(_entry("A", kind="canonical", dD=np.full(9, 0.05), tangent=tangent))
+    window = _construction(qtbot, host)
+    d_plot = window._plot
+    key = host.spectra_board.add(_entry("A", kind="canonical", dD=np.full(9, 0.05), tangent=TANGENT))
     colour = host.spectra_board.get(key).colour
     bars = [i for _p, i in window._board_items if isinstance(i, pg.ErrorBarItem)]
     assert len(bars) == 1 and bars[0].opts["pen"].color().name() == colour
@@ -336,24 +376,44 @@ def test_an_entry_draws_its_bars_and_its_tangent_in_its_colour_while_shown(qtbot
     d_plot.setXRange(-1.0, 3.0, padding=0.0)                    # the view moves: so does the line
     np.testing.assert_allclose(line.getData()[0], [-1.0, 3.0])
     host.spectra_board.set_show_errors(key, False)
-    host.spectra_board.set_show_tangent(key, False)
+    host.spectra_board.set_show_tangent(key, False)              # the tangent off: none drawn
     assert not any(isinstance(i, pg.ErrorBarItem) for _p, i in window._board_items)
     assert window._board_tangents == []
+    dashed = [i for i in _drawn_curves(d_plot) if i.opts["pen"] is not None
+              and pg.mkPen(i.opts["pen"]).color().name() == colour and pg.mkPen(i.opts["pen"]).style()
+              == pg.QtCore.Qt.PenStyle.DashLine]
+    assert dashed == []
+
+
+def test_the_construction_s_own_tangent_can_be_switched_off(qtbot, host):
+    """The tangent at the phase transition on the construction's own points draws while
+    "tangent at q_c" is ticked (the default); unticked, none is drawn and the record names none."""
+    window = _construction(qtbot, host, *_broken_pair())
+    window._table_combo.setCurrentText("sup (cmax)")
+    assert window.tangent_check.isChecked() and window._tangent_line.isVisible()
+    assert window.drawn_fit()["tangent"]["q_c"] == pytest.approx(window._phase_tangent()["q_c"])
+    window.tangent_check.setChecked(False)
+    assert not any(i.isVisible() for i in (window._tangent_line, window._tangent_marker, window._tangent_label))
+    assert window.drawn_fit()["tangent"] is None
+    window._lo_spin.setValue(window._lo_spin.value() + 0.25)      # a refit keeps it off
+    assert not window._tangent_line.isVisible()
+    window.tangent_check.setChecked(True)
+    assert window._tangent_line.isVisible()
 
 
 def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
-    window = _fitter(qtbot, host, *_pair())
+    window = _construction(qtbot, host)
     key = host.spectra_board.add(_entry("A"))
-    names = window._dh_legend_names()
-    assert names[0] == "canonical (Arneodo WTMM)" and names[-1] == "A"
-    labels = [i for i in window._dh_legend_row.items if hasattr(i, "text") and i.text == "A"]
-    assert labels and labels[0].toolTip() == "A · a long provenance name"
+    legend = _legend(window)
+    assert legend[0][0] == "canonical (Arneodo direct)" and legend[-1] == ("A", "A · a long provenance name")
     host.spectra_board.rename(key, "mine")
-    assert window._dh_legend_names()[-1] == "mine"
+    assert _legend(window)[-1] == ("mine", "A · a long provenance name")
+    host.spectra_board.remove(key)
+    assert [name for name, _tip in _legend(window)] == ["canonical (Arneodo direct)"]
 
 
 def test_a_closed_window_stops_drawing_and_a_reopened_one_catches_up(qtbot, host):
-    window = _fitter(qtbot, host, *_pair())
+    window = _construction(qtbot, host)
     window.show()
     window.hide()
     host.spectra_board.add(_entry("A"))
@@ -362,10 +422,33 @@ def test_a_closed_window_stops_drawing_and_a_reopened_one_catches_up(qtbot, host
     assert [n for _c, n, _f in window._board_legend] == ["A"]
 
 
+def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbot, host, monkeypatch):
+    """"Send landed results…" lists the other layers' landed results; the chosen one is fitted
+    under the construction's scale window, fit mode, η and frame, sent, and drawn once sent."""
+    sources = _landed()
+    hd_a, hd_b = sources[1]["hd_std"], sources[0]["hd_std"]
+    assert not _construction(qtbot, host, hd_a, hd_a).send_landed_button.isEnabled()
+    window = _construction(qtbot, host, hd_a, hd_a, sources=sources)
+    window._lo_spin.setValue(1.0)
+    window._hi_spin.setValue(5.0)
+    assert window.send_landed_button.isEnabled() and window._board_legend == []
+    monkeypatch.setattr(QtWidgets.QDialog, "exec", _choose(0))
+    window.send_landed_button.click()
+    [entry] = host.spectra_board.entries()
+    fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
+    assert entry.kind == "canonical" and entry.full_name == "moments · B"
+    np.testing.assert_allclose(entry.D, fit["D"])
+    np.testing.assert_allclose(entry.dD, fit["D_err"])
+    assert entry.identity["tool"] == sources[0]["identity"] and entry.identity["scale_window"] == [1.0, 5.0]
+    assert [n for _c, n, _f in window._board_legend] == ["moments · B"]
+    assert window.send_landed_results(["dyadic leaders · C"]) == 1
+    assert host.spectra_board.entries()[-1].kind == "dwt_leaders"
+
+
 # ---------------------------------------------------------------------------- the inspector
 
 def _rows(window, qtbot):
-    inspector = window.inspector
+    inspector = window.board_inspector
     qtbot.waitUntil(lambda: inspector.table.rowCount() == len(window.spectra_board))
     return inspector.table
 
@@ -373,15 +456,16 @@ def _rows(window, qtbot):
 def test_the_inspector_lists_the_entries_and_edits_them(qtbot, host, monkeypatch):
     from PySide6 import QtCore, QtGui
 
-    window = _fitter(qtbot, host, *_pair())
-    assert not window.inspector.isVisibleTo(window)              # empty: nothing to inspect
+    window = _construction(qtbot, host)
+    I = window.board_inspector
+    assert I is not window.spectra_inspector                     # the published fits' list is another
+    assert not I.isVisibleTo(window)                             # empty: nothing to inspect
     board = host.spectra_board
-    tangent = {"q_c": -1.0, "h_c": 0.9, "D_c": 1.2, "slope": -1.0, "intercept": 2.1}
-    a = board.add(_entry("A", kind="canonical", dD=np.full(9, 0.05), tangent=tangent))
+    a = board.add(_entry("A", kind="canonical", dD=np.full(9, 0.05), tangent=TANGENT))
     b = board.add(_entry("B"))
     table = _rows(window, qtbot)
-    assert window.inspector.isVisibleTo(window)
-    I = window.inspector
+    assert I.isVisibleTo(window)
+    assert window.layout().indexOf(I) == window.layout().indexOf(window._glw) + 1   # under the panels
     assert [table.item(r, I.NAME).text() for r in range(2)] == ["A", "B"]
     assert all(table.item(1, c).toolTip() == "B · a long provenance name" for c in range(5))
     flags = QtCore.Qt.ItemFlag.ItemIsEnabled
@@ -394,15 +478,17 @@ def test_the_inspector_lists_the_entries_and_edits_them(qtbot, host, monkeypatch
     table.item(0, I.ERRORS).setCheckState(QtCore.Qt.CheckState.Unchecked)
     table.item(0, I.TANGENT).setCheckState(QtCore.Qt.CheckState.Unchecked)
     assert not board.get(a).show_errors and not board.get(a).show_tangent
+    assert window._board_tangents == []
     table.item(1, I.NAME).setText("mine")                         # an edit committed
     assert board.get(b).name == "mine" and board.get(b).full_name == "B · a long provenance name"
-    assert window._dh_legend_names()[-1] == "mine"
+    assert _legend(window)[-1] == ("mine", "B · a long provenance name")
     monkeypatch.setattr(QtWidgets.QColorDialog, "getColor", lambda *a, **k: QtGui.QColor("#102030"))
     table.cellClicked.emit(0, I.COLOUR)
     assert board.get(a).colour == "#102030"
     qtbot.waitUntil(lambda: table.item(0, I.COLOUR).background().color().name() == "#102030")
     table.cellWidget(1, 5).click()                                # B up
     assert [e.key for e in board.entries()] == [b, a]
+    assert [n for _c, n, _f in window._board_legend] == ["mine", "A"]
     table = _rows(window, qtbot)
     qtbot.waitUntil(lambda: table.item(0, I.NAME).text() == "mine")
     table.cellWidget(0, 6).click()                                # and down again
@@ -411,17 +497,20 @@ def test_the_inspector_lists_the_entries_and_edits_them(qtbot, host, monkeypatch
     table.cellWidget(0, 7).click()                                # remove A
     assert [e.key for e in board.entries()] == [b]
     assert _rows(window, qtbot).rowCount() == 1
+    assert [n for _c, n, _f in window._board_legend] == ["mine"]
+    table.cellWidget(0, 7).click()                                # and B: the inspector goes
+    assert not I.isVisibleTo(window)
 
 
 def test_a_name_edit_commits_on_enter_and_reverts_on_escape(qtbot, host):
     from PySide6 import QtCore
 
-    window = _fitter(qtbot, host, *_pair())
+    window = _construction(qtbot, host)
     window.show()
     qtbot.waitExposed(window)
     key = host.spectra_board.add(_entry("A"))
     table = _rows(window, qtbot)
-    item = table.item(0, window.inspector.NAME)
+    item = table.item(0, window.board_inspector.NAME)
 
     def edit(text, key_):
         table.editItem(item)

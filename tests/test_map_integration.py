@@ -728,8 +728,9 @@ def test_the_partition_axis_follows_the_bars_units_including_degrees(geo_window,
 
 
 def test_the_fitter_lists_the_other_layers_landed_methods_to_send(geo_window, qtbot):
-    """The other layers' landed tables are listed by the fitter's "Send landed results…" with
-    their tool identity and drawn once sent to the D(h) comparison."""
+    """The other layers' landed tables are listed by the fitter's and the construction window's
+    "Send landed results…" with their tool identity, and drawn in the construction window once
+    sent to the D(h) comparison."""
     from types import SimpleNamespace
 
     from test_roi_shell_flow import _drop
@@ -753,7 +754,10 @@ def test_the_fitter_lists_the_other_layers_landed_methods_to_send(geo_window, qt
     assert [s["name"] for s in fitter._landed] == [sources[0]["name"]]
     assert fitter.send_landed_results([sources[0]["name"]]) == 1
     assert win.spectra_board.entries()[-1].full_name == sources[0]["name"]
-    assert [n for _c, n, _f in fitter._board_legend] == [sources[0]["name"]]
+    win._on_dh_button_clicked()
+    construction = win._spectrum_construction_window
+    assert [s["name"] for s in construction._landed] == [sources[0]["name"]]
+    assert [n for _c, n, _f in construction._board_legend] == [sources[0]["name"]]
 
 
 def test_show_v_chains_and_the_layers_v_chains_row_are_one_switch(geo_window, qtbot):

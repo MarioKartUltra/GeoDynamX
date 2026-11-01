@@ -58,9 +58,11 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import spectra
+from dynamix.model.spectra_board import plain
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported for the fitting windows)
 from dynamix.shell.shared_range import SharedRangeFollower
+from dynamix.shell.spectra_board import ancestor_with, dh_view_range, from_fit, kind_of_method, send, send_landed
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["MultifractalWindow"]
@@ -205,19 +207,13 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._h_map_method = str(h_map_method or "")
         self._dh_legend_entries: list = []
         self._in_dh_legend: dict = {}
-        #: The D(h) comparison drawn here: ``(plot, item)`` per drawn piece, ``(curve, display
-        #: name, full name)`` per legend entry, ``(line, tangent)`` per carried tangent.
-        self._board_items: list = []
-        self._board_legend: list = []
-        self._board_tangents: list = []
-        self._board_connected = False
         #: The box-counting construction ``(h, D, dD)`` of an h-map result (eq. 20 across r).
         self._dh_box = tuple(dh_box) if dh_box is not None else None
         #: Other layers' landed results, each a dict with ``name`` and ``hd_std``/``hd_cmax``
-        #: and/or ``dh_hist``: listed by "Send landed results…", drawn once sent to the board.
+        #: and/or ``dh_hist``: listed by "Send landed results…".
         self._landed = [dict(s) for s in (sources or [])]
         #: Other methods' results drawn beside the primary's, the Show menu toggling each: none,
-        #: the D(h) comparison draws what was sent to it.
+        #: the D(h) construction window draws what was sent to the D(h) comparison.
         self._sources: list = []
         self._source_items: dict = {}
         self._primary_visible = True
@@ -272,9 +268,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._build_ui(eta_seed, forward_note)
         self._rebuild_family()
         self._refit()
-        from dynamix.shell.spectra_board import board_of
-
-        self.attach_board(board_of(self))
 
     @property
     def _family_items(self) -> list:
@@ -474,8 +467,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         compare.addWidget(self.send_landed_button)
         compare.addStretch(1)
         self.export_button = QtWidgets.QPushButton("Export figure…")
-        self.export_button.setToolTip("These plots as a PNG, with a record naming the fit and every spectrum "
-                                      "drawn from the D(h) comparison")
+        self.export_button.setToolTip("These plots as a PNG, with a record naming the fit")
         self.export_button.clicked.connect(lambda _c=False: self._export_figure())
         compare.addWidget(self.export_button)
         layout.addLayout(compare)
@@ -518,12 +510,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._glw = pg.GraphicsLayoutWidget()
         self._glw.setBackground(current().ground)
         layout.addWidget(self._glw, 1)
-        from dynamix.shell.spectra_board import SpectraBoardInspector
-
-        #: The D(h) comparison's entries, editable; shown while the board holds any.
-        self.inspector = SpectraBoardInspector(self)
-        self.inspector.setVisible(False)
-        layout.addWidget(self.inspector)
         #: The fit window in log₂ a and, through ``physical_of_log2a``, in physical length.
         self.range_label = QtWidgets.QLabel("")
         self.range_label.setProperty("reading", "true")
@@ -626,8 +612,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             self._spectrum_plots["D"].addItem(item, ignoreBounds=True)   # spans the view: no auto-range
         self._spectrum_plots["D"].getViewBox().sigXRangeChanged.connect(
             lambda *_a: self._update_phase_tangent())
-        self._spectrum_plots["D"].getViewBox().sigXRangeChanged.connect(
-            lambda *_a: self._update_board_tangents())
 
         # Row 2: the cell-49 phase-transition surface. Left: fitted tau(q) against ln q with the
         # two-segment fit; right: the count-weighted R² scan over candidate q*.
@@ -759,8 +743,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def _primary_kind(self) -> str:
         """What the primary fit is on the board: the leaders' table read by this fitter, or the
         canonical fit."""
-        return {"wavelet_leaders": "dwt_leaders", "cwt_leaders": "cwt_leaders"}.get(self._h_map_method,
-                                                                                   "canonical")
+        return kind_of_method(self._h_map_method)
 
     def _fit_settings(self) -> dict:
         return {"eta": float(self._eta_spin.value()), "frame": self._frame_combo.currentText(),
@@ -786,8 +769,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         """The fit on show to the D(h) comparison: its displayed q rows with the error bars D(h)
         draws (the fit's standard errors over the scale window), τ(q), and the tangent drawn on
         D(h) when ``with_tangent`` (the "with tangent" box by default)."""
-        from dynamix.shell.spectra_board import from_fit, send
-
         if self._fit is None:
             return send(self, None, "no fit to send")
         if with_tangent is None:
@@ -809,8 +790,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def send_histogram(self) -> bool:
         """The histogram construction as D(h) draws it (pinned to D₀ when the pin is on), with
         its eq. 39 bars."""
-        from dynamix.shell.spectra_board import from_fit, send
-
         if self._dh_hist is None:
             return send(self, None, "no histogram construction to send")
         h, D = (np.asarray(a, dtype=np.float64) for a in self._dh_hist_curve.getData())
@@ -825,7 +804,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def send_boxcount(self) -> bool:
         """The box-counting construction across r (eq. 20) with its slopes' standard errors."""
         from dynamix.core.microcanonical import box_counting_spectrum
-        from dynamix.shell.spectra_board import from_fit, send
 
         if self._dh_box is not None:
             h, D, dD = self._dh_box
@@ -836,164 +814,35 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         entry = from_fit(self, {"name": "box-counting across r", "h": h, "D": D, "D_err": dD}, "boxcount")
         return send(self, entry, "the box-counting construction has no finite D(h)")
 
-    def landed_dialog(self) -> "tuple[QtWidgets.QDialog, QtWidgets.QListWidget]":
-        """The list of the other layers' landed results, one unchecked row each."""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("Send landed results")
-        box = QtWidgets.QVBoxLayout(dialog)
-        box.addWidget(QtWidgets.QLabel("Fitted under this window's scale window, fit mode, η and frame:"))
-        rows = QtWidgets.QListWidget()
-        for source in self._landed:
-            item = QtWidgets.QListWidgetItem(source["name"])
-            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(QtCore.Qt.CheckState.Unchecked)
-            rows.addItem(item)
-        box.addWidget(rows)
-        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok
-                                             | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        box.addWidget(buttons)
-        return dialog, rows
-
     def send_landed_results(self, names=None) -> int:
-        """Send the landed results named in ``names`` (asked in :meth:`landed_dialog` when None):
+        """Send the other layers' landed results named in ``names`` (asked in a list when None):
         a result's tables fitted as the primary is, its histogram construction as drawn.
         Returns how many spectra were sent."""
-        from dynamix.shell.spectra_board import from_fit, send
-
-        if names is None:
-            dialog, rows = self.landed_dialog()
-            accepted = dialog.exec()
-            names = [rows.item(i).text() for i in range(rows.count())
-                     if rows.item(i).checkState() == QtCore.Qt.CheckState.Checked] if accepted else []
-            dialog.deleteLater()
         lo, hi = self._region.getRegion()
-        mode = self.fit_mode()
-        sent = 0
-        for source in (s for s in self._landed if s["name"] in names):
-            origin = source.get("identity") or {}
-            kind = {"wavelet_leaders": "dwt_leaders", "cwt_leaders": "cwt_leaders"}.get(source.get("method"),
-                                                                                       "canonical")
-            hd = self._source_table(source)
-            if hd is not None:
-                fit = spectra.fit_spectra(hd, float(lo), float(hi), eta=self._eta_spin.value(),
-                                          frame=self._frame_combo.currentText(), fit_mode=mode,
-                                          log2_L=self._log2_L if mode != "naive" else None)
-                one = source.get("hd_cmax") is None or source.get("hd_std") is source.get("hd_cmax")
-                entry = from_fit(self, {**fit, "name": source["name"]}, kind, scale_window=(lo, hi),
-                                 fit_mode=mode, table=None if one else self._table_key(),
-                                 settings=self._fit_settings(), origin=origin)
-                sent += send(self, entry, f"{source['name']}: no finite D(h) to send")
-            if source.get("dh_hist") is not None:
-                h, D, dD = source["dh_hist"]
-                entry = from_fit(self, {"name": f"{source['name']} (histogram)", "h": h, "D": D, "D_err": dD},
-                                 "histogram", settings={"pin_to_D0": False}, origin=origin)
-                sent += send(self, entry, f"{source['name']}: the histogram has no finite D(h)")
-        return sent
+        return send_landed(self, self._landed, names, lo=float(lo), hi=float(hi), mode=self.fit_mode(),
+                           eta=self._eta_spin.value(), frame=self._frame_combo.currentText(),
+                           log2_L=self._log2_L, table=self._table_key(), settings=self._fit_settings())
 
-    # -- the D(h) comparison: what was sent, drawn beside the fit ------------------------------
-    def attach_board(self, board) -> None:
-        """Draw ``board``'s visible entries beside this window's fit, again on every change."""
-        if board is None:
-            return
-        self._detach_board()
-        self.spectra_board = self.inspector.board = board
-        board.boardChanged.connect(self._draw_board)
-        self._board_connected = True
-        self._draw_board()
-
-    def _detach_board(self) -> None:
-        if self._board_connected:
-            self.spectra_board.boardChanged.disconnect(self._draw_board)
-            self._board_connected = False
-
-    def closeEvent(self, event) -> None:
-        super().closeEvent(event)
-        if event.isAccepted():
-            self._detach_board()
-
-    def hideEvent(self, event) -> None:
-        self._detach_board()
-        super().hideEvent(event)
-
-    def showEvent(self, event) -> None:
-        if getattr(self, "spectra_board", None) is not None and not self._board_connected:
-            self.attach_board(self.spectra_board)
-        super().showEvent(event)
-
-    def _add_board_item(self, plot, item) -> None:
-        # Outside the auto-range: a sent spectrum never sets the panel's extent.
-        plot.addItem(item, ignoreBounds=True)
-        self._board_items.append((plot, item))
-
-    def _draw_board(self) -> None:
-        """Every visible board entry in board order: on D(h) in its colour (a construction as
-        points, a fit as a line through its points), its error bars when shown, its tangent
-        dashed when shown; on τ(q) when it carries τ."""
-        for plot, item in self._board_items:
-            plot.removeItem(item)
-        self._board_items, self._board_legend, self._board_tangents = [], [], []
-        d_plot, tau_plot = self._spectrum_plots["D"], self._spectrum_plots["tau"]
-        for entry in self.spectra_board.entries() if self._board_connected else []:
-            if not entry.visible:
-                continue
-            colour = pg.mkColor(entry.colour)
-            points = entry.kind in ("histogram", "boxcount")
-            pen = None if points else pg.mkPen(colour, width=1.4)
-            curve = pg.PlotDataItem(entry.h, entry.D, pen=pen, connect="finite", symbol="o",
-                                    symbolSize=4, symbolPen=None, symbolBrush=colour)
-            self._add_board_item(d_plot, curve)
-            finite = np.isfinite(entry.h) & np.isfinite(entry.D)
-            if entry.show_errors and entry.has_errors and finite.any():
-                bars = {"x": entry.h[finite], "y": entry.D[finite]}
-                for key, err in (("height", entry.dD), ("width", entry.dh)):
-                    if err is not None:
-                        bars[key] = np.where(np.isfinite(err[finite]), 2.0 * err[finite], 0.0)
-                self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars))
-            if entry.show_tangent and entry.tangent is not None:
-                line = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.2, style=QtCore.Qt.DashLine))
-                self._add_board_item(d_plot, line)
-                self._board_tangents.append((line, entry.tangent))
-            if entry.tau is not None:
-                self._add_board_item(tau_plot, pg.PlotDataItem(entry.q, entry.tau, pen=pen, connect="finite",
-                                                               symbol="o", symbolSize=3, symbolPen=None,
-                                                               symbolBrush=colour))
-            self._board_legend.append((curve, entry.name, entry.full_name))
-        self._update_board_tangents()
-        self._sync_dh_legend()
-        self.inspector.setVisible(self._board_connected and len(self.spectra_board) > 0)
-        self.inspector.refresh()
-
-    def _update_board_tangents(self) -> None:
-        """The carried tangents across the D(h) view, as the fit's own is drawn."""
-        x = np.asarray(self._spectrum_plots["D"].getViewBox().viewRange()[0], dtype=np.float64)
-        for line, tangent in self._board_tangents:
-            line.setData(x, tangent["intercept"] + tangent["slope"] * x)
-
+    # -- the exported figure ------------------------------------------------------------------
     def _export_figure(self) -> None:
-        from dynamix.shell.spectra_board import ancestor_with
-
         main = ancestor_with(self.parentWidget(), "_export_comparison_figure")
         if main is not None:
-            main._export_comparison_figure(self)
+            main._export_comparison_figure(self, "partition_functions")
 
     def drawn_fit(self) -> dict:
         """This window's own fit as a figure record names it: its name and kind, the scale
         window, the fit mode, the table, the settings and the tangent drawn on D(h)."""
-        from dynamix.model.spectra_board import plain
-
         lo, hi = self._region.getRegion()
         return plain({"name": self.published_fit()["name"], "kind": self._primary_kind(),
                       "shown": self._primary_visible, "scale_window": [lo, hi], "fit_mode": self.fit_mode(),
                       "table": self._table_key(), "settings": self._fit_settings(), "errors": True,
                       "tangent": self._tangent_now()})
 
-    def drawn_spectra(self) -> list:
-        """What D(h) draws from the comparison, in legend order, as a figure record lists it."""
-        if not self._board_connected:
-            return []
-        return [entry.record() for entry in self.spectra_board.entries() if entry.visible]
+    def figure_record(self) -> dict:
+        """What an exported figure of this window records: the D(h) range on show and the
+        fitter's own fit (the D(h) comparison is drawn in the D(h) construction window)."""
+        return {"view": "partition functions", "view_range": dh_view_range(self._spectrum_plots["D"]),
+                "fit": self.drawn_fit()}
 
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:
@@ -1124,14 +973,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
     def _sync_dh_legend(self) -> None:
         """The legend row under D(h) lists exactly what is drawn on D(h) and c(q): the primary,
         the histogram and box-counting constructions, the cumulant spectrum, every source, the
-        c(q) fit, its cumulant expansion, the log-normal reference, then every spectrum drawn
-        from the D(h) comparison by its display name. The full name is each entry's tooltip.
-        Four entries per line."""
+        c(q) fit, its cumulant expansion and the log-normal reference, each by its short name
+        with the full name as tooltip. Four entries per line."""
         if not hasattr(self, "_dh_legend_row"):
             return
         wanted = [(item, self._short_name(name_of()), name_of())
                   for item, name_of in self._dh_legend_entries if self._drawn(item)]
-        wanted += [entry for entry in self._board_legend if self._drawn(entry[0])]
         if wanted == self._in_dh_legend.get("order"):
             return
         from pyqtgraph.graphicsItems.LegendItem import ItemSample
