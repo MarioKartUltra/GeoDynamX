@@ -487,7 +487,8 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             return
         settings = {"q": q, "gamma": g, "h": h, "delta": d, "lo": v["log₂a min"], "hi": v["log₂a max"],
                     "L": 2**v["log₂L"],
-                    "amplitude": "auto" if self.auto_amplitude_check.isChecked() else 2**v["log₂ amplitude reference"]}
+                    "amplitude": "auto" if self.auto_amplitude_check.isChecked() else 2**v["log₂ amplitude reference"],
+                    "set": self.source_combo.currentText()}
         self._last_name = f"{self._source} · {self.source_combo.currentText()}, generalized spectrum"
         job = _Job(self._generation, self._sets[self.source_combo.currentText()], settings)
         job.signals.done.connect(self._completed)

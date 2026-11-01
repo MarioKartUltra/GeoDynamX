@@ -108,7 +108,7 @@ from dynamix.shell.arrangement.group_palette import GroupPalette
 from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.shared_range import SharedScaleRange
-from dynamix.shell.spectra_board import SpectraBoardModel
+from dynamix.shell.spectra_board import SpectraBoardModel, method_of
 from dynamix.shell.canvas import (Canvas, DEFAULT_COLORMAP, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
                                   VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
@@ -3503,7 +3503,8 @@ both ``Canvas`` signals report the
                       "method": (res.get("record") or {}).get("method", ""),
                       "identity": {"recipe": (res.get("_landed") or {}).get("analysis_key"),
                                    "layer_id": lid, "layer": layer.name,
-                                   "filters": repr((res.get("_landed") or {}).get("filters"))}}
+                                   "filters": repr((res.get("_landed") or {}).get("filters")),
+                                   "method": method_of(res)}}
             if res.get("h_map") is not None:
                 h, D, dD, _counts = dh_histogram_errors(np.asarray(histogram_h_map(res)))
                 if h.size:
@@ -3566,6 +3567,7 @@ both ``Canvas`` signals report the
                                     sources=self._spectrum_sources(result),
                                     kind=result.get("hd_kind", "partition"))
         window._opened_on = self._tool_identity(result)
+        window._method = method_of(result)
         self._multifractal_window = window
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         window.fitChanged.connect(self._on_fit_published)
@@ -3914,6 +3916,7 @@ both ``Canvas`` signals report the
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         window._opened_on = self._tool_identity(result)
+        window._method = method_of(result)
         setattr(self, attr, window)
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         self._on_fit_published(window.current_fit())
@@ -3953,6 +3956,7 @@ both ``Canvas`` signals report the
         window.fitChanged.connect(self._on_fit_published)
         window.attach_shared_range(self._shared_range)
         window._opened_on = self._tool_identity(result)
+        window._method = method_of(result)
         setattr(self, attr, window)
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         self._on_fit_published(window.current_fit())
@@ -4061,6 +4065,7 @@ both ``Canvas`` signals report the
             kind=result.get("hd_kind", "partition"), per_scale=sample_sets(result),
             sources=self._spectrum_sources(result))
         window._opened_on = self._tool_identity(result)
+        window._method = method_of(result)
         self._spectrum_construction_window = window
         self._tools_owner = self.layer.layer_id if self.layer is not None else None
         if self._multifractal_window is not None:

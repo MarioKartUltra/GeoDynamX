@@ -735,14 +735,18 @@ def test_the_fitter_lists_the_other_layers_landed_methods_to_send(geo_window, qt
 
     from test_roi_shell_flow import _drop
 
+    from dynamix.shell.spectra_board import method_of
+
     win = geo_window
     with qtbot.waitSignal(win.resolved, timeout=60000):
         _drop(win, qtbot, "wtmm2d")
     qtbot.waitUntil(lambda: not win.is_computing, timeout=60000)
     res = win._active_result
     assert win._landed_results[win.layer.layer_id] is res
+    assert method_of(res) == {"device": "wtmm2d"}                        # read off the execution stamps
     win._landed_results[4242] = {"hd_std": res["hd_std"], "hd_cmax": res["hd_cmax"],
-                                 "hd_source": "moments over the projections", "scales": res["scales"]}
+                                 "hd_source": "moments over the projections", "scales": res["scales"],
+                                 "_execution": [{"device": "holder_measure"}]}
     win._layer_by_id[4242] = SimpleNamespace(name="B · holder_measure", layer_id=4242)
     sources = win._spectrum_sources(res)
     assert [s["name"] for s in sources] == ["moments over the projections · B · holder_measure"]
@@ -755,11 +759,14 @@ def test_the_fitter_lists_the_other_layers_landed_methods_to_send(geo_window, qt
     assert fitter.send_landed_results([sources[0]["name"]]) == 1
     sent = win.spectra_board.entries()[-1]
     lo, hi = (round(v, 2) for v in fitter._region.getRegion())
-    assert sent.name == sources[0]["name"] and sent.full_name == f"{sources[0]['name']} · log2 a {lo:g}–{hi:g}"
+    assert sources[0]["identity"]["method"] == {"device": "holder_measure"}
+    lo1, hi1 = (round(v, 1) for v in fitter._region.getRegion())
+    assert sent.name == f"GMWP – measure (moments) · a {lo1:g}–{hi1:g}"
+    assert sent.full_name == f"{sources[0]['name']} · log2 a {lo:g}–{hi:g}"
     win._on_dh_button_clicked()
     construction = win._spectrum_construction_window
     assert [s["name"] for s in construction._landed] == [sources[0]["name"]]
-    assert [n for _c, n, _f in construction._board_legend] == [sources[0]["name"]]
+    assert [n for _c, n, _f in construction._board_legend] == [sent.name]
 
 
 def test_show_v_chains_and_the_layers_v_chains_row_are_one_switch(geo_window, qtbot):

@@ -21,7 +21,7 @@ from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
 __all__ = ["BOARD_HUES", "BoardComparison", "SpectraBoardInspector", "SpectraBoardModel", "ancestor_with",
            "board_of", "dh_view_range", "from_fit", "generalized_entry", "kind_of_method", "landed_dialog",
-           "say", "send", "send_button", "send_landed", "tool_identity"]
+           "method_of", "say", "send", "send_button", "send_landed", "short_name", "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
 #: Theme-Rule carve-out the partition fitter's source hues document, as numeric RGB.
@@ -121,20 +121,120 @@ def say(widget, text: str) -> None:
 
 def tool_identity(window) -> dict:
     """The producing result's tool identity as the main window stamped it on ``window``
-    (``_opened_on``: the layer's id, the landed analysis key and the filters), with the layer's
-    name; None in each field for a window opened on no landed result."""
+    (``_opened_on``: the layer's id, the landed analysis key and the filters; ``_method``: what
+    :func:`method_of` read off the result), with the layer's name; None in each field for a
+    window opened on no landed result, the method then the device that made the window's h-map
+    when it names one."""
     layer_id, recipe, filters = getattr(window, "_opened_on", None) or (None, None, None)
     holder = ancestor_with(window.parentWidget(), "_layer_by_id")
     layer = holder._layer_by_id.get(layer_id) if holder is not None else None
+    method = getattr(window, "_method", None) or {"device": getattr(window, "_h_map_method", "") or None}
     return {"recipe": recipe, "layer_id": layer_id, "layer": getattr(layer, "name", None),
-            "filters": filters}
+            "filters": filters, "method": dict(method)}
+
+
+#: The devices whose partition tables are the WTMM's, a no-sup (std) and a sup (cmax) table.
+WTMM_DEVICES = ("wtmm2d", "wtmm2d_roi")
+#: The analysis devices a short name tells apart.
+_PRODUCERS = (*WTMM_DEVICES, "wavelet_leaders", "cwt_leaders", "holder_measure", "holder_multiaffine", "holder_map")
+
+
+def method_of(result) -> dict:
+    """What produced ``result``, as :func:`short_name` reads it: ``device``, the latest analysis
+    device in its execution stamps (else its record's method, else None); for the dyadic leaders
+    ``set``, the leaders set its partition table holds; for the CWT leaders ``measure``, every
+    pixel (``leaders``) or the WTMM maxima (``wtmm``)."""
+    from dynamix.core.execution import KEY
+
+    if not isinstance(result, dict):
+        return {"device": None}
+    record = result.get("record") or {}
+    stamps = [s.get("device") for s in result.get(KEY) or () if isinstance(s, dict)]
+    device = next((d for d in reversed(stamps) if d in _PRODUCERS), record.get("method") or None)
+    out = {"device": device}
+    if device == "wavelet_leaders":
+        out["set"] = str(result.get("hd_source") or "dyadic leaders").removeprefix("dyadic ")
+    elif device == "cwt_leaders":
+        out["measure"] = record.get("measure", "leaders")
+    return out
+
+
+def _set_short(name, method: dict) -> "str | None":
+    """A leaders or WTMM sample set's short name, by its name in the ``Samples`` contract or its
+    label on a menu: WL, p-L and wse-L for the leaders, p-leaders and weak-scaling leaders, the
+    dyadic ones (dwt), the CWT ones over every pixel (cwt) or over the WTMM maxima (wtmm)."""
+    cwt = "wtmm" if method.get("measure") == "wtmm" else "cwt"
+    return {"leaders": "WL (dwt)", "p-leaders": "p-L (dwt)", "wse": "wse-L (dwt)", "WSE leaders": "wse-L (dwt)",
+            "coefficients": "coef (dwt)", "cwt-leaders": f"WL ({cwt})", "CWT leaders": f"WL ({cwt})",
+            "cwt-p-leaders": f"p-L ({cwt})", "CWT p-leaders": f"p-L ({cwt})",
+            "maxima lines": "WTMM (lines)", "every maximum": "WTMM (maxima)"}.get(str(name))
+
+
+def short_name(kind: str, identity: dict) -> "str | None":
+    """The short method name a sent spectrum is shown under, from its kind and its identity (the
+    tool identity's method, the table, the settings); None when the method is not one of these:
+
+    ============================  ==================================================================
+    canonical (WTMM tables)       WTMM (sup) for the cmax table, WTMM (no sup) for std
+    canonical (moment route)      GMWP – measure (moments), GMWP – multiaffine (moments)
+    dwt_leaders                   WL (dwt), p-L (dwt), wse-L (dwt) by the table's set
+    cwt_leaders                   WL (cwt) over every pixel, WL (wtmm) over the maxima
+    histogram                     WTMM (histogram); GMWLP over leaders (Cardo & Corvalán 2009),
+                                  GMWLP (cwt | wtmm) over CWT leaders; GMWP – measure,
+                                  GMWP – multiaffine for the microcanonical tools
+    boxcount                      WTMM (box), GMWLP (box), GMWP – measure (box), …
+    generalized                   the set's short name + (gen), or + (Legendre) for the γ = 0 curve
+    large_deviations, cumulant    LD · set, LC · set
+    structure_functions           WLSF · set (SF · coef (dwt) over the coefficients)
+    ============================  ==================================================================
+
+    A window opened on no landed result names no device: its tables are read as the WTMM's."""
+    tool = identity.get("tool") or {}
+    method = tool.get("method") or {}
+    device, table = method.get("device"), identity.get("table")
+    settings = identity.get("settings") or {}
+    cwt = "wtmm" if method.get("measure") == "wtmm" else "cwt"
+    wtmm = device is None or device in WTMM_DEVICES
+    by_map = {"wavelet_leaders": "GMWLP", "cwt_leaders": f"GMWLP ({cwt})",
+              "holder_measure": "GMWP – measure", "holder_multiaffine": "GMWP – multiaffine"}
+    if kind == "canonical":
+        if wtmm:
+            return {"cmax": "WTMM (sup)", "std": "WTMM (no sup)"}.get(table)
+        return f"{by_map[device]} (moments)" if device in ("holder_measure", "holder_multiaffine") else None
+    if kind == "dwt_leaders":
+        return _set_short(method.get("set") or "leaders", method)
+    if kind == "cwt_leaders":
+        return _set_short("cwt-leaders", method)
+    if kind == "histogram":
+        return "WTMM (histogram)" if wtmm else by_map.get(device)
+    if kind == "boxcount":
+        if wtmm:
+            return "WTMM (box)"
+        base = by_map.get(device)
+        return None if base is None else (f"{base[:-1]}, box)" if base.endswith(")") else f"{base} (box)")
+    if kind == "generalized":
+        base = _set_short(settings.get("set"), method)
+        return None if base is None else f"{base} ({'Legendre' if settings.get('curve') == 'legendre' else 'gen'})"
+    prefix = {"large_deviations": "LD", "cumulant": "LC", "structure_functions": "WLSF"}.get(kind)
+    if prefix is None:
+        return None
+    base = _set_short(table, method)
+    if kind == "structure_functions" and table == "coefficients":
+        prefix = "SF"
+    return prefix if base is None and not table else f"{prefix} · {base or table}"
+
+
+def _log2_text(value: float) -> str:
+    """log2 a as a name shows it: an integer, else one decimal."""
+    return f"{round(float(value), 1) + 0.0:g}"
 
 
 def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, table=None,
              settings=None, tangent=None, keep=None, origin=None) -> SentSpectrum:
-    """A :class:`SentSpectrum` from a producer's fit dict: its ``name`` (the layer's name after it
-    when the name lacks it) as the display name, the full name that name with the scale window
-    (``log2 a lo–hi``) and ", tangent" when a tangent is carried, ``h`` and ``D`` with
+    """A :class:`SentSpectrum` from a producer's fit dict: the full name its ``name`` (the layer's
+    name after it when the name lacks it) with the scale window (``log2 a lo–hi``) and
+    ", tangent" when a tangent is carried; the display name the method's :func:`short_name` with
+    the scale window (``· a lo–hi``), the full name for a method without one; ``h`` and ``D`` with
     ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
     the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
@@ -166,7 +266,11 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
     identity = {"tool": origin,
                 "scale_window": None if scale_window is None else [float(v) for v in scale_window],
                 "fit_mode": fit_mode, "table": table, "settings": dict(settings or {})}
-    return SentSpectrum(name=name, full_name=full_name, kind=kind, h=h[keep], D=column("D"),
+    short = short_name(kind, identity)
+    if short is not None and scale_window is not None:
+        lo, hi = sorted(float(v) for v in scale_window)
+        short += f" · a {_log2_text(lo)}–{_log2_text(hi)}"
+    return SentSpectrum(name=short or full_name, full_name=full_name, kind=kind, h=h[keep], D=column("D"),
                         dh=column("h_err"), dD=column("D_err"), q=q, tau=tau, tangent=tangent,
                         identity=identity)
 

@@ -61,9 +61,11 @@ def _construction(qtbot, host, *tables, **kw):
 def _landed():
     hd_a, hd_b = _pair()
     return [{"name": "moments · B", "hd_std": hd_b, "hd_cmax": hd_b, "method": "holder_measure",
-             "identity": {"recipe": "r", "layer_id": 7, "layer": "B", "filters": "None"}},
+             "identity": {"recipe": "r", "layer_id": 7, "layer": "B", "filters": "None",
+                          "method": {"device": "holder_measure"}}},
             {"name": "dyadic leaders · C", "hd_std": hd_a, "hd_cmax": hd_a, "method": "wavelet_leaders",
-             "identity": {"recipe": "s", "layer_id": 8, "layer": "C", "filters": "None"}}]
+             "identity": {"recipe": "s", "layer_id": 8, "layer": "C", "filters": "None",
+                          "method": {"device": "wavelet_leaders", "set": "leaders"}}}]
 
 
 def _choose(row):
@@ -73,6 +75,83 @@ def _choose(row):
         rows.item(row).setCheckState(rows.item(row).checkState().Checked)
         return 1
     return exec_
+
+
+# ------------------------------------------------------------------- the short method names
+
+@pytest.mark.parametrize("kind, method, table, settings, short", [
+    ("canonical", {"device": "wtmm2d"}, "cmax", {}, "WTMM (sup)"),
+    ("canonical", {"device": "wtmm2d"}, "std", {}, "WTMM (no sup)"),
+    ("canonical", {"device": None}, "cmax", {}, "WTMM (sup)"),
+    ("canonical", {"device": "wtmm2d_roi"}, "std", {}, "WTMM (no sup)"),
+    ("canonical", {"device": "holder_measure"}, None, {}, "GMWP – measure (moments)"),
+    ("canonical", {"device": "holder_multiaffine"}, None, {}, "GMWP – multiaffine (moments)"),
+    ("canonical", {"device": "mz_edges"}, "std", {}, None),
+    ("histogram", {"device": "wtmm2d"}, None, {}, "WTMM (histogram)"),
+    ("boxcount", {"device": "wtmm2d"}, None, {}, "WTMM (box)"),
+    ("histogram", {"device": "wavelet_leaders"}, None, {}, "GMWLP"),
+    ("boxcount", {"device": "wavelet_leaders"}, None, {}, "GMWLP (box)"),
+    ("histogram", {"device": "cwt_leaders", "measure": "leaders"}, None, {}, "GMWLP (cwt)"),
+    ("boxcount", {"device": "cwt_leaders", "measure": "wtmm"}, None, {}, "GMWLP (wtmm, box)"),
+    ("histogram", {"device": "holder_measure"}, None, {}, "GMWP – measure"),
+    ("histogram", {"device": "holder_multiaffine"}, None, {}, "GMWP – multiaffine"),
+    ("boxcount", {"device": "holder_measure"}, None, {}, "GMWP – measure (box)"),
+    ("dwt_leaders", {"device": "wavelet_leaders", "set": "leaders"}, None, {}, "WL (dwt)"),
+    ("dwt_leaders", {"device": "wavelet_leaders", "set": "p-leaders"}, None, {}, "p-L (dwt)"),
+    ("dwt_leaders", {"device": "wavelet_leaders", "set": "wse"}, None, {}, "wse-L (dwt)"),
+    ("cwt_leaders", {"device": "cwt_leaders", "measure": "leaders"}, None, {}, "WL (cwt)"),
+    ("cwt_leaders", {"device": "cwt_leaders", "measure": "wtmm"}, None, {}, "WL (wtmm)"),
+    ("generalized", {"device": "wavelet_leaders"}, None, {"set": "p-leaders", "curve": "converged"}, "p-L (dwt) (gen)"),
+    ("generalized", {"device": "cwt_leaders", "measure": "leaders"}, None, {"set": "CWT p-leaders", "curve": "converged"},
+     "p-L (cwt) (gen)"),
+    ("generalized", {"device": "wtmm2d"}, None, {"set": "maxima lines", "curve": "legendre"}, "WTMM (lines) (Legendre)"),
+    ("large_deviations", {"device": "wavelet_leaders"}, "WSE leaders", {}, "LD · wse-L (dwt)"),
+    ("large_deviations", {"device": "cwt_leaders", "measure": "wtmm"}, "CWT leaders", {}, "LD · WL (wtmm)"),
+    ("cumulant", {"device": "wavelet_leaders"}, "leaders", {}, "LC · WL (dwt)"),
+    ("structure_functions", {"device": "wavelet_leaders"}, "p-leaders", {}, "WLSF · p-L (dwt)"),
+    ("structure_functions", {"device": "wavelet_leaders"}, "coefficients", {}, "SF · coef (dwt)"),
+    ("structure_functions", {"device": "cwt_leaders"}, "cwt-leaders", {}, "WLSF · WL (cwt)"),
+])
+def test_each_method_has_its_short_name(kind, method, table, settings, short):
+    from dynamix.shell.spectra_board import short_name
+
+    assert short_name(kind, {"tool": {"method": method}, "table": table, "settings": settings}) == short
+
+
+def test_the_display_name_is_the_short_name_with_the_scale_window():
+    """The short name and `· a lo–hi` (log2 a as an integer or one decimal); the full name keeps
+    the producer's name and `log2 a lo–hi`; a method without a short name shows its full name;
+    a spectrum sent without a scale window shows the short name alone."""
+    from types import SimpleNamespace
+
+    from dynamix.shell.spectra_board import from_fit
+
+    h = np.linspace(0.1, 0.9, 5)
+    fit = {"name": "canonical (Arneodo WTMM) · sup (cmax)", "h": h, "D": 1.0 + 0 * h}
+    window = SimpleNamespace(parentWidget=lambda: None, _method={"device": "wtmm2d"})
+    e = from_fit(window, fit, "canonical", scale_window=(2.0, 5.0), table="cmax")
+    assert (e.name, e.full_name) == ("WTMM (sup) · a 2–5", "canonical (Arneodo WTMM) · sup (cmax) · log2 a 2–5")
+    assert from_fit(window, fit, "canonical", scale_window=(1.96, 5.25), table="std").name == "WTMM (no sup) · a 2–5.2"
+    assert from_fit(window, fit, "canonical", scale_window=(1.44, 4.5), table="std").name == "WTMM (no sup) · a 1.4–4.5"
+    assert from_fit(window, {**fit, "name": "hist"}, "histogram").name == "WTMM (histogram)"
+    odd = SimpleNamespace(parentWidget=lambda: None, _method={"device": "mz_edges"})
+    e = from_fit(odd, fit, "canonical", scale_window=(2.0, 5.0), table="std")
+    assert e.name == e.full_name == "canonical (Arneodo WTMM) · sup (cmax) · log2 a 2–5"
+    plain = SimpleNamespace(parentWidget=lambda: None, _h_map_method="cwt_leaders")
+    assert from_fit(plain, fit, "cwt_leaders", scale_window=(2, 5)).name == "WL (cwt) · a 2–5"
+
+
+def test_the_method_is_read_off_the_result():
+    from dynamix.shell.spectra_board import method_of
+
+    assert method_of({"_execution": [{"device": "dwt2d"}, {"device": "wtmm2d"}, {"device": "chain_filters"}]}) == \
+        {"device": "wtmm2d"}
+    assert method_of({"record": {"method": "wavelet_leaders"}, "hd_source": "dyadic p-leaders"}) == \
+        {"device": "wavelet_leaders", "set": "p-leaders"}
+    assert method_of({"record": {"method": "cwt_leaders", "measure": "wtmm"}}) == \
+        {"device": "cwt_leaders", "measure": "wtmm"}
+    assert method_of({"_execution": [{"device": "holder_multiaffine"}]}) == {"device": "holder_multiaffine"}
+    assert method_of({}) == {"device": None} and method_of(None) == {"device": None}
 
 
 # ---------------------------------------------------------------------------- the senders
@@ -91,7 +170,7 @@ def test_the_canonical_fit_carries_the_bars_d_h_draws_and_its_tau(qtbot, host):
     assert entry.identity["scale_window"] == [1.0, 6.0]
     assert (entry.identity["fit_mode"], entry.identity["table"]) == ("naive", "std")
     assert entry.tangent is None                                  # "with tangent" is off by default
-    assert entry.name == "canonical (Arneodo WTMM) · no-sup (std)"
+    assert entry.name == "WTMM (no sup) · a 1–6"                   # the short name with the window
     assert entry.full_name == "canonical (Arneodo WTMM) · no-sup (std) · log2 a 1–6"
     assert host.status[-1] == "sent to the D(h) comparison: canonical (Arneodo WTMM) · no-sup (std) · log2 a 1–6"
     window.send_primary()                                         # the same state: replaced
@@ -99,7 +178,7 @@ def test_the_canonical_fit_carries_the_bars_d_h_draws_and_its_tau(qtbot, host):
     window._region.setRegion((2.0, 6.0))                          # a new window: a new entry
     window.send_primary()
     first, second = host.spectra_board.entries()
-    assert first.name == second.name                              # the full names tell them apart
+    assert (first.name, second.name) == ("WTMM (no sup) · a 1–6", "WTMM (no sup) · a 2–6")
     assert second.full_name == "canonical (Arneodo WTMM) · no-sup (std) · log2 a 2–6"
 
 
@@ -125,7 +204,8 @@ def test_the_tangent_travels_only_when_ticked(qtbot, host):
     window.send_primary()
     [entry] = host.spectra_board.entries()                        # one identity: replaced
     lo, hi = (round(v, 2) for v in window._region.getRegion())
-    assert entry.name == "canonical (Arneodo WTMM) · sup (cmax)"
+    lo1, hi1 = (round(v, 1) for v in window._region.getRegion())
+    assert entry.name == f"WTMM (sup) · a {lo1:g}–{hi1:g}"
     assert entry.full_name == f"canonical (Arneodo WTMM) · sup (cmax) · log2 a {lo:g}–{hi:g}, tangent"
     assert entry.tangent == pytest.approx({"q_c": expect["q_c"], "h_c": expect["h_c"],
                                            "D_c": expect["D_c"], "slope": expect["q_c"],
@@ -193,13 +273,14 @@ def test_without_a_construction_its_send_is_greyed_and_says_so(qtbot, host):
 
 def test_the_leaders_table_sends_as_its_leaders(qtbot, host):
     hd_std, _ = _pair()
-    for method, kind in (("wavelet_leaders", "dwt_leaders"), ("cwt_leaders", "cwt_leaders")):
+    for method, kind, short in (("wavelet_leaders", "dwt_leaders", "WL (dwt)"),
+                                ("cwt_leaders", "cwt_leaders", "WL (cwt)")):
         window = _fitter(qtbot, host, hd_std, hd_std, h_map_method=method, kind="structure",
                          source=f"L · {method}")
         window._region.setRegion((2.0, 5.0))
         window.send_primary()
         entry = host.spectra_board.entries()[-1]
-        assert entry.kind == kind and entry.name == f"L · {method}, partition functions"
+        assert entry.kind == kind and entry.name == f"{short} · a 2–5"
         assert entry.full_name == f"L · {method}, partition functions · log2 a 2–5"
 
 
@@ -214,7 +295,7 @@ def test_send_landed_results_lists_the_other_layers_and_sends_the_chosen(qtbot, 
     window._region.setRegion((2.0, 5.0))
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
-    assert entry.kind == "dwt_leaders" and entry.name == "dyadic leaders · C"
+    assert entry.kind == "dwt_leaders" and entry.name == "WL (dwt) · a 2–5"
     assert entry.full_name == "dyadic leaders · C · log2 a 2–5"
     assert entry.identity["tool"] == sources[1]["identity"]
     assert entry.dD is not None and entry.tau is not None
@@ -257,7 +338,7 @@ def _generalized_fit(name="L1 · synthetic, generalized spectrum"):
             "D": 2.0 - 5.0 * (h - 0.5) ** 2, "boundary": (h < 0.2) | (h > 0.8), "window": (1.0, 5.0),
             "settings": {"q": np.arange(-4.0, 4.01, 0.5), "gamma": np.arange(0.0, 16.01), "h": h,
                          "delta": np.arange(-1.0, 2.01, 0.25), "lo": 1.0, "hi": 5.0, "L": 128.0,
-                         "amplitude": "auto"}}
+                         "amplitude": "auto", "set": "leaders"}}
 
 
 def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_reference(qtbot, host):
@@ -272,7 +353,7 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     buttons["Send converged"].click()
     [entry] = host.spectra_board.entries()
     assert entry.kind == "generalized" and entry.h.shape == entry.D.shape == fit["h"].shape
-    assert entry.name == "L1 · synthetic, generalized spectrum, converged"
+    assert entry.name == "WL (dwt) (gen) · a 1–5"
     assert entry.full_name == "L1 · synthetic, generalized spectrum, converged · log2 a 1–5"
     assert np.isnan(entry.D[fit["boundary"]]).all()                  # bounds stay off the curve
     np.testing.assert_allclose(entry.D[~fit["boundary"]], fit["D"][~fit["boundary"]])
@@ -287,7 +368,8 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     w.send_to_board("legendre")
     w.send_to_board("converged")
     converged, legendre = host.spectra_board.entries()
-    assert legendre.name.endswith("Legendre (γ = 0)") and legendre.dD is None
+    assert legendre.name == "WL (dwt) (Legendre) · a 1–5" and legendre.dD is None
+    assert legendre.full_name.startswith("L1 · synthetic, generalized spectrum, Legendre (γ = 0)")
     np.testing.assert_allclose(legendre.D, fit["D"] + 0.1)
     np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
 
@@ -535,8 +617,10 @@ def test_the_construction_sends_its_own_points_histogram_and_box_counting(qtbot,
     window.send_primary()
     first, second = [e for e in host.spectra_board.entries() if e.kind == "canonical"]
     assert first.identity["scale_window"] != second.identity["scale_window"]
-    assert first.name == second.name == "canonical (Arneodo direct) · sup (cmax)"
-    assert first.full_name != second.full_name and second.full_name.startswith(f"{second.name} · log2 a ")
+    assert first.name != second.name and first.name.startswith("WTMM (sup) · a ")
+    assert second.name.startswith("WTMM (sup) · a ")
+    assert first.full_name != second.full_name
+    assert second.full_name.startswith("canonical (Arneodo direct) · sup (cmax) · log2 a ")
     np.testing.assert_allclose(first.D, fit["D"])
     np.testing.assert_allclose(second.D, window.current_fit()["D"])
 
@@ -567,12 +651,12 @@ def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbo
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
     fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
-    assert entry.kind == "canonical" and entry.name == "moments · B"
+    assert entry.kind == "canonical" and entry.name == "GMWP – measure (moments) · a 1–5"
     assert entry.full_name == "moments · B · log2 a 1–5"
     np.testing.assert_allclose(entry.D, fit["D"])
     np.testing.assert_allclose(entry.dD, fit["D_err"])
     assert entry.identity["tool"] == sources[0]["identity"] and entry.identity["scale_window"] == [1.0, 5.0]
-    assert [n for _c, n, _f in window._board_legend] == ["moments · B"]
+    assert [n for _c, n, _f in window._board_legend] == ["GMWP – measure (moments) · a 1–5"]
     assert window.send_landed_results(["dyadic leaders · C"]) == 1
     assert host.spectra_board.entries()[-1].kind == "dwt_leaders"
 
