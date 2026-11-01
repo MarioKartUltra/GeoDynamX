@@ -6,7 +6,8 @@ Session state the main window holds; nothing here is written to the project file
 snapshot of its producer's spectrum when it was sent. Its kind and identity (the producing
 result's tool identity, the scale window, the fit mode, the table and the producer's settings)
 decide replacement: a spectrum sent again under the same kind and identity replaces the earlier
-entry in place, keeping its display state; a changed identity adds an entry. ``name`` is the
+entry in place, keeping its display state (its display name when renamed, its colour, its
+visibility, its bars and tangent switches); a changed identity adds an entry. ``name`` is the
 display name and the only field a rename touches; ``full_name`` is the producer's own name."""
 from __future__ import annotations
 
@@ -140,10 +141,12 @@ class SpectraBoard:
     def add(self, spectrum: SentSpectrum) -> str:
         """Append ``spectrum``, or replace in place the entry it is sent again as (one kind, one
         identity): the data are the new ones, the key, the display name when it was renamed, the
-        colour and the visibility the old entry's. Returns the entry's key."""
+        colour, the visibility and the bars and tangent switches the old entry's. Returns the
+        entry's key."""
         for i, old in enumerate(self._entries):
             if old.same_as(spectrum):
                 spectrum.key, spectrum.colour, spectrum.visible = old.key, old.colour, old.visible
+                spectrum.show_errors, spectrum.show_tangent = old.show_errors, old.show_tangent
                 if old.name != old.full_name:
                     spectrum.name = old.name
                 self._entries[i] = spectrum

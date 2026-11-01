@@ -72,6 +72,22 @@ def test_sending_again_under_one_identity_replaces_in_place():
     assert (entry.name, entry.colour, entry.visible) == ("mine", "#00ff00", False)
 
 
+def test_sending_again_keeps_the_bars_and_tangent_toggles():
+    """The display state survives a send again: bars and tangent switched off stay off."""
+    tangent = {"q_c": -1.0, "h_c": 0.9, "D_c": 1.2, "slope": -1.0, "intercept": 2.1}
+    board = SpectraBoard()
+    key = board.add(_entry(dD=np.full(7, 0.05), tangent=tangent))
+    board.set_show_errors(key, False)
+    board.set_show_tangent(key, False)
+    board.add(_entry(dD=np.full(7, 0.04), tangent=tangent))
+    entry = board.get(key)
+    assert len(board) == 1 and not entry.show_errors and not entry.show_tangent
+    np.testing.assert_allclose(entry.dD, 0.04)
+    board.set_show_errors(key, True)
+    board.add(_entry(dD=np.full(7, 0.03), tangent=tangent))
+    assert board.get(key).show_errors and not board.get(key).show_tangent
+
+
 def test_a_new_scale_window_fit_mode_or_kind_makes_a_new_entry():
     board = SpectraBoard()
     board.add(_entry(window=(1.0, 5.0)))
