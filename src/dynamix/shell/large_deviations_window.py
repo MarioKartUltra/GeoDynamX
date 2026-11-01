@@ -123,9 +123,6 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.profiles_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self.profiles_check)
         controls.addStretch(1)
-        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
-        self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
-        controls.addWidget(self.send_button)
         layout.addLayout(controls)
 
         grids = QtWidgets.QHBoxLayout()
@@ -187,6 +184,10 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.readout.setProperty("reading", "true")
         self.readout.setWordWrap(True)
         layout.addWidget(self.readout)
+        # Below the readout, on a row of its own: it adds no width to the controls row.
+        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
+        self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
+        layout.addWidget(self.send_button, 0, QtCore.Qt.AlignmentFlag.AlignRight)
         fit_to_screen(self, 1100, 640)
         remember_geometry(self, "large_deviations")
 
