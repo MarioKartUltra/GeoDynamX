@@ -6,6 +6,10 @@ import sys
 import numpy as np
 import pytest
 
+# Qt tests render offscreen unless the environment names a platform: the suite must not open
+# windows on the developer's display (set QT_QPA_PLATFORM=cocoa to watch a test by eye).
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 
 def fbm2d(n=64, H=0.7, seed=0):
     """Synthetic 2D fBm with known Hurst H (spectral synthesis, fixed seed)."""
