@@ -360,22 +360,28 @@ def _stretches(mask: np.ndarray, run: int) -> list:
     return [(a, b) for a, b in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)) if b - a >= run]
 
 
-def hollows(h_grid, D, half_width=None, *, floor: float = 0.05, run: int = 3) -> dict:
+def hollows(h_grid, D, half_width=None, *, solid=None, floor: float = 0.05, run: int = 3) -> dict:
     """The hollows of a spectrum estimate below its upper concave hull, on an ascending h grid.
 
-    ``hull`` is the upper concave hull of the points (h, D) with finite D, ``gap`` = hull − D at
-    those points (NaN elsewhere). A hollow is a stretch of at least ``run`` consecutive grid
-    points, a missing point breaking it, where the gap exceeds max(``floor``, 2 ``half_width``),
-    the leave-one-scale-out half-width at that h: it survives the jackknife. A stretch of
-    ``run`` points above ``floor`` with no surviving hollow inside is reported with ``survives``
-    False; without ``half_width`` the floor alone decides and ``survives`` is None. Each hollow
-    is ``{"h_lo", "h_hi", "depth", "survives"}``, its first and last h and its largest gap."""
+    ``hull`` is the upper concave hull of the points (h, D) marked ``solid`` (by default every
+    finite D), ``gap`` = hull − D at every finite point between the hull's ends (NaN elsewhere).
+    A finite point outside ``solid`` is an upper bound on its value (a minimum on a grid limit):
+    it stays off the hull, and its gap, a lower bound on the true one, keeps a stretch going
+    without adding depth that is not there. A hollow is a stretch of at least ``run``
+    consecutive grid points, a missing point breaking it, where the gap exceeds
+    max(``floor``, 2 ``half_width``), the leave-one-scale-out half-width at that h: it survives
+    the jackknife. A stretch of ``run`` points above ``floor`` with no surviving hollow inside is
+    reported with ``survives`` False; without ``half_width`` the floor alone decides and
+    ``survives`` is None. Each hollow is ``{"h_lo", "h_hi", "depth", "survives"}``, its first and
+    last h and its largest gap."""
     h, y = np.asarray(h_grid, dtype=float), np.asarray(D, dtype=float)
     ok = np.isfinite(y)
+    on = ok if solid is None else ok & np.asarray(solid, dtype=bool)
     hull, gap = np.full(h.size, np.nan), np.full(h.size, np.nan)
-    if ok.sum() >= 2:
-        hull[ok] = _upper_hull(h[ok], y[ok])
-        gap[ok] = hull[ok] - y[ok]
+    if on.sum() >= 2:
+        span = ok & (h >= h[on][0]) & (h <= h[on][-1])
+        hull[span] = np.interp(h[span], h[on], _upper_hull(h[on], y[on]))
+        gap[span] = hull[span] - y[span]
 
     def found(a, b, survives):
         return {"h_lo": float(h[a]), "h_hi": float(h[b - 1]), "depth": float(gap[a:b].max()), "survives": survives}

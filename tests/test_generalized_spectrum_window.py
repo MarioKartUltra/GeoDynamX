@@ -372,8 +372,8 @@ def test_two_populations_leave_a_hollow_that_survives_the_jackknife(qtbot):
     shaded, captioned, recorded; its caption and the bracket's do not overlap."""
     w = _computed(qtbot, _two_population_sets())
     fit = w.current_fit()
-    [hol] = [x for x in fit["hollows"] if x["survives"]]
-    assert 0.4 < hol["h_lo"] < 0.65 < hol["h_hi"] < 0.9 and hol["depth"] > 0.2
+    [hol] = fit["hollows"]
+    assert hol["survives"] and 0.4 < hol["h_lo"] < 0.65 < hol["h_hi"] < 0.9 and hol["depth"] > 0.2
     assert f"hollow: h ∈ [{hol['h_lo']:.3g}, {hol['h_hi']:.3g}], depth {hol['depth']:.2f}, survives the jackknife" \
         in w.readout.text()
     regions = [it for it in w.plot.items if isinstance(it, pg.LinearRegionItem)]
@@ -392,15 +392,20 @@ def test_two_populations_leave_a_hollow_that_survives_the_jackknife(qtbot):
     assert _no_overlap(_labels(w))
 
 
-def test_on_the_default_q_grid_two_hollow_captions_overlap_nothing_and_stand_clear_of_the_data(qtbot):
-    """On the default q grid (±4) a q-limit dot splits the two-population dip into two hollows.
-    Their captions overlap neither each other nor the "grid-bracketed" caption, none of them
-    lies over the plotted data, and their length does not move the panels' column split."""
+def test_on_the_default_q_grid_one_dip_is_one_hollow_whose_caption_stands_clear_of_the_data(qtbot):
+    """On the default q grid (±4) minima inside the two-population dip sit on a q limit: dots,
+    off the hull, but their gap below it keeps the stretch going, so the dip is one hollow, the
+    one q ±8 finds. Its caption overlaps neither the "grid-bracketed" caption nor the plotted
+    data, and its length does not move the panels' column split."""
     w = _computed(qtbot, _two_population_sets(), q_max=None)
     w.resize(1400, 900)
     _settle()
     fit = w.current_fit()
-    assert w.spins["q min"].value() == -4 and w.spins["q max"].value() == 4 and len(fit["hollows"]) >= 2
+    assert w.spins["q min"].value() == -4 and w.spins["q max"].value() == 4
+    [hol] = fit["hollows"]
+    assert fit["pinned"][(fit["h"] > hol["h_lo"]) & (fit["h"] < hol["h_hi"])].any()
+    wide = _computed(qtbot, _two_population_sets()).current_fit()["hollows"]
+    assert [(x["h_lo"], x["h_hi"], x["survives"]) for x in wide] == [(hol["h_lo"], hol["h_hi"], True)]
     labels = _labels(w)
     assert _no_overlap(labels)
     lines = [line for text, _ in labels for line in text.splitlines() if line.startswith("hollow")]

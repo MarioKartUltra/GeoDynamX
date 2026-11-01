@@ -344,6 +344,34 @@ def test_two_humps_leave_one_hollow_between_them():
     assert (bare["h_lo"], bare["h_hi"]) == pytest.approx((0.36, 0.64)) and bare["survives"] is None
 
 
+def test_a_bound_point_in_a_dip_keeps_one_hollow_and_adds_no_depth():
+    """The two caps again, with the points at h = 0.46 and 0.5 not solid (minima on a grid
+    limit: upper bounds, here 0.1 above the cap curve). The hull runs over the solid points
+    alone and the gap is measured at the bound points too: one hollow, h ∈ [0.40, 0.60], as
+    with every point solid; its depth, 0.7 from the bound point at h = 0.5, stays under the true
+    0.8. Dropping the bound points instead splits the dip in two. A bound point far above the
+    hull does not lift it; a point beyond the solid points' ends has no gap."""
+    from dynamix.core.nonconcave import hollows
+    h = np.round(np.arange(0.0, 1.0001, 0.02), 10)
+    D = np.maximum(1 - 20 * (h - 0.3) ** 2, 1 - 20 * (h - 0.7) ** 2)
+    bound = np.isin(h, [0.46, 0.5])
+    up = np.where(bound, D + 0.1, D)
+    out = hollows(h, up, np.full(h.size, 0.09), solid=~bound)
+    np.testing.assert_allclose(out["hull"][(h >= 0.3) & (h <= 0.7)], 1.0, atol=1e-12)
+    np.testing.assert_allclose(out["gap"][bound], 1.0 - up[bound], atol=1e-12)
+    [hol] = out["hollows"]
+    assert (hol["h_lo"], hol["h_hi"]) == pytest.approx((0.40, 0.60)) and hol["survives"] is True
+    assert hol["depth"] == pytest.approx(0.7)
+    split = hollows(h, np.where(bound, np.nan, D), np.full(h.size, 0.09))["hollows"]
+    assert [v for x in split for v in (x["h_lo"], x["h_hi"])] == pytest.approx([0.40, 0.44, 0.52, 0.60])
+    high = hollows(h, np.where(np.isclose(h, 0.3), 3.0, up), np.full(h.size, 0.09),
+                   solid=~bound & ~np.isclose(h, 0.3))
+    assert np.nanmax(high["hull"]) <= 1.0 + 1e-12 and high["gap"][np.isclose(h, 0.3)][0] < 0
+    inner = (h > 0.1) & (h < 0.9)
+    ends = hollows(h, D, solid=inner)
+    assert np.isnan(ends["gap"][~inner]).all() and np.isfinite(ends["gap"][inner]).all()
+
+
 def test_a_dip_shorter_than_three_points_is_no_hollow():
     """One or two low points under a concave curve: the gap is there but the stretch is
     shorter than three grid points. A missing point breaks a stretch."""

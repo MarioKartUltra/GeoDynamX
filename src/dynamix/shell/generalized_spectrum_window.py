@@ -28,8 +28,9 @@ def _diagnose(result: dict, cancel=None) -> dict:
     """The diagnostics drawn with the estimate. A minimum on a q or δ limit is a bound and stays
     a loose dot; one held by the largest γ alone is judged by the γ profile: converged, it joins
     the curve, still falling, it is an open circle. Beneath: the Legendre spectrum from the γ = 0
-    column of the same τ table, and the leave-one-scale-out band. The hollow test runs on the
-    curve's points against that band."""
+    column of the same τ table, and the leave-one-scale-out band. The hollow test's hull runs
+    over the curve's points; its gap is measured at the dots and open circles too, against
+    that band."""
     g = result["ensemble"]
     h, D = np.asarray(result["h"], float), np.asarray(result["D"], float)
     tau = np.asarray(g["tau"], float)
@@ -48,7 +49,7 @@ def _diagnose(result: dict, cancel=None) -> dict:
         di = int(np.flatnonzero(deltas == 0.0)[0]) if (deltas == 0.0).any() else 0
         legendre = generalized_legendre(tau[:, zero[:1], di], g["q"], [0.0], h)["D"]
     band = scale_jackknife(g, h, cancel=cancel) if g["n_scales"] >= JACKKNIFE_MIN_SCALES else None
-    test = hollows(h, np.where(solid, D, np.nan), None if band is None else band["half_width"])
+    test = hollows(h, D, None if band is None else band["half_width"], solid=solid)
     return {**result, "convergence": convergence, "pinned": pinned, "solid": solid,
             "open": finite & ~pinned & ~solid, "legendre": legendre, "band": band, "hollow_test": test}
 
