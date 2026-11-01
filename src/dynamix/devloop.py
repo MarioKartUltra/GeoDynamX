@@ -99,7 +99,7 @@ _MODULE_ORDER = (
     "window_fit", "cache_inspector", "shared_range", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "colorbar", "figure_export", "map_view", "inspector", "roi_panel",
     "right_panel", "layer_panel", "layers_panel", "arrangement_facade", "view_dialog", "topology_panel",
-    "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window",
+    "skeleton_dialog", "transect_panel", "profile_dialog", "spectra_board", "multifractal_window",
     "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window",
     "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "surface_dialog", "levels_dialog", "ramp_editor", "components_window",
     "inpaint_window", "bus_dialog", "sends_dialog", "fork_dialog", "import_dialog", "main_window",
@@ -202,17 +202,20 @@ _DEPENDS_ON = {
     # The interactive multifractal-spectrum window -- imports ``theme``
     # for its background/inks (the ``canvas.py`` precedent) plus ``dynamix.core.spectra``; no
     # other ``dynamix.shell.*`` module.
-    "multifractal_window": ("plot_zoom", "theme", "shared_range", "window_fit", ),
+    # The D(h) comparison board, its send path and its inspector: no other dynamix.shell module.
+    "spectra_board": (),
+    "multifractal_window": ("plot_zoom", "theme", "shared_range", "window_fit", "spectra_board", ),
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and
     # core.spectra/core.chain_groups/core.microcanonical.
     "spectrum_window": ("theme", "multifractal_window", "window_fit", "gc_guard", ),
     # The methods' own fitting tools -- theme, the fitter's shared plot helpers, window_fit, and
     # core/model modules outside the shell.
-    "structure_functions_window": ("theme", "shared_range", "multifractal_window", "window_fit", ),
-    "log_cumulants_window": ("theme", "shared_range", "multifractal_window", "window_fit", ),
-    "large_deviations_window": ("theme", "shared_range", "multifractal_window", "window_fit", ),
-    "generalized_spectrum_window": ("plot_zoom", "theme", "shared_range", "window_fit", "multifractal_window", ),
+    "structure_functions_window": ("theme", "shared_range", "multifractal_window", "window_fit", "spectra_board", ),
+    "log_cumulants_window": ("theme", "shared_range", "multifractal_window", "window_fit", "spectra_board", ),
+    "large_deviations_window": ("theme", "shared_range", "multifractal_window", "window_fit", "spectra_board", ),
+    "generalized_spectrum_window": ("plot_zoom", "theme", "shared_range", "window_fit", "multifractal_window",
+                                    "spectra_board", ),
     # The 3-D surface-source dialog -- pure Qt, self-contained (the
     # topology_panel/transect_panel shape).
     "surface_dialog": (),
@@ -224,7 +227,7 @@ _DEPENDS_ON = {
     # Purely additive -- nothing dropped, nothing reordered, and "inspector" already sits earlier
     # in _MODULE_ORDER -- and FORCED by test_shell_boundaries.py's AST import-coverage guard,
     # which reads a missing edge as the stale-dependency bug it exists to catch.
-    "main_window": ("cache_inspector", "session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "ramp_editor", "ramps", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", "colorbar", "figure_export", ),
+    "main_window": ("cache_inspector", "session_timing", "theme", "shared_range", "docks", "commands", "controller", "gc_guard", "canvas", "chain_strip", "workflow_zone", "roi_panel", "right_panel", "layer_panel", "transport", "worker", "opening", "point_import", "units", "settings", "browser", "knobs", "knob_widgets", "arrangement_facade", "arrangement", "view_dialog", "topology_panel", "skeleton_dialog", "transect_panel", "profile_dialog", "multifractal_window", "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window", "surface_dialog", "levels_dialog", "ramp_editor", "ramps", "inspector", "rack_editor", "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "bus_dialog", "components_window", "fork_dialog", "import_dialog", "inpaint_window", "layers_panel", "map_view", "sends_dialog", "wavelet_bar", "colorbar", "figure_export", "spectra_board", ),
 }
 
 USAGE = "python -m dynamix.devloop [field.npz] [--ipython]"
