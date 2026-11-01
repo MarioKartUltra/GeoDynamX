@@ -239,7 +239,9 @@ def generalized_legendre(tau, q_list, gamma_list, h_grid, delta_list=None):
     no ``delta_list`` (δ = 0, the Gaussian ensemble as before) or ``(n_q, n_gamma, n_delta)``.
 
     This is an upper estimate on a bounded grid, not proof that a sampled h is
-    occupied. ``boundary`` marks minima at q/gamma/delta limits (gamma=0 is allowed).
+    occupied. ``boundary`` marks minima at q/gamma/delta limits (gamma=0 is allowed). At γ = 0
+    the value does not depend on δ, so the δ limits count only where γ > 0. ``gamma_cap`` marks
+    the boundary minima held by the largest γ alone, the ones a longer γ grid could still lower.
     Negative values are retained; clipping them would hide unsupported regions.
     """
     q, g, h = (np.asarray(v, dtype=float) for v in (q_list, gamma_list, h_grid))
@@ -258,11 +260,12 @@ def generalized_legendre(tau, q_list, gamma_list, h_grid, delta_list=None):
         if np.isfinite(v).any():
             i, j, m = np.unravel_index(np.nanargmin(v), v.shape)
             D[k], qi[k], gi[k], di[k] = v[i, j, m], i, j, m
-    boundary = ((q[qi] == q.min()) | (q[qi] == q.max()) | (g[gi] == g.max()) |
-                ((g[gi] == g.min()) & (g.min() != 0)))
+    edge = (q[qi] == q.min()) | (q[qi] == q.max()) | ((g[gi] == g.min()) & (g.min() != 0))
     if dl.size > 1:
-        boundary |= (dl[di] == dl.min()) | (dl[di] == dl.max())
-    return {"h": h, "D": D, "q_star": q[qi], "gamma_star": g[gi], "delta_star": dl[di], "boundary": boundary}
+        edge |= ((dl[di] == dl.min()) | (dl[di] == dl.max())) & (g[gi] != 0)
+    top = g[gi] == g.max()
+    return {"h": h, "D": D, "q_star": q[qi], "gamma_star": g[gi], "delta_star": dl[di],
+            "boundary": edge | top, "gamma_cap": top & ~edge}
 
 
 def kink_flags(q_list, tau, *, factor: float = 4.0, floor: float = 0.02) -> list:

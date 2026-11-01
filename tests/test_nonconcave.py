@@ -169,6 +169,29 @@ def test_the_shift_delta_is_a_third_axis_and_the_inversion_takes_its_infimum():
     assert np.any(fit["D"] < alone - 0.1)
 
 
+def test_a_minimum_at_gamma_zero_sits_on_no_delta_limit():
+    """At γ = 0 the inverted value q h − τ(q, 0, δ) is the same for every δ (the weights do not
+    see the shift), so the minimiser's δ is a tie broken by the first grid value: that is no
+    grid limit, and a Legendre-region minimum with q inside the grid is interior. The δ limits
+    still count wherever γ > 0, and ``gamma_cap`` marks the minima bounded by the largest γ
+    alone."""
+    q, g, dl = np.linspace(-2, 2, 9), np.array([0.0, 1.0, 2.0]), np.array([0.0, 0.5, 1.0])
+    # τ = q h₀ − 1 − 0.1 q² + γ (h₀ − δ)² − 0.1 γ (δ − ½)² + c γ: at h₀ the inverted value is
+    # 1 + 0.1 q² + 0.1 γ (δ − ½)² − c γ, smallest at q = 0, at δ = ½ once γ > 0, and at γ = 0
+    # (c < 0) or at the largest γ (c > 0).
+    h0 = 0.5
+    Q, G, DL = q[:, None, None], g[None, :, None], dl[None, None, :]
+    base = Q * h0 - 1.0 - 0.1 * Q ** 2 + G * (h0 - DL) ** 2 - 0.1 * G * (DL - 0.5) ** 2
+    fit = generalized_legendre(base - 0.3 * G, q, g, [h0], delta_list=dl)
+    assert fit["gamma_star"][0] == 0.0 and fit["q_star"][0] == 0.0 and fit["delta_star"][0] == dl.min()
+    assert not fit["boundary"][0] and not fit["gamma_cap"][0]
+    top = generalized_legendre(base + 0.3 * G, q, g, [h0], delta_list=dl)
+    assert top["gamma_star"][0] == g.max() and top["delta_star"][0] == 0.5
+    assert top["boundary"][0] and top["gamma_cap"][0]
+    edge = generalized_legendre(base + 0.3 * G, q, g, [h0 + 1.0], delta_list=dl)   # q and δ limits too
+    assert edge["q_star"][0] == q.min() and edge["boundary"][0] and not edge["gamma_cap"][0]
+
+
 def test_the_automatic_reference_amplitude_is_the_intercept_and_takes_an_amplitude_out():
     """Leonarduzzi et al. 2019 (18): the regression intercept c₁,₀ of the per-scale mean of
     log₂L is the amplitude the exponents are measured against; ``reference_amplitude="auto"``
