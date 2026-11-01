@@ -275,3 +275,117 @@ def test_the_ensemble_keeps_every_scale_and_fits_the_slopes_over_the_window_alon
     thin = gaussian_ensemble(mods, scales, q, gam, 2, 2.5, length_px=64., reference_amplitude=1.0)
     assert thin["n_scales"] == 1 and np.isnan(thin["tau"]).all()
     assert thin["log_partition"].shape[-1] == 5 and np.isfinite(thin["log_partition"]).all()
+
+
+# ------------------------------------------------- diagnostics of the generalized estimate
+
+def test_the_profile_in_gamma_flags_a_falling_estimate_and_passes_a_plateau():
+    """D(h; γ), the minimum over (q, δ) at each γ, on a monofractal at h* = 0.5 (τ = q h* +
+    γ h*² − 1): at h* every pair gives 1, a plateau, converged; at h = 0.4 the profile is
+    0.9 − 0.09 γ, falling by 0.09 per step, above the tolerance; at h = 0.6 it rises with γ. The
+    tolerance is max(0.01, 0.02 × the range of the finite estimate's values ≥ 0); the far h = 2,
+    with a negative estimate, does not widen it."""
+    from dynamix.core.nonconcave import gamma_convergence
+    q, g, h = np.array([-1.0, 0.0, 1.0]), np.array([0.0, 1.0, 2.0, 3.0]), np.array([0.4, 0.5, 0.6, 2.0])
+    tau = q[:, None] * 0.5 + g[None, :] * 0.25 - 1.0
+    c = gamma_convergence(tau, q, g, h)
+    np.testing.assert_allclose(c["profile"][:, 0], 0.9 - 0.09 * g, atol=1e-12)
+    np.testing.assert_allclose(c["profile"][:, 1], 1.0, atol=1e-12)
+    np.testing.assert_allclose(c["D"], generalized_legendre(tau, q, g, h)["D"], atol=1e-12)
+    assert c["decrease"][0] == pytest.approx(0.09) and c["decrease"][1] == pytest.approx(0.0, abs=1e-12)
+    assert c["D"][3] < 0
+    kept = c["D"][np.isfinite(c["D"]) & (c["D"] >= 0)]
+    assert c["tol"] == pytest.approx(max(0.01, 0.02 * (kept.max() - kept.min())))
+    assert c["converged"].tolist() == [False, True, True, True]          # h = 2 rises with γ
+    single = gamma_convergence(tau[:, :1], q, g[:1], h)                    # one γ: nothing to extend
+    assert single["converged"].all()
+
+
+def test_the_tolerance_scales_with_the_spectrum_s_range():
+    """A log-normal D(h) = top − (h − ½)²/(2λ), zero at h = 0 and 1, whose profile falls by 0.03
+    from γ = 0 to γ = 1 at h = ½: converged against a spectrum 2 high (tol 0.02 × 1.97), not
+    against one 1 high (tol 0.02 × 0.97)."""
+    from dynamix.core.nonconcave import gamma_convergence
+    q, g, h = np.arange(-10.0, 10.001, 0.25), np.array([0.0, 1.0]), np.array([0.0, 0.5, 1.0])
+    for top, expect in ((2.0, True), (1.0, False)):
+        lam = 0.125 / top
+        tau = 0.5 * q[:, None] - top - 0.5 * lam * q[:, None] ** 2 + 0.28 * g[None, :]
+        c = gamma_convergence(tau, q, g, h)
+        np.testing.assert_allclose(c["D"], [-0.28, top - 0.03, 0.0], atol=1e-9)
+        assert c["decrease"][1] == pytest.approx(0.03) and c["tol"] == pytest.approx(0.02 * (top - 0.03))
+        assert bool(c["converged"][1]) is expect
+
+
+def test_a_concave_parabola_has_no_hollow():
+    from dynamix.core.nonconcave import hollows
+    h = np.linspace(0.0, 1.0, 51)
+    out = hollows(h, 1.0 - 4.0 * (h - 0.5) ** 2, np.full(h.size, 0.02))
+    np.testing.assert_allclose(out["gap"], 0.0, atol=1e-12)
+    assert out["hollows"] == []
+
+
+def test_two_humps_leave_one_hollow_between_them():
+    """D = max of two caps at 0.3 and 0.7: the hull is flat at 1 between them and the gap
+    1 − D peaks at 0.8 at h = 0.5. With a half-width of 0.09 the hollow is where the gap
+    exceeds 0.18, h ∈ [0.40, 0.60], and it survives; with a half-width of 0.5 nothing clears
+    the band, and the stretch above the 0.05 floor, h ∈ [0.36, 0.64], is reported as not
+    surviving; with no jackknife the floor alone decides and survival is unknown."""
+    from dynamix.core.nonconcave import hollows
+    h = np.round(np.arange(0.0, 1.0001, 0.02), 10)
+    D = np.maximum(1 - 20 * (h - 0.3) ** 2, 1 - 20 * (h - 0.7) ** 2)
+    out = hollows(h, D, np.full(h.size, 0.09))
+    np.testing.assert_allclose(out["hull"][(h >= 0.3) & (h <= 0.7)], 1.0, atol=1e-12)
+    [hol] = out["hollows"]
+    assert (hol["h_lo"], hol["h_hi"]) == pytest.approx((0.40, 0.60))
+    assert hol["depth"] == pytest.approx(0.8) and hol["survives"] is True
+    [weak] = hollows(h, D, np.full(h.size, 0.5))["hollows"]
+    assert (weak["h_lo"], weak["h_hi"]) == pytest.approx((0.36, 0.64)) and weak["survives"] is False
+    [bare] = hollows(h, D)["hollows"]
+    assert (bare["h_lo"], bare["h_hi"]) == pytest.approx((0.36, 0.64)) and bare["survives"] is None
+
+
+def test_a_dip_shorter_than_three_points_is_no_hollow():
+    """One or two low points under a concave curve: the gap is there but the stretch is
+    shorter than three grid points. A missing point breaks a stretch."""
+    from dynamix.core.nonconcave import hollows
+    h = np.linspace(0.0, 1.0, 51)
+    D = 1.0 - 4.0 * (h - 0.5) ** 2
+    one = D.copy()
+    one[20] -= 0.3
+    out = hollows(h, one, np.zeros(h.size))
+    assert out["gap"][20] == pytest.approx(0.3, abs=0.002) and out["hollows"] == []   # less the chord's sag
+    two = D.copy()
+    two[20:22] -= 0.3
+    assert hollows(h, two, np.zeros(h.size))["hollows"] == []
+    holed = D.copy()
+    holed[20:25] -= 0.3
+    holed[22] = np.nan
+    assert hollows(h, holed, np.zeros(h.size))["hollows"] == []
+    holed[22] = D[22] - 0.3
+    assert len(hollows(h, holed, np.zeros(h.size))["hollows"]) == 1
+
+
+def test_the_jackknife_refits_are_the_ensemble_over_the_other_scales():
+    """Each leave-one-scale-out row is gaussian_ensemble over the window's other scales at the
+    reference amplitude the full fit used, inverted on the same h grid; the band is the min
+    and max over rows, the half-width half their difference."""
+    from dynamix.core.nonconcave import scale_jackknife
+    scales = 2.0 ** np.arange(1, 8)
+    rng = np.random.default_rng(5)
+    mods = [s ** 0.5 * rng.lognormal(0, 0.4, 200) for s in scales]
+    q, g, dl, h = np.linspace(-2, 2, 5), np.array([0.0, 2.0]), np.array([0.0, 0.5, 1.0]), np.linspace(0, 1, 11)
+    full = gaussian_ensemble(mods, scales, q, g, 2, 6, length_px=1024., delta_list=dl)
+    jack = scale_jackknife(full, h)
+    inside = np.flatnonzero(full["window"])
+    assert jack["D"].shape == (inside.size, h.size) and inside.size == 5
+    for row, k in zip(jack["D"], inside):
+        keep = [j for j in inside if j != k]
+        sub = gaussian_ensemble([mods[j] for j in keep], scales[keep], q, g, 2, 6, length_px=1024.,
+                                delta_list=dl, reference_amplitude=full["reference_amplitude"])
+        np.testing.assert_allclose(row, generalized_legendre(sub["tau"], q, g, h, delta_list=dl)["D"], atol=1e-9)
+    np.testing.assert_allclose(jack["lo"], jack["D"].min(axis=0))
+    np.testing.assert_allclose(jack["half_width"], 0.5 * (jack["D"].max(axis=0) - jack["D"].min(axis=0)))
+    np.testing.assert_allclose(np.log2(jack["left_out"]), np.log2(scales[inside]))
+    stop = iter([False, True])
+    with pytest.raises(InterruptedError):
+        scale_jackknife(full, h, cancel=lambda: next(stop))

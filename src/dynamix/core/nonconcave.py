@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["gaussian_ensemble", "generalized_legendre", "kink_flags"]
+__all__ = ["gamma_convergence", "gaussian_ensemble", "generalized_legendre", "hollows", "kink_flags", "scale_jackknife"]
 
 
 def _slopes(x: np.ndarray, Y: np.ndarray) -> np.ndarray:
@@ -266,6 +266,127 @@ def generalized_legendre(tau, q_list, gamma_list, h_grid, delta_list=None):
     top = g[gi] == g.max()
     return {"h": h, "D": D, "q_star": q[qi], "gamma_star": g[gi], "delta_star": dl[di],
             "boundary": edge | top, "gamma_cap": top & ~edge}
+
+
+def _tau3(tau, q, g, dl) -> np.ndarray:
+    t = np.asarray(tau, dtype=float)
+    t = t[:, :, None] if t.ndim == 2 else t
+    if t.shape != (q.size, g.size, dl.size):
+        raise ValueError("tau shape must match nonempty q/gamma/delta grids")
+    return t
+
+
+def gamma_convergence(tau, q_list, gamma_list, h_grid, delta_list=None) -> dict:
+    """Whether the estimate of :func:`generalized_legendre` has stopped falling with γ at each h.
+
+    The profile D(h; γ) = min over (q, δ) of q h + γ (h − δ)² − τ(q, γ, δ), one row per γ of the
+    grid; its minimum over γ is the estimate D(h). On finite data the profile keeps falling as γ
+    grows (the Boltzmann weights close on the coefficient line nearest h, and without a bound on
+    γ the estimate goes to −∞ wherever no line sits at h), so a value is trusted only where the
+    last γ step barely moved it: ``decrease`` = D(h; γ_{n−1}) − D(h; γ_n) over the two largest γ,
+    and ``converged`` = decrease < tol with tol = max(0.01, 0.02 (max D − min D)), the range
+    over the finite values D ≥ 0 (a negative value marks an unsupported h and would widen the
+    tolerance). With a single γ every h is converged. Returns ``{"profile", "D", "decrease",
+    "tol", "converged"}``."""
+    q, g, h = (np.asarray(v, dtype=float) for v in (q_list, gamma_list, h_grid))
+    dl = np.asarray([0.0] if delta_list is None else delta_list, dtype=float)
+    if min(q.size, g.size, dl.size, h.size) == 0:
+        raise ValueError("q, gamma, delta and h grids must be nonempty")
+    t = _tau3(tau, q, g, dl)
+    profile = np.full((g.size, h.size), np.inf)
+    step = max(1, 4_000_000 // t.size)
+    for start in range(0, h.size, step):
+        hk = h[start:start + step]
+        v = q[:, None, None, None] * hk + g[None, :, None, None] * (hk - dl[None, None, :, None]) ** 2 - t[..., None]
+        profile[:, start:start + step] = np.where(np.isfinite(v), v, np.inf).min(axis=(0, 2))
+    profile[np.isinf(profile)] = np.nan
+    profile = profile[np.argsort(g, kind="stable")]
+    D = np.full(h.size, np.nan)
+    some = np.isfinite(profile).any(axis=0)
+    D[some] = np.nanmin(profile[:, some], axis=0)
+    kept = D[np.isfinite(D) & (D >= 0)]
+    tol = max(0.01, 0.02 * float(kept.max() - kept.min())) if kept.size else 0.01
+    decrease = profile[-2] - profile[-1] if g.size > 1 else np.zeros(h.size)
+    converged = np.ones(h.size, bool) if g.size == 1 else decrease < tol
+    return {"profile": profile, "D": D, "decrease": decrease, "tol": tol, "converged": converged}
+
+
+def scale_jackknife(ensemble: dict, h_grid, *, cancel=None) -> dict:
+    """Leave-one-scale-out refits of :func:`gaussian_ensemble`'s generalized spectrum.
+
+    For each scale inside the ensemble's window, τ(q, γ, δ) is refitted over the window's other
+    scales and inverted by :func:`generalized_legendre` on ``h_grid``. The refits keep the
+    ensemble's reference amplitude, so the per-scale sums are its own ``log_partition`` and each
+    row equals gaussian_ensemble over the remaining scales with ``reference_amplitude`` set to
+    the one the ensemble used. Returns ``{"D"`` (one row per scale left out), ``"lo"``, ``"hi"``
+    (the min and max over rows), ``"half_width"`` = (hi − lo)/2, ``"left_out"`` (the scales)``}``."""
+    q, g, dl = (np.asarray(ensemble[k], dtype=float) for k in ("q", "gamma", "delta"))
+    z = np.asarray(ensemble["log_partition"], dtype=float)
+    z = z[:, :, None, :] if z.ndim == 3 else z
+    inside = np.asarray(ensemble["window"], dtype=bool)
+    la = np.log(np.asarray(ensemble["scales"], dtype=float))
+    if inside.sum() < 3:
+        raise ValueError("a leave-one-scale-out refit needs at least three scales in the window")
+    rows = []
+    for k in np.flatnonzero(inside):
+        if cancel is not None and cancel():
+            raise InterruptedError("leave-one-scale-out refits cancelled")
+        keep = inside.copy()
+        keep[k] = False
+        rows.append(generalized_legendre(_slopes(la[keep], z[..., keep]), q, g, h_grid, delta_list=dl)["D"])
+    D = np.array(rows)
+    lo, hi = np.full(D.shape[1], np.nan), np.full(D.shape[1], np.nan)
+    some = np.isfinite(D).any(axis=0)
+    lo[some], hi[some] = np.nanmin(D[:, some], axis=0), np.nanmax(D[:, some], axis=0)
+    return {"D": D, "lo": lo, "hi": hi, "half_width": 0.5 * (hi - lo), "left_out": np.exp(la[inside])}
+
+
+def _upper_hull(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """The upper concave hull of the points (x, y), x ascending, at x (monotone chain)."""
+    keep: list[int] = []
+    for i in range(x.size):
+        while len(keep) >= 2:
+            a, b = keep[-2], keep[-1]
+            if (x[b] - x[a]) * (y[i] - y[a]) - (y[b] - y[a]) * (x[i] - x[a]) < 0:
+                break
+            keep.pop()                       # b lies on or under the chord from a to i
+        keep.append(i)
+    return np.interp(x, x[keep], y[keep])
+
+
+def _stretches(mask: np.ndarray, run: int) -> list:
+    """The [start, stop) index ranges of at least ``run`` consecutive True."""
+    edges = np.diff(np.concatenate(([0], mask.astype(np.int8), [0])))
+    return [(a, b) for a, b in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1)) if b - a >= run]
+
+
+def hollows(h_grid, D, half_width=None, *, floor: float = 0.05, run: int = 3) -> dict:
+    """The hollows of a spectrum estimate below its upper concave hull, on an ascending h grid.
+
+    ``hull`` is the upper concave hull of the points (h, D) with finite D, ``gap`` = hull − D at
+    those points (NaN elsewhere). A hollow is a stretch of at least ``run`` consecutive grid
+    points, a missing point breaking it, where the gap exceeds max(``floor``, 2 ``half_width``),
+    the leave-one-scale-out half-width at that h: it survives the jackknife. A stretch of
+    ``run`` points above ``floor`` with no surviving hollow inside is reported with ``survives``
+    False; without ``half_width`` the floor alone decides and ``survives`` is None. Each hollow
+    is ``{"h_lo", "h_hi", "depth", "survives"}``, its first and last h and its largest gap."""
+    h, y = np.asarray(h_grid, dtype=float), np.asarray(D, dtype=float)
+    ok = np.isfinite(y)
+    hull, gap = np.full(h.size, np.nan), np.full(h.size, np.nan)
+    if ok.sum() >= 2:
+        hull[ok] = _upper_hull(h[ok], y[ok])
+        gap[ok] = hull[ok] - y[ok]
+
+    def found(a, b, survives):
+        return {"h_lo": float(h[a]), "h_hi": float(h[b - 1]), "depth": float(gap[a:b].max()), "survives": survives}
+    above = _stretches(gap > floor, run)
+    if half_width is None:
+        return {"hull": hull, "gap": gap, "hollows": [found(a, b, None) for a, b in above]}
+    hw = np.asarray(half_width, dtype=float)
+    deep = _stretches(gap > np.where(np.isfinite(hw), np.maximum(floor, 2.0 * hw), np.inf), run)
+    out = [found(a, b, True) for a, b in deep]
+    out += [found(a, b, False) for a, b in above if not any(a <= c < b for c, _ in deep)]
+    return {"hull": hull, "gap": gap, "hollows": sorted(out, key=lambda hol: hol["h_lo"])}
 
 
 def kink_flags(q_list, tau, *, factor: float = 4.0, floor: float = 0.02) -> list:
