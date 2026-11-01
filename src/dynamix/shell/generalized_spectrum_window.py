@@ -215,7 +215,10 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         for line in (*self.bracket_lines, self.bracket_caption):
             line.setVisible(False)
             self.plot.addItem(line, ignoreBounds=True)
+        # The hollows' shading and dotted sides stop at the caption's foot: their span, a fraction
+        # of the view's height, is refitted whenever the view resizes.
         self._hollow_items: list = []
+        self.plot.vb.sigResized.connect(lambda _vb: self._fit_hollow_span())
         # The title row carries the hollow captions. Its text claims no width, so the text's
         # length never moves the split between the panel columns: a zero maximum width bounds the
         # minimum the label sets from its text on every resize, and the label sits at the column's
@@ -413,10 +416,24 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         shade.setAlpha(22)
         for hol in found:
             region = pg.LinearRegionItem(values=(hol["h_lo"], hol["h_hi"]), movable=False, brush=pg.mkBrush(shade),
-                                         pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DotLine))
+                                         pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DotLine),
+                                         span=self._hollow_span())
             region.setZValue(-4)
             self.plot.addItem(region, ignoreBounds=True)
             self._hollow_items.append(region)
+
+    def _hollow_span(self) -> tuple:
+        """From the view's bottom to 1 px below the caption hanging from its top edge."""
+        view = self.plot.vb.height()
+        caption = self.bracket_caption.label.textItem.boundingRect().height() + 1.0
+        return (0.0, max(0.0, 1.0 - caption / view) if view > 0 else 1.0)
+
+    def _fit_hollow_span(self) -> None:
+        span = self._hollow_span()
+        for region in self._hollow_items:
+            region.setSpan(*span)
+            for line in region.lines:
+                line.viewTransformChanged()           # a line caches its extent until the view changes
 
     def _set_title_lines(self, lines) -> None:
         """The spectrum panel's title row, above the view: captions there never cover the data,

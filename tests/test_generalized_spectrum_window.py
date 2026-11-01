@@ -369,8 +369,15 @@ def _settle():
         QtWidgets.QApplication.processEvents()
 
 
-def _no_overlap(labels):
-    return all(not a.intersects(b) for i, (_, a) in enumerate(labels) for _, b in labels[i + 1:])
+def _borders(w):
+    """The hollows' dotted sides on the spectrum panel, as scene rectangles."""
+    return [line.sceneBoundingRect() for it in w.plot.items if isinstance(it, pg.LinearRegionItem) for line in it.lines]
+
+
+def _no_overlap(labels, borders=()):
+    """No two texts overlap, and no text crosses a hollow's side."""
+    return (all(not a.intersects(b) for i, (_, a) in enumerate(labels) for _, b in labels[i + 1:])
+            and not any(rect.intersects(side) for _, rect in labels for side in borders))
 
 
 def test_a_concave_cascade_has_no_hollow_and_a_narrow_bracket_has_one_label(qtbot, monkeypatch):
@@ -418,7 +425,24 @@ def test_two_populations_leave_a_hollow_that_survives_the_jackknife(qtbot):
     assert "leave-one-scale-out" in [label.text for _, label in w.legend.items]
     texts = [text for text, _ in _labels(w)]
     assert "grid-bracketed" in texts and any(t.startswith("hollow: h ∈") and "survives" in t for t in texts)
-    assert _no_overlap(_labels(w))
+    assert _no_overlap(_labels(w), _borders(w))
+
+
+def test_the_hollow_s_sides_stop_below_the_grid_bracketed_caption_at_every_size(qtbot):
+    """The two-population hollow lies under the "grid-bracketed" caption at the top of the view:
+    its shading and dotted sides stop 1 px below the caption's foot, and the span is refitted
+    when the window resizes."""
+    w = _computed(qtbot, _two_population_sets(), q_max=None)
+    caption = w.bracket_caption.label
+    for size in ((1400, 900), (1180, 700), (1600, 1100)):
+        w.resize(*size)
+        _settle()
+        sides, cap = _borders(w), caption.sceneBoundingRect()
+        assert len(sides) == 2 and all(cap.left() < side.center().x() < cap.right() for side in sides)
+        assert _no_overlap(_labels(w), sides)
+        view = w.plot.vb.sceneBoundingRect()
+        assert all(abs(side.top() - (cap.bottom() + 1.0)) < 0.5 and abs(side.bottom() - view.bottom()) < 1.0
+                   for side in sides)
 
 
 def test_on_the_default_q_grid_one_dip_is_one_hollow_whose_caption_stands_clear_of_the_data(qtbot):
@@ -436,7 +460,7 @@ def test_on_the_default_q_grid_one_dip_is_one_hollow_whose_caption_stands_clear_
     wide = _computed(qtbot, _two_population_sets()).current_fit()["hollows"]
     assert [(x["h_lo"], x["h_hi"], x["survives"]) for x in wide] == [(hol["h_lo"], hol["h_hi"], True)]
     labels = _labels(w)
-    assert _no_overlap(labels)
+    assert _no_overlap(labels, _borders(w))
     lines = [line for text, _ in labels for line in text.splitlines() if line.startswith("hollow")]
     assert lines == [gsw._hollow_text(hol) for hol in fit["hollows"]]
     view = w.plot.vb.sceneBoundingRect()
