@@ -307,11 +307,13 @@ def _two_population_sets():
     return {"two populations": {"scales": SCALES, "mods": mods, "weights": None}}
 
 
-def _computed(qtbot, sets, window=None):
+def _computed(qtbot, sets, window=None, q_max=8.0):
+    """Computed over q in [-q_max, q_max]; None keeps the window's default q grid."""
     w = GeneralizedSpectrumWindow(sets, log2_L=LOG2_L)
     qtbot.addWidget(w)
-    w.spins["q min"].setValue(-8)
-    w.spins["q max"].setValue(8)
+    if q_max is not None:
+        w.spins["q min"].setValue(-q_max)
+        w.spins["q max"].setValue(q_max)
     if window is not None:
         w.set_scale_window(*window)
     with qtbot.waitSignal(w.fitChanged, timeout=60000):
@@ -322,12 +324,20 @@ def _computed(qtbot, sets, window=None):
 
 
 def _labels(w):
-    """The visible text on the spectrum panel, as scene rectangles: the lines' labels and the
-    captions."""
+    """The visible text on the spectrum panel, as scene rectangles: the lines' labels, any text
+    item in the view and the title row."""
     texts = [it.label for it in w.plot.items if isinstance(it, pg.InfiniteLine) and hasattr(it, "label")
              and it.isVisible()]
     texts += [it for it in w.plot.items if isinstance(it, pg.TextItem) and it.isVisible()]
+    if w.plot.titleLabel.isVisible() and w.plot.titleLabel.item.toPlainText():
+        texts.append(w.plot.titleLabel.item)
     return [(t.toPlainText(), t.sceneBoundingRect()) for t in texts]
+
+
+def _settle():
+    """After a resize or a retitle the panels take their new layout over a few passes of the event loop."""
+    for _ in range(5):
+        QtWidgets.QApplication.processEvents()
 
 
 def _no_overlap(labels):
@@ -350,7 +360,7 @@ def test_a_concave_cascade_has_no_hollow_and_a_narrow_bracket_has_one_label(qtbo
     assert f"{fit['gamma_converged']['n']} of {fit['gamma_converged']['of']} h converged in γ" in w.readout.text()
     assert "minima inside the grid for h in [1.5, 1.56]" in w.readout.text() and fit["grid_bracketed"] == (1.50, 1.56)
     labels = _labels(w)
-    assert [text for text, _ in labels] == ["grid-bracketed"]
+    assert [text for text, _ in labels] == ["grid-bracketed", "no hollow beyond the jackknife band"]
     assert not any(hasattr(line, "label") for line in w.bracket_lines)
     assert abs(w.bracket_caption.value() - 1.53) < 1e-9 and _no_overlap(labels)
 
@@ -380,6 +390,26 @@ def test_two_populations_leave_a_hollow_that_survives_the_jackknife(qtbot):
     texts = [text for text, _ in _labels(w)]
     assert "grid-bracketed" in texts and any(t.startswith("hollow: h ∈") and "survives" in t for t in texts)
     assert _no_overlap(_labels(w))
+
+
+def test_on_the_default_q_grid_two_hollow_captions_overlap_nothing_and_stand_clear_of_the_data(qtbot):
+    """On the default q grid (±4) a q-limit dot splits the two-population dip into two hollows.
+    Their captions overlap neither each other nor the "grid-bracketed" caption, none of them
+    lies over the plotted data, and their length does not move the panels' column split."""
+    w = _computed(qtbot, _two_population_sets(), q_max=None)
+    w.resize(1400, 900)
+    _settle()
+    fit = w.current_fit()
+    assert w.spins["q min"].value() == -4 and w.spins["q max"].value() == 4 and len(fit["hollows"]) >= 2
+    labels = _labels(w)
+    assert _no_overlap(labels)
+    lines = [line for text, _ in labels for line in text.splitlines() if line.startswith("hollow")]
+    assert lines == [gsw._hollow_text(hol) for hol in fit["hollows"]]
+    view = w.plot.vb.sceneBoundingRect()
+    assert not any(rect.intersects(view) for text, rect in labels if text.startswith("hollow"))
+    w._retract()
+    _settle()
+    assert abs(w.plot.vb.sceneBoundingRect().width() - view.width()) < 1.0
 
 
 def test_the_jackknife_is_skipped_below_five_scales_and_says_so(qtbot):

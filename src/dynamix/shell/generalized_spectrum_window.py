@@ -53,10 +53,10 @@ def _diagnose(result: dict, cancel=None) -> dict:
             "open": finite & ~pinned & ~solid, "legendre": legendre, "band": band, "hollow_test": test}
 
 
-def _hollow_text(hol: dict, gap: str = " ") -> str:
+def _hollow_text(hol: dict) -> str:
     verdict = {True: "survives the jackknife", False: "does not survive the jackknife",
                None: "jackknife skipped"}[hol["survives"]]
-    return f"hollow: h ∈ [{hol['h_lo']:.3g}, {hol['h_hi']:.3g}],{gap}depth {hol['depth']:.2f}, {verdict}"
+    return f"hollow: h ∈ [{hol['h_lo']:.3g}, {hol['h_hi']:.3g}], depth {hol['depth']:.2f}, {verdict}"
 
 
 def _grid_bracketed(h, D, boundary):
@@ -204,16 +204,24 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         for item in (self.open_points, self.boundary_points):
             self.plot.addItem(item)
         # The h range whose minima lie inside the (q, γ, δ) grid: two dashed lines and one caption
-        # between them, so a narrow range never stacks two labels.
+        # between them, so a narrow range never stacks two labels. The caption hangs from the
+        # view's top edge, inside the view, clear of the title row above it.
         floor_pen = pg.mkPen(muted, style=QtCore.Qt.DashLine)
         self.bracket_lines = tuple(pg.InfiniteLine(angle=90, movable=False, pen=floor_pen) for _ in range(2))
         self.bracket_caption = pg.InfiniteLine(
             angle=90, movable=False, pen=pg.mkPen(None), label="grid-bracketed",
-            labelOpts={"position": 0.95, "color": muted, "anchors": [(0.5, 0.5), (0.5, 0.5)]})
+            labelOpts={"position": 1.0, "color": muted, "anchors": [(0.5, 0.0), (0.5, 0.0)]})
         for line in (*self.bracket_lines, self.bracket_caption):
             line.setVisible(False)
             self.plot.addItem(line, ignoreBounds=True)
         self._hollow_items: list = []
+        # The title row carries the hollow captions. Its text claims no width, so the text's
+        # length never moves the split between the panel columns: a zero maximum width bounds the
+        # minimum the label sets from its text on every resize, and the label sits at the column's
+        # centre with its text centred on it.
+        self.plot.titleLabel.setMaximumWidth(0)
+        self.plot.layout.setAlignment(self.plot.titleLabel, QtCore.Qt.AlignHCenter)
+        self._set_title_lines([])
         self.diagram_plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())
         self.diagram_plot.setLabel("bottom", "log₂ a")
         self.diagram_plot.setLabel("left", "log₂ Z_g(q, a)")
@@ -380,7 +388,8 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._show_band_entry(False)
         for line in (*self.bracket_lines, self.bracket_caption):
             line.setVisible(False)
-        self._draw_hollows([], np.empty(0), np.empty(0))
+        self._draw_hollows([])
+        self._set_title_lines([])
 
     def _show_band_entry(self, on: bool) -> None:
         self.legend.removeItem(self._band_sample)
@@ -394,24 +403,30 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             for line, value in zip((*self.bracket_lines, self.bracket_caption), (*bracket, sum(bracket) / 2)):
                 line.setValue(value)
 
-    def _draw_hollows(self, found, h, D) -> None:
-        """A shaded h range per hollow, captioned just under the estimate's lowest point inside
-        it; each later caption steps further down, so two never share a line."""
+    def _draw_hollows(self, found) -> None:
+        """A shaded h range per hollow inside the view; the captions go to the title row."""
         for item in self._hollow_items:
             self.plot.removeItem(item)
         self._hollow_items.clear()
         shade = pg.mkColor(current().ink)
         shade.setAlpha(22)
-        for k, hol in enumerate(found):
+        for hol in found:
             region = pg.LinearRegionItem(values=(hol["h_lo"], hol["h_hi"]), movable=False, brush=pg.mkBrush(shade),
                                          pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DotLine))
             region.setZValue(-4)
-            on = (h >= hol["h_lo"]) & (h <= hol["h_hi"]) & np.isfinite(D)
-            caption = pg.TextItem(_hollow_text(hol, "\n"), color=current().ink, anchor=(0.5, 0))
-            caption.setPos(0.5 * (hol["h_lo"] + hol["h_hi"]), float(D[on].min()) - 0.08 - 0.35 * k)
-            for item in (region, caption):
-                self.plot.addItem(item, ignoreBounds=True)
-                self._hollow_items.append(item)
+            self.plot.addItem(region, ignoreBounds=True)
+            self._hollow_items.append(region)
+
+    def _set_title_lines(self, lines) -> None:
+        """The spectrum panel's title row, above the view: captions there never cover the data,
+        and its lines stack in one text block, so two never overlap. An empty row keeps one
+        line's height, so the panel does not jump between a retract and a Compute."""
+        title = self.plot.titleLabel
+        title.setText("<br>".join(lines), color=current().ink, size="9pt")
+        height = title.item.boundingRect().height() + 4.0      # 2 px clear of the view's top edge
+        title.setVisible(True)
+        title.setMaximumHeight(height)
+        self.plot.layout.setRowFixedHeight(0, height)
 
     def _cancel(self):
         self._generation += 1
@@ -479,7 +494,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         bracket = _grid_bracketed(h, D, result["boundary"])
         self._draw_bracket(bracket)
         found = result["hollow_test"]["hollows"]
-        self._draw_hollows(found, h, D)
+        self._draw_hollows(found)
         self.plot.setXRange(-1.0, 3.0, padding=0.0)              # the spectrum's own window
         self.plot.setYRange(-0.5, 2.5, padding=0.0)
         conv = result["convergence"]
@@ -509,8 +524,10 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             widest = jackknife["max_half_width"]
             spread = (f"leave-one-scale-out band over {jackknife['n_refits']} refits (c₁,₀ held)"
                       + (f", max half-width {widest:.3f} on the curve" if widest is not None else ""))
-        verdict = ("; ".join(_hollow_text(hol) for hol in found) if found else
-                   "no hollow beyond the jackknife band" if band is not None else "no hollow deeper than 0.05")
+        verdicts = ([_hollow_text(hol) for hol in found] if found else
+                    ["no hollow beyond the jackknife band" if band is not None else "no hollow deeper than 0.05"])
+        self._set_title_lines(verdicts)
+        verdict = "; ".join(verdicts)
         self.readout.setText(
             f"{g['n_scales']} of {np.size(g['scales'])} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
             f"c₁,₀ = log₂ {g['reference_amplitude']:.3g} = {np.log2(g['reference_amplitude']):.2f}"
