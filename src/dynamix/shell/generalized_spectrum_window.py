@@ -10,13 +10,59 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import spectra
-from dynamix.core.nonconcave import gaussian_ensemble, generalized_legendre
+from dynamix.core.nonconcave import (gamma_convergence, gaussian_ensemble, generalized_legendre, hollows,
+                                     scale_jackknife)
 from dynamix.core.partition_tables import moment_grid
 from dynamix.shell.theme import current
 from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color, add_zero_lines
 from dynamix.shell.plot_zoom import zoom_plot  # noqa: F401  (the source scan's marker; the panels take WheelAxisViewBox)
 from dynamix.shell.shared_range import SharedRangeFollower
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
+
+
+#: The fewest scales in the window for the leave-one-scale-out band.
+JACKKNIFE_MIN_SCALES = 5
+
+
+def _diagnose(result: dict, cancel=None) -> dict:
+    """The diagnostics drawn with the estimate. A minimum on a q or δ limit is a bound and stays
+    a loose dot; one held by the largest γ alone is judged by the γ profile: converged, it joins
+    the curve, still falling, it is an open circle. Beneath: the Legendre spectrum from the γ = 0
+    column of the same τ table, and the leave-one-scale-out band. The hollow test runs on the
+    curve's points against that band."""
+    g = result["ensemble"]
+    h, D = np.asarray(result["h"], float), np.asarray(result["D"], float)
+    tau = np.asarray(g["tau"], float)
+    tau = tau[:, :, None] if tau.ndim == 2 else tau
+    gammas, deltas = np.asarray(g["gamma"], float), np.asarray(g["delta"], float)
+    convergence = gamma_convergence(tau, g["q"], gammas, h, delta_list=deltas)
+    boundary = np.asarray(result["boundary"], bool)
+    cap = np.asarray(result.get("gamma_cap", np.zeros(h.size, bool)), bool)
+    finite = np.isfinite(D)
+    pinned = finite & boundary & ~cap
+    solid = finite & ~pinned & convergence["converged"]
+    zero = np.flatnonzero(gammas == 0.0)
+    legendre = None
+    if zero.size:
+        # At γ = 0 every δ column is the same table: the δ = 0 one, or the first.
+        di = int(np.flatnonzero(deltas == 0.0)[0]) if (deltas == 0.0).any() else 0
+        legendre = generalized_legendre(tau[:, zero[:1], di], g["q"], [0.0], h)["D"]
+    band = scale_jackknife(g, h, cancel=cancel) if g["n_scales"] >= JACKKNIFE_MIN_SCALES else None
+    test = hollows(h, np.where(solid, D, np.nan), None if band is None else band["half_width"])
+    return {**result, "convergence": convergence, "pinned": pinned, "solid": solid,
+            "open": finite & ~pinned & ~solid, "legendre": legendre, "band": band, "hollow_test": test}
+
+
+def _hollow_text(hol: dict, gap: str = " ") -> str:
+    verdict = {True: "survives the jackknife", False: "does not survive the jackknife",
+               None: "jackknife skipped"}[hol["survives"]]
+    return f"hollow: h ∈ [{hol['h_lo']:.3g}, {hol['h_hi']:.3g}],{gap}depth {hol['depth']:.2f}, {verdict}"
+
+
+def _grid_bracketed(h, D, boundary):
+    """The h range whose minima lie inside the (q, γ, δ) grid, or None."""
+    inside = np.asarray(h, float)[~np.asarray(boundary, bool) & np.isfinite(D)]
+    return (float(inside.min()), float(inside.max())) if inside.size else None
 
 
 class _Signals(QtCore.QObject):
@@ -41,6 +87,8 @@ class _Job(QtCore.QRunnable):
                                   cancel=self.cancel.is_set)
             fit = generalized_legendre(g["tau"], s["q"], s["gamma"], s["h"], delta_list=s["delta"])
             result = {**fit, "ensemble": g, "settings": s}
+            if g["n_scales"] >= 3:
+                result = _diagnose(result, cancel=self.cancel.is_set)
         except Exception as exc:
             result = {"error": str(exc)}
         self.signals.done.emit(self.generation, result)
@@ -130,18 +178,42 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.plot = self._glw.addPlot(row=0, col=0, viewBox=WheelAxisViewBox())     # wheel: x; Shift: y
         self.plot.setLabel("bottom", "h")
         self.plot.setLabel("left", "generalized spectrum upper estimate")
-        self.curve = self.plot.plot(pen=pg.mkPen(current().ink, width=2), connect="finite")
-        self.boundary_points = self.plot.plot(pen=None, symbol="o", symbolSize=4)
-        # h_min and h_max: the last interior minima; outside them the minima sit on the grid's
-        # boundary, Touchette & Beck's −∞ floor with an unbounded grid.
-        floor_pen = pg.mkPen(current().ink_muted, style=QtCore.Qt.DashLine)
-        self.h_min_line = pg.InfiniteLine(angle=90, movable=False, pen=floor_pen, label="h_min",
-                                          labelOpts={"position": 0.9, "color": current().ink_muted})
-        self.h_max_line = pg.InfiniteLine(angle=90, movable=False, pen=floor_pen, label="h_max",
-                                          labelOpts={"position": 0.9, "color": current().ink_muted})
-        for line in (self.h_min_line, self.h_max_line):
+        self.legend = self.plot.addLegend(offset=(-5, 5))
+        ink, muted = current().ink, current().ink_muted
+        # Beneath the estimate: the leave-one-scale-out band (min to max over the refits) and the
+        # Legendre spectrum of the same τ table.
+        shade = pg.mkColor(ink)
+        shade.setAlpha(45)
+        edge = pg.mkColor(ink)
+        edge.setAlpha(70)
+        self.band_lo = self.plot.plot(pen=pg.mkPen(edge, width=0.5))
+        self.band_hi = self.plot.plot(pen=pg.mkPen(edge, width=0.5))
+        self.band = pg.FillBetweenItem(self.band_lo, self.band_hi, brush=pg.mkBrush(shade))
+        self.plot.addItem(self.band)
+        self._band_sample = pg.PlotDataItem(pen=pg.mkPen(shade, width=8))      # the legend's swatch
+        self.legendre_curve = self.plot.plot(pen=pg.mkPen(muted, width=1), connect="finite",
+                                             name="Legendre (γ = 0)")
+        for z, item in ((-3, self.band), (-2, self.band_lo), (-2, self.band_hi), (-1, self.legendre_curve)):
+            item.setZValue(z)
+        self.curve = self.plot.plot(pen=pg.mkPen(ink, width=2), connect="finite", name="generalized, γ-converged")
+        # Scatter items: their legend swatches show the symbol before any point is drawn.
+        self.open_points = pg.ScatterPlotItem(symbol="o", size=6, pen=pg.mkPen(ink), brush=pg.mkBrush(None),
+                                              name="still falling at γ max")
+        self.boundary_points = pg.ScatterPlotItem(symbol="o", size=4, pen=pg.mkPen(None), brush=pg.mkBrush(muted),
+                                                  name="on a q or δ limit")
+        for item in (self.open_points, self.boundary_points):
+            self.plot.addItem(item)
+        # The h range whose minima lie inside the (q, γ, δ) grid: two dashed lines and one caption
+        # between them, so a narrow range never stacks two labels.
+        floor_pen = pg.mkPen(muted, style=QtCore.Qt.DashLine)
+        self.bracket_lines = tuple(pg.InfiniteLine(angle=90, movable=False, pen=floor_pen) for _ in range(2))
+        self.bracket_caption = pg.InfiniteLine(
+            angle=90, movable=False, pen=pg.mkPen(None), label="grid-bracketed",
+            labelOpts={"position": 0.95, "color": muted, "anchors": [(0.5, 0.5), (0.5, 0.5)]})
+        for line in (*self.bracket_lines, self.bracket_caption):
             line.setVisible(False)
             self.plot.addItem(line, ignoreBounds=True)
+        self._hollow_items: list = []
         self.diagram_plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())
         self.diagram_plot.setLabel("bottom", "log₂ a")
         self.diagram_plot.setLabel("left", "log₂ Z_g(q, a)")
@@ -303,8 +375,43 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         if self._last_name:
             self.fitChanged.emit({"name": self._last_name, "valid": False})
         self._fit = None
-        self.curve.setData([], [])
-        self.boundary_points.setData([], [])
+        for item in (self.curve, self.open_points, self.boundary_points, self.legendre_curve, self.band_lo, self.band_hi):
+            item.setData([], [])
+        self._show_band_entry(False)
+        for line in (*self.bracket_lines, self.bracket_caption):
+            line.setVisible(False)
+        self._draw_hollows([], np.empty(0), np.empty(0))
+
+    def _show_band_entry(self, on: bool) -> None:
+        self.legend.removeItem(self._band_sample)
+        if on:
+            self.legend.addItem(self._band_sample, "leave-one-scale-out")
+
+    def _draw_bracket(self, bracket) -> None:
+        for line in (*self.bracket_lines, self.bracket_caption):
+            line.setVisible(bracket is not None)
+        if bracket is not None:
+            for line, value in zip((*self.bracket_lines, self.bracket_caption), (*bracket, sum(bracket) / 2)):
+                line.setValue(value)
+
+    def _draw_hollows(self, found, h, D) -> None:
+        """A shaded h range per hollow, captioned just under the estimate's lowest point inside
+        it; each later caption steps further down, so two never share a line."""
+        for item in self._hollow_items:
+            self.plot.removeItem(item)
+        self._hollow_items.clear()
+        shade = pg.mkColor(current().ink)
+        shade.setAlpha(22)
+        for k, hol in enumerate(found):
+            region = pg.LinearRegionItem(values=(hol["h_lo"], hol["h_hi"]), movable=False, brush=pg.mkBrush(shade),
+                                         pen=pg.mkPen(current().ink_muted, style=QtCore.Qt.DotLine))
+            region.setZValue(-4)
+            on = (h >= hol["h_lo"]) & (h <= hol["h_hi"]) & np.isfinite(D)
+            caption = pg.TextItem(_hollow_text(hol, "\n"), color=current().ink, anchor=(0.5, 0))
+            caption.setPos(0.5 * (hol["h_lo"] + hol["h_hi"]), float(D[on].min()) - 0.08 - 0.35 * k)
+            for item in (region, caption):
+                self.plot.addItem(item, ignoreBounds=True)
+                self._hollow_items.append(item)
 
     def _cancel(self):
         self._generation += 1
@@ -353,22 +460,38 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         if g["n_scales"] < 3:
             self.readout.setText("At least three nonempty scales are required for a spectrum fit.")
             return
-        # A minimum on the grid's boundary is a bound, never a value: the line connects the
-        # interior minima only, the boundary ones stay as loose dots (Touchette & Beck's floor
-        # outside [h_min, h_max] is where those would fall with an unbounded grid).
-        b = result["boundary"] & np.isfinite(result["D"])
-        self.curve.setData(result["h"], np.where(b, np.nan, result["D"]))
-        self.boundary_points.setData(result["h"][b], result["D"][b])
-        inside = np.asarray(result["h"], float)[~b & np.isfinite(result["D"])]
-        for line, value in ((self.h_min_line, inside.min() if inside.size else None),
-                            (self.h_max_line, inside.max() if inside.size else None)):
-            line.setVisible(value is not None)
-            if value is not None:
-                line.setValue(float(value))
+        # A minimum on a q or δ limit is a bound, never a value: it stays a loose dot. One held
+        # by the largest γ alone joins the curve once the γ profile has stopped falling and is an
+        # open circle while it still falls (Touchette & Beck's −∞ with an unbounded γ).
+        h, D = np.asarray(result["h"], float), np.asarray(result["D"], float)
+        solid, falling, pinned = (np.asarray(result[k], bool) for k in ("solid", "open", "pinned"))
+        self.curve.setData(h, np.where(solid, D, np.nan))
+        self.open_points.setData(h[falling], D[falling])
+        self.boundary_points.setData(h[pinned], D[pinned])
+        if result["legendre"] is not None:
+            self.legendre_curve.setData(h, result["legendre"])
+        band = result["band"]
+        if band is not None:
+            both = np.isfinite(band["lo"]) & np.isfinite(band["hi"])
+            self.band_lo.setData(h[both], band["lo"][both])
+            self.band_hi.setData(h[both], band["hi"][both])
+        self._show_band_entry(band is not None)
+        bracket = _grid_bracketed(h, D, result["boundary"])
+        self._draw_bracket(bracket)
+        found = result["hollow_test"]["hollows"]
+        self._draw_hollows(found, h, D)
         self.plot.setXRange(-1.0, 3.0, padding=0.0)              # the spectrum's own window
         self.plot.setYRange(-0.5, 2.5, padding=0.0)
+        conv = result["convergence"]
+        n_conv, n_finite = int((conv["converged"] & np.isfinite(D)).sum()), int(np.isfinite(D).sum())
+        half = band["half_width"][solid & np.isfinite(band["half_width"])] if band is not None else np.empty(0)
+        jackknife = (None if band is None else
+                     {"n_refits": int(band["D"].shape[0]), "max_half_width": float(half.max()) if half.size else None})
         self._fit = {**result, "name": self._last_name, "kind": "generalized spectrum",
-                     "valid": bool(np.isfinite(result["D"]).any()), "window": (result["settings"]["lo"], result["settings"]["hi"])}
+                     "valid": bool(np.isfinite(D).any()), "window": (result["settings"]["lo"], result["settings"]["hi"]),
+                     "grid_bracketed": bracket,
+                     "gamma_converged": {"n": n_conv, "of": n_finite, "tol": float(conv["tol"])},
+                     "jackknife": jackknife, "hollows": found}
         self._ensemble = g
         self._fill_pick(self.gamma_combo, g["gamma"])
         self._fill_pick(self.delta_combo, g["delta"])
@@ -376,11 +499,25 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         r2 = g["tau_r2"][np.isfinite(g["tau_r2"])]
         quality = f"min partition R² {r2.min():.3f}" if r2.size else "partition R² unavailable"
         d = g["delta"]
-        self.readout.setText(f"{g['n_scales']} of {np.size(g['scales'])} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
-                             f"c₁,₀ = log₂ {g['reference_amplitude']:.3g} = {np.log2(g['reference_amplitude']):.2f}"
-                             f"{'' if result['settings']['amplitude'] == 'auto' else ' (set by hand)'} · "
-                             f"{b.sum()}/{b.size} grid-boundary minima (dots). Negative values retained; "
-                             "finite-grid bounds do not prove occupied h.")
+        where = (f"minima inside the grid for h in [{bracket[0]:g}, {bracket[1]:g}]; outside, the drawn values are "
+                 "upper bounds at the grid's edge" if bracket is not None else
+                 "no minimum inside the grid: every drawn value is an upper bound at the grid's edge")
+        if jackknife is None:
+            spread = (f"leave-one-scale-out skipped: {g['n_scales']} scales in the window, "
+                      f"{JACKKNIFE_MIN_SCALES} needed")
+        else:
+            widest = jackknife["max_half_width"]
+            spread = (f"leave-one-scale-out band over {jackknife['n_refits']} refits (c₁,₀ held)"
+                      + (f", max half-width {widest:.3f} on the curve" if widest is not None else ""))
+        verdict = ("; ".join(_hollow_text(hol) for hol in found) if found else
+                   "no hollow beyond the jackknife band" if band is not None else "no hollow deeper than 0.05")
+        self.readout.setText(
+            f"{g['n_scales']} of {np.size(g['scales'])} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
+            f"c₁,₀ = log₂ {g['reference_amplitude']:.3g} = {np.log2(g['reference_amplitude']):.2f}"
+            f"{'' if result['settings']['amplitude'] == 'auto' else ' (set by hand)'}\n"
+            f"{where} · {n_conv} of {n_finite} h converged in γ (tol {conv['tol']:.3g}) · "
+            f"{int(pinned.sum())} on a q or δ limit (dots), {int(falling.sum())} still falling at γ max (open circles)\n"
+            f"{spread} · {verdict}. Negative values retained; finite-grid bounds do not prove occupied h.")
         self.fitChanged.emit(self._fit)
 
     def closeEvent(self, event):
