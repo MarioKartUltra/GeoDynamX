@@ -234,3 +234,52 @@ def test_the_record_says_what_the_colours_stand_for(qtbot, window, tmp_path, mon
     display = _record(_export(w, monkeypatch, tmp_path / "h_plain.png"))["display"]
     assert display["center"] is None                                 # the plain min..max mapping
     assert display["limits"] == [float(v) for v in canvas.image_item.getLevels()]
+
+
+def test_a_figure_from_the_partition_fitter_lists_the_spectra_drawn_with_their_identities(
+        qtbot, window, tmp_path, monkeypatch):
+    """The fitter's Export figure… renders its plots and the record names its own fit and every
+    spectrum it draws from the D(h) comparison: the display and full names, the kind, the
+    identity, the scale window, the fit mode, the table, whether its bars were drawn and the
+    tangent drawn with it; a hidden entry is not drawn and not listed."""
+    from dynamix.model.spectra_board import SentSpectrum
+    from dynamix.shell.figure_export import FigureExportDialog
+    from dynamix.shell.multifractal_window import MultifractalWindow
+    from tests.test_multifractal_window import _broken_pair
+
+    w = _signed(qtbot, window)
+    fitter = MultifractalWindow(*_broken_pair(), parent=w)
+    qtbot.addWidget(fitter)
+    fitter.show()
+    qtbot.waitExposed(fitter)
+    fitter._table_combo.setCurrentText("sup (cmax)")
+    fitter.with_tangent_check.setChecked(True)
+    fitter.send_primary()
+    fitter._region.setRegion((1.0, 6.0))
+    fitter.with_tangent_check.setChecked(False)
+    fitter.send_primary()
+    board = w.spectra_board
+    first, second = board.entries()
+    board.rename(first.key, "cmax, full window")
+    board.set_show_errors(second.key, False)
+    hidden = board.add(SentSpectrum(name="hidden", full_name="hidden", kind="histogram", h=first.h, D=first.D))
+    board.set_visible(hidden, False)
+    chosen = tmp_path / "fit.png"
+    monkeypatch.setattr(QtWidgets.QFileDialog, "getSaveFileName", lambda *a, **k: (str(chosen), ""))
+    monkeypatch.setattr(FigureExportDialog, "exec", lambda dialog: 1)
+    QtWidgets.QApplication.processEvents()                     # the inspector's rows settle
+    fitter.export_button.click()
+    png = chosen.parent / chosen.stem / chosen.name
+    image = QtGui.QImage(str(png))
+    assert (image.width(), image.height()) == (2 * fitter._glw.width(), 2 * fitter._glw.height())
+    figure = _record(png)
+    assert figure["view"] == "partition functions" and figure["view_range"]["units"] == "h, D(h)"
+    assert figure["fit"]["name"] == "canonical (Arneodo WTMM) · sup (cmax)"
+    assert figure["fit"]["scale_window"] == [1.0, 6.0] and figure["fit"]["table"] == "cmax"
+    a, b = figure["spectra"]                                   # the hidden entry is not drawn
+    assert (a["name"], a["full_name"]) == ("cmax, full window", first.full_name)
+    assert a["kind"] == "canonical" and a["table"] == "cmax" and a["fit_mode"] == "naive"
+    assert a["identity"]["tool"] == first.identity["tool"] and a["errors"] is True
+    assert a["tangent"]["q_c"] == pytest.approx(first.tangent["q_c"])
+    assert b["scale_window"] == [1.0, 6.0] and b["errors"] is False and b["tangent"] is None
+    assert "gprv.check: valid" in w._status_message

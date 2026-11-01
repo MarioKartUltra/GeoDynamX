@@ -15,8 +15,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
-__all__ = ["BOARD_HUES", "SpectraBoardInspector", "SpectraBoardModel", "board_of", "from_fit",
-           "generalized_entry", "say", "send", "tool_identity"]
+__all__ = ["BOARD_HUES", "SpectraBoardInspector", "SpectraBoardModel", "ancestor_with", "board_of",
+           "from_fit", "generalized_entry", "say", "send", "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
 #: Theme-Rule carve-out the partition fitter's source hues document, as numeric RGB.
@@ -92,7 +92,8 @@ class SpectraBoardModel(QtCore.QObject):
         self._changed(self.board.move, key, step)
 
 
-def _ancestor_with(widget, attr: str):
+def ancestor_with(widget, attr: str):
+    """``widget`` or its nearest parent that has ``attr`` set, else None."""
     while widget is not None:
         if getattr(widget, attr, None) is not None:
             return widget
@@ -102,13 +103,13 @@ def _ancestor_with(widget, attr: str):
 
 def board_of(widget) -> "SpectraBoardModel | None":
     """The board ``widget`` sends to: its own ``spectra_board``, else its nearest parent's."""
-    holder = _ancestor_with(widget, "spectra_board")
+    holder = ancestor_with(widget, "spectra_board")
     return None if holder is None else holder.spectra_board
 
 
 def say(widget, text: str) -> None:
     """``text`` on the main window's status line, when ``widget`` has one above it."""
-    holder = _ancestor_with(widget, "_notify")
+    holder = ancestor_with(widget, "_notify")
     if holder is not None:
         holder._notify(text, "status")
 
@@ -118,7 +119,7 @@ def tool_identity(window) -> dict:
     (``_opened_on``: the layer's id, the landed analysis key and the filters), with the layer's
     name; None in each field for a window opened on no landed result."""
     layer_id, recipe, filters = getattr(window, "_opened_on", None) or (None, None, None)
-    holder = _ancestor_with(window.parentWidget(), "_layer_by_id")
+    holder = ancestor_with(window.parentWidget(), "_layer_by_id")
     layer = holder._layer_by_id.get(layer_id) if holder is not None else None
     return {"recipe": recipe, "layer_id": layer_id, "layer": getattr(layer, "name", None),
             "filters": filters}

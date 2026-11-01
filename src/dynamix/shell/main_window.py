@@ -7895,17 +7895,38 @@ both ``Canvas`` signals report the
         path.parent.mkdir(parents=True, exist_ok=True)
         self._notify(self._export_figure(path, dialog.scale(), dialog.placement()), "status")
 
-    def _export_figure(self, path, scale: int = 2, placement: str = "over") -> str:
+    def _export_comparison_figure(self, window) -> None:
+        """The partition fitter's Export figure…: its plots as a PNG at the scale factor the
+        options ask for, with its record beside it in the export's own folder."""
+        from dynamix.shell.figure_export import FigureExportDialog
+
+        name = self.layer.name if self.layer is not None else "partition"
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            window, "Export figure", start_path(f"{name}_dh_comparison.png"), "PNG image (*.png)")
+        if not path:
+            return
+        dialog = FigureExportDialog(parent=window)
+        if not dialog.exec():
+            return
+        path = bundle_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._notify(self._export_figure(path, dialog.scale(), window=window), "status")
+
+    def _export_figure(self, path, scale: int = 2, placement: str = "over", window=None) -> str:
         """Render the view on screen into the PNG ``path``, ``scale`` times its size
-        (:mod:`dynamix.shell.figure_export`): the Map view's plot with its bars while the Map is
-        shown, else the Raster canvas with its labels and bars, the colour bar per ``placement``.
-        The record's print step names the view: its size, the range on show, the bars' labels,
-        the colour bar, the mapping from values to colours that painted the picture (the Raster
-        canvas's, or each Map row's), the overlays drawn and the theme, so a replay of the
-        record's chain can paint the same figure. Returns the status sentence, with the record's
-        gprv check."""
+        (:mod:`dynamix.shell.figure_export`): the partition fitter ``window``'s plots when one is
+        given, else the Map view's plot with its bars while the Map is shown, else the Raster
+        canvas with its labels and bars, the colour bar per ``placement``. The record's print
+        step names the view: its size, the range on show, the bars' labels, the colour bar, the
+        mapping from values to colours that painted the picture (the Raster canvas's, or each Map
+        row's), the overlays drawn and the theme, so a replay of the record's chain can paint
+        the same figure; for the fitter, its own fit and every spectrum drawn from the D(h)
+        comparison with its identity. Returns the status sentence, with the record's gprv
+        check."""
         from dynamix.shell.figure_export import render_canvas, render_widget
 
+        if window is not None:
+            return self._export_fitter_figure(path, scale, window)
         raster = self._center_view != "map"
         if raster:
             widget, view = self.canvas, self.canvas.view
@@ -7942,6 +7963,32 @@ both ``Canvas`` signals report the
                                                                 "color_vtrail", "color_extrema",
                                                                 "color_points")}},
                   "theme": load_settings().theme}
+        return self._figure_written(path, figure)
+
+    def _export_fitter_figure(self, path, scale: int, window) -> str:
+        """The partition fitter's plots as :meth:`_export_figure` renders a view; the record
+        names the D(h) range on show, the fitter's own fit and the spectra drawn from the D(h)
+        comparison (:meth:`MultifractalWindow.drawn_spectra`). A fitter opened on another layer
+        than the active one gets no record: the record describes the active layer's chain."""
+        from dynamix.shell.figure_export import render_widget
+
+        image = render_widget(window._glw, scale)
+        if not image.save(str(path), "PNG"):
+            return f"figure not written: {path} could not be saved"
+        opened = getattr(window, "_opened_on", None)
+        if opened is not None and (self.layer is None or opened[0] != self.layer.layer_id):
+            return (f"figure exported — {path} · no provenance record: the fitter was opened on another "
+                    "layer; select it and export again")
+        (x0, x1), (y0, y1) = window._spectrum_plots["D"].getViewBox().viewRange()
+        figure = {"view": "partition functions", "scale": int(scale),
+                  "size_px": [image.width(), image.height()],
+                  "view_range": {"x": [x0, x1], "y": [y0, y1], "units": "h, D(h)"},
+                  "fit": window.drawn_fit(), "spectra": window.drawn_spectra(),
+                  "theme": load_settings().theme}
+        return self._figure_written(path, figure)
+
+    def _figure_written(self, path, figure: dict) -> str:
+        """The figure's record beside ``path`` and the status sentence with its gprv check."""
         tail = self._write_provenance(path, "figure_png", {"figure": figure})
         record = record_beside(path)
         if record is not None and tail.startswith(" · provenance "):

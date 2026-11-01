@@ -473,6 +473,11 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.send_landed_button.clicked.connect(lambda _c=False: self.send_landed_results())
         compare.addWidget(self.send_landed_button)
         compare.addStretch(1)
+        self.export_button = QtWidgets.QPushButton("Export figure…")
+        self.export_button.setToolTip("These plots as a PNG, with a record naming the fit and every spectrum "
+                                      "drawn from the D(h) comparison")
+        self.export_button.clicked.connect(lambda _c=False: self._export_figure())
+        compare.addWidget(self.export_button)
         layout.addLayout(compare)
 
         #: The two-segment fit's live numbers -- slope_L / slope_R / ds + the scan's best q*.
@@ -965,6 +970,24 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         x = np.asarray(self._spectrum_plots["D"].getViewBox().viewRange()[0], dtype=np.float64)
         for line, tangent in self._board_tangents:
             line.setData(x, tangent["intercept"] + tangent["slope"] * x)
+
+    def _export_figure(self) -> None:
+        from dynamix.shell.spectra_board import ancestor_with
+
+        main = ancestor_with(self.parentWidget(), "_export_comparison_figure")
+        if main is not None:
+            main._export_comparison_figure(self)
+
+    def drawn_fit(self) -> dict:
+        """This window's own fit as a figure record names it: its name and kind, the scale
+        window, the fit mode, the table, the settings and the tangent drawn on D(h)."""
+        from dynamix.model.spectra_board import plain
+
+        lo, hi = self._region.getRegion()
+        return plain({"name": self.published_fit()["name"], "kind": self._primary_kind(),
+                      "shown": self._primary_visible, "scale_window": [lo, hi], "fit_mode": self.fit_mode(),
+                      "table": self._table_key(), "settings": self._fit_settings(), "errors": True,
+                      "tangent": self._tangent_now()})
 
     def drawn_spectra(self) -> list:
         """What D(h) draws from the comparison, in legend order, as a figure record lists it."""
