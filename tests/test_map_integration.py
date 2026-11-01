@@ -753,7 +753,9 @@ def test_the_fitter_lists_the_other_layers_landed_methods_to_send(geo_window, qt
     assert len(names) == 1 and names[0].startswith("canonical")
     assert [s["name"] for s in fitter._landed] == [sources[0]["name"]]
     assert fitter.send_landed_results([sources[0]["name"]]) == 1
-    assert win.spectra_board.entries()[-1].full_name == sources[0]["name"]
+    sent = win.spectra_board.entries()[-1]
+    lo, hi = (round(v, 2) for v in fitter._region.getRegion())
+    assert sent.name == sources[0]["name"] and sent.full_name == f"{sources[0]['name']} · log2 a {lo:g}–{hi:g}"
     win._on_dh_button_clicked()
     construction = win._spectrum_construction_window
     assert [s["name"] for s in construction._landed] == [sources[0]["name"]]

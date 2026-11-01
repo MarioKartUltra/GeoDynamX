@@ -91,12 +91,16 @@ def test_the_canonical_fit_carries_the_bars_d_h_draws_and_its_tau(qtbot, host):
     assert entry.identity["scale_window"] == [1.0, 6.0]
     assert (entry.identity["fit_mode"], entry.identity["table"]) == ("naive", "std")
     assert entry.tangent is None                                  # "with tangent" is off by default
-    assert host.status[-1] == "sent to the D(h) comparison: canonical (Arneodo WTMM) · no-sup (std)"
+    assert entry.name == "canonical (Arneodo WTMM) · no-sup (std)"
+    assert entry.full_name == "canonical (Arneodo WTMM) · no-sup (std) · log2 a 1–6"
+    assert host.status[-1] == "sent to the D(h) comparison: canonical (Arneodo WTMM) · no-sup (std) · log2 a 1–6"
     window.send_primary()                                         # the same state: replaced
     assert len(host.spectra_board) == 1 and host.status[-1].startswith("sent again")
     window._region.setRegion((2.0, 6.0))                          # a new window: a new entry
     window.send_primary()
-    assert len(host.spectra_board) == 2
+    first, second = host.spectra_board.entries()
+    assert first.name == second.name                              # the full names tell them apart
+    assert second.full_name == "canonical (Arneodo WTMM) · no-sup (std) · log2 a 2–6"
 
 
 def test_the_displayed_q_rows_are_the_ones_sent(qtbot, host):
@@ -116,9 +120,13 @@ def test_the_tangent_travels_only_when_ticked(qtbot, host):
     expect = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
     window.send_primary()
     assert host.spectra_board.entries()[0].tangent is None
+    assert not host.spectra_board.entries()[0].full_name.endswith("tangent")
     window.with_tangent_check.setChecked(True)
     window.send_primary()
     [entry] = host.spectra_board.entries()                        # one identity: replaced
+    lo, hi = (round(v, 2) for v in window._region.getRegion())
+    assert entry.name == "canonical (Arneodo WTMM) · sup (cmax)"
+    assert entry.full_name == f"canonical (Arneodo WTMM) · sup (cmax) · log2 a {lo:g}–{hi:g}, tangent"
     assert entry.tangent == pytest.approx({"q_c": expect["q_c"], "h_c": expect["h_c"],
                                            "D_c": expect["D_c"], "slope": expect["q_c"],
                                            "intercept": expect["intercept"]})
@@ -188,9 +196,11 @@ def test_the_leaders_table_sends_as_its_leaders(qtbot, host):
     for method, kind in (("wavelet_leaders", "dwt_leaders"), ("cwt_leaders", "cwt_leaders")):
         window = _fitter(qtbot, host, hd_std, hd_std, h_map_method=method, kind="structure",
                          source=f"L · {method}")
+        window._region.setRegion((2.0, 5.0))
         window.send_primary()
         entry = host.spectra_board.entries()[-1]
-        assert entry.kind == kind and entry.full_name == f"L · {method}, partition functions"
+        assert entry.kind == kind and entry.name == f"L · {method}, partition functions"
+        assert entry.full_name == f"L · {method}, partition functions · log2 a 2–5"
 
 
 def test_send_landed_results_lists_the_other_layers_and_sends_the_chosen(qtbot, host, monkeypatch):
@@ -201,9 +211,11 @@ def test_send_landed_results_lists_the_other_layers_and_sends_the_chosen(qtbot, 
     assert [rows.item(i).text() for i in range(rows.count())] == ["moments · B", "dyadic leaders · C"]
     dialog.deleteLater()
     monkeypatch.setattr(QtWidgets.QDialog, "exec", _choose(1))
+    window._region.setRegion((2.0, 5.0))
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
-    assert entry.kind == "dwt_leaders" and entry.full_name == "dyadic leaders · C"
+    assert entry.kind == "dwt_leaders" and entry.name == "dyadic leaders · C"
+    assert entry.full_name == "dyadic leaders · C · log2 a 2–5"
     assert entry.identity["tool"] == sources[1]["identity"]
     assert entry.dD is not None and entry.tau is not None
 
@@ -260,7 +272,8 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     buttons["Send converged"].click()
     [entry] = host.spectra_board.entries()
     assert entry.kind == "generalized" and entry.h.shape == entry.D.shape == fit["h"].shape
-    assert entry.full_name == "L1 · synthetic, generalized spectrum, converged"
+    assert entry.name == "L1 · synthetic, generalized spectrum, converged"
+    assert entry.full_name == "L1 · synthetic, generalized spectrum, converged · log2 a 1–5"
     assert np.isnan(entry.D[fit["boundary"]]).all()                  # bounds stay off the curve
     np.testing.assert_allclose(entry.D[~fit["boundary"]], fit["D"][~fit["boundary"]])
     assert entry.dD is None                                          # no leave-one-scale-out band
@@ -274,7 +287,7 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     w.send_to_board("legendre")
     w.send_to_board("converged")
     converged, legendre = host.spectra_board.entries()
-    assert legendre.full_name.endswith("Legendre (γ = 0)") and legendre.dD is None
+    assert legendre.name.endswith("Legendre (γ = 0)") and legendre.dD is None
     np.testing.assert_allclose(legendre.D, fit["D"] + 0.1)
     np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
 
@@ -522,6 +535,8 @@ def test_the_construction_sends_its_own_points_histogram_and_box_counting(qtbot,
     window.send_primary()
     first, second = [e for e in host.spectra_board.entries() if e.kind == "canonical"]
     assert first.identity["scale_window"] != second.identity["scale_window"]
+    assert first.name == second.name == "canonical (Arneodo direct) · sup (cmax)"
+    assert first.full_name != second.full_name and second.full_name.startswith(f"{second.name} · log2 a ")
     np.testing.assert_allclose(first.D, fit["D"])
     np.testing.assert_allclose(second.D, window.current_fit()["D"])
 
@@ -552,7 +567,8 @@ def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbo
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
     fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
-    assert entry.kind == "canonical" and entry.full_name == "moments · B"
+    assert entry.kind == "canonical" and entry.name == "moments · B"
+    assert entry.full_name == "moments · B · log2 a 1–5"
     np.testing.assert_allclose(entry.D, fit["D"])
     np.testing.assert_allclose(entry.dD, fit["D_err"])
     assert entry.identity["tool"] == sources[0]["identity"] and entry.identity["scale_window"] == [1.0, 5.0]

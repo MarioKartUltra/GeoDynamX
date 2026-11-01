@@ -8,7 +8,8 @@ result's tool identity, the scale window, the fit mode, the table and the produc
 decide replacement: a spectrum sent again under the same kind and identity replaces the earlier
 entry in place, keeping its display state (its display name when renamed, its colour, its
 visibility, its bars and tangent switches); a changed identity adds an entry. ``name`` is the
-display name and the only field a rename touches; ``full_name`` is the producer's own name."""
+display name and the only field a rename touches; ``full_name`` is the producer's own name, with
+the scale window and the tangent it was sent under."""
 from __future__ import annotations
 
 import json

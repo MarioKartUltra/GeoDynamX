@@ -547,7 +547,8 @@ def test_other_methods_are_sent_from_the_landed_list_and_the_show_menu_toggles_t
     assert window.send_landed_results(["moments · B"]) == 1
     [entry] = window.spectra_board.entries()
     fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
-    assert entry.kind == "canonical" and entry.full_name == "moments · B"
+    assert entry.kind == "canonical" and entry.name == "moments · B"
+    assert entry.full_name == "moments · B · log2 a 1–5"
     np.testing.assert_allclose(entry.tau, fit["tau"])
     np.testing.assert_allclose(entry.D, fit["D"])
     np.testing.assert_allclose(entry.dD, fit["D_err"])

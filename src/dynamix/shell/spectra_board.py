@@ -133,7 +133,8 @@ def tool_identity(window) -> dict:
 def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, table=None,
              settings=None, tangent=None, keep=None, origin=None) -> SentSpectrum:
     """A :class:`SentSpectrum` from a producer's fit dict: its ``name`` (the layer's name after it
-    when the name lacks it) as the full and the starting display name, ``h`` and ``D`` with
+    when the name lacks it) as the display name, the full name that name with the scale window
+    (``log2 a lo–hi``) and ", tangent" when a tangent is carried, ``h`` and ``D`` with
     ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
     the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
@@ -156,10 +157,16 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
     tau = column("tau")
     if q is None or tau is None:
         q = tau = None
+    full_name = name
+    if scale_window is not None:
+        lo, hi = (round(float(v), 2) for v in scale_window)
+        full_name += f" · log2 a {lo:g}–{hi:g}"
+    if tangent is not None:
+        full_name += ", tangent"
     identity = {"tool": origin,
                 "scale_window": None if scale_window is None else [float(v) for v in scale_window],
                 "fit_mode": fit_mode, "table": table, "settings": dict(settings or {})}
-    return SentSpectrum(name=name, full_name=name, kind=kind, h=h[keep], D=column("D"),
+    return SentSpectrum(name=name, full_name=full_name, kind=kind, h=h[keep], D=column("D"),
                         dh=column("h_err"), dD=column("D_err"), q=q, tau=tau, tangent=tangent,
                         identity=identity)
 
