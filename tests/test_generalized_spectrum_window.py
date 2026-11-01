@@ -423,6 +423,8 @@ def test_two_populations_leave_a_hollow_that_survives_the_jackknife(qtbot):
     lo, hi = w.band_lo.getData()[1], w.band_hi.getData()[1]
     assert lo.size > 0 and np.all(hi >= lo)
     assert "leave-one-scale-out" in [label.text for _, label in w.legend.items]
+    w.resize(1400, 900)                                          # a view wide enough for the caption whole
+    _settle()
     texts = [text for text, _ in _labels(w)]
     assert "grid-bracketed" in texts and any(t.startswith("hollow: h ∈") and "survives" in t for t in texts)
     assert _no_overlap(_labels(w), _borders(w))
@@ -468,6 +470,46 @@ def test_on_the_default_q_grid_one_dip_is_one_hollow_whose_caption_stands_clear_
     w._retract()
     _settle()
     assert abs(w.plot.vb.sceneBoundingRect().width() - view.width()) < 1.0
+
+
+def test_the_title_row_is_one_line_and_the_view_keeps_its_place_for_zero_one_or_two_hollows(qtbot):
+    """Hand-built landed spectra with no hollow (a cap), one (two caps) and two (three caps):
+    the title row holds the captions joined by " · " on one line, cut with an ellipsis where it
+    is wider than the panel, and the view's top edge stays put; the readout carries every
+    hollow's caption whole."""
+    scales = 2.**np.arange(1, 6)
+    sets = {"leaders": {"scales": scales, "mods": [np.array([a**.4, a**.8, a**.6]) for a in scales]}}
+    w = GeneralizedSpectrumWindow(sets, log2_L=7.)
+    qtbot.addWidget(w)
+    w.resize(1180, 700)
+    w.show()
+    h = np.round(np.arange(0.0, 1.0001, 0.02), 10)
+    q = np.array([-1.0, 0.0, 1.0])
+    ensemble = {"q": q, "gamma": np.array([0.0, 1.0]), "delta": np.array([0.0]), "scales": scales[:3], "n_scales": 3,
+                "tau_r2": np.ones((3, 2, 1)), "reference_amplitude": 1.0, "tau": np.zeros((3, 2, 1)),
+                "log_partition": np.zeros((3, 2, 1, 3))}
+    tops = []
+    for centres in ((0.5,), (0.3, 0.7), (0.2, 0.5, 0.8)):
+        D = np.max([1 - 40 * (h - c) ** 2 for c in centres], axis=0) if len(centres) > 1 else 1 - 4 * (h - 0.5) ** 2
+        result = {"h": h, "D": D, "boundary": np.zeros(h.size, bool), "q_star": np.zeros(h.size),
+                  "gamma_star": np.zeros(h.size), "delta_star": np.zeros(h.size),
+                  "settings": {"lo": 1.0, "hi": 3.0, "amplitude": 1.0}, "ensemble": ensemble}
+        w._completed(w._generation, _diagnose(result))
+        _settle()
+        found = w.current_fit()["hollows"]
+        assert len(found) == len(centres) - 1
+        title = w.plot.titleLabel.item
+        shown, full = title.toPlainText(), " · ".join(gsw._hollow_text(hol) for hol in found) or "no hollow deeper than 0.05"
+        assert "\n" not in shown and title.boundingRect().height() < 30
+        if len(found) < 2:
+            assert shown == full
+        else:                                                    # two captions are wider than the panel
+            assert shown.endswith("…") and full.startswith(shown[:-1]) and " · " in shown
+        view, text = w.plot.vb.sceneBoundingRect(), title.sceneBoundingRect()
+        assert view.left() - 1.0 <= text.left() and text.right() <= view.right() + 1.0
+        assert all(gsw._hollow_text(hol) in w.readout.text() for hol in found)
+        tops.append(w.plot.vb.sceneBoundingRect().top())
+    assert max(tops) - min(tops) < 0.5
 
 
 def test_the_jackknife_is_skipped_below_five_scales_and_says_so(qtbot):

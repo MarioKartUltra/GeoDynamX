@@ -7,7 +7,7 @@ import threading
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core import spectra
 from dynamix.core.nonconcave import (gamma_convergence, gaussian_ensemble, generalized_legendre, hollows,
@@ -219,13 +219,20 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         # of the view's height, is refitted whenever the view resizes.
         self._hollow_items: list = []
         self.plot.vb.sigResized.connect(lambda _vb: self._fit_hollow_span())
-        # The title row carries the hollow captions. Its text claims no width, so the text's
-        # length never moves the split between the panel columns: a zero maximum width bounds the
-        # minimum the label sets from its text on every resize, and the label sits at the column's
-        # centre with its text centred on it.
-        self.plot.titleLabel.setMaximumWidth(0)
-        self.plot.layout.setAlignment(self.plot.titleLabel, QtCore.Qt.AlignHCenter)
-        self._set_title_lines([])
+        # The title row carries the hollow captions on one line of fixed height, so the view keeps
+        # its place whatever the row says. Its text claims no width, so the text's length never
+        # moves the split between the panel columns: a zero maximum width bounds the minimum the
+        # label sets from its text on every resize, and the label sits at the view's centre with
+        # its text centred on it, cut to the view's width.
+        title = self.plot.titleLabel
+        title.setMaximumWidth(0)
+        self.plot.layout.setAlignment(title, QtCore.Qt.AlignHCenter)
+        self._set_title("")
+        height = title.item.boundingRect().height() + 4.0      # one line, 2 px clear of the view's top edge
+        title.setVisible(True)
+        title.setMaximumHeight(height)
+        self.plot.layout.setRowFixedHeight(0, height)
+        self.plot.vb.sigResized.connect(lambda _vb: self._fit_title())
         self.diagram_plot = self._glw.addPlot(row=0, col=1, viewBox=WheelAxisViewBox())
         self.diagram_plot.setLabel("bottom", "log₂ a")
         self.diagram_plot.setLabel("left", "log₂ Z_g(q, a)")
@@ -393,7 +400,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         for line in (*self.bracket_lines, self.bracket_caption):
             line.setVisible(False)
         self._draw_hollows([])
-        self._set_title_lines([])
+        self._set_title("")
 
     def _show_band_entry(self, on: bool) -> None:
         self.legend.removeItem(self._band_sample)
@@ -435,16 +442,20 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             for line in region.lines:
                 line.viewTransformChanged()           # a line caches its extent until the view changes
 
-    def _set_title_lines(self, lines) -> None:
-        """The spectrum panel's title row, above the view: captions there never cover the data,
-        and its lines stack in one text block, so two never overlap. An empty row keeps one
-        line's height, so the panel does not jump between a retract and a Compute."""
+    def _set_title(self, text: str) -> None:
+        """The spectrum panel's title row, above the view, where a caption never covers the data."""
+        self._title_text = text
+        self._fit_title()
+
+    def _fit_title(self) -> None:
+        """The title on one line: text wider than the view is cut with an ellipsis, refitted as
+        the view resizes (the readout carries it whole)."""
         title = self.plot.titleLabel
-        title.setText("<br>".join(lines), color=current().ink, size="9pt")
-        height = title.item.boundingRect().height() + 4.0      # 2 px clear of the view's top edge
-        title.setVisible(True)
-        title.setMaximumHeight(height)
-        self.plot.layout.setRowFixedHeight(0, height)
+        font = QtGui.QFont(title.item.font())
+        font.setPointSizeF(9.0)
+        room = max(self.plot.vb.width() - 2.0 * title.item.document().documentMargin(), 0.0)
+        title.setText(QtGui.QFontMetricsF(font).elidedText(self._title_text, QtCore.Qt.ElideRight, room),
+                      color=current().ink, size="9pt")
 
     def _cancel(self):
         self._generation += 1
@@ -544,7 +555,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
                       + (f", max half-width {widest:.3f} on the curve" if widest is not None else ""))
         verdicts = ([_hollow_text(hol) for hol in found] if found else
                     ["no hollow beyond the jackknife band" if band is not None else "no hollow deeper than 0.05"])
-        self._set_title_lines(verdicts)
+        self._set_title(" · ".join(verdicts))
         verdict = "; ".join(verdicts)
         self.readout.setText(
             f"{g['n_scales']} of {np.size(g['scales'])} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
