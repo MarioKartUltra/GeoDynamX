@@ -316,6 +316,24 @@ def test_the_tolerance_scales_with_the_spectrum_s_range():
         assert bool(c["converged"][1]) is expect
 
 
+def test_convergence_is_a_fall_per_unit_gamma_whatever_the_gamma_step():
+    """The monofractal of the profile test on γ ∈ {0, 0.1, …, 1}: at h = 0.4 the profile falls
+    steadily, 0.09 per unit γ, 0.009 per step, under the tolerance 0.01 per step but not per
+    unit γ: still falling, not converged. At h* = 0.5 the plateau is converged. On the unit
+    step grid the two readings agree."""
+    from dynamix.core.nonconcave import gamma_convergence
+    q, h = np.array([-1.0, 0.0, 1.0]), np.array([0.4, 0.5])
+    for g in (np.linspace(0.0, 1.0, 11), np.arange(0.0, 4.0)):
+        tau = q[:, None] * 0.5 + g[None, :] * 0.25 - 1.0
+        c = gamma_convergence(tau, q, g, h)
+        step = g[1] - g[0]
+        assert c["tol"] == pytest.approx(0.01)
+        assert c["decrease"][0] == pytest.approx(0.09 * step) and c["slope"][0] == pytest.approx(0.09)
+        assert c["slope"][1] == pytest.approx(0.0, abs=1e-12)
+        assert c["converged"].tolist() == [False, True]
+    assert 0.09 * 0.1 < 0.01                                   # the per-step rule would have passed it
+
+
 def test_a_concave_parabola_has_no_hollow():
     from dynamix.core.nonconcave import hollows
     h = np.linspace(0.0, 1.0, 51)

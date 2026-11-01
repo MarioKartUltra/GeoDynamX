@@ -283,11 +283,16 @@ def gamma_convergence(tau, q_list, gamma_list, h_grid, delta_list=None) -> dict:
     grid; its minimum over γ is the estimate D(h). On finite data the profile keeps falling as γ
     grows (the Boltzmann weights close on the coefficient line nearest h, and without a bound on
     γ the estimate goes to −∞ wherever no line sits at h), so a value is trusted only where the
-    last γ step barely moved it: ``decrease`` = D(h; γ_{n−1}) − D(h; γ_n) over the two largest γ,
-    and ``converged`` = decrease < tol with tol = max(0.01, 0.02 (max D − min D)), the range
-    over the finite values D ≥ 0 (a negative value marks an unsupported h and would widen the
-    tolerance). With a single γ every h is converged. Returns ``{"profile", "D", "decrease",
-    "tol", "converged"}``."""
+    profile has gone flat in γ. The estimate equals D(h) where h has a supporting parabola of
+    curvature γ (Touchette 2010, J. Stat. Mech. P05008, p. 13; Costeniuc, Ellis, Touchette &
+    Turkington 2006 eq. 28), and flatness is a slope in γ whose verdict does not depend on how
+    finely γ is sampled: over the two largest γ, ``decrease`` = D(h; γ_{n−1}) − D(h; γ_n),
+    ``slope`` = decrease / (γ_n − γ_{n−1}), the fall per unit γ, and ``converged`` = slope < tol
+    with tol = max(0.01, 0.02 (max D − min D)) per unit γ, the range over the finite values
+    D ≥ 0 (a negative value marks an unsupported h and would widen the tolerance); a profile
+    rising with γ has its minimum below the largest γ and counts as converged. On a grid of unit
+    γ step the rule reads as the decrease over the last step below tol. With a single γ every h
+    is converged. Returns ``{"profile", "D", "decrease", "slope", "tol", "converged"}``."""
     q, g, h = (np.asarray(v, dtype=float) for v in (q_list, gamma_list, h_grid))
     dl = np.asarray([0.0] if delta_list is None else delta_list, dtype=float)
     if min(q.size, g.size, dl.size, h.size) == 0:
@@ -306,9 +311,16 @@ def gamma_convergence(tau, q_list, gamma_list, h_grid, delta_list=None) -> dict:
     D[some] = np.nanmin(profile[:, some], axis=0)
     kept = D[np.isfinite(D) & (D >= 0)]
     tol = max(0.01, 0.02 * float(kept.max() - kept.min())) if kept.size else 0.01
-    decrease = profile[-2] - profile[-1] if g.size > 1 else np.zeros(h.size)
-    converged = np.ones(h.size, bool) if g.size == 1 else decrease < tol
-    return {"profile": profile, "D": D, "decrease": decrease, "tol": tol, "converged": converged}
+    if g.size == 1:
+        decrease = slope = np.zeros(h.size)
+        converged = np.ones(h.size, bool)
+    else:
+        gs = np.sort(g)
+        decrease = profile[-2] - profile[-1]
+        slope = decrease / (gs[-1] - gs[-2])
+        converged = slope < tol
+    return {"profile": profile, "D": D, "decrease": decrease, "slope": slope, "tol": tol,
+            "converged": converged}
 
 
 def scale_jackknife(ensemble: dict, h_grid, *, cancel=None) -> dict:

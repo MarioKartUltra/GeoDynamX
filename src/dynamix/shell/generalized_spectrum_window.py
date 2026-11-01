@@ -532,14 +532,16 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.plot.setXRange(-1.0, 3.0, padding=0.0)              # the spectrum's own window
         self.plot.setYRange(-0.5, 2.5, padding=0.0)
         conv = result["convergence"]
-        n_conv, n_finite = int((conv["converged"] & np.isfinite(D)).sum()), int(np.isfinite(D).sum())
+        # Counted by the drawing's gate: a value on a q or δ limit, or still falling at γ max, is
+        # an upper bound, never a converged value.
+        n_conv, n_finite = int(solid.sum()), int(np.isfinite(D).sum())
         half = band["half_width"][solid & np.isfinite(band["half_width"])] if band is not None else np.empty(0)
         jackknife = (None if band is None else
                      {"n_refits": int(band["D"].shape[0]), "max_half_width": float(half.max()) if half.size else None})
         self._fit = {**result, "name": self._last_name, "kind": "generalized spectrum",
                      "valid": bool(np.isfinite(D).any()), "window": (result["settings"]["lo"], result["settings"]["hi"]),
                      "grid_bracketed": bracket,
-                     "gamma_converged": {"n": n_conv, "of": n_finite, "tol": float(conv["tol"])},
+                     "gamma_converged": {"n": n_conv, "of": n_finite, "tol": float(conv["tol"]), "per": "unit γ"},
                      "jackknife": jackknife, "hollows": found}
         self._ensemble = g
         self._fill_pick(self.gamma_combo, g["gamma"])
@@ -566,7 +568,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             f"{g['n_scales']} of {np.size(g['scales'])} scales · {quality} · δ {d.min():g}–{d.max():g} ({d.size}) · "
             f"c₁,₀ = log₂ {g['reference_amplitude']:.3g} = {np.log2(g['reference_amplitude']):.2f}"
             f"{'' if result['settings']['amplitude'] == 'auto' else ' (set by hand)'}\n"
-            f"{where} · {n_conv} of {n_finite} h converged in γ (tol {conv['tol']:.3g}) · "
+            f"{where} · {n_conv} of {n_finite} h converged in γ (fall under {conv['tol']:.3g} per unit γ at γ max) · "
             f"{int(pinned.sum())} on a q or δ limit (dots), {int(falling.sum())} still falling at γ max (open circles)\n"
             f"{spread} · {verdict}. Negative values retained; finite-grid bounds do not prove occupied h.")
         self.fitChanged.emit(self._fit)

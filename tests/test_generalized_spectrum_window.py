@@ -304,6 +304,9 @@ def test_the_gamma_gate_judges_only_the_minima_held_by_the_largest_gamma(qtbot):
     landed = w.current_fit()
     assert not landed["convergence"]["converged"][0] and landed["convergence"]["decrease"][0] == pytest.approx(0.5)
     assert landed["solid"][0] and not landed["open"][0] and not landed["pinned"][0]
+    # the readout counts by the drawing's gate: the solid point is a converged value
+    assert landed["gamma_converged"]["n"] == int(landed["solid"].sum()) == 1
+    assert "1 of 1 h converged in γ" in w.readout.text() and "0 still falling at γ max" in w.readout.text()
     np.testing.assert_allclose(w.curve.getData()[1], [-1.0])
     assert _points(w.open_points) == 0 and _points(w.boundary_points) == 0
     assert landed["grid_bracketed"] == (0.0, 0.0) and "minima inside the grid for h in [0, 0]" in w.readout.text()
@@ -393,6 +396,7 @@ def test_a_concave_cascade_has_no_hollow_and_a_narrow_bracket_has_one_label(qtbo
     x, y = w.legendre_curve.getData()
     assert x.size == fit["h"].size and np.isfinite(y).sum() > 10
     assert fit["gamma_converged"]["of"] == np.isfinite(fit["D"]).sum()
+    assert fit["gamma_converged"]["n"] == int(fit["solid"].sum())
     assert f"{fit['gamma_converged']['n']} of {fit['gamma_converged']['of']} h converged in γ" in w.readout.text()
     assert "minima inside the grid for h in [1.5, 1.56]" in w.readout.text() and fit["grid_bracketed"] == (1.50, 1.56)
     labels = _labels(w)
