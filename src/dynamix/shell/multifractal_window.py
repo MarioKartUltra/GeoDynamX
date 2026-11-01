@@ -110,6 +110,9 @@ _SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (1, 6), "cq": (1, 9)}
 #: D(h)'s opening view: h from −2 to 2, D from −½ to 1½, the same on every dataset until zoomed.
 DH_RANGE = ((-2.0, 2.0), (-0.5, 1.5))
 POWER_MEAN_LABEL = "(log₂Z − log₂N_a)/q"
+#: Where D(h) draws the phase-transition tangent: nowhere, at the automatic convexity-loss q_c,
+#: or at the q dragged on c(q).
+TANGENT_MODES = ("off", "at the kink", "at the dragged q")
 #: One hue per secondary source (another method's tables beside the primary's).
 _SOURCE_HUES = ((242, 169, 59), (76, 201, 240), (241, 91, 181), (158, 240, 26), (255, 107, 107), (179, 136, 255))
 
@@ -446,6 +449,14 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
         self.with_tangent_check.setToolTip("Send the phase-transition tangent drawn on D(h) with the fit")
         compare.addWidget(self.with_tangent_check)
+        compare.addWidget(QtWidgets.QLabel("tangent"))
+        self.tangent_combo = QtWidgets.QComboBox()
+        self.tangent_combo.addItems(list(TANGENT_MODES))
+        self.tangent_combo.setCurrentText(TANGENT_MODES[1])
+        self.tangent_combo.setToolTip("The tangent to D(h) at the phase transition: none, at the convexity-loss "
+                                      "q_c of the negative branch, or at the q dragged on c(q)")
+        self.tangent_combo.currentTextChanged.connect(lambda _t: self._update_phase_tangent())
+        compare.addWidget(self.tangent_combo)
         self.send_landed_button = QtWidgets.QPushButton("Send landed results…")
         self.send_landed_button.setToolTip("Fit the other layers' landed results under this window's scale "
                                            "window, fit mode, η and frame, and send the chosen ones")
@@ -733,13 +744,17 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         return {"eta": float(self._eta_spin.value()), "frame": self._frame_combo.currentText(),
                 "all_chains": bool(self.all_chains_check is not None and self.all_chains_check.isChecked())}
 
+    def _tangent_pick(self) -> "float | None":
+        """The q the tangent mode draws the tangent at: the dragged q, or None for q_c."""
+        return self._tangent_q if self.tangent_combo.currentText() == TANGENT_MODES[2] else None
+
     def _tangent_now(self) -> "dict | None":
         """The tangent drawn on D(h) now, in the board's keys; None when none is drawn."""
         fit = self._fit
-        if fit is None:
+        if fit is None or self.tangent_combo.currentText() == TANGENT_MODES[0]:
             return None
         got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"],
-                                               q_pick=self._tangent_q)
+                                               q_pick=self._tangent_pick())
         if got is None:
             return None
         return {"q_c": got["q_c"], "h_c": got["h_c"], "D_c": got["D_c"], "slope": got["q_c"],
@@ -1529,15 +1544,17 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._update_cumulant_overlay()
 
     def _update_phase_tangent(self) -> None:
-        """The D(h) tangent at the phase transition, drawn across the whole view (redrawn as the
-        view moves, so only the plot's margin cuts it); hidden while the negative branch stays
-        concave."""
+        """The D(h) tangent at the phase transition by the tangent mode, drawn across the whole
+        view (redrawn as the view moves, so only the plot's margin cuts it); hidden while the
+        negative branch stays concave, and with the c(q) pick line while the mode is off."""
         fit = getattr(self, "_fit", None)
         if fit is None:
             return
-        got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"],
-                                               q_pick=self._tangent_q)
-        if self._tangent_q is None:                 # the line rests on the automatic q_c
+        off = self.tangent_combo.currentText() == TANGENT_MODES[0]
+        self._q_pick_line.setVisible(not off)
+        got = None if off else spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"],
+                                                                fit["D"], q_pick=self._tangent_pick())
+        if not off and self._tangent_pick() is None:     # the line rests on the automatic q_c
             q = np.asarray(fit["q_list"], dtype=np.float64)
             self._place_q_pick(got["q_c"] if got is not None else float(np.nanmin(q)))
         for item in (self._tangent_line, self._tangent_marker, self._tangent_label):
@@ -1559,13 +1576,15 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
             self._placing_pick = False
 
     def _on_q_pick_moved(self) -> None:
-        """A drag of the c(q) line: the tangent follows the fitted q nearest to it."""
+        """A drag of the c(q) line: the tangent follows the fitted q nearest to it, the mode
+        turning to the dragged q."""
         if self._placing_pick or self._fit is None:
             return
         q = np.asarray(self._fit["q_list"], dtype=np.float64)
         if not np.isfinite(q).any():
             return
         self._tangent_q = float(q[np.nanargmin(np.abs(q - self._q_pick_line.value()))])
+        self.tangent_combo.setCurrentText(TANGENT_MODES[2])
         self._update_phase_tangent()
 
     def _on_q_pick_finished(self) -> None:

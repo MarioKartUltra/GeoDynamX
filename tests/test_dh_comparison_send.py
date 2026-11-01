@@ -98,6 +98,37 @@ def test_the_tangent_travels_only_when_ticked(qtbot, host):
                                            "intercept": expect["intercept"]})
 
 
+def test_the_tangent_mode_off_draws_none_and_sends_none(qtbot, host):
+    """Off: no tangent on D(h), no pick line on c(q), and a send with "with tangent" ticked
+    carries none; at the kink it rests on the automatic q_c; a drag of the c(q) line turns the
+    mode to the dragged q."""
+    from dynamix.shell.multifractal_window import TANGENT_MODES
+
+    window = _fitter(qtbot, host)
+    window._table_combo.setCurrentText("sup (cmax)")
+    fit = window.current_fit()
+    auto = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+    assert window.tangent_combo.currentText() == "at the kink" == TANGENT_MODES[1]
+    assert window._tangent_line.isVisible() and window._q_pick_line.isVisible()
+    window.tangent_combo.setCurrentText("off")
+    assert not window._tangent_line.isVisible() and not window._tangent_marker.isVisible()
+    assert not window._q_pick_line.isVisible()
+    window.with_tangent_check.setChecked(True)
+    window.send_primary()
+    assert host.spectra_board.entries()[0].tangent is None
+    window._region.setRegion((1.0, 6.0))                         # a refit keeps it off
+    assert not window._tangent_line.isVisible()
+    window.tangent_combo.setCurrentText("at the kink")
+    window._q_pick_line.setValue(-1.3)                           # a drag
+    assert window.tangent_combo.currentText() == "at the dragged q"
+    assert window._tangent_now()["q_c"] == pytest.approx(-1.5)
+    window.tangent_combo.setCurrentText("at the kink")
+    fit = window.current_fit()
+    auto = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+    assert window._tangent_now()["q_c"] == pytest.approx(auto["q_c"])
+    assert window._q_pick_line.value() == pytest.approx(auto["q_c"])
+
+
 def test_the_histogram_and_box_counting_constructions_send_with_their_bars(qtbot, host):
     rng = np.random.default_rng(2)
     h, D, dD = _hist()
