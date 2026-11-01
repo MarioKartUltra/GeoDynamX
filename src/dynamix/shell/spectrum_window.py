@@ -1127,8 +1127,8 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
 
     def _update_kink_geometry(self) -> None:
         """The two one-sided tangents at q_c on τ(q), the envelope's chord across (h_l, h_h) on
-        D(h) when D** is drawn, and the reading, with where a published generalized spectrum
-        leaves the envelope by the other route."""
+        D(h) when D** is drawn, and the reading, with where a published generalized spectrum (on
+        the board, its converged estimate) leaves the envelope by the other route."""
         fit = getattr(self, "_fit", None)
         wanted = fit is not None and self._geometry_check.isChecked()
         got = spectra.kink_interval(fit["q_list"], fit["tau"]) if wanted else None
@@ -1149,7 +1149,10 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             self._chord.setVisible(False)
         generalized = [(f["h"], f["D"]) for f in self._fits.values()
                        if f.get("kind") == "generalized spectrum" and f.get("h") is not None and f.get("D") is not None]
-        generalized += [(e.h, e.D) for e in self._board_drawn if e.kind == "generalized"]
+        # The converged estimate alone: the Legendre (γ = 0) reference sent beside it is the
+        # concave spectrum of the same τ table, the envelope it is read against.
+        generalized += [(e.h, e.D) for e in self._board_drawn if e.kind == "generalized"
+                        and e.identity.get("settings", {}).get("curve") != "legendre"]
         if generalized:
             left = spectra.envelope_departure(hull["h"], hull["D"], *generalized[0])
             if left is not None:

@@ -300,6 +300,30 @@ def test_a_computed_generalized_spectrum_sends_its_converged_points_with_their_b
     np.testing.assert_allclose(entry.dD, fit["band"]["half_width"])
 
 
+def test_the_kink_readout_reads_the_converged_estimate_never_the_legendre_reference(qtbot, host):
+    """The construction's kink reading names where the generalized spectrum leaves D**: the
+    converged estimate on the board, never the Legendre (γ = 0) reference sent beside it."""
+    from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
+    from tests.test_multifractal_window import _hd_q
+    from tests.test_spectrum_window import _per_scale_set
+
+    q = np.arange(-3.0, 3.01, 0.5)
+    hd = _hd_q(q, np.where(q < 0, 0.8 * q, 0.3 * q))
+    construction = _construction(qtbot, host, hd, hd)
+    construction._hull_check.setChecked(True)
+    sender = GeneralizedSpectrumWindow(_per_scale_set()[0], log2_L=7., source="L1", parent=host)
+    qtbot.addWidget(sender)
+    h = np.linspace(0.2, 0.9, 71)
+    sender._fit = {**_generalized_fit(), "h": h, "boundary": np.zeros(h.size, bool),
+                   "D": np.where((h >= 0.4) & (h <= 0.7), -5.0, 5.0),
+                   "legendre": np.where((h >= 0.3) & (h <= 0.5), -5.0, 5.0)}
+    readout = construction._kink_label.toPlainText
+    assert sender.send_to_board("legendre")
+    assert "leaves D**" not in readout()                      # the reference alone: no departure
+    assert sender.send_to_board("converged")
+    assert "the generalized spectrum leaves D** on (0.40, 0.70)" in readout()
+
+
 # --------------------------------------------------------------------------- the comparison
 
 def _entry(name, kind="large_deviations", shift=0.0, **kw):
