@@ -189,30 +189,46 @@ def test_the_other_windows_send_their_spectra(qtbot, host):
     assert any("large deviations" in s for s in host.status)
 
 
+def _generalized_fit(name="L1 · synthetic, generalized spectrum"):
+    """A fit as the Generalized spectrum window keeps it after a Compute: the minima on the h
+    grid, those on the grid's boundary flagged, the scale window and the settings."""
+    h = np.linspace(0.0, 1.0, 21)
+    return {"name": name, "kind": "generalized spectrum", "valid": True, "h": h,
+            "D": 2.0 - 5.0 * (h - 0.5) ** 2, "boundary": (h < 0.2) | (h > 0.8), "window": (1.0, 5.0),
+            "settings": {"q": np.arange(-4.0, 4.01, 0.5), "gamma": np.arange(0.0, 16.01), "h": h,
+                         "delta": np.arange(-1.0, 2.01, 0.25), "lo": 1.0, "hi": 5.0, "L": 128.0,
+                         "amplitude": "auto"}}
+
+
 def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_reference(qtbot, host):
     from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
-
     from tests.test_spectrum_window import _per_scale_set
 
     w = GeneralizedSpectrumWindow(_per_scale_set()[0], log2_L=7., source="L1", parent=host)
     qtbot.addWidget(w)
     assert not w.send_to_board() and "Compute" in host.status[-1]
-    with qtbot.waitSignal(w.fitChanged, timeout=10000):
-        w.apply_button.click()
+    w._fit = fit = _generalized_fit()
     buttons = {b.text(): b for b in w.findChildren(QtWidgets.QPushButton)}
     buttons["Send converged"].click()
     [entry] = host.spectra_board.entries()
-    fit = w.current_fit()
-    assert entry.kind == "generalized" and entry.h.shape == entry.D.shape == np.shape(fit["h"])
+    assert entry.kind == "generalized" and entry.h.shape == entry.D.shape == fit["h"].shape
     assert entry.full_name == "L1 · synthetic, generalized spectrum, converged"
-    assert np.isnan(entry.D[np.asarray(fit["boundary"])]).all()     # bounds stay off the curve
-    assert entry.identity["scale_window"] == list(fit["window"])
-    assert entry.identity["settings"]["h"]["n"] == np.size(fit["h"])
-    assert not buttons["Send Legendre (γ = 0)"].click() and "no legendre" in host.status[-1]
-    w._fit = {**fit, "legendre": fit["D"] - 0.1}                     # the diagnostics' γ = 0 column
+    assert np.isnan(entry.D[fit["boundary"]]).all()                  # bounds stay off the curve
+    np.testing.assert_allclose(entry.D[~fit["boundary"]], fit["D"][~fit["boundary"]])
+    assert entry.dD is None                                          # no leave-one-scale-out band
+    assert entry.identity["scale_window"] == [1.0, 5.0]
+    assert entry.identity["settings"]["delta"] == {"min": -1.0, "max": 2.0, "n": 13}
+    buttons["Send Legendre (γ = 0)"].click()
+    assert len(host.spectra_board) == 1 and "no legendre" in host.status[-1]
+    half = np.full(21, 0.03)
+    w._fit = {**fit, "legendre": fit["D"] + 0.1, "solid": ~fit["boundary"],
+              "band": {"half_width": half}}                          # what the diagnostics add
     w.send_to_board("legendre")
-    legendre = host.spectra_board.entries()[-1]
+    w.send_to_board("converged")
+    converged, legendre = host.spectra_board.entries()
     assert legendre.full_name.endswith("Legendre (γ = 0)") and legendre.dD is None
+    np.testing.assert_allclose(legendre.D, fit["D"] + 0.1)
+    np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
 
 
 def test_the_main_window_owns_the_board_and_names_a_send_on_its_status_line(qtbot, window):
