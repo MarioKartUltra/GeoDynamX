@@ -38,9 +38,11 @@ at construction. The scale window can also be DRIVEN by an open MultifractalWind
 workbook's cell-49-inherits-cell-47 coupling.
 
 **The D(h) comparison.** Every spectrum sent to the D(h) comparison
-(:mod:`dynamix.shell.spectra_board`: each fitting window's Send to D(h) comparison, and this
-window's "Send landed results…" for the other layers' landed tables) draws on D(h) beside this
-window's own construction, its τ(q) on the τ panel, named in the legend by its display name with
+(:mod:`dynamix.shell.spectra_board`: each fitting window's Send to D(h) comparison, this
+window's own Send buttons for its canonical points, with the tangent at q_c when asked, its
+histogram and its box-counting construction, so a state of the construction can be frozen and
+compared with a later one, and its "Send landed results…" for the other layers' landed tables)
+draws on D(h) beside this window's own construction, its τ(q) on the τ panel, named in the legend by its display name with
 the full name as tooltip; the board's inspector sits under the panels while the board holds
 entries. Nothing arrives by itself: the comparison shows what was sent. Three panels, τ(q), h(q)
 and c(q), sit beside D(h); ``set_fits`` draws fits handed to it on all four panels in their own
@@ -62,8 +64,8 @@ from dynamix.model.spectra_board import plain
 from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
                                                 WheelAxisViewBox, add_zero_lines)
-from dynamix.shell.spectra_board import (BoardComparison, ancestor_with, board_of, dh_view_range, kind_of_method,
-                                         send_landed)
+from dynamix.shell.spectra_board import (BoardComparison, ancestor_with, board_of, dh_view_range, from_fit,
+                                         kind_of_method, send, send_button, send_landed)
 from dynamix.shell.theme import current
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
@@ -394,6 +396,51 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
                            eta=float(self._eta_spin.value()), frame=self._frame_combo.currentText(),
                            log2_L=self._log2_L, table=self._table_key(), settings=self._fit_settings())
 
+    def send_primary(self, with_tangent: "bool | None" = None) -> bool:
+        """The canonical points to the D(h) comparison: every q row with the error bars D(h)
+        draws (the fit's standard errors over the scale window), τ(q), and the tangent at q_c
+        drawn on D(h) when ``with_tangent`` (the "with tangent" box by default)."""
+        if self._fit is None:
+            return send(self, None, "no canonical points to send")
+        if with_tangent is None:
+            with_tangent = self.with_tangent_check.isChecked()
+        name = self._source if self._one_table else f"{self._source} · {self._table_combo.currentText()}"
+        entry = from_fit(self, {**self._fit, "name": name}, kind_of_method(self._h_map_method),
+                         scale_window=self._scale_window(), fit_mode=self.fit_mode(), table=self._table_key(),
+                         settings=self._fit_settings(), tangent=self._tangent_now() if with_tangent else None)
+        return send(self, entry, "no finite D(h) to send")
+
+    def send_histogram(self) -> bool:
+        """The histogram construction as D(h) draws it (pinned to the fit's D₀ when the pin is
+        on), with its eq. 39 bars."""
+        if self._hist is None:
+            return send(self, None, "no histogram construction to send")
+        h, D = (np.asarray(a, dtype=np.float64) for a in self._hist_curve.getData())
+        pinned = self.pin_check.isChecked()
+        settings = {"pin_to_D0": pinned, "bins": self._bins, "r0": self._r0_choice,
+                    **(self._fit_settings() if pinned else {})}
+        entry = from_fit(self, {"name": self._hist_label, "h": h, "D": D, "D_err": self._hist_dD}, "histogram",
+                         scale_window=self._scale_window() if pinned else None,
+                         fit_mode=self.fit_mode() if pinned else None,
+                         table=self._table_key() if pinned else None, settings=settings)
+        return send(self, entry, "the histogram construction has no finite D(h)")
+
+    def _boxcount(self) -> tuple:
+        """Eq. 20 across r over the h-map, on coarser bins than the histogram's: a thin bin is
+        a sparse set below its spacing."""
+        from dynamix.core.microcanonical import box_counting_spectrum
+
+        return box_counting_spectrum(self._h_map, n_bins=max(8, self._bins // 4))
+
+    def send_boxcount(self) -> bool:
+        """The box-counting construction across r (eq. 20) with its slopes' standard errors."""
+        if self._h_map is None:
+            return send(self, None, "no box-counting construction to send")
+        h, D, dD = self._boxcount()
+        entry = from_fit(self, {"name": "box-counting across r (eq. 20)", "h": h, "D": D, "D_err": dD},
+                         "boxcount", settings={"bins": max(8, self._bins // 4)})
+        return send(self, entry, "the box-counting construction has no finite D(h)")
+
     def _export_figure(self) -> None:
         main = ancestor_with(self.parentWidget(), "_export_comparison_figure")
         if main is not None:
@@ -405,9 +452,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         drawn on D(h); None for a histogram-only window."""
         if self._fit is None:
             return None
-        got = self._phase_tangent()
-        tangent = None if got is None else {"q_c": got["q_c"], "h_c": got["h_c"], "D_c": got["D_c"],
-                                            "slope": got["q_c"], "intercept": got["intercept"]}
+        tangent = self._tangent_now()
         return plain({"name": self._source, "kind": kind_of_method(self._h_map_method),
                       "scale_window": list(self._scale_window()), "fit_mode": self.fit_mode(),
                       "table": self._table_key(), "settings": self._fit_settings(), "errors": True,
@@ -554,6 +599,18 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
                                       "the negative branch; off, no tangent is drawn")
         self.tangent_check.toggled.connect(lambda _c: self._update_tangent())
         controls.addWidget(self.tangent_check)
+        # The canonical points frozen on the D(h) comparison, to compare with a later state.
+        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
+        self.send_button.setToolTip("The canonical points with the error bars D(h) draws (the fit's standard "
+                                    "errors over the scale window), to the D(h) comparison")
+        self.send_button.setEnabled(has_hd)
+        self.send_button.clicked.connect(lambda _c=False: self.send_primary())
+        controls.addWidget(self.send_button)
+        self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
+        self.with_tangent_check.setToolTip("Send the tangent at q_c drawn on D(h) with the points")
+        self.with_tangent_check.setEnabled(has_hd)
+        self.tangent_check.toggled.connect(lambda on: self.with_tangent_check.setEnabled(on and has_hd))
+        controls.addWidget(self.with_tangent_check)
         self.send_landed_button = QtWidgets.QPushButton("Send landed results…")
         self.send_landed_button.setToolTip("Fit the other layers' landed results under this window's scale "
                                            "window, fit mode, η and frame, and send the chosen ones to the "
@@ -584,7 +641,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
 
         # The histogram construction's own controls, with an h-map to build it from.
         self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None
-        self.boxcount_check = self.pin_check = None
+        self.boxcount_check = self.pin_check = self.send_hist_button = self.send_box_button = None
         if self._h_map is not None:
             controls.addWidget(QtWidgets.QLabel("bins"))
             self.bins_spin = QtWidgets.QSpinBox()
@@ -611,11 +668,16 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             self.boxcount_check = QtWidgets.QCheckBox("box-counting across r (eq. 20)")
             self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
             controls.addWidget(self.boxcount_check)
+            self.send_box_button = send_button("box-counting construction", self.send_boxcount)
+            controls.addWidget(self.send_box_button)
             # Eq. 21 with the fit's own D₀ = -tau(0) in place of d, to compare shapes.
             self.pin_check = QtWidgets.QCheckBox("pin peak to D₀ of the fit")
             self.pin_check.setEnabled(has_hd)
             self.pin_check.toggled.connect(lambda _c: self._update_hist_items())
             controls.addWidget(self.pin_check)
+            self.send_hist_button = send_button("histogram construction", self.send_histogram)
+            self.send_hist_button.setEnabled(self._hist is not None)
+            controls.addWidget(self.send_hist_button)
 
         for w in (self._table_combo, self._lo_spin, self._hi_spin, self._eta_spin,
                   self._hull_check):
@@ -933,10 +995,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             self._box_err.setData(x=np.zeros(0), y=np.zeros(0), height=np.zeros(0))
             self._sync_legend()
             return
-        from dynamix.core.microcanonical import box_counting_spectrum
-
-        # Coarser bins than the histogram's: a thin bin is a sparse set below its spacing.
-        h, D, dD = box_counting_spectrum(self._h_map, n_bins=max(8, self._bins // 4))
+        h, D, dD = self._boxcount()
         self._box_curve.setData(h, D)
         self._box_err.setData(x=h, y=np.where(np.isfinite(D), D, 0.0),
                               height=np.where(np.isfinite(dD), 2.0 * dD, 0.0))
@@ -1166,6 +1225,14 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         if fit is None or not self.tangent_check.isChecked():
             return None
         return spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"])
+
+    def _tangent_now(self) -> "dict | None":
+        """The tangent drawn on D(h) now, in the board's keys; None when none is drawn."""
+        got = self._phase_tangent()
+        if got is None:
+            return None
+        return {"q_c": got["q_c"], "h_c": got["h_c"], "D_c": got["D_c"], "slope": got["q_c"],
+                "intercept": got["intercept"]}
 
     def _update_tangent(self) -> None:
         """The tangent at the phase transition off the current fit, drawn across the view;

@@ -479,6 +479,65 @@ def test_a_closed_window_stops_drawing_and_a_reopened_one_catches_up(qtbot, host
     assert [n for _c, n, _f in window._board_legend] == ["A"]
 
 
+def test_the_construction_sends_its_own_points_histogram_and_box_counting(qtbot, host):
+    """The construction window freezes its own state on the board: the canonical points with
+    the bars D(h) draws (and the tangent at q_c when "with tangent" is ticked), the histogram
+    as drawn with its eq. 39 bars, the box-counting construction with its slopes' errors; the
+    canonical points under a second scale window are a second entry."""
+    from dynamix.core.microcanonical import box_counting_spectrum
+
+    rng = np.random.default_rng(3)
+    window = _construction(qtbot, host, *_broken_pair(), h_map=rng.normal(0.4, 0.1, (64, 64)))
+    window._table_combo.setCurrentText("sup (cmax)")              # the broken negative branch
+    assert window.send_button.text() == "Send to D(h) comparison"
+    window.send_button.click()
+    window.send_hist_button.click()
+    window.send_box_button.click()
+    canon, hist, box = host.spectra_board.entries()
+    assert (canon.kind, hist.kind, box.kind) == ("canonical", "histogram", "boxcount")
+    fit = window.current_fit()
+    for got, key in ((canon.h, "h"), (canon.D, "D"), (canon.dh, "h_err"), (canon.dD, "D_err"), (canon.tau, "tau")):
+        np.testing.assert_allclose(got, fit[key])
+    assert canon.identity["scale_window"] == list(window._scale_window()) and canon.identity["table"] == "cmax"
+    assert canon.tangent is None                                   # "with tangent" is off by default
+    h, D = window._hist_curve.getData()
+    np.testing.assert_allclose(hist.h, h)
+    np.testing.assert_allclose(hist.D, D)
+    np.testing.assert_allclose(hist.dD, window._hist_dD)
+    expect = box_counting_spectrum(window._h_map, n_bins=max(8, window._bins // 4))
+    for got, want in zip((box.h, box.D, box.dD), expect):
+        np.testing.assert_allclose(got, want)
+
+    window.with_tangent_check.setChecked(True)
+    window.send_primary()
+    assert len(host.spectra_board) == 3                            # one identity: replaced
+    assert window._tangent_now() is not None
+    assert host.spectra_board.entries()[0].tangent == pytest.approx(window._tangent_now())
+    window.tangent_check.setChecked(False)                         # the tangent off: none to send
+    assert not window.with_tangent_check.isEnabled()
+    window.send_primary()
+    assert host.spectra_board.entries()[0].tangent is None
+
+    window._lo_spin.setValue(window._lo_spin.value() + 1.0)        # a second scale window
+    window.send_primary()
+    first, second = [e for e in host.spectra_board.entries() if e.kind == "canonical"]
+    assert first.identity["scale_window"] != second.identity["scale_window"]
+    np.testing.assert_allclose(first.D, fit["D"])
+    np.testing.assert_allclose(second.D, window.current_fit()["D"])
+
+
+def test_a_construction_without_tables_or_an_h_map_has_nothing_of_that_to_send(qtbot, host):
+    tables_only = _construction(qtbot, host)
+    assert tables_only.send_hist_button is None and tables_only.send_box_button is None
+    assert not tables_only.send_histogram() and host.status[-1] == "no histogram construction to send"
+    rng = np.random.default_rng(4)
+    hist_only = SpectrumWindow(h_map=rng.normal(0.4, 0.1, (64, 64)), parent=host)
+    qtbot.addWidget(hist_only)
+    assert not hist_only.send_button.isEnabled() and not hist_only.with_tangent_check.isEnabled()
+    assert not hist_only.send_primary() and host.status[-1] == "no canonical points to send"
+    assert len(host.spectra_board) == 0
+
+
 def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbot, host, monkeypatch):
     """"Send landed results…" lists the other layers' landed results; the chosen one is fitted
     under the construction's scale window, fit mode, η and frame, sent, and drawn once sent."""

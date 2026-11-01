@@ -21,7 +21,7 @@ from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
 __all__ = ["BOARD_HUES", "BoardComparison", "SpectraBoardInspector", "SpectraBoardModel", "ancestor_with",
            "board_of", "dh_view_range", "from_fit", "generalized_entry", "kind_of_method", "landed_dialog",
-           "say", "send", "send_landed", "tool_identity"]
+           "say", "send", "send_button", "send_landed", "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
 #: Theme-Rule carve-out the partition fitter's source hues document, as numeric RGB.
@@ -207,6 +207,15 @@ def send(window, spectrum: "SentSpectrum | None", nothing: str = "nothing to sen
         return False
     board.add(spectrum)
     return True
+
+
+def send_button(what: str, slot) -> QtWidgets.QToolButton:
+    """A small Send button beside a construction's own controls that calls ``slot``."""
+    button = QtWidgets.QToolButton()
+    button.setText("Send")
+    button.setToolTip(f"Send the {what} to the D(h) comparison")
+    button.clicked.connect(lambda _c=False: slot())
+    return button
 
 
 def kind_of_method(method: str) -> str:

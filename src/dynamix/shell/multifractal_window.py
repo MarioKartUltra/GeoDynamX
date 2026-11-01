@@ -62,7 +62,8 @@ from dynamix.model.spectra_board import plain
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported for the fitting windows)
 from dynamix.shell.shared_range import SharedRangeFollower
-from dynamix.shell.spectra_board import ancestor_with, dh_view_range, from_fit, kind_of_method, send, send_landed
+from dynamix.shell.spectra_board import (ancestor_with, dh_view_range, from_fit, kind_of_method, send,
+                                         send_button, send_landed)
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["MultifractalWindow"]
@@ -366,14 +367,14 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.pin_check.setEnabled(self._dh_hist is not None)
         self.pin_check.toggled.connect(lambda _c: self._update_dh_hist())
         controls.addWidget(self.pin_check)
-        self.send_hist_button = self._send_button("histogram construction", self.send_histogram)
+        self.send_hist_button = send_button("histogram construction", self.send_histogram)
         self.send_hist_button.setEnabled(self._dh_hist is not None)
         controls.addWidget(self.send_hist_button)
         self.boxcount_check = QtWidgets.QCheckBox("box-counting")
         self.boxcount_check.setEnabled(self._h_map is not None)
         self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
         controls.addWidget(self.boxcount_check)
-        self.send_box_button = self._send_button("box-counting construction", self.send_boxcount)
+        self.send_box_button = send_button("box-counting construction", self.send_boxcount)
         self.send_box_button.setEnabled(self._h_map is not None or self._dh_box is not None)
         controls.addWidget(self.send_box_button)
         # tau, h and D(h) from the cascade's cumulants, over the fitted ones.
@@ -728,13 +729,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         remember_geometry(self, "multifractal")
 
     # -- the D(h) comparison: senders ----------------------------------------------------
-    def _send_button(self, what: str, slot) -> QtWidgets.QToolButton:
-        button = QtWidgets.QToolButton()
-        button.setText("Send")
-        button.setToolTip(f"Send the {what} to the D(h) comparison")
-        button.clicked.connect(lambda _c=False: slot())
-        return button
-
     def _table_key(self) -> str:
         """The table the fit reads: ``std`` or ``cmax``, or a named table's name."""
         text = self._table_combo.currentText()
