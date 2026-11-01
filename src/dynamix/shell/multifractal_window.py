@@ -204,9 +204,12 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._in_dh_legend: dict = {}
         #: The box-counting construction ``(h, D, dD)`` of an h-map result (eq. 20 across r).
         self._dh_box = tuple(dh_box) if dh_box is not None else None
-        #: Other methods' results drawn beside the primary's, each a dict with ``name`` and
-        #: ``hd_std``/``hd_cmax`` and/or ``dh_hist``; the Show menu toggles each.
-        self._sources = [dict(s) for s in (sources or [])]
+        #: Other layers' landed results, each a dict with ``name`` and ``hd_std``/``hd_cmax``
+        #: and/or ``dh_hist``: listed by "Send landed results…", drawn once sent to the board.
+        self._landed = [dict(s) for s in (sources or [])]
+        #: Other methods' results drawn beside the primary's, the Show menu toggling each: none,
+        #: the D(h) comparison draws what was sent to it.
+        self._sources: list = []
         self._source_items: dict = {}
         self._primary_visible = True
         #: The histogram construction ``(h, D, dD)`` of an h-map result, drawn beside the
@@ -358,10 +361,16 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.pin_check.setEnabled(self._dh_hist is not None)
         self.pin_check.toggled.connect(lambda _c: self._update_dh_hist())
         controls.addWidget(self.pin_check)
+        self.send_hist_button = self._send_button("histogram construction", self.send_histogram)
+        self.send_hist_button.setEnabled(self._dh_hist is not None)
+        controls.addWidget(self.send_hist_button)
         self.boxcount_check = QtWidgets.QCheckBox("box-counting")
         self.boxcount_check.setEnabled(self._h_map is not None)
         self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
         controls.addWidget(self.boxcount_check)
+        self.send_box_button = self._send_button("box-counting construction", self.send_boxcount)
+        self.send_box_button.setEnabled(self._h_map is not None or self._dh_box is not None)
+        controls.addWidget(self.send_box_button)
         # tau, h and D(h) from the cascade's cumulants, over the fitted ones.
         self.cumulant_check = QtWidgets.QCheckBox("cumulant spectrum")
         self.cumulant_check.toggled.connect(self._on_cumulant_requested)
@@ -426,6 +435,25 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
 
         controls.addStretch(1)
         layout.addLayout(controls)
+
+        # The D(h) comparison: what this window sends to the board, the tangent it draws.
+        compare = QtWidgets.QHBoxLayout()
+        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
+        self.send_button.setToolTip("The fit on show, with the error bars D(h) draws (the fit's standard "
+                                    "errors over the scale window), to the D(h) comparison")
+        self.send_button.clicked.connect(lambda _c=False: self.send_primary())
+        compare.addWidget(self.send_button)
+        self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
+        self.with_tangent_check.setToolTip("Send the phase-transition tangent drawn on D(h) with the fit")
+        compare.addWidget(self.with_tangent_check)
+        self.send_landed_button = QtWidgets.QPushButton("Send landed results…")
+        self.send_landed_button.setToolTip("Fit the other layers' landed results under this window's scale "
+                                           "window, fit mode, η and frame, and send the chosen ones")
+        self.send_landed_button.setEnabled(bool(self._landed))
+        self.send_landed_button.clicked.connect(lambda _c=False: self.send_landed_results())
+        compare.addWidget(self.send_landed_button)
+        compare.addStretch(1)
+        layout.addLayout(compare)
 
         #: The two-segment fit's live numbers -- slope_L / slope_R / ds + the scan's best q*.
         self._pt_label = QtWidgets.QLabel("")
@@ -681,6 +709,151 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
 
         fit_to_screen(self, 1150, 1000)
         remember_geometry(self, "multifractal")
+
+    # -- the D(h) comparison: senders ----------------------------------------------------
+    def _send_button(self, what: str, slot) -> QtWidgets.QToolButton:
+        button = QtWidgets.QToolButton()
+        button.setText("Send")
+        button.setToolTip(f"Send the {what} to the D(h) comparison")
+        button.clicked.connect(lambda _c=False: slot())
+        return button
+
+    def _table_key(self) -> str:
+        """The table the fit reads: ``std`` or ``cmax``, or a named table's name."""
+        text = self._table_combo.currentText()
+        return {"no-sup (std)": "std", "sup (cmax)": "cmax"}.get(text, text)
+
+    def _primary_kind(self) -> str:
+        """What the primary fit is on the board: the leaders' table read by this fitter, or the
+        canonical fit."""
+        return {"wavelet_leaders": "dwt_leaders", "cwt_leaders": "cwt_leaders"}.get(self._h_map_method,
+                                                                                   "canonical")
+
+    def _fit_settings(self) -> dict:
+        return {"eta": float(self._eta_spin.value()), "frame": self._frame_combo.currentText(),
+                "all_chains": bool(self.all_chains_check is not None and self.all_chains_check.isChecked())}
+
+    def _tangent_now(self) -> "dict | None":
+        """The tangent drawn on D(h) now, in the board's keys; None when none is drawn."""
+        fit = self._fit
+        if fit is None:
+            return None
+        got = spectra.phase_transition_tangent(fit["q_list"], fit["tau"], fit["h"], fit["D"],
+                                               q_pick=self._tangent_q)
+        if got is None:
+            return None
+        return {"q_c": got["q_c"], "h_c": got["h_c"], "D_c": got["D_c"], "slope": got["q_c"],
+                "intercept": got["intercept"]}
+
+    def send_primary(self, with_tangent: "bool | None" = None) -> bool:
+        """The fit on show to the D(h) comparison: its displayed q rows with the error bars D(h)
+        draws (the fit's standard errors over the scale window), τ(q), and the tangent drawn on
+        D(h) when ``with_tangent`` (the "with tangent" box by default)."""
+        from dynamix.shell.spectra_board import from_fit, send
+
+        if self._fit is None:
+            return send(self, None, "no fit to send")
+        if with_tangent is None:
+            with_tangent = self.with_tangent_check.isChecked()
+        fit = self.published_fit()
+        q = np.asarray(fit["q"], dtype=np.float64)
+        lo, hi = self._region.getRegion()
+        settings = {**self._fit_settings(),
+                    "q_range": [float(self._qmin_spin.value()), float(self._qmax_spin.value())]}
+        entry = from_fit(self, fit, self._primary_kind(), scale_window=(lo, hi), fit_mode=self.fit_mode(),
+                         table=self._table_key(), settings=settings,
+                         tangent=self._tangent_now() if with_tangent else None, keep=self._q_mask(q))
+        return send(self, entry, "no finite D(h) to send")
+
+    def _hist_name(self) -> str:
+        return ("GMWLP histogram (leaders)" if self._h_map_method in LEADERS_METHODS
+                else "microcanonical histogram")
+
+    def send_histogram(self) -> bool:
+        """The histogram construction as D(h) draws it (pinned to D₀ when the pin is on), with
+        its eq. 39 bars."""
+        from dynamix.shell.spectra_board import from_fit, send
+
+        if self._dh_hist is None:
+            return send(self, None, "no histogram construction to send")
+        h, D = (np.asarray(a, dtype=np.float64) for a in self._dh_hist_curve.getData())
+        pinned = self.pin_check.isChecked()
+        lo, hi = self._region.getRegion()
+        fit = {"name": self._hist_name(), "h": h, "D": D, "D_err": self._dh_hist[2]}
+        entry = from_fit(self, fit, "histogram", scale_window=(lo, hi) if pinned else None,
+                         fit_mode=self.fit_mode() if pinned else None,
+                         table=self._table_key() if pinned else None, settings={"pin_to_D0": pinned})
+        return send(self, entry, "the histogram construction has no finite D(h)")
+
+    def send_boxcount(self) -> bool:
+        """The box-counting construction across r (eq. 20) with its slopes' standard errors."""
+        from dynamix.core.microcanonical import box_counting_spectrum
+        from dynamix.shell.spectra_board import from_fit, send
+
+        if self._dh_box is not None:
+            h, D, dD = self._dh_box
+        elif self._h_map is not None:
+            h, D, dD = box_counting_spectrum(self._h_map)
+        else:
+            return send(self, None, "no box-counting construction to send")
+        entry = from_fit(self, {"name": "box-counting across r", "h": h, "D": D, "D_err": dD}, "boxcount")
+        return send(self, entry, "the box-counting construction has no finite D(h)")
+
+    def landed_dialog(self) -> "tuple[QtWidgets.QDialog, QtWidgets.QListWidget]":
+        """The list of the other layers' landed results, one unchecked row each."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Send landed results")
+        box = QtWidgets.QVBoxLayout(dialog)
+        box.addWidget(QtWidgets.QLabel("Fitted under this window's scale window, fit mode, η and frame:"))
+        rows = QtWidgets.QListWidget()
+        for source in self._landed:
+            item = QtWidgets.QListWidgetItem(source["name"])
+            item.setFlags(item.flags() | QtCore.Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.CheckState.Unchecked)
+            rows.addItem(item)
+        box.addWidget(rows)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok
+                                             | QtWidgets.QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        box.addWidget(buttons)
+        return dialog, rows
+
+    def send_landed_results(self, names=None) -> int:
+        """Send the landed results named in ``names`` (asked in :meth:`landed_dialog` when None):
+        a result's tables fitted as the primary is, its histogram construction as drawn.
+        Returns how many spectra were sent."""
+        from dynamix.shell.spectra_board import from_fit, send
+
+        if names is None:
+            dialog, rows = self.landed_dialog()
+            accepted = dialog.exec()
+            names = [rows.item(i).text() for i in range(rows.count())
+                     if rows.item(i).checkState() == QtCore.Qt.CheckState.Checked] if accepted else []
+            dialog.deleteLater()
+        lo, hi = self._region.getRegion()
+        mode = self.fit_mode()
+        sent = 0
+        for source in (s for s in self._landed if s["name"] in names):
+            origin = source.get("identity") or {}
+            kind = {"wavelet_leaders": "dwt_leaders", "cwt_leaders": "cwt_leaders"}.get(source.get("method"),
+                                                                                       "canonical")
+            hd = self._source_table(source)
+            if hd is not None:
+                fit = spectra.fit_spectra(hd, float(lo), float(hi), eta=self._eta_spin.value(),
+                                          frame=self._frame_combo.currentText(), fit_mode=mode,
+                                          log2_L=self._log2_L if mode != "naive" else None)
+                one = source.get("hd_cmax") is None or source.get("hd_std") is source.get("hd_cmax")
+                entry = from_fit(self, {**fit, "name": source["name"]}, kind, scale_window=(lo, hi),
+                                 fit_mode=mode, table=None if one else self._table_key(),
+                                 settings=self._fit_settings(), origin=origin)
+                sent += send(self, entry, f"{source['name']}: no finite D(h) to send")
+            if source.get("dh_hist") is not None:
+                h, D, dD = source["dh_hist"]
+                entry = from_fit(self, {"name": f"{source['name']} (histogram)", "h": h, "D": D, "D_err": dD},
+                                 "histogram", settings={"pin_to_D0": False}, origin=origin)
+                sent += send(self, entry, f"{source['name']}: the histogram has no finite D(h)")
+        return sent
 
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:

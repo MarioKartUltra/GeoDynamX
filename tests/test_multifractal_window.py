@@ -229,6 +229,8 @@ def test_the_phase_transition_tangent_on_D_h_tracks_the_negative_branch(qtbot):
 
 
 def test_the_D_h_legend_is_a_row_under_the_panel_with_short_names(qtbot):
+    """The legend row lists what D(h) and c(q) draw; another layer's landed result is listed for
+    sending and drawn only once sent (tests/test_dh_comparison_send.py)."""
     hd_std, hd_cmax = _pair()
     long_name = "moments over the projections (Turiel 2006, M method) · holder_measure @A"
     window = MultifractalWindow(hd_std, hd_cmax,
@@ -236,7 +238,8 @@ def test_the_D_h_legend_is_a_row_under_the_panel_with_short_names(qtbot):
     qtbot.addWidget(window)
     assert window._glw.ci.rows[2][0] is window._dh_legend_row     # the strip under the spectra
     names = window._dh_legend_names()
-    assert "holder_measure @A" in names and long_name not in names
+    assert "holder_measure @A" not in names and long_name not in names
+    assert [s["name"] for s in window._landed] == [long_name]
     assert "canonical (Arneodo WTMM)" in names
     assert "c(q) fit" in names                                     # drawn after the fit
     registered = {name_of() for _item, name_of in window._dh_legend_entries}
@@ -492,33 +495,28 @@ def test_the_family_panels_can_read_log2_of_the_physical_length_on_the_bottom_ax
     window.refresh_physical_axes()                                   # a units change re-reads
 
 
-def test_other_methods_ride_as_sources_with_a_show_menu(qtbot):
-    """Every other method's tables draw beside the primary's -- their rows on the family
-    panels, their fitted tau/D/h under the same window and fit mode -- and the Show menu
-    toggles each source, the primary included."""
+def test_other_methods_are_sent_from_the_landed_list_and_the_show_menu_toggles_the_primary(qtbot):
+    """Another layer's landed tables draw nothing until sent: "Send landed results…" fits them
+    under the primary's window and fit mode and sends the spectrum to the board, a histogram
+    source as drawn; the Show menu toggles the primary."""
+    from dynamix.shell.spectra_board import SpectraBoardModel
+
     hd_a, hd_b = _pair()
     window = MultifractalWindow(hd_a, hd_a,
                                 sources=[{"name": "moments · B", "hd_std": hd_b, "hd_cmax": hd_b}])
     qtbot.addWidget(window)
-    assert [a.text() for a in window.show_menu.actions()] == ["canonical (Arneodo WTMM)", "moments · B"]
-    assert all(a.isChecked() for a in window.show_menu.actions())
-    items = window._source_items["moments · B"]
-    rows = items["rows"]["tau_qa"]
-    assert len(rows) == 3 and all(r.isVisible() for r in rows)
-    np.testing.assert_allclose(rows[1].yData, hd_b["tau_qa"][1])
-    lo, hi = window._region.getRegion()
-    fit = spectra.fit_spectra(hd_b, float(lo), float(hi))
-    x, y = items["curves"]["tau"].getData()
-    np.testing.assert_allclose(x, fit["q_list"])
-    np.testing.assert_allclose(y, fit["tau"])
-    xd, yd = items["curves"]["D"].getData()
-    np.testing.assert_allclose(xd, fit["h"])
-    np.testing.assert_allclose(yd, fit["D"])
+    window.spectra_board = SpectraBoardModel()
+    assert [a.text() for a in window.show_menu.actions()] == ["canonical (Arneodo WTMM)"]
+    assert window._source_items == {} and window.send_landed_button.isEnabled()
     window._region.setRegion((1.0, 5.0))
-    np.testing.assert_allclose(items["curves"]["tau"].getData()[1],
-                               spectra.fit_spectra(hd_b, 1.0, 5.0)["tau"])
-    window.show_menu.actions()[1].setChecked(False)
-    assert not items["curves"]["tau"].isVisible() and not rows[0].isVisible()
+    assert window.send_landed_results(["moments · B"]) == 1
+    [entry] = window.spectra_board.entries()
+    fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
+    assert entry.kind == "canonical" and entry.full_name == "moments · B"
+    np.testing.assert_allclose(entry.tau, fit["tau"])
+    np.testing.assert_allclose(entry.D, fit["D"])
+    np.testing.assert_allclose(entry.dD, fit["D_err"])
+    assert entry.identity["scale_window"] == [1.0, 5.0] and entry.identity["table"] is None
     window.show_menu.actions()[0].setChecked(False)
     assert not window._spectrum_curves["tau"].isVisible()
     assert not window._family_items_by_table["tau_qa"][0].isVisible()
@@ -528,8 +526,10 @@ def test_other_methods_ride_as_sources_with_a_show_menu(qtbot):
     hist_only = MultifractalWindow(hd_a, hd_a, sources=[
         {"name": "histogram · C", "dh_hist": (np.linspace(0, 1, 5), np.full(5, 1.5), np.zeros(5))}])
     qtbot.addWidget(hist_only)
-    assert "histogram · C" in hist_only._source_items
-    assert hist_only._source_items["histogram · C"]["curves"]["dh"].getData()[0].size == 5
+    hist_only.spectra_board = window.spectra_board
+    assert hist_only.send_landed_results(["histogram · C"]) == 1
+    sent = window.spectra_board.entries()[-1]
+    assert sent.kind == "histogram" and sent.h.size == 5 and sent.full_name == "histogram · C (histogram)"
 
 
 def test_the_family_rows_are_markers_and_the_fit_lines_solid(qtbot):
@@ -578,13 +578,11 @@ def test_the_dh_panel_carries_the_legend_and_the_histogram_and_box_counting_as_p
     qtbot.addWidget(window)
     names = _names(window)
     assert names[0] == "canonical (Arneodo WTMM)" and "microcanonical histogram" in names
-    assert "B" in names and "box-counting across r" not in names       # the layer part of "moments · B"
+    assert "B" not in names and "box-counting across r" not in names    # a landed source is sent, not drawn
     assert window._dh_hist_curve.opts["symbol"] == "o" and window._dh_hist_curve.opts["pen"] is None
     assert not window.boxcount_check.isChecked()
     window.boxcount_check.setChecked(True)
     assert window._dh_box_curve.getData()[0].size > 0 and "box-counting across r" in _names(window)
-    window.show_menu.actions()[1].setChecked(False)
-    assert "B" not in _names(window)
     assert getattr(window._cq_plot, "legend", None) is None or len(window._cq_plot.legend.items) == 0
 
 

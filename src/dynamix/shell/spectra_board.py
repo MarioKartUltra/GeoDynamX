@@ -15,7 +15,8 @@ from PySide6 import QtCore
 
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
-__all__ = ["BOARD_HUES", "SpectraBoardModel", "board_of", "from_fit", "say", "send", "tool_identity"]
+__all__ = ["BOARD_HUES", "SpectraBoardModel", "board_of", "from_fit", "generalized_entry", "say", "send",
+           "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
 #: Theme-Rule carve-out the partition fitter's source hues document, as numeric RGB.
@@ -124,16 +125,18 @@ def tool_identity(window) -> dict:
 
 
 def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, table=None,
-             settings=None, tangent=None, keep=None) -> SentSpectrum:
+             settings=None, tangent=None, keep=None, origin=None) -> SentSpectrum:
     """A :class:`SentSpectrum` from a producer's fit dict: its ``name`` (the layer's name after it
     when the name lacks it) as the full and the starting display name, ``h`` and ``D`` with
     ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
-    the window's tool identity, the scale window, the fit mode, the table and the settings."""
-    origin = tool_identity(window)
+    the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
+    the table and the settings."""
+    origin = dict(origin) if origin is not None else tool_identity(window)
     name = str(fit.get("name") or kind)
-    if origin["layer"] and origin["layer"] not in name:
-        name = f"{name} · {origin['layer']}"
+    layer = origin.get("layer")
+    if layer and layer not in name:
+        name = f"{name} · {layer}"
     h = np.asarray(fit["h"], dtype=np.float64).ravel()
     keep = np.ones(h.size, bool) if keep is None else np.asarray(keep, bool)
 
@@ -153,6 +156,38 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
     return SentSpectrum(name=name, full_name=name, kind=kind, h=h[keep], D=column("D"),
                         dh=column("h_err"), dD=column("D_err"), q=q, tau=tau, tangent=tangent,
                         identity=identity)
+
+
+def _grid(value):
+    """A settings value as the identity keeps it: a grid as its ends and its length."""
+    if np.ndim(value) == 1 and np.size(value) > 2:
+        a = np.asarray(value, dtype=np.float64)
+        return {"min": float(a.min()), "max": float(a.max()), "n": int(a.size)}
+    return value
+
+
+def generalized_entry(window, fit: dict, curve: str) -> "SentSpectrum | None":
+    """The generalized spectrum window's ``curve`` from its fit: ``converged``, the estimate on
+    the points the curve draws (the converged minima when the fit marks them, else the minima off
+    the grid's boundary) with the leave-one-scale-out half-width as bars when the fit carries the
+    band; ``legendre``, the Legendre spectrum of the same τ table at γ = 0, without bars. None
+    when the fit holds no such curve."""
+    h, D = np.asarray(fit["h"], dtype=np.float64), np.asarray(fit["D"], dtype=np.float64)
+    dD = None
+    if curve == "legendre":
+        if fit.get("legendre") is None:
+            return None
+        D, name = np.asarray(fit["legendre"], dtype=np.float64), f"{fit['name']}, Legendre (γ = 0)"
+    else:
+        drawn = (np.asarray(fit["solid"], bool) if "solid" in fit
+                 else ~np.asarray(fit["boundary"], bool) & np.isfinite(D))
+        D, name = np.where(drawn, D, np.nan), f"{fit['name']}, converged"
+        band = fit.get("band")
+        dD = None if band is None else band["half_width"]
+    settings = {"curve": curve, **{k: _grid(v) for k, v in (fit.get("settings") or {}).items()
+                                   if k not in ("lo", "hi")}}
+    return from_fit(window, {"name": name, "h": h, "D": D, "D_err": dD}, "generalized",
+                    scale_window=fit.get("window"), settings=settings)
 
 
 def send(window, spectrum: "SentSpectrum | None", nothing: str = "nothing to send") -> bool:

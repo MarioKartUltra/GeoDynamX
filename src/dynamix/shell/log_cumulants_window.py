@@ -114,6 +114,9 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
         controls.addWidget(self.sync_check)
         controls.addWidget(self._make_follow_check())
         controls.addStretch(1)
+        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
+        self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
+        controls.addWidget(self.send_button)
         layout.addLayout(controls)
 
         self._glw = pg.GraphicsLayoutWidget()
@@ -215,6 +218,20 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
             parts.append(f"γ = {self._gamma:g}, {frame} frame")
         self.readout.setText(" · ".join(parts))
         self.fitChanged.emit(self._fit)
+
+    def send_to_board(self) -> bool:
+        """The cumulant-expansion spectrum to the D(h) comparison, with its τ(q); the scale window
+        is the orders' common range when they share one, every order's in the settings."""
+        from dynamix.shell.spectra_board import from_fit, send
+
+        fit = self._fit
+        if fit is None:
+            return send(self, None, "no cumulant spectrum to send")
+        ranges = fit["cumulants"]["range"]
+        window = ranges[1] if len(set(ranges.values())) == 1 else None
+        settings = {"frame": fit["frame"], "gamma": fit["gamma"], "ranges": {str(m): r for m, r in ranges.items()}}
+        entry = from_fit(self, fit, "cumulant", scale_window=window, table=fit["set"], settings=settings)
+        return send(self, entry, "the cumulant expansion has no finite D(h)")
 
     @staticmethod
     def _label(m: int, c: float, reg: dict) -> str:

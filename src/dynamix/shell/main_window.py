@@ -3485,8 +3485,9 @@ both ``Canvas`` signals report the
         return std, cmax, (hd_std, hd_cmax), f"filtered: {len(chains)} of {total} chains"
 
     def _spectrum_sources(self, result) -> list:
-        """Every OTHER layer's landed result that carries partition tables or an h-map, as the
-        fitter's secondary sources, named by method and layer -- the comparison across methods."""
+        """Every OTHER layer's landed result that carries partition tables or an h-map, named by
+        method and layer, with its device and tool identity: the list the fitter's "Send landed
+        results…" sends to the D(h) comparison from."""
         from dynamix.core.microcanonical import dh_histogram_errors
 
         active = self.layer.layer_id if self.layer is not None else None
@@ -3498,7 +3499,11 @@ both ``Canvas`` signals report the
             if layer is None:
                 continue
             source = {"name": f"{res.get('hd_source') or 'canonical (Arneodo WTMM)'} · {layer.name}",
-                      "hd_std": res.get("hd_std"), "hd_cmax": res.get("hd_cmax")}
+                      "hd_std": res.get("hd_std"), "hd_cmax": res.get("hd_cmax"),
+                      "method": (res.get("record") or {}).get("method", ""),
+                      "identity": {"recipe": (res.get("_landed") or {}).get("analysis_key"),
+                                   "layer_id": lid, "layer": layer.name,
+                                   "filters": repr((res.get("_landed") or {}).get("filters"))}}
             if res.get("h_map") is not None:
                 h, D, dD, _counts = dh_histogram_errors(np.asarray(histogram_h_map(res)))
                 if h.size:

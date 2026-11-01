@@ -180,6 +180,9 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._xaxis_combo.currentTextChanged.connect(self._on_xaxis_changed)
         controls.addWidget(self._xaxis_combo)
         controls.addStretch(1)
+        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
+        self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
+        controls.addWidget(self.send_button)
         layout.addLayout(controls)
 
         self._glw = pg.GraphicsLayoutWidget()
@@ -356,6 +359,23 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._local.setData(fit["legendre_local"]["h"], fit["legendre_local"]["D"])
         self._read(fit, lo, hi)
         self.fitChanged.emit(fit)
+
+    def send_to_board(self) -> bool:
+        """The structure functions' spectrum to the D(h) comparison, with the fit's standard
+        errors over the scale window and its τ(q)."""
+        from dynamix.shell.spectra_board import from_fit, send
+
+        fit = self._fit
+        if fit is None:
+            return send(self, None, "no structure-function spectrum to send")
+        lo, hi = sorted(float(v) for v in self._region.getRegion())
+        settings = {"weights": self.weights_combo.currentText(), "frame": self.frame_combo.currentText(),
+                    "gamma": self._gamma, "generalized": fit.get("generalized"),
+                    "q": [s.value() for s in (self.qmin_spin, self.qmax_spin, self.qstep_spin)]}
+        entry = from_fit(self, {**fit, "name": fit.get("label", fit["name"])}, "structure_functions",
+                         scale_window=(lo, hi), fit_mode=FIT_MODES[self.fit_combo.currentText()],
+                         table=self.set_combo.currentData(), settings=settings)
+        return send(self, entry, "the structure functions give no finite D(h)")
 
     def _rebuild_family(self, table: dict) -> None:
         for item in self._family_items:

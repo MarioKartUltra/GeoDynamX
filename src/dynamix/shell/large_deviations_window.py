@@ -123,6 +123,9 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.profiles_check.toggled.connect(lambda _c: self._recompute())
         controls.addWidget(self.profiles_check)
         controls.addStretch(1)
+        self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
+        self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
+        controls.addWidget(self.send_button)
         layout.addLayout(controls)
 
         grids = QtWidgets.QHBoxLayout()
@@ -305,6 +308,25 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
                              f"L = {L:g} px · {note}{peak}{c10}")
         self._sync_legend(rule)
         self.fitChanged.emit(self._fit)
+
+    def send_to_board(self) -> bool:
+        """The spectrum on show to the D(h) comparison (the narrowest ε's under the fixed sweep);
+        large deviations carry no error bars."""
+        from dynamix.shell.spectra_board import from_fit, send
+
+        fit = self._fit
+        if fit is None:
+            return send(self, None, "no large-deviation spectrum to send")
+        adaptive = fit["rule"] == LD_RULES[0]
+        grid = ((self.qmin_spin, self.qmax_spin, self.qstep_spin) if adaptive
+                else (self.hmin_spin, self.hmax_spin, self.hstep_spin))
+        settings = {"rule": fit["rule"], "prefactor": self.prefactor_check.isChecked(),
+                    "length_px": fit["length_px"], ("q" if adaptive else "h"): [s.value() for s in grid]}
+        if not adaptive:
+            settings["eps"] = [float(e) for e in fit["eps"]]
+        entry = from_fit(self, fit, "large_deviations", scale_window=fit["window"], table=fit["set"],
+                         settings=settings)
+        return send(self, entry, "no finite large-deviation spectrum to send")
 
     def _sync_legend(self, rule: str) -> None:
         self._legend.clear()
