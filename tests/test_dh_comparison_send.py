@@ -262,6 +262,27 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
 
 
+def test_a_computed_generalized_spectrum_sends_its_converged_points_with_their_bars(qtbot, host):
+    """After a Compute the converged estimate is sent as the solid curve draws it, with the
+    leave-one-scale-out half-width as its bars."""
+    from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
+    from tests.test_generalized_spectrum_window import LOG2_L, _two_population_sets
+
+    w = GeneralizedSpectrumWindow(_two_population_sets(), log2_L=LOG2_L, parent=host)
+    qtbot.addWidget(w)
+    w.spins["q min"].setValue(-8.0)
+    w.spins["q max"].setValue(8.0)
+    with qtbot.waitSignal(w.fitChanged, timeout=60000):
+        w.apply_button.click()
+    assert w.send_to_board("converged")
+    [entry] = host.spectra_board.entries()
+    fit = w.current_fit()
+    solid = np.asarray(fit["solid"], bool)
+    assert solid.sum() > 3 and np.isfinite(entry.D[solid]).all() and np.isnan(entry.D[~solid]).all()
+    np.testing.assert_allclose(entry.D[solid], fit["D"][solid])
+    np.testing.assert_allclose(entry.dD, fit["band"]["half_width"])
+
+
 # --------------------------------------------------------------------------- the comparison
 
 def _entry(name, kind="large_deviations", shift=0.0, **kw):
