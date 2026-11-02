@@ -31,10 +31,12 @@ LABELS = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE leaders",
 
 #: What each set holds, in one sentence, by its name on a menu (a chooser's tooltips).
 DESCRIPTIONS = {
-    CHAINS: "The WTMMM linked across scales into chains, one modulus per chain per scale: the set Z(q, a) "
-            "runs over, as the no-sup (std) table counts it.",
+    CHAINS: "The WTMMM linked across scales into chains, one modulus per chain per scale: the chains Z(q, a) "
+            "runs over in the no-sup (std) table (chains of at least min_chain_len scales; the set here keeps "
+            "every chain).",
     CHAINS_SUP: "The WTMMM chains with the sup rule, each modulus the largest along its chain up to that "
-                "scale: the set the sup (cmax) table counts.",
+                "scale: the chains Z(q, a) runs over in the sup (cmax) table (chains of at least min_chain_len "
+                "scales; the set here keeps every chain).",
     RAW: "Every WTMMM at each scale (the maxima of the modulus along that scale's maxima lines), "
          "unchained: chained or not, every one counts.",
     H_CHAINS: "Experimental: every pixel of each scale's maxima lines (the complete horizontal chains) "

@@ -65,6 +65,23 @@ def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_w
     assert not has_sample_sets({"scales": scales, "chains": bare}) and not has_sample_sets({"h_map": None})
 
 
+def test_the_chains_tooltips_say_the_set_keeps_every_chain_z_counts_the_long_ones():
+    """The chains sets keep every chain; the partition function counts the chains of at least
+    min_chain_len scales, as both sets' tooltips say."""
+    from dynamix.core.partition_tables import build_hd_from_chains
+    from dynamix.model.samples import CHAINS, CHAINS_SUP, DESCRIPTIONS
+
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    chains = _chains(scales) + [{"mod": np.array([5.0])}]                       # a one-scale chain
+    sets = sample_sets({"scales": scales, "chains": chains})
+    std, cmax = build_hd_from_chains(chains, scales, min_chain_len=2)
+    assert len(sets[CHAINS]["mods"][0]) == len(sets[CHAINS_SUP]["mods"][0]) == 5   # the set keeps it
+    assert std["N_a"][0] == cmax["N_a"][0] == 4                                     # Z(q, a) leaves it out
+    for name in (CHAINS, CHAINS_SUP):
+        assert "chains of at least min_chain_len scales; the set here keeps every chain" in DESCRIPTIONS[name]
+        assert "Z(q, a) runs over" in DESCRIPTIONS[name]
+
+
 def test_the_raw_wtmmm_are_the_points_the_chainer_links(clean_registry):
     """On a real WTMM result the raw set holds, per scale, the moduli of xsmurf's single maxima
     of the result's own extrema, the set every chain is drawn from."""
