@@ -71,6 +71,14 @@ from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["SpectrumWindow"]
 
+
+def _tangent_html(intercept: float, q_c: float) -> str:
+    """The tangent's label: its intercept at h = 0 is −τ(q), and q_c carries a subscript."""
+    from dynamix.shell.theme import current
+    import pyqtgraph as pg
+    colour = pg.mkColor(current().ink_muted).name()
+    return (f'<span style="color: {colour}">−τ(q) = {intercept:.3f} · q<sub>crit</sub> = {q_c:g}</span>')
+
 #: Human labels for the membership rules, in ``chain_groups.MODES`` order (cell 52's dropdown).
 MODE_LABELS = ("Top percentile", "log|M|^q at scale", "log|M|^q on sup (all scales)")
 
@@ -1283,7 +1291,8 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         x = np.asarray(self._plot.getViewBox().viewRange()[0], dtype=np.float64)
         self._tangent_line.setData(x, got["intercept"] + got["q_c"] * x)
         self._tangent_marker.setData([0.0], [got["intercept"]])
-        self._tangent_label.setText(f"{got['intercept']:.3f} at h = 0 · tangent at q_c = {got['q_c']:g}")
+        self._tangent_label.setHtml(_tangent_html(got['intercept'], got['q_c']))
+        self._tangent_label.setToolTip("the tangent to D(h) at q_c, the convexity-loss order; its intercept at h = 0 is −τ(q_c)")
         self._tangent_label.setPos(0.0, got["intercept"])
 
     def _update_grouping(self) -> None:

@@ -204,7 +204,7 @@ _DEPENDS_ON = {
     # other ``dynamix.shell.*`` module.
     # The D(h) comparison board, its send path, its drawing on a D(h) panel and its inspector: no
     # other dynamix.shell module.
-    "spectra_board": (),
+    "spectra_board": ("plot_zoom", ),
     "multifractal_window": ("plot_zoom", "theme", "shared_range", "window_fit", "spectra_board", ),
     # The singularity-spectrum construction window -- imports theme (same precedent)
     # plus multifractal_window (Q_COLD/Q_WARM/TABLE_CHOICES shared by identity) and

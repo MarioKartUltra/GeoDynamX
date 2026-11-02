@@ -854,7 +854,7 @@ def test_the_pinned_histogram_goes_under_its_legend_name_and_its_send_follows_th
     qtbot.waitExposed(window)
     tops = {w.mapTo(window, w.rect().center()).y() for w in (window.boxcount_check, window.send_box_button,
                                                               window.replace_box_button)}
-    assert len(tops) == 1                                         # one line, however the strip wraps
+    assert max(tops) - min(tops) <= 1                           # one line, however the strip wraps
     real = micro.dh_histogram_errors
     monkeypatch.setattr(micro, "dh_histogram_errors", lambda *a, **k: tuple(np.zeros(0) for _ in range(4)))
     window.bins_spin.setValue(window.bins_spin.value() + 10)

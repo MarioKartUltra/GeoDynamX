@@ -68,6 +68,14 @@ from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["MultifractalWindow"]
 
+
+def _tangent_html(intercept: float, q_c: float) -> str:
+    """The tangent's label: its intercept at h = 0 is −τ(q), and q_c carries a subscript."""
+    from dynamix.shell.theme import current
+    import pyqtgraph as pg
+    colour = pg.mkColor(current().ink_muted).name()
+    return (f'<span style="color: {colour}">−τ(q) = {intercept:.3f} · q<sub>crit</sub> = {q_c:g}</span>')
+
 #: q-gradation endpoints for the partition-family curves, most negative q -> most positive q.
 #: DATA identity (the curve's moment order), not chrome -- the Theme-Rule carve-out canvas.py's
 #: palette constants already document. Cool-to-warm, echoing the skeleton dialog's coolwarm ramp.
@@ -1577,8 +1585,9 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         x = np.asarray(self._spectrum_plots["D"].getViewBox().viewRange()[0], dtype=np.float64)
         self._tangent_line.setData(x, got["intercept"] + got["q_c"] * x)
         self._tangent_marker.setData([0.0], [got["intercept"]])
-        where = (f"q = {got['q_c']:g} (picked)" if got["picked"] else f"q_c = {got['q_c']:g}")
-        self._tangent_label.setText(f"{got['intercept']:.3f} at h = 0 · tangent at {where}")
+        self._tangent_label.setHtml(_tangent_html(got['intercept'], got['q_c']))
+        self._tangent_label.setToolTip("the tangent to D(h) at " + ("the picked q" if got["picked"] else "q_c, the convexity-loss order")
+                                       + "; its intercept at h = 0 is −τ(q)")
         self._tangent_label.setPos(0.0, got["intercept"])
 
     def _place_q_pick(self, q: float) -> None:

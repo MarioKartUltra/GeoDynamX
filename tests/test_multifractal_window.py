@@ -805,7 +805,8 @@ def test_a_q_picked_on_the_c_q_panel_sets_the_d_h_tangent(qtbot):
     assert (y[-1] - y[0]) / (x[-1] - x[0]) == pytest.approx(-1.5)
     at_zero = y[0] - 1.5 * (0.0 - x[0])                            # the line spans the view
     assert at_zero == pytest.approx(fit["D"][i] + 1.5 * fit["h"][i])
-    assert "q = -1.5" in window._tangent_label.textItem.toPlainText()
+    assert "qcrit = -1.5" in window._tangent_label.textItem.toPlainText()   # q<sub>crit</sub>, read plain
+    assert "picked" in window._tangent_label.toolTip()
     window._table_combo.setCurrentText("sup (cmax)")
     assert window._tangent_line.isVisible() and pick.value() == pytest.approx(-1.5)
 
