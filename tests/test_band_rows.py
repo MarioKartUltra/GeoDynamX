@@ -305,3 +305,28 @@ def test_the_browser_follows_a_committed_edit_before_any_landing(window, qtbot):
     assert [s.device for s in band.chain.steps] == ["band_select", "wtmm2d"]
     assert win.layer.layer_id not in win._pending_layers
     assert offered("chain_holder")
+
+
+def test_a_devloop_rebuild_hands_the_restored_project_to_the_layer_panel(aster, qtbot):
+    """A saved ROI is a row of the panel before and after the rebuild, and one saved after it lands
+    as a row too: the rebuilt window's panel lists the project the window holds."""
+    from dynamix import devloop
+
+    win, _path = aster
+    vnir, _swir = _masters(win)
+    before = win.project.add_roi(2, 2, 6, 6, source_id=vnir.source_id, label="A")
+    win.layer_list.sync_roi_rows()
+    assert before.roi_id in win.layer_list._roi_rows
+    saved = {k: devloop.SESSION.get(k) for k in devloop.SESSION}
+    try:
+        devloop._capture(win)
+        rebuilt = devloop._build_window(QtWidgets.QApplication.instance())
+        qtbot.addWidget(rebuilt)
+        assert rebuilt.layer_list._project is rebuilt.project
+        rebuilt.layer_list.sync_roi_rows()
+        assert before.roi_id in rebuilt.layer_list._roi_rows
+        after = rebuilt.project.add_roi(3, 3, 5, 5, source_id=vnir.source_id, label="B")
+        rebuilt.layer_list.sync_roi_rows()
+        assert after.roi_id in rebuilt.layer_list._roi_rows
+    finally:
+        devloop.SESSION.update(saved)

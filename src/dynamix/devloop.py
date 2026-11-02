@@ -348,6 +348,9 @@ def _build_window(app):
         window.cache = SESSION["cache"]
     if SESSION["project"] is not None:
         window.project = SESSION["project"]
+        # The panel was built on the fresh window's empty project; it lists ROIs from the one it
+        # holds, so a saved ROI would reach the ROI menu and never the family rows.
+        window.layer_list.reset_project(window.project)
 
     window.resize(1400, 860)
     window.show()
