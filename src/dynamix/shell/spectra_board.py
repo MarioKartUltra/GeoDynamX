@@ -501,7 +501,7 @@ def landed_dialog(parent, landed) -> "tuple[QtWidgets.QDialog, QtWidgets.QListWi
 
 
 def send_landed(window, landed, names=None, *, lo: float, hi: float, mode: str, eta: float, frame: str,
-                log2_L=None, table: str = "std", settings=None) -> int:
+                log2_L=None, table: str = "cmax", settings=None) -> int:
     """Send the landed results named in ``names`` (asked in :func:`landed_dialog` when None) from
     ``window``: a result's ``table`` (``std`` or ``cmax``, its only one when it has one) fitted
     over ``(lo, hi)`` under ``mode``, ``eta`` and ``frame``, its histogram construction as drawn.

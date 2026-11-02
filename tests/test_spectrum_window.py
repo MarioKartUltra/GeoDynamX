@@ -369,6 +369,29 @@ def test_the_gaussian_ensemble_has_a_gamma_knob_and_a_per_point_readout(qtbot):
     assert len(pts.data) == 0 and window._gamma_readout.text() == ""
 
 
+def test_the_sup_is_the_default_table_and_the_ensemble_s_default_set(qtbot):
+    """A WTMM result's construction window opens on the sup: the Table lists sup (cmax) first and
+    fits it, and the hidden chooser of the ensemble's set reads the sup chains first; no-sup stays
+    one pick away."""
+    from test_samples import _line
+
+    from dynamix.model.samples import CHAINS, CHAINS_SUP, sample_sets
+
+    hd_std, hd_cmax = _pair()
+    scales = np.array([2.0, 4.0, 8.0, 16.0])
+    sets = sample_sets({"scales": scales, "chains": _chains(scales), "params": {},
+                        "extrema": [_line([1.0, 3.0, 2.0, 2.5, 1.0, 0.5]) for _ in scales]})
+    window = SpectrumWindow(hd_std, hd_cmax, log2_L=7.0, per_scale=sets)
+    qtbot.addWidget(window)
+    combo = window._table_combo
+    assert [combo.itemText(i) for i in range(combo.count())] == ["sup (cmax)", "no-sup (std)"]
+    assert window._current_hd() is hd_cmax and window.drawn_fit()["table"] == "cmax"
+    assert window.ld_source_combo.currentText() == CHAINS_SUP
+    assert window.ld_source_combo.itemText(1) == CHAINS
+    combo.setCurrentText("no-sup (std)")
+    assert window._current_hd() is hd_std and window.drawn_fit()["table"] == "std"
+
+
 def test_kink_bands_shade_the_jump_in_h_and_clear(qtbot):
     from dynamix.core.nonconcave import kink_flags
 

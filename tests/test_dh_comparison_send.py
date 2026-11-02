@@ -185,18 +185,18 @@ def test_the_canonical_fit_carries_the_bars_d_h_draws_and_its_tau(qtbot, host):
     np.testing.assert_allclose(entry.dh, fit["h_err"])          # over the window alone
     np.testing.assert_allclose(entry.tau, fit["tau"])
     assert entry.identity["scale_window"] == [1.0, 6.0]
-    assert (entry.identity["fit_mode"], entry.identity["table"]) == ("naive", "std")
+    assert (entry.identity["fit_mode"], entry.identity["table"]) == ("naive", "cmax")
     assert entry.tangent is None                                  # "with tangent" is off by default
-    assert entry.name == "WTMM (no sup) · a 1–6"                   # the short name with the window
-    assert entry.full_name == "canonical (Arneodo WTMM) · no-sup (std) · log2 a 1–6"
-    assert host.status[-1] == "sent to the D(h) comparison: canonical (Arneodo WTMM) · no-sup (std) · log2 a 1–6"
+    assert entry.name == "WTMM (sup) · a 1–6"                   # the short name with the window
+    assert entry.full_name == "canonical (Arneodo WTMM) · sup (cmax) · log2 a 1–6"
+    assert host.status[-1] == "sent to the D(h) comparison: canonical (Arneodo WTMM) · sup (cmax) · log2 a 1–6"
     window.send_primary()                                         # the same state: replaced
     assert len(host.spectra_board) == 1 and host.status[-1].startswith("sent again")
     window._region.setRegion((2.0, 6.0))                          # a new window: a new entry
     window.send_primary()
     first, second = host.spectra_board.entries()
-    assert (first.name, second.name) == ("WTMM (no sup) · a 1–6", "WTMM (no sup) · a 2–6")
-    assert second.full_name == "canonical (Arneodo WTMM) · no-sup (std) · log2 a 2–6"
+    assert (first.name, second.name) == ("WTMM (sup) · a 1–6", "WTMM (sup) · a 2–6")
+    assert second.full_name == "canonical (Arneodo WTMM) · sup (cmax) · log2 a 2–6"
 
 
 def test_the_displayed_q_rows_are_the_ones_sent(qtbot, host):
@@ -934,7 +934,7 @@ def test_send_adds_an_entry_per_window_updates_an_identical_one_and_replace_swap
     window._lo_spin.setValue(lo + 0.2)
     window.replace_button.click()
     lo_text = f"{round(lo + 0.2, 1):g}"
-    assert board.get(second.key).name.startswith(f"WTMM (no sup) · a {lo_text}–")   # a default name recomputed
+    assert board.get(second.key).name.startswith(f"WTMM (sup) · a {lo_text}–")   # a default name recomputed
 
     window.send_hist_button.click()
     assert window.replace_hist_button.isEnabled() and not window.replace_box_button.isEnabled()

@@ -52,9 +52,10 @@ def test_window_builds_headless_and_is_a_nonmodal_canonical_window(qtbot):
     qtbot.addWidget(window)
     assert window.windowTitle() == "Partition functions — canonical (Arneodo WTMM)"
     assert window.isModal() is False
-    # no-sup (std) is the default table: each line's modulus at the current scale, xsmurf's own
-    # default, which keeps negative exponents (the sup flattens them toward 0).
-    assert window._table_combo.currentText() == TABLE_CHOICES[0] == "no-sup (std)"
+    # sup (cmax) is the default table, listed first; no-sup (std), each line's modulus at the
+    # current scale, is the option that keeps negative exponents (the sup flattens them toward 0).
+    assert window._table_combo.currentText() == TABLE_CHOICES[0] == "sup (cmax)"
+    assert [window._table_combo.itemText(i) for i in range(2)] == ["sup (cmax)", "no-sup (std)"]
 
 
 def test_region_defaults_to_the_full_scale_range(qtbot):
@@ -72,9 +73,8 @@ def test_current_fit_is_exactly_the_core_fitter_on_the_selected_table(qtbot):
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
-    window._table_combo.setCurrentText("sup (cmax)")       # this test reads the sup table
     lo, hi = window._region.getRegion()
-    expect = spectra.fit_spectra(hd_cmax, lo, hi)      # the sup table, picked above
+    expect = spectra.fit_spectra(hd_cmax, lo, hi)      # the sup table, the default
     got = window.current_fit()
     for key in ("tau", "h", "D", "tau_err", "h_err", "D_err"):
         np.testing.assert_allclose(got[key], expect[key], rtol=1e-12, err_msg=key)
@@ -99,6 +99,8 @@ def test_table_toggle_switches_between_cmax_and_std(qtbot):
     hd_std, hd_cmax = _pair()
     window = MultifractalWindow(hd_std, hd_cmax)
     qtbot.addWidget(window)
+    np.testing.assert_allclose(window.current_fit()["tau"], [1.5, 2.5, 3.5], rtol=1e-12)
+    window._table_combo.setCurrentText("no-sup (std)")
     np.testing.assert_allclose(window.current_fit()["tau"], [1.0, 2.0, 3.0], rtol=1e-12)
     window._table_combo.setCurrentText("sup (cmax)")
     np.testing.assert_allclose(window.current_fit()["tau"], [1.5, 2.5, 3.5], rtol=1e-12)
@@ -789,6 +791,7 @@ def test_a_q_picked_on_the_c_q_panel_sets_the_d_h_tangent(qtbot):
     convexity-loss q_c, and a refit keeps the picked q."""
     window = MultifractalWindow(*_broken_pair())
     qtbot.addWidget(window)
+    window._table_combo.setCurrentText("no-sup (std)")     # the concave table first
     pick = window._q_pick_line
     assert pick.isVisible() and not window._tangent_line.isVisible()     # std: concave
     pick.setValue(-1.3)                                                 # a drag
@@ -873,8 +876,8 @@ def test_the_fitter_publishes_its_fit_in_the_shared_schema_on_every_refit(qtbot)
     window.fitChanged.connect(published.append)
     window._region.setRegion((1.0, 5.0))
     fit = published[-1]
-    assert fit["name"] == "canonical (Arneodo WTMM) · L1 · no-sup (std)" and fit["kind"] == "partition functions"
-    expect = spectra.fit_spectra(hd_std, 1.0, 5.0)
+    assert fit["name"] == "canonical (Arneodo WTMM) · L1 · sup (cmax)" and fit["kind"] == "partition functions"
+    expect = spectra.fit_spectra(hd_cmax, 1.0, 5.0)
     np.testing.assert_allclose(fit["tau"], expect["tau"])
     np.testing.assert_allclose(fit["h"], expect["h"]) and np.testing.assert_allclose(fit["D"], expect["D"])
     np.testing.assert_allclose(fit["hull"]["D"], spectra.legendre_dh(fit["q"], expect["tau"])["D"], equal_nan=True)
@@ -901,9 +904,9 @@ def test_a_table_change_retracts_the_fit_published_under_the_old_table(qtbot):
     qtbot.addWidget(window)
     got = []
     window.fitChanged.connect(got.append)
-    window._table_combo.setCurrentText("sup (cmax)")
-    assert got[0].get("valid") is False and got[0]["name"].endswith("no-sup (std)")
-    assert got[-1].get("valid", True) is not False and got[-1]["name"].endswith("sup (cmax)")
+    window._table_combo.setCurrentText("no-sup (std)")
+    assert got[0].get("valid") is False and got[0]["name"].endswith(" · sup (cmax)")
+    assert got[-1].get("valid", True) is not False and got[-1]["name"].endswith("no-sup (std)")
 
 
 def test_a_dyadic_table_reads_j_on_the_scale_axis(qtbot):

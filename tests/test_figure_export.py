@@ -322,7 +322,7 @@ def test_a_figure_from_the_construction_window_lists_the_spectra_drawn_with_thei
     assert figure["view"] == "D(h) construction" and figure["view_range"]["units"] == "h, D(h)"
     fit = figure["fit"]
     assert fit["name"] == "canonical (Arneodo direct)" and fit["kind"] == "canonical" and fit["errors"] is True
-    assert fit["table"] == "std" and fit["fit_mode"] == "naive"
+    assert fit["table"] == "cmax" and fit["fit_mode"] == "naive"     # the sup table, the default
     a, b = figure["spectra"]                                   # the hidden entry is not drawn
     assert (a["name"], a["full_name"]) == ("cmax, full window", first.full_name)
     assert a["kind"] == "canonical" and a["table"] == "cmax" and a["fit_mode"] == "naive"

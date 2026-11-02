@@ -41,7 +41,7 @@ def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_w
     scales = np.array([2.0, 4.0, 8.0, 16.0])
     extrema = [_line([1.0, 3.0, 2.0, 2.5, 1.0, 0.5]) for _ in scales]
     sets = sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {}})
-    assert list(sets) == [CHAINS, CHAINS_SUP, RAW, H_CHAINS]
+    assert list(sets) == [CHAINS_SUP, CHAINS, RAW, H_CHAINS]   # the sup chains first: the default
     assert H_CHAINS == "WTMM (complete h-chains) (experimental)"
     assert (CHAINS, CHAINS_SUP, RAW) == ("WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMMM (raw; no chains)")
     assert [len(m) for m in sets[CHAINS]["mods"]] == [4, 4, 3, 3]              # chains alive per scale
@@ -59,7 +59,7 @@ def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_w
     assert has_sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema})
     no_lines = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]             # moduli without positions
     assert list(sample_sets({"scales": scales, "chains": _chains(scales), "extrema": no_lines})) == \
-        [CHAINS, CHAINS_SUP, H_CHAINS]
+        [CHAINS_SUP, CHAINS, H_CHAINS]
     bare = [{"x": np.zeros(2), "y": np.zeros(2)}]                                # a stub's chains: no modulus
     assert sample_sets({"scales": scales, "chains": bare, "extrema": []}) == {}
     assert not has_sample_sets({"scales": scales, "chains": bare}) and not has_sample_sets({"h_map": None})

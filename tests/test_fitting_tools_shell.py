@@ -52,16 +52,16 @@ def test_the_large_deviations_tool_opens_on_the_wtmm_s_maxima_too(win, qtbot):
     win._on_cumulants_button_clicked()
     lc = win._cumulants_window
     qtbot.addWidget(lc)
-    assert lc.windowTitle() == "Log-cumulants — layer" and lc.current_fit()["name"] == "layer · WTMMM (chains; no sup), log-cumulants"
+    assert lc.windowTitle() == "Log-cumulants — layer" and lc.current_fit()["name"] == "layer · WTMMM (chains w/sup), log-cumulants"
     win._on_ld_button_clicked()
     ldw = win._ld_window
     qtbot.addWidget(ldw)
     assert ldw.windowTitle() == "Large deviations — layer"
-    assert [ldw.source_combo.itemText(i) for i in range(3)] == ["WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMM (complete h-chains) (experimental)"]
+    assert [ldw.source_combo.itemText(i) for i in range(3)] == ["WTMMM (chains w/sup)", "WTMMM (chains; no sup)", "WTMM (complete h-chains) (experimental)"]
     assert ldw._log2_L == 7.0
     fit = ldw.current_fit()
-    assert fit is not None and fit["name"] == "layer · WTMMM (chains; no sup), large deviations" and "q" in fit
-    assert list(win._published_fits) == ["layer · WTMMM (chains; no sup), log-cumulants", fit["name"]]
+    assert fit is not None and fit["name"] == "layer · WTMMM (chains w/sup), large deviations" and "q" in fit
+    assert list(win._published_fits) == ["layer · WTMMM (chains w/sup), log-cumulants", fit["name"]]
 
 
 def test_every_sample_set_chooser_says_what_each_set_holds(win, qtbot):
@@ -88,13 +88,14 @@ def test_every_sample_set_chooser_says_what_each_set_holds(win, qtbot):
     choosers.append(win._structure_window.set_combo)
     for w in (win._ld_window, win._cumulants_window, win._generalized_window, win._structure_window):
         qtbot.addWidget(w)
+    assert [c.currentText() for c in choosers[:3]] == ["WTMMM (chains w/sup)"] * 3   # the sup: the default
     for combo in choosers:
         texts = [combo.itemText(i) for i in range(combo.count())]
         assert texts and all(combo.itemData(i, role) == DESCRIPTIONS[t] for i, t in enumerate(texts)), texts
         combo.setCurrentIndex(combo.count() - 1)
         assert combo.toolTip() == DESCRIPTIONS[texts[-1]]
     assert [choosers[0].itemText(i) for i in range(4)] == \
-        ["WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMMM (raw; no chains)",
+        ["WTMMM (chains w/sup)", "WTMMM (chains; no sup)", "WTMMM (raw; no chains)",
          "WTMM (complete h-chains) (experimental)"]
     assert "Z(q, a)" in choosers[0].itemData(0, role) and "unchained" in choosers[0].itemData(2, role)
 
@@ -270,7 +271,7 @@ def test_a_sent_adaptive_large_deviation_fit_reaches_an_open_construction_window
     win._ld_window.send_button.click()                                       # the window's Send
     [(curve, name, full)] = cw._board_legend
     lo, hi = (round(float(v), 2) for v in fit["window"])
-    assert full == f"{fit['name']} · log2 a {lo:g}–{hi:g}" and name.startswith("LD · WTMMM (chains; no sup) · a ")
+    assert full == f"{fit['name']} · log2 a {lo:g}–{hi:g}" and name.startswith("LD · WTMMM (chains w/sup) · a ")
     np.testing.assert_allclose(curve.getData()[1], fit["D"])
     assert not [i for p, i in cw._board_items if p is cw.method_plots["tau"]]
     [entry] = win.spectra_board.entries()

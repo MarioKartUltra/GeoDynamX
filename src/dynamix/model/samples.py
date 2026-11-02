@@ -9,7 +9,7 @@ spectrum, the per-scale histograms, the Gaussian ensemble)::
 
 A Wavelet leaders result publishes the ``Samples`` contract (:mod:`dynamix.model.contracts`):
 each set over its valid cells, weighted by the field's cell count over the valid count, the cells
-the border took. A WTMM result offers the WTMMM chained across scales, without and with the sup
+the border took. A WTMM result offers the WTMMM chained across scales, with and without the sup
 rule (one modulus per chain per scale, the moduli its two partition tables count), the WTMMM of
 each scale unchained (the maxima along each scale's maxima lines, the points the chainer links),
 and, experimental, the complete horizontal chains: every pixel of each scale's maxima lines with
@@ -131,8 +131,9 @@ def has_sample_sets(result) -> bool:
 
 
 def sample_sets(result: dict) -> dict:
-    """The sets ``result`` carries, in the order a menu lists them; ``{}`` for a result with
-    none (a field tail, a points layer, a finest-scale preview)."""
+    """The sets ``result`` carries, in the order a menu lists them, the first a chooser's default
+    (a WTMM result's sup chains, the cmax table's moduli); ``{}`` for a result with none (a field
+    tail, a points layer, a finest-scale preview)."""
     out = {}
     scales = result.get("scales") if isinstance(result, dict) else None
     if scales is None:
@@ -143,7 +144,7 @@ def sample_sets(result: dict) -> dict:
         from dynamix.core.partition_tables import _modulus_matrix, _sup_matrix
 
         M = _modulus_matrix(chains, n_sc)
-        for name, table in ((CHAINS, M), (CHAINS_SUP, _sup_matrix(M))):
+        for name, table in ((CHAINS_SUP, _sup_matrix(M)), (CHAINS, M)):
             out[name] = {"mods": [table[np.isfinite(table[:, k]), k] for k in range(n_sc)],
                          "scales": scales, "weights": None}
     raw = _single_maxima(result)

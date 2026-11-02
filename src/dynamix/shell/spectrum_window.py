@@ -243,7 +243,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             raise ValueError("SpectrumWindow needs the partition tables (hd_std AND hd_cmax) "
                              "or an h_map -- got neither")
         self._hd_by_choice = (dict(tables) if tables else
-                              {"no-sup (std)": hd_std, "sup (cmax)": hd_cmax}      # TABLE_CHOICES order
+                              {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std}      # TABLE_CHOICES order
                               if hd_std is not None and hd_cmax is not None else None)
         self._filtered_tables = (hd_std, hd_cmax)
         self._chains = chains if chains else None

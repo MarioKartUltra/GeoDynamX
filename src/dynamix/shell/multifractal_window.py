@@ -74,16 +74,16 @@ __all__ = ["MultifractalWindow"]
 Q_COLD = (80, 130, 235)
 Q_WARM = (235, 95, 60)
 
-#: The two partition-table conventions, in combo order. no-sup (``hd_std``, each line's modulus at
-#: the current scale, xsmurf's own default) is the default; sup (``hd_cmax``, the running supremum
-#: over finer scales along the chain) is the option -- it flattens any part of the spectrum with
-#: h < 0 toward 0, so it is wrong where negative exponents are expected.
+#: The two partition-table conventions, in combo order. sup (``hd_cmax``, the running supremum
+#: over finer scales along the chain) is the default; no-sup (``hd_std``, each line's modulus at
+#: the current scale, xsmurf's own default) is the option. The sup flattens any part of the
+#: spectrum with h < 0 toward 0, so no-sup is the table where negative exponents are expected.
 #: Devices whose h-map is the leaders' local exponents: their eq-21 histogram is Cardo &
 #: Corvalán 2009's GMWLP (Turiel's single-resolution density formula on extrapolated exponents),
 #: a different target from the large-deviation routes across scales, and named as such.
 LEADERS_METHODS = ("wavelet_leaders", "cwt_leaders")
 
-TABLE_CHOICES = ("no-sup (std)", "sup (cmax)")
+TABLE_CHOICES = ("sup (cmax)", "no-sup (std)")
 #: What a source's tables are, by ``hd_kind``: partition functions over maxima lines (WTMM, box
 #: counting), or over the field's cells (moments over the projections, wavelet leaders: the sum,
 #: so τ(q) = ζ(q) − d and D(q = 0) = d, the structure functions' mean being the Structure
@@ -263,7 +263,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         #: The Table choice's entries: the WTMM's two modes, or the named tables a result carries
         #: (the wavelet leaders' methods), the first entry the default.
         self._hd_by_choice = (dict(tables) if tables
-                              else {"no-sup (std)": hd_std, "sup (cmax)": hd_cmax})   # TABLE_CHOICES order
+                              else {"sup (cmax)": hd_cmax, "no-sup (std)": hd_std})   # TABLE_CHOICES order
         #: One table under two names (the moment route), or one named table: the choice means
         #: nothing and is hidden.
         self._one_table = len(self._hd_by_choice) == 1 or (not tables and hd_std is hd_cmax)
