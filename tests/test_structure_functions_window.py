@@ -227,29 +227,44 @@ def _landed_tools(qtbot):
 
 def test_a_gamma_sweep_replaces_the_one_published_fit_and_keeps_the_table_cache_small(qtbot, clean_registry):
     """A hundred values of γ, then δ and the q grid, leave one fit under the set's name in the
-    main window and nothing in the construction until it is sent; the table cache keeps the
-    latest few tables, and the published τ is the fit of a fresh generalized table at the last
-    γ. Sent, the construction draws it under the label naming the live γ and δ."""
+    main window and the board as it was: nothing reaches the construction but through the
+    window's Send. The table cache keeps the latest few tables, and the published τ is the fit of
+    a fresh generalized table at the last γ. Replace swaps the one entry sent before the sweep
+    for it, under the full name naming the live γ and δ; a send identical to it updates it in
+    place; a new δ and q grid sent are a second entry."""
     win, sf, cw = _landed_tools(qtbot)
     name = "layer · DWT sym4 · leaders, WLSF"
+    window = " · log2 a 2–5"
+    board = win.spectra_board
+    sf.send_button.click()                                       # γ = 0, sent before the sweep
+    [before] = board.entries()
+    assert before.full_name == f"{name}{window}"
     for gamma in np.arange(1, 101) * 0.05:
         sf.gamma_spin.setValue(gamma)
         assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and cw._fit_items == {}
+        assert board.entries() == [before]                       # a refit never feeds the board
     assert sf.gamma_spin.value() == 5.0
     fresh = leaders.generalized_table(_samples(), "leaders", sf._q_list(), 5.0, 0.0, length_px=64.0)
     expect = leaders.structure_fit(fresh, 2.0, 5.0, d=2)
     np.testing.assert_allclose(win._published_fits[name]["tau"], expect["tau"], equal_nan=True)
-    sf.send_button.click()
-    [entry] = win.spectra_board.entries()
+    assert sf.replace_button.isEnabled()
+    sf.replace_button.click()                                    # Replace: the one entry, swapped
+    [entry] = board.entries()
+    assert entry.key == before.key and entry is not before
     np.testing.assert_allclose(entry.tau, expect["tau"], equal_nan=True)
-    legend = [text for _item, text in cw._in_legend["order"]]
-    assert f"{name}, γ = 5 δ = 0" in legend and not any("γ = 4.95" in text for text in legend)
+    fulls = [full for _c, _n, full in cw._board_legend]
+    assert fulls == [f"{name}, γ = 5 δ = 0{window}"] and not any("γ = 4.95" in text for text in fulls)
+    assert [n for _c, n, _f in cw._board_legend] == ["WLSF · WL (dwt) · a 2–5"]
+    sf.send_button.click()                                       # identical: updated in place
+    assert [e.key for e in board.entries()] == [before.key]
     sf.delta_spin.setValue(0.5)
     sf.qstep_spin.setValue(1.0)
     assert len(sf._tables) <= 8 and list(win._published_fits) == [name] and cw._fit_items == {}
     assert list(win._published_fits[name]["q"]) == list(np.arange(-3.0, 6.01, 1.0))
-    sf.send_button.click()                                       # a new γ, δ: a second entry
-    assert f"{name}, γ = 5 δ = 0.5" in [text for _item, text in cw._in_legend["order"]]
+    assert len(board) == 1
+    sf.send_button.click()                                       # a new δ and q grid: a second entry
+    assert len(board) == 2
+    assert [full for _c, _n, full in cw._board_legend][-1] == f"{name}, γ = 5 δ = 0.5{window}"
 
 
 def test_another_set_publishes_its_own_fit_beside_the_first(qtbot, clean_registry):

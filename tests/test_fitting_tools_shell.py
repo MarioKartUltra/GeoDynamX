@@ -126,18 +126,24 @@ def test_each_click_opens_the_tool_on_the_active_result_and_a_sent_fit_reaches_t
     qtbot.addWidget(cw)
     cw.show()
     assert cw._fit_items == {} and cw._board_legend == [] and not cw.show_button.isVisibleTo(cw)
-    lc.send_button.click()                                                   # a sent fit is drawn
-    assert [full for _c, _n, full in cw._board_legend] == [lc_name]
+    assert len(win.spectra_board) == 0                                       # published is not sent
+    lc.send_button.click()                                                   # the tool's Send: drawn
+    window = " · log2 a 2–5"
+    assert [(n, full) for _c, n, full in cw._board_legend] == [("LC · WL (dwt) · a 2–5", lc_name + window)]
     lc.set_combo.setCurrentText("WSE leaders")                               # a new fit stays in its tool
-    assert [full for _c, _n, full in cw._board_legend] == [lc_name]
+    assert [full for _c, _n, full in cw._board_legend] == [lc_name + window]
     lc.send_button.click()                                                   # until it is sent too
     new_name = "layer · DWT sym4 · WSE leaders, log-cumulants"
-    assert [full for _c, _n, full in cw._board_legend] == [lc_name, new_name]
+    assert [(n, full) for _c, n, full in cw._board_legend] == \
+        [("LC · WL (dwt) · a 2–5", lc_name + window), ("LC · wse-L (dwt) · a 2–5", new_name + window)]
     np.testing.assert_allclose(win.spectra_board.entries()[-1].tau, lc.current_fit()["tau"])
+    sf.send_button.click()                                                   # another tool's Send: a third entry
+    assert [full for _c, _n, full in cw._board_legend][-1] == sf_name + window
     win._on_dh_button_clicked()                                              # opened again: the board as it stands
     fresh = win._spectrum_construction_window
     qtbot.addWidget(fresh)
-    assert fresh._fit_items == {} and [full for _c, _n, full in fresh._board_legend] == [lc_name, new_name]
+    assert fresh._fit_items == {}
+    assert [full for _c, _n, full in fresh._board_legend] == [lc_name + window, new_name + window, sf_name + window]
     win._on_structure_button_clicked()                                       # a fresh window replaces the old
     assert win._structure_window is not sf
 
@@ -258,12 +264,15 @@ def test_a_sent_adaptive_large_deviation_fit_reaches_an_open_construction_window
     qtbot.addWidget(win._ld_window)
     fit = win._ld_window.current_fit()
     assert fit.get("q") is not None and "tau" not in fit
-    assert cw._fit_items == {} and cw._board_legend == []                    # published, not sent
-    win._ld_window.send_button.click()
-    [(curve, _name, full)] = cw._board_legend
-    assert full == fit["name"]
+    assert cw._fit_items == {} and cw._board_legend == [] and len(win.spectra_board) == 0   # published, not sent
+    win._ld_window.send_button.click()                                       # the window's Send
+    [(curve, name, full)] = cw._board_legend
+    lo, hi = (round(float(v), 2) for v in fit["window"])
+    assert full == f"{fit['name']} · log2 a {lo:g}–{hi:g}" and name.startswith("LD · WTMMM (chains; no sup) · a ")
     np.testing.assert_allclose(curve.getData()[1], fit["D"])
     assert not [i for p, i in cw._board_items if p is cw.method_plots["tau"]]
+    [entry] = win.spectra_board.entries()
+    assert entry.tau is None and entry.q is None                             # no τ(q) row to carry
 
 
 def test_the_histogram_windows_count_only_the_full_chain_cells_of_a_leaders_h_map(win, qtbot):
