@@ -1196,6 +1196,7 @@ def test_frame_mode_extrema_and_roi_place_via_the_frame_not_lonlat(tmp_path):
                                                field.y_axis[[1, 2, 3]]), dtype=np.float64)
     # Vector actors ride _frame_vector_lift above the drape (breaks the top-down depth tie);
     # x/y placement is the frame's own.
+    expected[:, 1] *= -1                                   # a plain image: its rows run downward (y negated)
     expected[:, 2] += Scene._frame_vector_lift(field)
     np.testing.assert_allclose(ext_pts, expected)
     roi_grid = scene._plotter.actors["layer-1-roi"].mapper.dataset
@@ -1216,7 +1217,8 @@ def test_frame_mode_raster_places_points_via_the_frame_not_lonlat(tmp_path):
     assert grid.n_points == field.nx * field.ny
     pts = np.asarray(grid.points)
     x2d, y2d = np.meshgrid(field.x_axis, field.y_axis)
-    expected = field.frame.to_scene(x2d.ravel(), y2d.ravel())
+    expected = np.asarray(field.frame.to_scene(x2d.ravel(), y2d.ravel()), dtype=np.float64)
+    expected[:, 1] *= -1                                   # a plain image: its rows run downward (y negated)
     np.testing.assert_allclose(pts, expected)
 
 
@@ -2403,3 +2405,22 @@ def test_a_drape_offset_grid_is_cached_like_the_fields_own(tmp_path, monkeypatch
     plain = np.ones(np.shape(field.values))     # an output drawn on the field's own grid
     scene.set_layers([{**entry, "drape": plain, "drape_id": id(plain), "drape_offset": None}])
     assert calls["n"] == 2                      # the field's own grid is a different entry
+
+
+def test_frame_mode_shows_a_plain_image_with_its_rows_running_downward():
+    import dataclasses
+
+    scene = Scene(_plotter())
+    scene.set_frame_mode(True)
+    field = _bare_field()                                   # y grows down the rows: row 0 is the top
+    pts = scene._scene_points(field, np.array([0, 0]), np.array([0, 7]))
+    assert pts[0, 1] > pts[1, 1]                            # row 0 sits above row 7 in the scene
+    np.testing.assert_allclose(pts[:, 1], -np.asarray(field.y_axis)[[0, 7]])
+    north_first = dataclasses.replace(field, y_axis=np.asarray(field.y_axis)[::-1])   # row 0 already on top
+    pts = scene._scene_points(north_first, np.array([0, 0]), np.array([0, 7]))
+    np.testing.assert_allclose(pts[:, 1], np.asarray(north_first.y_axis)[[0, 7]])
+    layer = Layer(layer_id=1, name="A", source_id="mem:a")
+    scene.set_layers([{"layer": layer, "field": field, "result": _result([_make_chain(1, 1, n=3)]),
+                       "status": "ok"}])
+    bounds = scene._plotter.actors["layer-1-raster"].bounds
+    assert bounds[3] <= 0.0 and bounds[2] < bounds[3]       # the drape lies at negated y, rows downward

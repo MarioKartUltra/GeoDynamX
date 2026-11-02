@@ -39,3 +39,18 @@ def test_frame_family_ignores_the_anchor_but_not_the_pixel_size():
     assert not same_frame_family(a, LocalFrame(x0=0.0, y0=0.0, dx=5.0, dy=10.0, units="metre"))
     assert not same_frame_family(a, LocalFrame(x0=0.0, y0=0.0, dx=10.0, dy=10.0, units="px"))
     assert not same_frame_family(a, GeographicFrame())
+
+
+def test_image_convention_names_the_pictures_whose_row_zero_is_the_top():
+    from dynamix.geo.placement import image_convention
+
+    rows, cols = np.arange(8) + 0.5, np.arange(6) + 0.5
+    image = RasterField(name="i", values=np.zeros((8, 6)), frame=LocalFrame(units="px"),
+                        x_axis=cols, y_axis=rows)                       # a plain image: y grows down the rows
+    north_first = RasterField(name="n", values=np.zeros((8, 6)), frame=LocalFrame(dy=10.0, units="metre"),
+                              x_axis=cols * 10, y_axis=1000.0 - rows * 10)   # a projected GeoTIFF, row 0 north
+    south_first = RasterField(name="s", values=np.zeros((8, 6)), frame=GeographicFrame(),
+                              x_axis=cols, y_axis=-10.0 + rows)         # the demo DEM: ascending latitude
+    assert image_convention(image)
+    assert not image_convention(north_first) and not image_convention(south_first)
+    assert not image_convention(np.zeros((8, 6)))                        # a bare array has no axes

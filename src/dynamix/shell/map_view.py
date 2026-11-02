@@ -384,6 +384,13 @@ class MapView(QtWidgets.QWidget):
         if mode is None:
             self._hide(row_id, reason)
             return
+        from dynamix.geo.placement import image_convention
+
+        # A plain image or an EBSD scan keeps row 0 as its top with a y axis that grows down the
+        # rows: this y-up view then draws the rows downward by inverting its axis, as the Raster
+        # tab does, so the picture and its maxima agree between the tabs. A georeferenced field
+        # keeps the map's y direction.
+        self.view.invertY(self._crs is None and image_convention(field))
         signature = (field, repr(sorted((content.style or {}).items())),
                      repr(sorted((content.composite or {}).items())), self._crs)
         if self._unchanged(row_id, signature, [self._items.get(row_id)]):

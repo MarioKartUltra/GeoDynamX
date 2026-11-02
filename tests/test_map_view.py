@@ -544,3 +544,17 @@ def test_the_scale_bars_units_choice_fixes_its_unit(qtbot):
     v.scale_bar.set_style({"units": "km"})
     v._update_scale_bar()
     assert _bar(v)[1].endswith(" km")
+
+
+def test_a_plain_image_draws_its_rows_downward_and_a_georeferenced_field_keeps_the_map_s_y(qtbot):
+    rows, cols = np.arange(40) + 0.5, np.arange(50) + 0.5
+    image = RasterField(name="i", values=np.zeros((40, 50)), frame=LocalFrame(units="px"),
+                        x_axis=cols, y_axis=rows)                       # y grows down the rows
+    v = _view(qtbot, crs=None)
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                 lambda rid: RowContent("raster", field=image, style=STYLE))
+    assert v.view.yInverted()                                           # row 0 at the top, as the Raster tab
+    v = _view(qtbot)                                                    # a projected field on its CRS: y up
+    v.show_stack([(Row("src:a", "raster"), True, 1.0)],
+                 lambda rid: RowContent("raster", field=_utm(), style=STYLE))
+    assert not v.view.yInverted()

@@ -423,6 +423,17 @@ _CAMERA_FIELDS = ("position", "focal_point", "up", "parallel_scale", "parallel_p
 
 
 
+def _frame_y(field, y):
+    """Frame-mode scene y of ``field``'s axis values ``y``: negated for a picture whose row 0 is its
+    top (a plain image, an EBSD scan: a non-geographic frame with a y axis that grows down the
+    rows), so the scene shows the rows running downward as the Raster tab does; a georeferenced
+    field keeps its own y (:func:`dynamix.geo.placement.image_convention`)."""
+    from dynamix.geo.placement import image_convention
+
+    y = np.asarray(y, dtype=np.float64)
+    return -y if image_convention(field) else y
+
+
 def _frame_z_scale(frame) -> float:
     """Frame-mode z per the DATASET's own metadata: a GEOGRAPHIC frame lays x/y out in DEGREES
     while surface values are metres (the geo branch's assumed-metres convention), so raw-z
@@ -1242,7 +1253,7 @@ class Scene:
                 # frame.to_scene here would re-import the world-map wrap and let the camera key
                 # disagree with the on-screen bounds.
                 x0, x1 = float(x_axis[0]), float(x_axis[-1])
-                y0, y1 = float(y_axis[0]), float(y_axis[-1])
+                y0, y1 = map(float, _frame_y(field, [y_axis[0], y_axis[-1]]))
             except Exception:
                 continue
             xs.extend([min(x0, x1), max(x0, x1)])
@@ -2119,7 +2130,7 @@ class Scene:
         stride = _stride_for((field.ny, field.nx), max_points)
         rows = np.arange(field.ny // stride, dtype=np.intp) * stride
         cols = np.arange(field.nx // stride, dtype=np.intp) * stride
-        x2d, y2d = np.meshgrid(field.x_axis[cols], field.y_axis[rows])
+        x2d, y2d = np.meshgrid(field.x_axis[cols], _frame_y(field, field.y_axis[rows]))
         values2d = _mask_sentinels(field.values[np.ix_(rows, cols)])
         return x2d, y2d, values2d, stride
 
@@ -2273,6 +2284,7 @@ class Scene:
             else:
                 x = np.asarray(field.x_axis, dtype=np.float64)[cols]
                 y = np.asarray(field.y_axis, dtype=np.float64)[rows]
+            y = _frame_y(field, y)
             z = (np.asarray(height, dtype=np.float64) if height is not None
                  else np.zeros_like(x))
             ride = self._surface_ride(field, cols, rows)     # 3-D surface: sit on it

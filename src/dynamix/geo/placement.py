@@ -13,6 +13,20 @@ def field_crs(field) -> "str | None":
     return str(crs) if crs else None
 
 
+def image_convention(field) -> bool:
+    """Whether row 0 is the top of the picture: a non-geographic frame whose y axis grows with
+    the row index, the way a plain image or an EBSD scan is stored. A y-up view draws such a
+    field with its rows running downward (the Map view inverts its y axis, the 3-D scene negates
+    y in frame mode), as the Raster tab already does; a geographic field keeps its latitude
+    direction, and a north-first projected GeoTIFF (descending y) already has row 0 on top."""
+    from dynamix.core.frames import GeographicFrame
+
+    y = getattr(field, "y_axis", None)
+    if y is None or len(y) < 2 or isinstance(getattr(field, "frame", None), GeographicFrame):
+        return False
+    return float(y[-1]) > float(y[0])
+
+
 def crs_metres(crs) -> "tuple | None":
     """``(metres per CRS unit, unit label)`` for a CRS the unit parser could not name (a bare
     EPSG code): ``(None, "deg")`` for a geographic one, ``(factor, "m")`` for a projected one;
