@@ -722,8 +722,9 @@ def test_the_construction_sends_its_own_points_histogram_and_box_counting(qtbot,
 def test_the_pinned_histogram_goes_under_its_legend_name_and_its_send_follows_the_controls(qtbot, host,
                                                                                          monkeypatch):
     """Pinned, the histogram is sent under the name its legend shows (with "pinned to D₀"); its
-    Send greys out when a bins or r₀ change leaves no histogram and comes back with one; a gap
-    stands between the pin box and the Send."""
+    Send greys out when a bins or r₀ change leaves no histogram and comes back with one; the
+    Send and Replace follow a "histogram" label on a row of their own after the pin box, and the
+    box-counting Send and Replace sit on one row with their box."""
     import dynamix.core.microcanonical as micro
 
     rng = np.random.default_rng(3)
@@ -737,8 +738,20 @@ def test_the_pinned_histogram_goes_under_its_legend_name_and_its_send_follows_th
     assert hist.name == f"WTMM (histogram) · a {lo:g}–{hi:g}"
     order = [window.layout().itemAt(0).layout().itemAt(i).widget()
              for i in range(window.layout().itemAt(0).layout().count())]
-    pin, send = order.index(window.pin_check), order.index(window.send_hist_button)
-    assert send == pin + 2 and order[pin + 1].width() == 12 and not order[pin + 1].children()
+    row = window.send_hist_button.parentWidget()
+    assert order.index(row) == order.index(window.pin_check) + 1
+    box = row.layout()
+    assert [box.itemAt(i).widget() for i in range(box.count())][1:] == [window.send_hist_button,
+                                                                       window.replace_hist_button]
+    assert box.itemAt(0).widget().text() == "histogram"
+    box_row = window.boxcount_check.parentWidget()
+    assert box_row in order and box_row is window.send_box_button.parentWidget() is \
+        window.replace_box_button.parentWidget()
+    window.show()
+    qtbot.waitExposed(window)
+    tops = {w.mapTo(window, w.rect().center()).y() for w in (window.boxcount_check, window.send_box_button,
+                                                              window.replace_box_button)}
+    assert len(tops) == 1                                         # one line, however the strip wraps
     real = micro.dh_histogram_errors
     monkeypatch.setattr(micro, "dh_histogram_errors", lambda *a, **k: tuple(np.zeros(0) for _ in range(4)))
     window.bins_spin.setValue(window.bins_spin.value() + 10)

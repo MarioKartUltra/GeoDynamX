@@ -634,6 +634,8 @@ def test_construction_controls_wrap_inside_the_screen(qtbot):
     available = window.screen().availableGeometry()
     assert window.width() <= available.width()
     assert window.minimumSizeHint().width() < 750
+    for row in (window.boxcount_check.parentWidget(), window.send_hist_button.parentWidget()):
+        assert row.minimumSizeHint().width() < 400                  # a grouped row fits any strip
     fit_to_screen(window, 720, 700)
     qtbot.wait(10)
     assert window.width() <= min(720, available.width())

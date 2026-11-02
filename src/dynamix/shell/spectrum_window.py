@@ -137,6 +137,17 @@ class _WrappingLayout(QtWidgets.QLayout):
         return y + height - rect.y()
 
 
+def _row(*widgets) -> QtWidgets.QWidget:
+    """``widgets`` side by side as one item of a wrapping strip."""
+    row = QtWidgets.QWidget()
+    box = QtWidgets.QHBoxLayout(row)
+    box.setContentsMargins(0, 0, 0, 0)
+    box.setSpacing(4)
+    for widget in widgets:
+        box.addWidget(widget)
+    return row
+
+
 class SpectraInspector(QtWidgets.QWidget):
     """The construction's published spectra, one checkable row each in its colour, kept in front
     of the construction: a row shows or hides its spectrum on every panel, in step with the Show
@@ -677,29 +688,24 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             # Eq. 20 across resolutions, no pinning: the level sets' box-counting dimensions.
             self.boxcount_check = QtWidgets.QCheckBox("box-counting across r (eq. 20)")
             self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
-            controls.addWidget(self.boxcount_check)
             self.send_box_button = send_button("box-counting construction", self.send_boxcount)
-            controls.addWidget(self.send_box_button)
             self.replace_box_button = ReplaceButton(self, "boxcount", self.send_boxcount, "box-counting construction",
                                                     self.send_box_button)
-            controls.addWidget(self.replace_box_button)
+            # One row, so the wrapping never parts the Send and Replace from what they send.
+            controls.addWidget(_row(self.boxcount_check, self.send_box_button, self.replace_box_button))
             # Eq. 21 with the fit's own D₀ = -tau(0) in place of d, to compare shapes.
             self.pin_check = QtWidgets.QCheckBox("pin peak to D₀ of the fit")
             self.pin_check.setEnabled(has_hd)
             self.pin_check.toggled.connect(lambda _c: self._update_hist_items())
             controls.addWidget(self.pin_check)
-            # A gap keeps the histogram's Send from reading as part of the pin's label.
-            gap = QtWidgets.QWidget()
-            gap.setFixedWidth(12)
-            controls.addWidget(gap)
             self.send_hist_button = send_button("histogram construction", self.send_histogram)
             self.send_hist_button.setEnabled(self._hist is not None)
-            controls.addWidget(self.send_hist_button)
             self.replace_hist_button = ReplaceButton(self, "histogram", self.send_histogram,
                                                      "histogram construction", self.send_hist_button,
                                                      table=SpectrumWindow._pinned_table)
             self.replace_hist_button.watch(self._table_combo.currentTextChanged, self.pin_check.toggled)
-            controls.addWidget(self.replace_hist_button)
+            # Named, so the histogram's Send never reads as part of the pin's label.
+            controls.addWidget(_row(QtWidgets.QLabel("histogram"), self.send_hist_button, self.replace_hist_button))
 
         for w in (self._table_combo, self._lo_spin, self._hi_spin, self._eta_spin,
                   self._hull_check):
