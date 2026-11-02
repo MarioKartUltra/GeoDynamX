@@ -334,6 +334,27 @@ def test_convergence_is_a_fall_per_unit_gamma_whatever_the_gamma_step():
     assert 0.09 * 0.1 < 0.01                                   # the per-step rule would have passed it
 
 
+def test_a_gamma_listed_twice_is_one_gamma_in_the_slope():
+    """A grid whose largest γ is repeated reads as the grid without the repeat: the slope over the
+    two largest distinct γ, finite, the same verdicts; a grid of one γ repeated is a single γ."""
+    import warnings
+
+    from dynamix.core.nonconcave import gamma_convergence
+    q, h = np.array([-1.0, 0.0, 1.0]), np.array([0.4, 0.5, 0.6])
+    g = np.array([0.0, 1.0, 2.0, 3.0])
+    tau = q[:, None] * 0.5 + g[None, :] * 0.25 - 1.0
+    once = gamma_convergence(tau, q, g, h)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        twice = gamma_convergence(tau[:, [0, 1, 2, 3, 3]], q, g[[0, 1, 2, 3, 3]], h)
+        alone = gamma_convergence(tau[:, [2, 2]], q, g[[2, 2]], h)
+    assert np.isfinite(twice["slope"]).all() and np.isfinite(twice["decrease"]).all()
+    np.testing.assert_allclose(twice["slope"], once["slope"], atol=1e-12)
+    np.testing.assert_allclose(twice["decrease"], once["decrease"], atol=1e-12)
+    assert twice["converged"].tolist() == once["converged"].tolist() == [False, True, True]
+    assert alone["converged"].all() and not alone["slope"].any()
+
+
 def test_a_concave_parabola_has_no_hollow():
     from dynamix.core.nonconcave import hollows
     h = np.linspace(0.0, 1.0, 51)

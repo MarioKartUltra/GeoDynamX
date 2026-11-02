@@ -286,13 +286,13 @@ def gamma_convergence(tau, q_list, gamma_list, h_grid, delta_list=None) -> dict:
     profile has gone flat in γ. The estimate equals D(h) where h has a supporting parabola of
     curvature γ (Touchette 2010, J. Stat. Mech. P05008, p. 13; Costeniuc, Ellis, Touchette &
     Turkington 2006 eq. 28), and flatness is a slope in γ whose verdict does not depend on how
-    finely γ is sampled: over the two largest γ, ``decrease`` = D(h; γ_{n−1}) − D(h; γ_n),
+    finely γ is sampled: over the two largest distinct γ, ``decrease`` = D(h; γ_{n−1}) − D(h; γ_n),
     ``slope`` = decrease / (γ_n − γ_{n−1}), the fall per unit γ, and ``converged`` = slope < tol
     with tol = max(0.01, 0.02 (max D − min D)) per unit γ, the range over the finite values
     D ≥ 0 (a negative value marks an unsupported h and would widen the tolerance); a profile
     rising with γ has its minimum below the largest γ and counts as converged. On a grid of unit
-    γ step the rule reads as the decrease over the last step below tol. With a single γ every h
-    is converged. Returns ``{"profile", "D", "decrease", "slope", "tol", "converged"}``."""
+    γ step the rule reads as the decrease over the last step below tol. With a single distinct γ
+    every h is converged. Returns ``{"profile", "D", "decrease", "slope", "tol", "converged"}``."""
     q, g, h = (np.asarray(v, dtype=float) for v in (q_list, gamma_list, h_grid))
     dl = np.asarray([0.0] if delta_list is None else delta_list, dtype=float)
     if min(q.size, g.size, dl.size, h.size) == 0:
@@ -311,13 +311,16 @@ def gamma_convergence(tau, q_list, gamma_list, h_grid, delta_list=None) -> dict:
     D[some] = np.nanmin(profile[:, some], axis=0)
     kept = D[np.isfinite(D) & (D >= 0)]
     tol = max(0.01, 0.02 * float(kept.max() - kept.min())) if kept.size else 0.01
-    if g.size == 1:
+    gs = np.sort(g)
+    distinct = np.unique(gs)
+    if distinct.size == 1:
         decrease = slope = np.zeros(h.size)
         converged = np.ones(h.size, bool)
     else:
-        gs = np.sort(g)
-        decrease = profile[-2] - profile[-1]
-        slope = decrease / (gs[-1] - gs[-2])
+        # A γ listed twice is one γ: its rows give one profile value, their minimum.
+        last, before = (np.fmin.reduce(profile[gs == v], axis=0) for v in distinct[:-3:-1])
+        decrease = before - last
+        slope = decrease / (distinct[-1] - distinct[-2])
         converged = slope < tol
     return {"profile": profile, "D": D, "decrease": decrease, "slope": slope, "tol": tol,
             "converged": converged}
