@@ -538,8 +538,9 @@ class BoardComparison:
 
 class SpectraBoardInspector(QtWidgets.QWidget):
     """The board's inspector, one row per entry in board order: shown, its colour (a click opens
-    the colour dialog), its display name (a double click edits it, Enter commits, Esc reverts,
-    an empty name restores the full name), its error bars and its tangent where it has them,
+    the colour dialog), its display name (a double click, R on the selected row or the row's
+    context menu "Rename…" edits it, Enter commits, Esc reverts, an empty name restores the
+    producer's display name), its error bars and its tangent where it has them,
     Up, Down and Remove. Every cell's tooltip is the full name. The owner sets ``board`` and
     calls :meth:`refresh` when the board changes; the rows are rebuilt on the event loop's next
     turn, so an edit or a button that changed the board never has its own cell replaced while
@@ -553,7 +554,11 @@ class SpectraBoardInspector(QtWidgets.QWidget):
         self.table = QtWidgets.QTableWidget(0, 8)
         self.table.setHorizontalHeaderLabels(["shown", "", "name", "bars", "tangent", "", "", ""])
         self.table.verticalHeader().hide()
-        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.installEventFilter(self)
+        self.table.setContextMenuPolicy(QtCore.Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.DoubleClicked
                                    | QtWidgets.QAbstractItemView.EditTrigger.EditKeyPressed)
         header = self.table.horizontalHeader()
@@ -617,6 +622,36 @@ class SpectraBoardInspector(QtWidgets.QWidget):
         self.table.blockSignals(False)
         rows = sum(self.table.rowHeight(r) for r in range(min(len(entries), 5)))
         self.table.setFixedHeight(self.table.horizontalHeader().height() + rows + 2 * self.table.frameWidth())
+
+    def rename_row(self, row: int) -> None:
+        """Edit row ``row``'s display name in place."""
+        item = self.table.item(row, self.NAME)
+        if item is not None:
+            self.table.setCurrentItem(item)
+            self.table.editItem(item)
+
+    def eventFilter(self, watched, event) -> bool:
+        # R renames the selected row; while a name is edited the editor has the keys.
+        if (watched is self.table and event.type() == QtCore.QEvent.Type.KeyPress
+                and event.key() == QtCore.Qt.Key.Key_R and not event.modifiers()
+                and self.table.state() != QtWidgets.QAbstractItemView.State.EditingState
+                and self.table.currentRow() >= 0):
+            self.rename_row(self.table.currentRow())
+            return True
+        return super().eventFilter(watched, event)
+
+    def row_menu(self, row: int) -> QtWidgets.QMenu:
+        """Row ``row``'s context menu: Rename…."""
+        menu = QtWidgets.QMenu(self)
+        menu.addAction("Rename…", lambda: self.rename_row(row))
+        return menu
+
+    def _context_menu(self, pos) -> None:
+        row = self.table.rowAt(pos.y())
+        if row >= 0:
+            menu = self.row_menu(row)
+            menu.exec(self.table.viewport().mapToGlobal(pos))
+            menu.deleteLater()
 
     def _on_item_changed(self, item: QtWidgets.QTableWidgetItem) -> None:
         key, col = self._key(item.row()), item.column()

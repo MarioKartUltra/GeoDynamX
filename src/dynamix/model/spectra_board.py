@@ -8,7 +8,8 @@ result's tool identity, the scale window, the fit mode, the table and the produc
 decide replacement: a spectrum sent again under the same kind and identity replaces the earlier
 entry in place, keeping its display state (its display name when renamed, its colour, its
 visibility, its bars and tangent switches); a changed identity adds an entry. ``name`` is the
-display name and the only field a rename touches; ``full_name`` is the producer's own name, with
+display name and the only name a rename touches; ``default_name`` is the display name the
+producer gave, which an empty rename restores; ``full_name`` is the producer's own name, with
 the scale window and the tangent it was sent under."""
 from __future__ import annotations
 
@@ -56,7 +57,8 @@ def plain(value):
 class SentSpectrum:
     """One spectrum on the board: ``h`` and ``D`` with their error bars (None without), the
     partition-side ``q`` and ``tau`` when the producer has them, the phase-transition tangent
-    when it was sent with one, the identity that decides replacement, and the display state."""
+    when it was sent with one, the identity that decides replacement, and the display state:
+    ``renamed`` once a rename gave it a name of its own."""
 
     name: str
     full_name: str
@@ -73,6 +75,8 @@ class SentSpectrum:
     visible: bool = True
     show_errors: bool = True
     show_tangent: bool = True
+    default_name: str = ""
+    renamed: bool = False
     key: str = field(default_factory=lambda: uuid.uuid4().hex)
 
     def __post_init__(self) -> None:
@@ -93,6 +97,7 @@ class SentSpectrum:
                 raise ValueError(f"the tangent lacks {missing}")
             self.tangent = {k: float(self.tangent[k]) for k in TANGENT_KEYS}
         self.name = str(self.name or self.full_name)
+        self.default_name = str(self.default_name or self.name)
 
     @property
     def has_errors(self) -> bool:
@@ -141,15 +146,15 @@ class SpectraBoard:
 
     def add(self, spectrum: SentSpectrum) -> str:
         """Append ``spectrum``, or replace in place the entry it is sent again as (one kind, one
-        identity): the data are the new ones, the key, the display name when it was renamed, the
-        colour, the visibility and the bars and tangent switches the old entry's. Returns the
-        entry's key."""
+        identity): the data and the producer's display name are the new ones; the key, the name
+        a rename gave, the colour, the visibility and the bars and tangent switches the old
+        entry's. Returns the entry's key."""
         for i, old in enumerate(self._entries):
             if old.same_as(spectrum):
                 spectrum.key, spectrum.colour, spectrum.visible = old.key, old.colour, old.visible
                 spectrum.show_errors, spectrum.show_tangent = old.show_errors, old.show_tangent
-                if old.name != old.full_name:
-                    spectrum.name = old.name
+                if old.renamed:
+                    spectrum.name, spectrum.renamed = old.name, True
                 self._entries[i] = spectrum
                 return spectrum.key
         self._entries.append(spectrum)
@@ -159,9 +164,10 @@ class SpectraBoard:
         self._entries.remove(self.get(key))
 
     def rename(self, key: str, name: str) -> None:
-        """The display name; an empty one restores the full name."""
-        entry = self.get(key)
-        entry.name = str(name).strip() or entry.full_name
+        """The display name; an empty one restores the producer's display name."""
+        entry, text = self.get(key), str(name).strip()
+        entry.name = text or entry.default_name
+        entry.renamed = entry.name != entry.default_name
 
     def set_visible(self, key: str, on: bool) -> None:
         self.get(key).visible = bool(on)

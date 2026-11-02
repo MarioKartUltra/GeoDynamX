@@ -52,8 +52,36 @@ def test_a_name_is_display_only():
     assert entry.name == "WTMM" and entry.full_name == "canonical (Arneodo WTMM) · A"
     assert entry.record()["name"] == "WTMM"
     assert entry.record()["full_name"] == "canonical (Arneodo WTMM) · A"
+    assert entry.renamed and entry.default_name == "canonical (Arneodo WTMM) · A"
     board.rename(key, "")                               # empty restores the producer's name
-    assert entry.name == entry.full_name
+    assert entry.name == entry.full_name and not entry.renamed
+
+
+def test_an_empty_rename_restores_the_producer_s_display_name_and_a_send_again_keeps_a_rename():
+    """The producer's display name (a short name) is what an empty rename restores, never the
+    full name; a send again keeps a name the user gave and takes the producer's new one
+    otherwise."""
+    board = SpectraBoard()
+    first = _entry()
+    first.full_name += " · log2 a 1–5"
+    first = SentSpectrum(**{**{k: getattr(first, k) for k in ("full_name", "kind", "h", "D", "identity")},
+                            "name": "WTMM (no sup) · a 1–5"})
+    key = board.add(first)
+    assert first.default_name == "WTMM (no sup) · a 1–5" and not first.renamed
+    board.rename(key, "WTMM (no sup) · a 1–5")          # its own name again: not a rename
+    assert not board.get(key).renamed
+    again = SentSpectrum(name="WTMM (no sup) · a 1–5 new", full_name=first.full_name, kind="canonical",
+                         h=first.h, D=first.D, identity=first.identity)
+    board.add(again)
+    assert board.get(key).name == "WTMM (no sup) · a 1–5 new"   # not renamed: the producer's name
+    board.rename(key, "mine")
+    assert board.get(key).renamed
+    third = SentSpectrum(name="WTMM (no sup) · a 1–5", full_name=first.full_name, kind="canonical",
+                         h=first.h, D=first.D, identity=first.identity)
+    board.add(third)
+    assert (third.name, third.renamed, third.default_name) == ("mine", True, "WTMM (no sup) · a 1–5")
+    board.rename(key, "   ")
+    assert (third.name, third.renamed) == ("WTMM (no sup) · a 1–5", False)
 
 
 def test_sending_again_under_one_identity_replaces_in_place():

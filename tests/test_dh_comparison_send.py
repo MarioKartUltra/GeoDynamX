@@ -741,6 +741,49 @@ def test_a_name_edit_commits_on_enter_and_reverts_on_escape(qtbot, host):
     assert host.spectra_board.get(key).name == "kept"
 
 
+def test_r_and_the_context_menu_rename_the_selected_row_and_the_legend_follows(qtbot, host):
+    """R on the selected row opens its name for editing, as the row's context-menu "Rename…"
+    does; the committed name shows in the legend; an empty name restores the producer's."""
+    from PySide6 import QtCore
+
+    window = _construction(qtbot, host)
+    window.show()
+    qtbot.waitExposed(window)
+    board = host.spectra_board
+    a, b = board.add(_entry("A")), board.add(_entry("B"))
+    table = _rows(window, qtbot)
+    I = window.board_inspector
+
+    def commit(text):
+        [editor] = [e for e in table.viewport().findChildren(QtWidgets.QLineEdit) if e.isVisible()]
+        editor.setText(text)
+        qtbot.keyClick(editor, QtCore.Qt.Key.Key_Return)
+        qtbot.wait(10)
+
+    table.selectRow(1)
+    table.setFocus()
+    qtbot.keyClick(table, QtCore.Qt.Key.Key_R)
+    assert table.state() == QtWidgets.QAbstractItemView.State.EditingState
+    assert table.currentRow() == 1 and table.currentColumn() == I.NAME
+    commit("by R")
+    assert board.get(b).name == "by R" and board.get(b).renamed
+    assert _legend(window)[-1] == ("by R", "B · a long provenance name")
+
+    table = _rows(window, qtbot)
+    assert table.rowAt(table.visualItemRect(table.item(0, I.NAME)).center().y()) == 0
+    [action] = [x for x in I.row_menu(0).actions() if x.text() == "Rename…"]
+    action.trigger()
+    assert table.state() == QtWidgets.QAbstractItemView.State.EditingState and table.currentRow() == 0
+    commit("by menu")
+    assert board.get(a).name == "by menu"
+    assert [label for label, _tip in _legend(window)][-2:] == ["by menu", "by R"]
+    table = _rows(window, qtbot)
+    I.rename_row(1)
+    commit("")                                                    # empty: the producer's name again
+    assert board.get(b).name == "B" and not board.get(b).renamed
+    assert _legend(window)[-1] == ("B", "B · a long provenance name")
+
+
 def test_the_main_window_owns_the_board_and_names_a_send_on_its_status_line(qtbot, window):
     main = window
     assert isinstance(main.spectra_board, SpectraBoardModel)
