@@ -997,7 +997,8 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
     def _sync_legend(self) -> None:
         """The legend lists exactly the items that are drawn, under their current names, then
         every spectrum drawn from the D(h) comparison by its display name, its full name and its
-        bars' kind the tooltip, after one "bars: ±1σ" row while any of them draws bars."""
+        bars' kind the tooltip, then one "board bars: ±1σ" row while any of them draws bars (the
+        construction's own histogram keeps its eq. 39 bars)."""
         if not hasattr(self, "_legend"):
             return
         entries = list(self._legend_entries) + [
@@ -1006,11 +1007,12 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         wanted = [(item, name_of()) for item, name_of in entries if self._drawn(item)]
         board = [(curve, name) for curve, name, _tip in self._board_legend if self._drawn(curve)]
         tips = {curve: tip for curve, _name, tip in self._board_legend}
-        if board and self._board_bars:
-            wanted.append((self._board_bars_note, "bars: ±1σ"))
-            tips[self._board_bars_note] = ("Every error bar drawn from the D(h) comparison spans ±1σ; "
-                                           "each entry's tooltip names its kind")
         wanted += board
+        if board and self._board_bars:
+            wanted.append((self._board_bars_note, "board bars: ±1σ"))
+            tips[self._board_bars_note] = ("Every error bar drawn from the D(h) comparison spans ±1σ; "
+                                           "each entry's tooltip names its kind. The construction's own "
+                                           "histogram keeps its eq. 39 bars.")
         if wanted != self._in_legend.get("order"):
             self._legend.clear()
             for item, name in wanted:

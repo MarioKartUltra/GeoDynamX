@@ -555,7 +555,7 @@ class BoardComparison:
     out the inspector it returns), :meth:`attach_board` once built, and redraws its legend in
     ``_on_board_drawn`` (``_board_legend`` lists ``(curve, display name, tooltip)``, the tooltip
     the full name and the bars' kind; ``_board_bars`` says whether any entry draws bars, which
-    the legend's one ``bars: ±1σ`` row, ``_board_bars_note``, states). Mixed in before the Qt
+    the legend's one ``board bars: ±1σ`` row after the entries, ``_board_bars_note``, states). Mixed in before the Qt
     base class; no ``__init__`` of its own."""
 
     spectra_board: "SpectraBoardModel | None" = None

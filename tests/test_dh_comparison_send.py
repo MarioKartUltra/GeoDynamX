@@ -715,19 +715,24 @@ def test_view_all_and_the_auto_range_button_take_in_the_board_s_entries(qtbot, h
 
 
 def test_the_legend_says_bars_one_sigma_once_and_each_entry_names_its_kind(qtbot, host):
-    """While any entry draws bars the legend carries one "bars: ±1σ" row ahead of the entries;
-    an entry's tooltip, in the legend and in the inspector, adds its bars' kind and method."""
-    window = _construction(qtbot, host)
+    """While any entry draws bars the legend carries one "board bars: ±1σ" row after the entries,
+    which says it leaves the construction's own histogram's eq. 39 bars alone; an entry's tooltip,
+    in the legend and in the inspector, adds its bars' kind and method."""
+    window = _construction(qtbot, host, h_map=np.random.default_rng(3).normal(0.4, 0.1, (64, 64)))
     board = host.spectra_board
     a = board.add(_entry("A", kind="histogram", dD=np.full(9, 0.05), err_kind="binomial 1σ (from the 99 % band)",
                          err_method="eq. 39 over three."))
     board.add(_entry("B", kind="canonical", dD=np.full(9, 0.02), err_kind="fit SE", err_method="slope SE."))
     board.add(_entry("C"))
     names = [name for name, _tip in _legend(window)]
-    assert names.count("bars: ±1σ") == 1 and names[-4:] == ["bars: ±1σ", "A", "B", "C"]
-    note = window._plot.legend.items[names.index("bars: ±1σ")][0].item
+    assert "bars: ±1σ" not in names
+    assert names.count("board bars: ±1σ") == 1 and names[-4:] == ["A", "B", "C", "board bars: ±1σ"]
+    note = window._plot.legend.items[names.index("board bars: ±1σ")][0].item
     assert note.opts["pen"] is None and note.opts["symbol"] is None              # a label alone, no sample
     tips = dict(_legend(window))
+    assert "eq. 39" in tips["board bars: ±1σ"]
+    own = [n for n in names[:-4] if "histogram" in n]                            # the window's own histogram
+    assert own and names.index(own[0]) < names.index("A")                        # above the board, its own bars
     assert tips["A"] == "A · a long provenance name\nbars ±1σ: binomial 1σ (from the 99 % band)\neq. 39 over three."
     assert tips["C"] == "C · a long provenance name"
     table = _rows(window, qtbot)
@@ -737,9 +742,9 @@ def test_the_legend_says_bars_one_sigma_once_and_each_entry_names_its_kind(qtbot
         "±1σ", "binomial 1σ (from the 99 % band)", "eq. 39 over three.")
     for key in [e.key for e in board.entries()][:2]:
         board.set_show_errors(key, False)
-    assert "bars: ±1σ" not in [name for name, _tip in _legend(window)]
+    assert "board bars: ±1σ" not in [name for name, _tip in _legend(window)]
     board.set_show_errors(a, True)
-    assert [name for name, _tip in _legend(window)].count("bars: ±1σ") == 1
+    assert [name for name, _tip in _legend(window)][-1] == "board bars: ±1σ"
 
 
 def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
