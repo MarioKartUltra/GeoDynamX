@@ -5,9 +5,19 @@ from a multifractal partition function:
 
   Dupont polynomial fit
   ---------------------
-  Fit a polynomial p(q) = -1 + c1*q + c2*q^2/2 + c3*q^3/6 + ... directly
+  Fit a polynomial p(q) = -c0 + c1*q + c2*q^2/2 + c3*q^3/6 + ... directly
   to the measured tau(q) curve.  Robust when tau(q) is well-sampled and
   the cumulant truncation is appropriate.  See Dupont et al.
+
+  Sign convention (both fits): the cumulant expansion
+        tau(q) = -c0 + sum_{p>=1} c_p q^p / p!
+  with c_p the slope of the p-th cumulant of ln|W| against ln(a) and
+  c0 = -tau(0) the support dimension; c2 < 0 for an intermittent cascade.
+  Dupont et al. 2020 (Arneodo's convention) write
+  tau(q) = -c0 + c1 q - c2 q^2/2 + c3 q^3/6, so their c2 is -c2 here.
+  This is a deliberate departure from the vendored source, whose
+  fit_dupont_polynomial returned c0 = tau(0): it returns c0 = -tau(0)
+  and the Arneodo-convention values under 'arneodo'.
 
   Venugopal cumulant fit
   ----------------------
@@ -56,12 +66,13 @@ def fit_dupont_polynomial(
     *,
     deg: int = 3,
 ) -> dict:
-    """Fit tau(q) = c0 + c1*q + c2*q^2/2 + c3*q^3/6 + c4*q^4/24
+    """Fit tau(q) = -c0 + c1*q + c2*q^2/2 + c3*q^3/6 + c4*q^4/24
 
     Uses ordinary least-squares polynomial regression on (q, tau).  The
-    constant term `c0` is NOT forced -- it equals -D(0) where D(0) is
-    the box-counting / capacity dimension of the support (e.g. -1 for a
-    1D measure, -2 for a 2D measure).  Returned as the `c0` key.
+    constant term is NOT forced: `c0` = -tau(0) = D(0), the box-counting /
+    capacity dimension of the support (e.g. 1 for a 1D measure, 2 for a
+    2D measure).  The c_p follow the cumulant expansion: c2 < 0 for an
+    intermittent cascade.
 
     Parameters
     ----------
@@ -72,8 +83,12 @@ def fit_dupont_polynomial(
     Returns
     -------
     dict with keys:
-        'c0'             constant offset (= -D(0))
-        'c1'..'c{deg}'   estimated cumulants
+        'c0'             support dimension D(0) = -tau(0)
+        'c1'..'c{deg}'   estimated cumulants (cumulant expansion sign)
+        'arneodo'        the same fit in Arneodo's convention,
+                         tau(q) = -c0 + c1 q - c2 q^2/2 + c3 q^3/6:
+                         {'c0': c0, 'c1': c1, 'c2': -c2, 'c3': c3}
+                         for the orders up to min(deg, 3)
         'tau_fit'        polynomial fit values
         'residuals'      tau - tau_fit
         'r2'             goodness-of-fit
@@ -91,9 +106,11 @@ def fit_dupont_polynomial(
                   + [q ** k / factorial[k] for k in range(1, deg + 1)],
                   axis=1)
     coeffs, _, _, _ = np.linalg.lstsq(X, tau, rcond=None)
-    out = {'c0': float(coeffs[0])}
+    out = {'c0': -float(coeffs[0])}
     for k in range(deg):
         out[f'c{k+1}'] = float(coeffs[k + 1])
+    out['arneodo'] = {k: -out[k] if k == 'c2' else out[k]
+                      for k in ('c0', 'c1', 'c2', 'c3') if k in out}
 
     tau_fit = X @ coeffs
     out['tau_fit'] = tau_fit
@@ -116,8 +133,8 @@ def fit_venugopal_cumulants(
     Per Venugopal et al. 2005, when ln|W| is well-described by an
     n-th-order cumulant expansion in log scale, each cumulant scales:
         kappa_n[ln|W| | a]  ~  C_n * ln(a)  +  const
-    The slope `C_n` (with the appropriate sign and factorial normalization)
-    gives the cumulant `c_n` of the underlying multiplicative cascade.
+    The slope `C_n` is the cumulant `c_n` of the underlying multiplicative
+    cascade in the cumulant expansion's sign (c2 < 0 for intermittency).
 
     Parameters
     ----------

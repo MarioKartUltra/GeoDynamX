@@ -588,6 +588,28 @@ def test_arneodo_cumulants_draw_the_same_tau_with_the_opposite_c2():
     assert spectra.CUMULANT_SIGN == "expansion (c2 < 0 intermittent)"
 
 
+def test_the_dupont_polynomial_and_the_venugopal_slopes_share_the_expansion_sign():
+    """On one log-normal cascade (c0 = 2, c1 = 0.6, c2 = -0.3), the polynomial fit of τ(q) and
+    the slopes of the cumulants of ln|W| give the same c1 and c2, both c2 < 0; the polynomial's
+    c0 is -τ(0), and its 'arneodo' entry is the same fit with c2 (Arneodo) = -c2."""
+    from dynamix._vendor.wtmm.dupont_venugopal import fit_dupont_polynomial, fit_venugopal_cumulants
+
+    q = np.linspace(-2.0, 4.0, 25)
+    tau = -2.0 + 0.6 * q - 0.3 * q ** 2 / 2
+    poly = fit_dupont_polynomial(tau, q, deg=2)
+    assert (poly["c0"], poly["c1"], poly["c2"]) == pytest.approx((2.0, 0.6, -0.3), abs=1e-10)
+    assert poly["arneodo"] == pytest.approx({"c0": 2.0, "c1": 0.6, "c2": 0.3}, abs=1e-10)
+    assert poly["arneodo"] == pytest.approx(spectra.arneodo_cumulants(poly), abs=1e-12)
+    assert set(fit_dupont_polynomial(tau, q, deg=4)["arneodo"]) == {"c0", "c1", "c2", "c3"}
+
+    rng = np.random.default_rng(11)
+    ln_a = np.log(2.0 ** np.arange(1, 8, dtype=np.float64))
+    samples = {i: rng.normal(0.6 * la, np.sqrt(3.0 - 0.3 * la), 40000) for i, la in enumerate(ln_a)}
+    slopes = fit_venugopal_cumulants(samples, ln_a, max_order=2)
+    assert slopes["c1"] == pytest.approx(poly["c1"], abs=0.02)
+    assert slopes["c2"] == pytest.approx(poly["c2"], abs=0.03)
+
+
 def test_phase_transition_tangent_reaches_the_y_axis_at_D_minus_q_h():
     q = np.arange(-5.0, 5.01, 0.5)
     tau = 0.6 * q - 0.1 * q * q

@@ -4,10 +4,11 @@
 
 - With mlx absent (a Windows / Intel-Mac install), the vendored packages import, the policy runs
   every FFT on FFTW3, and a 2-D WTMM transform + partition function run end to end.
-- Every vendored file is byte-identical to its source at the vendoring commit, except the six
+- Every vendored file is byte-identical to its source at the vendoring commit, except the seven
   recorded edits (import rewrite, trimmed wtmm_ebsd/__init__.py and wtmm/__init__.py, guarded mlx
-  in cwt2d.py, each mlx product evaluated before numpy reads it in cwt2d.py, and the Borges A_q
-  Gamma ratios in wtmm/wavelets.py as Pochhammer symbols).
+  in cwt2d.py, each mlx product evaluated before numpy reads it in cwt2d.py, the Borges A_q
+  Gamma ratios in wtmm/wavelets.py as Pochhammer symbols, and wtmm/dupont_venugopal.py's
+  polynomial fit in the cumulant expansion's sign with its Arneodo-convention values).
 - The packages carry only the modules the app loads (spec 09, Phase A): the survivors are pinned
   below, and a trace of every seam the app runs through (``tests/test_vendor_goldens.py``'s pieces)
   loads exactly them. The whole copy is at tag ``vendored-snapshot-2026-10``.
@@ -64,7 +65,7 @@ def _normalised(text: str) -> str:
 @pytest.mark.parametrize("pkg", ["wtmm", "wtmm_ebsd"])
 def test_vendored_files_are_verbatim_except_the_recorded_edits(pkg):
     edited = {("wtmm_ebsd", "__init__.py"), ("wtmm_ebsd", "cwt2d.py"), ("wtmm", "wavelets.py"),
-              ("wtmm", "__init__.py")}
+              ("wtmm", "__init__.py"), ("wtmm", "dupont_venugopal.py")}
     for path in sorted((VENDOR / pkg).glob("*.py")):
         if (pkg, path.name) in edited:
             continue
@@ -153,6 +154,36 @@ def test_wavelets_differs_only_by_the_borges_constant_fix():
         "from scipy.special import poch", "",
         "np.sqrt((q - 1.0)**2.5 * poch(arg1 - 2.5, 2.5))",
         "np.sqrt((1.0 - q)**0.5 * poch(arg2 + 1.0, 0.5))"]
+
+
+def _code_lines(text: str) -> list:
+    """The module's code without its docstrings, one unparsed line each."""
+    import ast
+
+    tree = ast.parse(text)
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
+                and isinstance(getattr(body[0], "value", None), ast.Constant) \
+                and isinstance(body[0].value.value, str):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(tree).splitlines()
+
+
+@pytest.mark.skipif(not SOURCE.is_dir(), reason=f"source checkout not present at {SOURCE}")
+def test_the_dupont_fit_differs_only_by_the_cumulant_expansion_sign():
+    """The log-cumulants follow one sign, the cumulant expansion τ(q) = −c0 + Σ c_p q^p/p!
+    (c2 < 0 intermittent): fit_dupont_polynomial returns c0 = −τ(0) where the source returned
+    τ(0), and the same fit in Arneodo's convention (c2 (Arneodo) = −c2) under 'arneodo'. The code
+    changes by exactly that; the docstrings state the convention."""
+    ours = _code_lines(_normalised((VENDOR / "wtmm" / "dupont_venugopal.py").read_text(encoding="utf-8")))
+    theirs = _code_lines((SOURCE / "wtmm" / "dupont_venugopal.py").read_text(encoding="utf-8"))
+    diff = [ln for ln in difflib.unified_diff(theirs, ours, lineterm="", n=0)
+            if ln[:1] in "+-" and not ln.startswith(("+++", "---"))]
+    assert [ln[1:].strip() for ln in diff if ln[0] == "-"] == ["out = {'c0': float(coeffs[0])}"]
+    assert [ln[1:].strip() for ln in diff if ln[0] == "+"] == [
+        "out = {'c0': -float(coeffs[0])}",
+        "out['arneodo'] = {k: -out[k] if k == 'c2' else out[k] for k in ('c0', 'c1', 'c2', 'c3') if k in out}"]
 
 
 def test_an_mlx_error_in_the_vendored_cwt_is_a_python_exception_never_an_abort():
