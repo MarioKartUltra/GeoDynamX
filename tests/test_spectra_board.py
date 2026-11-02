@@ -225,6 +225,8 @@ def test_the_record_is_plain_json_and_says_what_was_drawn():
     entry.show_errors = entry.show_tangent = False
     assert entry.record()["errors"] is False and entry.record()["tangent"] is None
     assert _entry().record()["errors"] is False                 # a producer without bars
+    assert "cumulant_sign" not in record                        # only a log-cumulant expansion has one
+    assert _entry(kind="cumulant").record()["cumulant_sign"] == "expansion (c2 < 0 intermittent)"
 
 
 def test_an_entry_with_bars_names_their_kind_in_its_record_and_tooltip():

@@ -867,10 +867,19 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                       "tangent": self._tangent_now()})
 
     def figure_record(self) -> dict:
-        """What an exported figure of this window records: the D(h) range on show and the
-        fitter's own fit (the D(h) comparison is drawn in the D(h) construction window)."""
-        return {"view": "partition functions", "view_range": dh_view_range(self._spectrum_plots["D"]),
-                "fit": self.drawn_fit()}
+        """What an exported figure of this window records: the D(h) range on show, the
+        fitter's own fit (the D(h) comparison is drawn in the D(h) construction window) and,
+        while cumulants are fitted, c₁..c₄ with their scale window, their sign and Arneodo's
+        values."""
+        out = {"view": "partition functions", "view_range": dh_view_range(self._spectrum_plots["D"]),
+               "fit": self.drawn_fit()}
+        c = self._cumulants
+        if c is not None:
+            lo, hi = (self._cum_regions[0] if self.cumulant_range_check.isChecked() else self._region).getRegion()
+            out["cumulants"] = plain({**{k: c[k] for k in ("c1", "c2", "c3", "c4", "r2")},
+                                      "scale_window": [lo, hi], "cumulant_sign": spectra.CUMULANT_SIGN,
+                                      "arneodo": spectra.arneodo_cumulants(c)})
+        return out
 
     # -- redraw -----------------------------------------------------------------------------
     def _q_mask(self, q: np.ndarray) -> np.ndarray:

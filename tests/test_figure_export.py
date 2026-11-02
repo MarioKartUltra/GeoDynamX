@@ -330,3 +330,42 @@ def test_a_figure_from_the_construction_window_lists_the_spectra_drawn_with_thei
     assert a["tangent"]["q_c"] == pytest.approx(first.tangent["q_c"])
     assert b["scale_window"] == [1.0, 6.0] and b["errors"] is False and b["tangent"] is None
     assert "gprv.check: valid" in w._status_message
+
+
+def test_a_figure_with_log_cumulants_records_their_sign(qtbot, window, tmp_path, monkeypatch):
+    """The cumulants the fitter draws ride in its figure's record with their scale window, the
+    sign they follow (the cumulant expansion, c₂ < 0 intermittent) and Arneodo's values; a
+    cumulant spectrum drawn from the D(h) comparison names the same sign."""
+    from dynamix.core import spectra
+    from dynamix.model.spectra_board import SentSpectrum
+    from dynamix.shell.multifractal_window import MultifractalWindow
+    from dynamix.shell.spectrum_window import SpectrumWindow
+    from tests.test_multifractal_window import _broken_pair, _hd_q
+
+    w = _signed(qtbot, window)
+    q = np.linspace(-3.0, 3.0, 25)
+    hd = _hd_q(q, 0.7 * q - 0.3 * q ** 2 / 2)
+    rng = np.random.default_rng(3)
+    mods = [np.exp(rng.normal(0.7 * np.log(a), np.sqrt(3.0 - 0.3 * np.log(a)), 20000)) for a in hd["scales"]]
+    fitter = MultifractalWindow(hd, hd, extrema_mods=mods, scales=hd["scales"], parent=w)
+    qtbot.addWidget(fitter)
+    fitter.show()
+    qtbot.waitExposed(fitter)
+    assert "cumulants" not in fitter.figure_record()               # opt-in: none fitted yet
+    fitter.cumulant_check.setChecked(True)
+    c = fitter.current_cumulants()
+    cum = _record(_export_window(fitter, monkeypatch, tmp_path / "cumulants.png")[0])["cumulants"]
+    assert cum["cumulant_sign"] == "expansion (c2 < 0 intermittent)"
+    assert cum["c2"] == pytest.approx(c["c2"]) and cum["c2"] < 0
+    assert cum["arneodo"]["c2"] == pytest.approx(-c["c2"]) and cum["arneodo"]["c1"] == pytest.approx(c["c1"])
+    assert cum["scale_window"] == pytest.approx(list(fitter._region.getRegion()))
+
+    h = np.linspace(0.2, 0.8, 7)
+    w.spectra_board.add(SentSpectrum(name="LC · leaders", full_name="leaders, log-cumulants", kind="cumulant",
+                                     h=h, D=2.0 - 4.0 * (h - 0.5) ** 2))
+    construction = SpectrumWindow(*_broken_pair(), parent=w)
+    qtbot.addWidget(construction)
+    construction.show()
+    qtbot.waitExposed(construction)
+    (entry,) = _record(_export_window(construction, monkeypatch, tmp_path / "dh.png")[0])["spectra"]
+    assert entry["kind"] == "cumulant" and entry["cumulant_sign"] == spectra.CUMULANT_SIGN

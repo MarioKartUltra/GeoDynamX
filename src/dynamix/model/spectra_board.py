@@ -23,6 +23,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from dynamix.core.spectra import CUMULANT_SIGN
+
 __all__ = ["KINDS", "SentSpectrum", "SpectraBoard", "plain"]
 
 #: What produced a spectrum: the partition fitter's canonical fit, its histogram and box-counting
@@ -127,18 +129,22 @@ class SentSpectrum:
     def record(self) -> dict:
         """The entry as a figure record lists it: the names, the kind, the identity, the scale
         window, the fit mode and the table, whether its error bars were drawn (each ±1σ, its kind
-        and method named) and the tangent drawn with it."""
+        and method named) and the tangent drawn with it; a log-cumulant expansion also names its
+        sign."""
         ident = dict(self.identity)
-        return plain({"name": self.name, "full_name": self.full_name, "kind": self.kind,
-                      "identity": {k: v for k, v in ident.items()
-                                   if k not in ("scale_window", "fit_mode", "table")},
-                      "scale_window": ident.get("scale_window"), "fit_mode": ident.get("fit_mode"),
-                      "table": ident.get("table"),
-                      "errors": bool(self.show_errors and self.has_errors),
-                      "bars": "±1σ" if self.has_errors else None,
-                      "err_kind": self.err_kind or None, "err_method": self.err_method or None,
-                      "tangent": self.tangent if self.show_tangent else None,
-                      "colour": self.colour})
+        out = {"name": self.name, "full_name": self.full_name, "kind": self.kind,
+               "identity": {k: v for k, v in ident.items()
+                            if k not in ("scale_window", "fit_mode", "table")},
+               "scale_window": ident.get("scale_window"), "fit_mode": ident.get("fit_mode"),
+               "table": ident.get("table"),
+               "errors": bool(self.show_errors and self.has_errors),
+               "bars": "±1σ" if self.has_errors else None,
+               "err_kind": self.err_kind or None, "err_method": self.err_method or None,
+               "tangent": self.tangent if self.show_tangent else None,
+               "colour": self.colour}
+        if self.kind == "cumulant":
+            out["cumulant_sign"] = CUMULANT_SIGN
+        return plain(out)
 
 
 def _identity_text(identity: dict) -> str:
