@@ -1212,8 +1212,9 @@ def test_the_dataset_row_carries_lock_and_freeze_for_its_master(panel, project, 
 
     assert not row.lock_button.isHidden() and not row.freeze_button.isHidden()
     assert row.lock_button.isChecked() is True and row.freeze_button.isChecked() is False
-    assert [row.layout().itemAt(i).widget().text() for i in range(1, row.layout().count())] \
-        == ["H", "L", "F", "I"]
+    buttons = [row.layout().itemAt(i).widget() for i in range(1, row.layout().count())]
+    assert [b.toolTip().split(" ")[0] for b in buttons] == ["Hide", "Lock", "Freeze", "Inspector"]
+    assert all(not b.icon().isNull() and b.text() == "" for b in buttons)   # icons, no letters
     with qtbot.waitSignal(panel.freezeToggled, timeout=1000) as sig:
         row.freeze_button.click()
     assert sig.args == [master.layer_id, True]

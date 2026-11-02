@@ -10,7 +10,7 @@ its own parent LAYER row -- an ROI is a child of the layer it was drawn on, not 
 directly, exactly as ``main_window.roi_chain``'s grouping already implies.
 
 Each layer row carries a small widget (:class:`_LayerRow`) of three checkable ``QToolButton``s --
-text glyphs ``"H"``/``"L"``/``"F"``, icon art being explicitly out of scope for this slice -- and
+icons from ``row_icons`` (an eye, a padlock, a snowflake) -- and
 the panel re-emits their toggles as ``hideToggled``/``lockToggled``/``freezeToggled(layer_id,
 bool)``. It stores no flag state of its own: ``layer.visible`` and ``layer.tags["ui.lock"]``/
 ``["ui.freeze"]`` are the single source of truth, read once at row construction and otherwise owned
@@ -42,6 +42,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
+from dynamix.shell.row_icons import style_row_button
 
 #: Item-data roles on column 0. A LAYER row carries its ``layer_id`` under ``_LAYER_ID_ROLE``; a
 #: SOURCE HEADER row carries its ``source_id`` under ``_SOURCE_ID_ROLE`` instead -- never both on
@@ -166,12 +168,11 @@ class _LayerRow(QtWidgets.QWidget):
         super().__init__(parent)
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(2)
 
-        self.hide_button = self._make_button("H", "Hide this layer's products (H-chains, V-chains)", not layer.visible)
-        self.lock_button = self._make_button(
-            "L", "Lock (params read-only)", layer.tags.get("ui.lock") == "1")
-        self.freeze_button = self._make_button(
-            "F", "Freeze (lock + pin cached results)", layer.tags.get("ui.freeze") == "1")
+        self.hide_button = self._make_button("hide", "Hide this layer's products (H-chains, V-chains)", not layer.visible)
+        self.lock_button = self._make_button("lock", "Lock (params read-only)", layer.tags.get("ui.lock") == "1")
+        self.freeze_button = self._make_button("freeze", "Freeze (lock + pin cached results)", layer.tags.get("ui.freeze") == "1")
         for button in (self.hide_button, self.lock_button, self.freeze_button):
             row.addWidget(button)
 
@@ -180,11 +181,11 @@ class _LayerRow(QtWidgets.QWidget):
         self.freeze_button.toggled.connect(self.freezeToggled.emit)
 
     @staticmethod
-    def _make_button(text: str, tooltip: str, checked: bool) -> QtWidgets.QToolButton:
+    def _make_button(name: str, tooltip: str, checked: bool) -> QtWidgets.QToolButton:
         button = QtWidgets.QToolButton()
         button.setCheckable(True)
         button.setChecked(checked)
-        button.setText(text)
+        style_row_button(button, name)
         button.setToolTip(tooltip)
         button.setProperty("rowToggle", "true")      # theme.py's black/white toggle rule
         return button
@@ -200,9 +201,9 @@ class _RoiRow(QtWidgets.QWidget):
         super().__init__(parent)
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(2)
         row.addStretch(1)
-        self.hide_button = _LayerRow._make_button(
-            "H", "Hide this ROI's outline (results on it stay)", not roi.visible)
+        self.hide_button = _LayerRow._make_button("hide", "Hide this ROI's outline (results on it stay)", not roi.visible)
         row.addWidget(self.hide_button)
         self.hide_button.toggled.connect(self.hideToggled.emit)
 
@@ -218,6 +219,7 @@ class _OutputRow(QtWidgets.QWidget):
         super().__init__(parent)
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(2)
         row.addStretch(1)
         tip = ("Hide the edges drawing (filters and tables still read them)"
                if output.kind == "vector" else
@@ -226,7 +228,7 @@ class _OutputRow(QtWidgets.QWidget):
                if output.kind == "data" else
                "Hide this output; clear H to show it in place of the data "
                "(one raster output at a time)")
-        self.hide_button = _LayerRow._make_button("H", tip, hidden)
+        self.hide_button = _LayerRow._make_button("hide", tip, hidden)
         self.tooltip = tip
         self.output = output
         row.addWidget(self.hide_button)
@@ -240,7 +242,7 @@ class _SourceRow(QtWidgets.QWidget):
     ``setChecked`` is seeded BEFORE ``toggled`` is connected, so seeding an already-open
     inspector's button can never itself fire a spurious toggle back at the window that opened it.
 
-    The glyph is the text ``"I"``, matching the H/L/F rows -- icon art is explicitly out of scope
+    The glyph is ``row_icons``' magnifier, matching the H/L/F rows' icons
     until the mockups land (spec 5c is PENDING).
 
     The leading stretch is the one pixel decision here, and it is load-bearing for the render
@@ -258,25 +260,20 @@ class _SourceRow(QtWidgets.QWidget):
         super().__init__(parent)
         row = QtWidgets.QHBoxLayout(self)
         row.setContentsMargins(2, 0, 2, 0)
+        row.setSpacing(2)
         row.addStretch(1)
 
         # The dataset's hide: the raster itself, everywhere it is drawn -- the layer rows' own H
         # under this header hide their PRODUCTS (extrema, chains) and never the raster, which is
         # what "hide the dataset and show only extrema" needs.
-        self.hide_button = QtWidgets.QToolButton()
-        self.hide_button.setCheckable(True)
-        self.hide_button.setChecked(hidden)
-        self.hide_button.setText("H")
-        self.hide_button.setToolTip("Hide dataset (the raster; its layers' products stay)")
-        self.hide_button.setProperty("rowToggle", "true")
+        self.hide_button = _LayerRow._make_button("hide", "Hide dataset (the raster; its layers' products stay)", hidden)
         row.addWidget(self.hide_button)
         self.hide_button.toggled.connect(self.hideToggled.emit)
 
         # The dataset row IS its master layer's row: the master's lock/freeze sit here,
         # hidden until a master attaches (a bare header has none).
-        self.lock_button = _LayerRow._make_button("L", "Lock (params read-only)", False)
-        self.freeze_button = _LayerRow._make_button(
-            "F", "Freeze (lock + pin cached results)", False)
+        self.lock_button = _LayerRow._make_button("lock", "Lock (params read-only)", False)
+        self.freeze_button = _LayerRow._make_button("freeze", "Freeze (lock + pin cached results)", False)
         for button in (self.lock_button, self.freeze_button):
             button.setVisible(False)
             row.addWidget(button)
@@ -286,7 +283,7 @@ class _SourceRow(QtWidgets.QWidget):
         self.inspector_button = QtWidgets.QToolButton()
         self.inspector_button.setCheckable(True)
         self.inspector_button.setChecked(open_)
-        self.inspector_button.setText("I")
+        style_row_button(self.inspector_button, "inspector")
         self.inspector_button.setToolTip("Inspector (floating window for this source)")
         self.inspector_button.setProperty("rowToggle", "true")
         row.addWidget(self.inspector_button)

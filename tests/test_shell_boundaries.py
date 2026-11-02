@@ -126,7 +126,8 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
     # wavelet_bar.py, map_view.py, skeleton_dialog.py, anisotropy_window.py, curve_window.py and
     # components_window.py read theme roles the same way, and map_view hosts a canvas, so they join
     # the widening in leaf-to-window order. colorbar.py's text follows the theme's scale-bar role,
-    # and figure_export.py draws the colour bar.
+    # and figure_export.py draws the colour bar. row_icons.py strokes the row buttons' icons in the
+    # theme's toggle colours, and layer_panel.py builds its rows from them.
     assert devloop.modules_to_reload({"theme"}) == [
             "dynamix.shell.theme",
             "dynamix.shell.canvas",
@@ -136,6 +137,8 @@ def test_modules_to_reload_widens_a_leaf_change_to_its_dependents():
             "dynamix.shell.map_view",
             "dynamix.shell.inspector",
             "dynamix.shell.right_panel",
+            "dynamix.shell.row_icons",
+            "dynamix.shell.layer_panel",
             "dynamix.shell.view_dialog",
             "dynamix.shell.skeleton_dialog",
             "dynamix.shell.multifractal_window",
@@ -191,6 +194,8 @@ def test_devloop_scan_detects_a_touched_file_and_resolves_its_dependents():
             "dynamix.shell.map_view",
             "dynamix.shell.inspector",
             "dynamix.shell.right_panel",
+            "dynamix.shell.row_icons",
+            "dynamix.shell.layer_panel",
             "dynamix.shell.view_dialog",
             "dynamix.shell.skeleton_dialog",
             "dynamix.shell.multifractal_window",

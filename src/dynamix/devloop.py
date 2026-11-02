@@ -98,7 +98,7 @@ _MODULE_ORDER = (
     "point_import", "units", "settings", "ramps",
     "window_fit", "cache_inspector", "shared_range", "browser", "chain_strip", "workflow_zone", "rack_editor", "transport", "canvas",
     "wavelet_bar", "colorbar", "figure_export", "map_view", "inspector", "roi_panel",
-    "right_panel", "layer_panel", "layers_panel", "arrangement_facade", "view_dialog", "topology_panel",
+    "right_panel", "row_icons", "layer_panel", "layers_panel", "arrangement_facade", "view_dialog", "topology_panel",
     "skeleton_dialog", "transect_panel", "profile_dialog", "spectra_board", "multifractal_window",
     "spectrum_window", "structure_functions_window", "log_cumulants_window", "large_deviations_window", "generalized_spectrum_window",
     "anisotropy_window", "figure_data", "slope_plot", "directional_figures", "directional_scaling_window", "curve_window", "surface_dialog", "levels_dialog", "ramp_editor", "components_window",
@@ -163,7 +163,8 @@ _DEPENDS_ON = {
     # _hex docstring) -- a real module-level import, not just a docstring mention. "canvas" is
     # already earlier in _MODULE_ORDER, so this adds no reordering, only a dependency edge.
     "right_panel": ("knobs", "knob_widgets", "canvas", "ramps"),
-    "layer_panel": (),
+    "row_icons": ("theme", ),
+    "layer_panel": ("row_icons", ),
     # "arrangement" is not itself a _MODULE_ORDER stem (the subpackage this facade stands in for
     # -- see arrangement_facade.py's own docstring); listed here only so the AST import-coverage
     # test (test_shell_boundaries.py) recognises this facade's one real import.
