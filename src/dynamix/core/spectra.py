@@ -638,12 +638,35 @@ def focus_regression(X, Y, *, x0_min: float, weights=None,
     }
 
 
+# ----------------------------------------------------------------------------- the log-cumulants
+#
+# One sign for every log-cumulant the app fits, draws or records: the cumulant expansion
+# τ(q) = −c₀ + Σ_{p≥1} c_p q^p/p!, c_p the slope of the p-th cumulant of ln|T| against ln a and
+# c₀ = −τ(0) the support's dimension (Castaing, Gagne and Hopfinger 1990; Delour, Muzy and Arneodo
+# 2001; Wendt, Abry and Jaffard 2007). c₂ < 0 for an intermittent cascade. Arneodo's school
+# writes τ(q) = −c₀ + c₁ q − c₂ q²/2 + c₃ q³/6 (Dupont et al. 2020 eq. 4.2): the same c₀, c₁, c₃
+# and the opposite c₂, positive for intermittency.
+
+#: How a record names the sign of the log-cumulants it carries.
+CUMULANT_SIGN = "expansion (c2 < 0 intermittent)"
+#: How a window's readout states the convention of the cₚ it prints.
+CUMULANT_CONVENTION = "cumulant expansion τ(q) = −c₀ + Σ cₚ qᵖ/p!"
+
+
+def arneodo_cumulants(cumulants: dict) -> dict:
+    """The log-cumulants in Arneodo's convention, τ(q) = −c₀ + c₁ q − c₂ q²/2 + c₃ q³/6: c₀, c₁
+    and c₃ as in the expansion, c₂ (Arneodo) = −c₂. Only the orders present are returned."""
+    sign = {"c0": 1.0, "c1": 1.0, "c2": -1.0, "c3": 1.0}
+    return {k: s * float(cumulants[k]) for k, s in sign.items() if cumulants.get(k) is not None}
+
+
 # ----------------------------------------------------------------------------- specific heat
 
 def specific_heat(q_list, tau) -> np.ndarray:
     """The specific heat c(q) = -q² d²τ/dq² (Beck & Schlögl 1993 eq. 3; Klamut et al. 2020
     eq. 14) by second-order finite differences over the finite points of τ(q); a row whose τ is
-    not finite comes back NaN. A log-normal cascade (τ quadratic in q) gives c₂ q² exactly."""
+    not finite comes back NaN. A log-normal cascade (τ quadratic in q) gives −c₂ q² exactly,
+    positive since c₂ < 0 in the cumulant expansion."""
     q = np.asarray(q_list, dtype=np.float64)
     t = np.asarray(tau, dtype=np.float64)
     out = np.full(q.shape, np.nan)

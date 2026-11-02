@@ -439,11 +439,11 @@ def test_focus_falls_back_gracefully_on_a_tiny_window():
 
 # ----------------------------------------------------------------------------- specific heat
 
-def test_specific_heat_of_a_log_normal_tau_is_c2_q_squared():
-    """tau(q) = c1 q - c2 q^2/2 has c(q) = -q^2 tau'' = c2 q^2 exactly; NaN rows are left out
-    of the derivative and come back NaN."""
+def test_specific_heat_of_a_log_normal_tau_is_minus_c2_q_squared():
+    """tau(q) = c1 q + c2 q^2/2 with c2 = -0.3 (the cumulant expansion) has c(q) = -q^2 tau''
+    = -c2 q^2 exactly; NaN rows are left out of the derivative and come back NaN."""
     q = np.linspace(-4.0, 4.0, 33)
-    tau = 0.7 * q - 0.3 * q ** 2 / 2
+    tau = 0.7 * q + (-0.3) * q ** 2 / 2
     np.testing.assert_allclose(spectra.specific_heat(q, tau), 0.3 * q ** 2, atol=1e-9)
     tau_nan = tau.copy()
     tau_nan[[0, 5]] = np.nan
@@ -573,6 +573,19 @@ def test_cumulants_from_per_scale_moments_match_the_sample_route():
         assert a[k] == pytest.approx(b[k], rel=1e-9, abs=1e-12)
     tau = spectra.cumulant_tau({"c1": 0.7, "c2": -0.3, "c3": 0.0, "c4": 0.0}, np.array([-1.0, 0.0, 2.0]), c0=2.0)
     np.testing.assert_allclose(tau, [-2.0 - 0.7 - 0.15, -2.0, -2.0 + 1.4 - 0.6])       # −c0 + c1 q + c2 q²/2
+
+
+def test_arneodo_cumulants_draw_the_same_tau_with_the_opposite_c2():
+    """Arneodo's τ(q) = −c0 + c1 q − c2 q²/2 + c3 q³/6 with c2 (Arneodo) = −c2 is the expansion's
+    τ(q) term by term; an intermittent cascade has c2 < 0 here and c2 (Arneodo) > 0."""
+    c = {"c0": 2.0, "c1": 0.7, "c2": -0.09, "c3": 0.01, "c4": 0.0}
+    a = spectra.arneodo_cumulants(c)
+    assert a == pytest.approx({"c0": 2.0, "c1": 0.7, "c2": 0.09, "c3": 0.01})
+    q = np.linspace(-3.0, 5.0, 17)
+    arneodo_tau = -a["c0"] + a["c1"] * q - a["c2"] * q ** 2 / 2 + a["c3"] * q ** 3 / 6
+    np.testing.assert_allclose(spectra.cumulant_tau(c, q, c0=c["c0"]), arneodo_tau, rtol=1e-12)
+    assert spectra.arneodo_cumulants({"c1": 0.5, "c2": -0.2}) == pytest.approx({"c1": 0.5, "c2": 0.2})
+    assert spectra.CUMULANT_SIGN == "expansion (c2 < 0 intermittent)"
 
 
 def test_phase_transition_tangent_reaches_the_y_axis_at_D_minus_q_h():
