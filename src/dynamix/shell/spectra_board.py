@@ -21,7 +21,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core import spectra
-from dynamix.model.samples import CHAINS, CHAINS_SUP, RAW
+from dynamix.model.samples import CHAINS, CHAINS_SUP, H_CHAINS, RAW
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
 __all__ = ["BOARD_HUES", "BoardComparison", "ReplaceButton", "SpectraBoardInspector", "SpectraBoardModel",
@@ -184,7 +184,7 @@ def _set_short(name, method: dict) -> "str | None":
     return {"leaders": "WL (dwt)", "p-leaders": "p-L (dwt)", "wse": "wse-L (dwt)", "WSE leaders": "wse-L (dwt)",
             "coefficients": "coef (dwt)", "cwt-leaders": f"WL ({cwt})", "CWT leaders": f"WL ({cwt})",
             "cwt-p-leaders": f"p-L ({cwt})", "CWT p-leaders": f"p-L ({cwt})",
-            CHAINS: CHAINS, CHAINS_SUP: CHAINS_SUP, RAW: RAW, "every maximum": "WTMM (maxima)"}.get(str(name))
+            CHAINS: CHAINS, CHAINS_SUP: CHAINS_SUP, RAW: RAW, H_CHAINS: H_CHAINS}.get(str(name))
 
 
 def short_name(kind: str, identity: dict) -> "str | None":

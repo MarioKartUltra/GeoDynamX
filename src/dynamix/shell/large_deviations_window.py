@@ -3,7 +3,7 @@
 """The Large deviations window: the microcanonical route's own tool.
 
 One per-level sample set at a time (:mod:`dynamix.model.samples`: the WTMM's WTMMM, chained with
-or without the sup rule or unchained, and every maximum; the wavelet leaders' sets): every sample's local exponent h_λ = log₂ M / log₂(a/L)
+or without the sup rule or unchained, and the experimental complete h-chains; the wavelet leaders' sets): every sample's local exponent h_λ = log₂ M / log₂(a/L)
 per scale (the left panel, their histograms), and the large-deviation spectrum counted on them
 over the chosen scales (:mod:`dynamix.core.large_deviation`): the adaptive bins' (h(q), D(q))
 curve, or the fixed-ε sweep's three curves whose spread is the convergence check. No Legendre

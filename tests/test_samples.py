@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The per-level sample sets of a result (:mod:`dynamix.model.samples`): the WTMM's maxima
-lines and every maximum, the ``Samples`` contract's sets flattened over their valid cells with
+WTMMM chained with and without the sup rule and unchained, the complete h-chains, the ``Samples`` contract's sets flattened over their valid cells with
 the count factor the border costs."""
 from __future__ import annotations
 
@@ -33,14 +33,16 @@ def _line(mods, row=0):
 def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_wtmmm_and_every_maximum():
     """The chains as the two partition tables count them (no sup: the modulus along each chain;
     sup: the running maximum from the finest scale), the WTMMM of each scale unchained (the
-    maxima along each maxima line, interior points only), every maximum."""
+    maxima along each maxima line, interior points only), and, experimental, the complete h-chains:
+    every pixel of each scale's maxima lines with its modulus, the extrema the result keeps."""
     from dynamix.core.partition_tables import _modulus_matrix, _sup_matrix
-    from dynamix.model.samples import CHAINS, CHAINS_SUP, DESCRIPTIONS, RAW
+    from dynamix.model.samples import CHAINS, CHAINS_SUP, DESCRIPTIONS, H_CHAINS, RAW
 
     scales = np.array([2.0, 4.0, 8.0, 16.0])
     extrema = [_line([1.0, 3.0, 2.0, 2.5, 1.0, 0.5]) for _ in scales]
     sets = sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {}})
-    assert list(sets) == [CHAINS, CHAINS_SUP, RAW, "every maximum"]
+    assert list(sets) == [CHAINS, CHAINS_SUP, RAW, H_CHAINS]
+    assert H_CHAINS == "WTMM (complete h-chains) (experimental)"
     assert (CHAINS, CHAINS_SUP, RAW) == ("WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMMM (raw; no chains)")
     assert [len(m) for m in sets[CHAINS]["mods"]] == [4, 4, 3, 3]              # chains alive per scale
     assert sets[CHAINS]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
@@ -51,13 +53,13 @@ def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_w
     M = _modulus_matrix(_chains(scales), 4)                                     # what the cmax table counts
     np.testing.assert_array_equal(np.sort(sets[CHAINS_SUP]["mods"][3]), np.sort(_sup_matrix(M)[:, 3][np.isfinite(M[:, 3])]))
     assert [m.tolist() for m in sets[RAW]["mods"]] == [[3.0, 2.5]] * 4          # the line's two interior maxima
-    assert [len(m) for m in sets["every maximum"]["mods"]] == [6, 6, 6, 6]
+    assert [m.tolist() for m in sets[H_CHAINS]["mods"]] == [[1.0, 3.0, 2.0, 2.5, 1.0, 0.5]] * 4   # every pixel
     assert all(sets[k]["weights"] is None for k in sets)
     assert all(DESCRIPTIONS[k] for k in sets)
     assert has_sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema})
     no_lines = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]             # moduli without positions
     assert list(sample_sets({"scales": scales, "chains": _chains(scales), "extrema": no_lines})) == \
-        [CHAINS, CHAINS_SUP, "every maximum"]
+        [CHAINS, CHAINS_SUP, H_CHAINS]
     bare = [{"x": np.zeros(2), "y": np.zeros(2)}]                                # a stub's chains: no modulus
     assert sample_sets({"scales": scales, "chains": bare, "extrema": []}) == {}
     assert not has_sample_sets({"scales": scales, "chains": bare}) and not has_sample_sets({"h_map": None})
@@ -71,7 +73,7 @@ def test_the_raw_wtmmm_are_the_points_the_chainer_links(clean_registry):
     from dynamix.core.wtmm_backend import get_backend
     from dynamix.devices import register_builtin_devices
     from dynamix.model.device import defaults_for, get_device
-    from dynamix.model.samples import CHAINS, RAW
+    from dynamix.model.samples import CHAINS, H_CHAINS, RAW
     from tests.conftest import FIXED_EDGES, fbm2d
 
     register_builtin_devices()
@@ -84,6 +86,10 @@ def test_the_raw_wtmmm_are_the_points_the_chainer_links(clean_registry):
     assert [m.tolist() for m in sets[RAW]["mods"]] == [s["mod"].tolist() for s in single]
     assert all(len(r) <= len(e["mod"]) for r, e in zip(sets[RAW]["mods"], res["extrema"]))
     assert len(sets[CHAINS]["mods"][0]) <= len(sets[RAW]["mods"][0])           # the chains start at single maxima
+    h = sets[H_CHAINS]["mods"]                                                  # every maxima-line pixel
+    assert len(h) == len(res["scales"]) and all(np.ndim(m) == 1 for m in h)
+    assert [m.tolist() for m in h] == [np.asarray(e["mod"]).tolist() for e in res["extrema"]]
+    assert all(len(r) < len(m) for r, m in zip(sets[RAW]["mods"], h) if len(m))
 
 
 def test_the_samples_contract_flattens_over_the_valid_cells_with_the_count_factor():

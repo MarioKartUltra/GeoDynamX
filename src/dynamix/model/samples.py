@@ -12,16 +12,18 @@ each set over its valid cells, weighted by the field's cell count over the valid
 the border took. A WTMM result offers the WTMMM chained across scales, without and with the sup
 rule (one modulus per chain per scale, the moduli its two partition tables count), the WTMMM of
 each scale unchained (the maxima along each scale's maxima lines, the points the chainer links),
-and every maximum.
+and, experimental, the complete horizontal chains: every pixel of each scale's maxima lines with
+its modulus (xsmurf's ``efct`` default, every maxima pixel), the extrema the result keeps.
 """
 from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["CHAINS", "CHAINS_SUP", "DESCRIPTIONS", "RAW", "has_sample_sets", "histogram_h_map", "sample_sets"]
+__all__ = ["CHAINS", "CHAINS_SUP", "DESCRIPTIONS", "H_CHAINS", "RAW", "has_sample_sets", "histogram_h_map", "sample_sets"]
 
 #: The WTMM's sets by their names on a menu.
 CHAINS, CHAINS_SUP, RAW = "WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMMM (raw; no chains)"
+H_CHAINS = "WTMM (complete h-chains) (experimental)"
 
 #: Set name in the ``Samples`` contract -> its label on a menu.
 LABELS = {"leaders": "leaders", "p-leaders": "p-leaders", "wse": "WSE leaders",
@@ -35,7 +37,8 @@ DESCRIPTIONS = {
                 "scale: the set the sup (cmax) table counts.",
     RAW: "Every WTMMM at each scale (the maxima of the modulus along that scale's maxima lines), "
          "unchained: chained or not, every one counts.",
-    "every maximum": "Every pixel of each scale's maxima lines with its modulus.",
+    H_CHAINS: "Experimental: every pixel of each scale's maxima lines (the complete horizontal chains) "
+              "with its modulus, xsmurf's efct default.",
     "leaders": "The wavelet leaders: at each level the largest coefficient over the 3×3 block of cells "
                "around each cell and all their finer descendants.",
     "p-leaders": "The p-leaders: at each level the ℓᵖ sum of the coefficients over the same block and "
@@ -146,7 +149,7 @@ def sample_sets(result: dict) -> dict:
         out[RAW] = {"mods": raw, "scales": scales, "weights": None}
     mods = _maxima(result)
     if mods:
-        out["every maximum"] = {"mods": mods, "scales": scales, "weights": None}
+        out[H_CHAINS] = {"mods": mods, "scales": scales, "weights": None}
     samples = result.get("samples")
     if isinstance(samples, dict):
         cells = samples["cells"]

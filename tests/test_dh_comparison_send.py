@@ -109,6 +109,8 @@ def _choose(row):
     ("large_deviations", {"device": "wtmm2d"}, "WTMMM (chains; no sup)", {}, "LD · WTMMM (chains; no sup)"),
     ("large_deviations", {"device": "wtmm2d"}, "WTMMM (raw; no chains)", {}, "LD · WTMMM (raw; no chains)"),
     ("cumulant", {"device": "wtmm2d"}, "WTMMM (chains w/ sup)", {}, "LC · WTMMM (chains w/ sup)"),
+    ("large_deviations", {"device": "wtmm2d"}, "WTMM (complete h-chains) (experimental)", {},
+     "LD · WTMM (complete h-chains) (experimental)"),
     ("large_deviations", {"device": "wavelet_leaders"}, "WSE leaders", {}, "LD · wse-L (dwt)"),
     ("large_deviations", {"device": "cwt_leaders", "measure": "wtmm"}, "CWT leaders", {}, "LD · WL (wtmm)"),
     ("cumulant", {"device": "wavelet_leaders"}, "leaders", {}, "LC · WL (dwt)"),

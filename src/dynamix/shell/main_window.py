@@ -1663,7 +1663,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._cumulants_button = QtWidgets.QPushButton("Log-cumulants…")
         self._cumulants_button.clicked.connect(self._on_cumulants_button_clicked)
         # The microcanonical route's own tool, over any result's sample sets (the WTMM's WTMMM
-        # sets and every maximum, the leaders' sets).
+        # sets and its complete h-chains, the leaders' sets).
         self._ld_button = QtWidgets.QPushButton("Large deviations…")
         self._ld_button.clicked.connect(self._on_ld_button_clicked)
         self._generalized_button = QtWidgets.QPushButton("Generalized spectrum…")

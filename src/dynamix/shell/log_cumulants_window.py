@@ -3,7 +3,7 @@
 """The Log-cumulants window: the cumulants of ln ℓ against log₂ a, one regression each.
 
 One per-level sample set at a time (:mod:`dynamix.model.samples`: the wavelet leaders' sets, the
-WTMM's WTMMM sets and every maximum). Four panels, C₁(a) to C₄(a) (the mean, variance,
+WTMM's WTMMM sets and its complete h-chains). Four panels, C₁(a) to C₄(a) (the mean, variance,
 third and fourth cumulant of ln ℓ per level), each with its own draggable fit range and its own
 regression against ln a: c_m is that slope, in the leaders literature's sign (c₂ < 0 for a
 multifractal, the variance of ln ℓ growing towards fine scales), shown with its standard error, R²
