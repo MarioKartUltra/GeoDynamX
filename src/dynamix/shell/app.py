@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The application entry point: build the QApplication, dress it, show the window.
 
-    python -m dynamix.shell.app                      # the demo DEM
+    python -m dynamix.shell.app                      # the demo scan (the CL TIFF, else the DEM)
     python -m dynamix.shell.app field.npz            # any raster RasterField can read
     python -m dynamix.shell.app field.npz --render out.png   # headless frame, for verification
 
@@ -38,13 +38,17 @@ USAGE = "python -m dynamix.shell.app [field.npz] [--render out.png]"
 
 def _default_raster() -> str:
     """The raster to open when the command line names none: ``Settings.open_on_launch`` if it
-    points at an existing file, else the demo DEM, else the smallest test fixture."""
+    points at an existing file, else the demo scan in docs/demo (the TESCAN CL TIFF with its header,
+    else the DEM crop), else the smallest test fixture."""
     wanted = load_settings().open_on_launch
     if wanted and Path(wanted).expanduser().is_file():
         return str(Path(wanted).expanduser())
     root = Path(__file__).resolve().parents[3]
-    demo = root / "docs" / "demo" / "dem_crop.npz"
-    return str(demo if demo.exists() else root / "tests" / "fixtures" / "kam_64.npz")
+    demo = root / "docs" / "demo"
+    for name in ("zoneEBSDmap-CL.tif", "dem_crop.npz"):      # the CL scan first, by the author's choice
+        if (demo / name).exists():
+            return str(demo / name)
+    return str(root / "tests" / "fixtures" / "kam_64.npz")
 
 
 def _theme_for(name: str) -> Theme:
