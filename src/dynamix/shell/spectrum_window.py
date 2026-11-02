@@ -43,8 +43,8 @@ window's own Send buttons for its canonical points, with the tangent at q_c when
 histogram and its box-counting construction, so a state of the construction can be frozen and
 compared with a later one, and its "Send landed results…" for the other layers' landed tables)
 draws on D(h) beside this window's own construction, its τ(q) on the τ panel, named in the legend by its display name with
-the full name as tooltip; the board's inspector sits under the panels while the board holds
-entries. Nothing arrives by itself: the comparison shows what was sent. Three panels, τ(q), h(q)
+the full name as tooltip; the board's inspector is a tool window in front of this one, shown while
+the board holds entries and by the Comparison… button. Nothing arrives by itself: the comparison shows what was sent. Three panels, τ(q), h(q)
 and c(q), sit beside D(h); ``set_fits`` draws fits handed to it on all four panels in their own
 hues, with a Show menu and a Spectra… list while it holds any.
 
@@ -666,12 +666,32 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         self.spectra_inspector = None
         self._fit_hues: dict = {}
         controls.addWidget(self.spectra_button)
+        # The D(h) comparison's inspector, the same kind of window: it opens by itself when a
+        # spectrum is sent; this brings it back.
+        self.comparison_button = QtWidgets.QPushButton("Comparison…")
+        self.comparison_button.setToolTip("The spectra sent to the D(h) comparison: rename (R), recolour, reorder, "
+                                          "remove; a window kept in front")
+        self.comparison_button.clicked.connect(self.show_board_inspector)
+        controls.addWidget(self.comparison_button)
+        # The construction's own series on D(h) can step aside for the comparison.
+        self.points_check = QtWidgets.QCheckBox("own points")
+        self.points_check.setChecked(True)
+        self.points_check.setToolTip("The construction's own canonical points and their bars on D(h)")
+        self.points_check.toggled.connect(self._on_points_toggled)
+        controls.addWidget(self.points_check)
+        self.hist_check = None
 
         # The histogram construction's own controls, with an h-map to build it from.
         self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None
         self.boxcount_check = self.pin_check = self.send_hist_button = self.send_box_button = None
         self.replace_hist_button = self.replace_box_button = None
         if self._h_map is not None:
+            self.hist_check = QtWidgets.QCheckBox("histogram")
+            self.hist_check.setChecked(True)
+            self.hist_check.setToolTip("The histogram construction on D(h): its points, bars, peak label and "
+                                       "per-scale curves")
+            self.hist_check.toggled.connect(self._on_hist_toggled)
+            controls.addWidget(self.hist_check)
             controls.addWidget(QtWidgets.QLabel("bins"))
             self.bins_spin = QtWidgets.QSpinBox()
             self.bins_spin.setRange(10, 400)
@@ -860,7 +880,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             # ends would make it span a larger view, without end.
             self._plot.addItem(item, ignoreBounds=True)
         self._plot.getViewBox().sigXRangeChanged.connect(lambda *_a: self._update_tangent())
-        layout.addWidget(self._build_board(self._plot, self.method_plots["tau"]))
+        self._build_board(self._plot, self.method_plots["tau"])  # its inspector is a tool window, in front
         # The window's own fit on the method panels, in the ink, under the published ones.
         self._own_items = {k: pg.PlotDataItem(pen=pg.mkPen(current().ink, width=1.6), connect="finite")
                            for k in ("tau", "h", "cq")}
@@ -1068,7 +1088,25 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
                 self._plot.addItem(curve)
                 self._scale_curves.append(curve)
         for curve in self._scale_curves:
-            curve.setVisible(bool(checked))
+            curve.setVisible(bool(checked) and self._hist_shown())
+        self._sync_legend()
+
+    def _on_points_toggled(self, checked: bool) -> None:
+        """The construction's own canonical points and their bars on D(h), shown or stepped aside."""
+        for item in (self._canon_curve, self._canon_err):
+            item.setVisible(bool(checked))
+        self._sync_legend()
+
+    def _hist_shown(self) -> bool:
+        return self.hist_check is None or self.hist_check.isChecked()
+
+    def _on_hist_toggled(self, checked: bool) -> None:
+        """The histogram construction on D(h): its points, bars, peak label and per-scale curves."""
+        for item in (self._hist_curve, self._hist_err, self._peak_text):
+            item.setVisible(bool(checked))
+        per_scale = self.per_scale_check is not None and self.per_scale_check.isChecked()
+        for curve in self._scale_curves:
+            curve.setVisible(bool(checked) and per_scale)
         self._sync_legend()
 
     def _on_gh_toggled(self, checked: bool) -> None:

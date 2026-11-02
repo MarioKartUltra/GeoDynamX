@@ -281,6 +281,38 @@ def test_the_legend_lists_only_what_is_drawn_and_names_the_source(qtbot):
     assert window._hist_curve.opts["symbol"] == "o" and window._hist_curve.opts["pen"] is None
 
 
+def test_the_construction_s_own_points_and_histogram_can_step_aside(qtbot):
+    rng = np.random.default_rng(2)
+    h_map = rng.normal(0.4, 0.1, (64, 64))
+    h = np.linspace(0.1, 0.9, 9)
+    curves = [(0.1, h, np.full(9, 1.5)), (0.2, h, np.full(9, 1.6))]
+    hd_std, hd_cmax = _pair()
+    window = SpectrumWindow(hd_std, hd_cmax, h_map=h_map, dh_curves=curves, source="the fit")
+    qtbot.addWidget(window)
+    names = _legend_names(window._plot)
+    assert "the fit" in names and "microcanonical histogram (eq. 21)" in names
+    window.points_check.setChecked(False)
+    assert not window._canon_curve.isVisible() and not window._canon_err.isVisible()
+    assert "the fit" not in _legend_names(window._plot)
+    window.per_scale_check.setChecked(True)
+    assert all(c.isVisible() for c in window._scale_curves)
+    window.hist_check.setChecked(False)
+    for item in (window._hist_curve, window._hist_err, window._peak_text, *window._scale_curves):
+        assert not item.isVisible()
+    assert "microcanonical histogram (eq. 21)" not in _legend_names(window._plot)
+    window.per_scale_check.setChecked(False)
+    window.per_scale_check.setChecked(True)                      # stays aside while the histogram is
+    assert not any(c.isVisible() for c in window._scale_curves)
+    window.hist_check.setChecked(True)
+    window.points_check.setChecked(True)
+    assert all(c.isVisible() for c in window._scale_curves)
+    names = _legend_names(window._plot)
+    assert "the fit" in names and "microcanonical histogram (eq. 21)" in names
+    bare = SpectrumWindow(*_pair())                              # no h-map: no histogram, no switch for it
+    qtbot.addWidget(bare)
+    assert bare.hist_check is None and bare.points_check.isChecked()
+
+
 def test_the_construction_plot_zooms_per_axis_has_zero_lines_and_draws_the_tangent_across_the_view(qtbot):
     """The wheel zooms h, with Shift D(h) (the Partition functions window's view box); thin lines
     sit at h = 0 and D = 0; the tangent at the phase transition off the current fit spans the

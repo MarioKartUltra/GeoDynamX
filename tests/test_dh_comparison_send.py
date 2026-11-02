@@ -1079,7 +1079,10 @@ def test_the_inspector_lists_the_entries_and_edits_them(qtbot, host, monkeypatch
     b = board.add(_entry("B"))
     table = _rows(window, qtbot)
     assert I.isVisibleTo(window)
-    assert window.layout().indexOf(I) == window.layout().indexOf(window._glw) + 1   # under the panels
+    # a tool window in front of the construction, the table its focus proxy; never in the layout
+    assert I.isWindow() and I.parent() is window and I.windowTitle() == "D(h) comparison"
+    assert window.layout().indexOf(I) == -1 and I.focusProxy() is I.table
+    assert window.comparison_button.isVisible() or not window.isVisible()
     assert [table.item(r, I.NAME).text() for r in range(2)] == ["A", "B"]
     assert all(table.item(1, c).toolTip() == "B · a long provenance name" for c in range(5))
     flags = QtCore.Qt.ItemFlag.ItemIsEnabled

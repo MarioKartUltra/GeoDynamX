@@ -23,6 +23,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from dynamix.core import spectra
 from dynamix.model.samples import CHAINS, CHAINS_SUP, H_CHAINS, RAW
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
+from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["BOARD_HUES", "BoardComparison", "EQ39_SIGMAS", "ERROR_BARS", "ReplaceButton", "SpectraBoardInspector",
            "SpectraBoardModel", "ancestor_with", "board_of", "dh_view_range", "from_fit", "generalized_entry",
@@ -543,16 +544,17 @@ class BoardComparison:
     """The D(h) comparison on a window's D(h) panel: every visible board entry in board order
     beside the window's own spectrum, in its colour (a construction as points, a fit as a line
     through its points), its error bars while shown, its tangent dashed across the view while
-    shown, its τ(q) on the τ panel when it carries one; the board's inspector under the panels
-    while the board holds entries. The window redraws on every board change while shown and
+    shown, its τ(q) on the τ panel when it carries one; the board's inspector a tool window kept
+    in front of the window while the board holds entries. The window redraws on every board change while shown and
     catches up when shown again. The entries lie outside the views' bounds: a board change
     never moves a view, and the window's own refits keep their auto-range over the
     construction's own items; View All and the auto-range button take in the entries' points and
     bars on D(h) and their τ(q) curves (:class:`~dynamix.shell.plot_zoom.WheelAxisViewBox`'s
     ``outside_bounds``; never the tangents, drawn across the view).
 
-    The window calls :meth:`_build_board` with its D(h) and τ(q) plots once they exist (and lays
-    out the inspector it returns), :meth:`attach_board` once built, and redraws its legend in
+    The window calls :meth:`_build_board` with its D(h) and τ(q) plots once they exist (the
+    inspector it returns is a tool window: it shows itself while the board holds entries, and
+    :meth:`show_board_inspector` brings it back), :meth:`attach_board` once built, and redraws its legend in
     ``_on_board_drawn`` (``_board_legend`` lists ``(curve, display name, tooltip)``, the tooltip
     the full name and the bars' kind; ``_board_bars`` says whether any entry draws bars, which
     the legend's one ``board bars: ±1σ`` row after the entries, ``_board_bars_note``, states). Mixed in before the Qt
@@ -580,6 +582,12 @@ class BoardComparison:
         self.board_inspector.setVisible(False)
         d_plot.getViewBox().sigXRangeChanged.connect(lambda *_a: self._update_board_tangents())
         return self.board_inspector
+
+    def show_board_inspector(self) -> None:
+        """The comparison's inspector in front, whatever the board holds."""
+        self.board_inspector.show()
+        self.board_inspector.raise_()
+        self.board_inspector.activateWindow()
 
     def attach_board(self, board) -> None:
         """Draw ``board``'s visible entries, again on every change."""
@@ -683,9 +691,14 @@ class SpectraBoardInspector(QtWidgets.QWidget):
     SHOWN, COLOUR, NAME, ERRORS, TANGENT = range(5)
 
     def __init__(self, parent=None) -> None:
-        super().__init__(parent)
+        # A tool window owned by the construction window and kept in front of it, like its
+        # Spectra… list: a table under the panels crowded the window.
+        super().__init__(parent, TOOL_WINDOW | QtCore.Qt.WindowType.WindowStaysOnTopHint)
+        show_while_inactive(self)
+        self.setWindowTitle("D(h) comparison")
         self.board: "SpectraBoardModel | None" = None
         self.table = QtWidgets.QTableWidget(0, 8)
+        self.setFocusProxy(self.table)  # a key sent to the window reaches the table: R renames, Delete removes
         self.table.setHorizontalHeaderLabels(["shown", "", "name", "bars", "tangent", "", "", ""])
         self.table.verticalHeader().hide()
         self.table.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.SingleSelection)
@@ -701,12 +714,15 @@ class SpectraBoardInspector(QtWidgets.QWidget):
         self.table.itemChanged.connect(self._on_item_changed)
         self.table.cellClicked.connect(self._on_cell_clicked)
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        title = QtWidgets.QLabel("D(h) comparison: the spectra sent here")
+        layout.setContentsMargins(6, 6, 6, 6)
+        title = QtWidgets.QLabel("The spectra sent to the D(h) comparison. Click a row, then R renames it, "
+                                 "Delete removes it; double-click the name to edit it.")
+        title.setWordWrap(True)
         title.setToolTip("Each window's Send to D(h) comparison puts its spectrum here; rename, recolour, "
                          "reorder or remove it in this table")
         layout.addWidget(title)
         layout.addWidget(self.table)
+        self.resize(720, 280)
         self._keys: list = []
         self._rebuild_timer = QtCore.QTimer(self)
         self._rebuild_timer.setSingleShot(True)
@@ -754,8 +770,6 @@ class SpectraBoardInspector(QtWidgets.QWidget):
                                        board.move(key, step) if step else board.remove(key))
                 self.table.setCellWidget(row, col, button)
         self.table.blockSignals(False)
-        rows = sum(self.table.rowHeight(r) for r in range(min(len(entries), 5)))
-        self.table.setFixedHeight(self.table.horizontalHeader().height() + rows + 2 * self.table.frameWidth())
 
     def rename_row(self, row: int) -> None:
         """Edit row ``row``'s display name in place."""
