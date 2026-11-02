@@ -43,7 +43,7 @@ def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_w
     sets = sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {}})
     assert list(sets) == [CHAINS, CHAINS_SUP, RAW, H_CHAINS]
     assert H_CHAINS == "WTMM (complete h-chains) (experimental)"
-    assert (CHAINS, CHAINS_SUP, RAW) == ("WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMMM (raw; no chains)")
+    assert (CHAINS, CHAINS_SUP, RAW) == ("WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMMM (raw; no chains)")
     assert [len(m) for m in sets[CHAINS]["mods"]] == [4, 4, 3, 3]              # chains alive per scale
     assert sets[CHAINS]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
     assert sets[CHAINS]["mods"][2].tolist() == [9.0, 0.3, 2.0]

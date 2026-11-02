@@ -22,7 +22,7 @@ import numpy as np
 __all__ = ["CHAINS", "CHAINS_SUP", "DESCRIPTIONS", "H_CHAINS", "RAW", "has_sample_sets", "histogram_h_map", "sample_sets"]
 
 #: The WTMM's sets by their names on a menu.
-CHAINS, CHAINS_SUP, RAW = "WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMMM (raw; no chains)"
+CHAINS, CHAINS_SUP, RAW = "WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMMM (raw; no chains)"
 H_CHAINS = "WTMM (complete h-chains) (experimental)"
 
 #: Set name in the ``Samples`` contract -> its label on a menu.

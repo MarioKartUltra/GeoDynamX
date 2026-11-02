@@ -57,7 +57,7 @@ def test_the_large_deviations_tool_opens_on_the_wtmm_s_maxima_too(win, qtbot):
     ldw = win._ld_window
     qtbot.addWidget(ldw)
     assert ldw.windowTitle() == "Large deviations — layer"
-    assert [ldw.source_combo.itemText(i) for i in range(3)] == ["WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMM (complete h-chains) (experimental)"]
+    assert [ldw.source_combo.itemText(i) for i in range(3)] == ["WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMM (complete h-chains) (experimental)"]
     assert ldw._log2_L == 7.0
     fit = ldw.current_fit()
     assert fit is not None and fit["name"] == "layer · WTMMM (chains; no sup), large deviations" and "q" in fit
@@ -94,7 +94,7 @@ def test_every_sample_set_chooser_says_what_each_set_holds(win, qtbot):
         combo.setCurrentIndex(combo.count() - 1)
         assert combo.toolTip() == DESCRIPTIONS[texts[-1]]
     assert [choosers[0].itemText(i) for i in range(4)] == \
-        ["WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMMM (raw; no chains)",
+        ["WTMMM (chains; no sup)", "WTMMM (chains w/sup)", "WTMMM (raw; no chains)",
          "WTMM (complete h-chains) (experimental)"]
     assert "Z(q, a)" in choosers[0].itemData(0, role) and "unchained" in choosers[0].itemData(2, role)
 
