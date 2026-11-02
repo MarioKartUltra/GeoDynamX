@@ -395,27 +395,14 @@ def dh_view_range(plot) -> dict:
     return {"x": [x0, x1], "y": [y0, y1], "units": "h, D(h)"}
 
 
-def _extent(entry: SentSpectrum) -> "tuple | None":
-    """``(h min, h max, D min, D max)`` over ``entry``'s finite points and the bars it draws."""
-    finite = np.isfinite(entry.h) & np.isfinite(entry.D)
-    if not finite.any():
-        return None
-    h, D = entry.h[finite], entry.D[finite]
-    dh = dD = 0.0
-    if entry.show_errors:
-        dh = 0.0 if entry.dh is None else np.nan_to_num(entry.dh[finite])
-        dD = 0.0 if entry.dD is None else np.nan_to_num(entry.dD[finite])
-    return (float(np.min(h - dh)), float(np.max(h + dh)), float(np.min(D - dD)), float(np.max(D + dD)))
-
-
 class BoardComparison:
     """The D(h) comparison on a window's D(h) panel: every visible board entry in board order
     beside the window's own spectrum, in its colour (a construction as points, a fit as a line
     through its points), its error bars while shown, its tangent dashed across the view while
     shown, its τ(q) on the τ panel when it carries one; the board's inspector under the panels
     while the board holds entries. The window redraws on every board change while shown and
-    catches up when shown again. A newly drawn entry outside the D(h) view widens it: the panel
-    ranges again over the window's own drawing and the entries' points and bars.
+    catches up when shown again. The board's items never set the D(h) view's extent: the view
+    keeps the window's own range, and an entry outside it is reached by zooming.
 
     The window calls :meth:`_build_board` with its D(h) and τ(q) plots once they exist (and lays
     out the inspector it returns), :meth:`attach_board` once built, and redraws its legend in
@@ -467,10 +454,8 @@ class BoardComparison:
             self.attach_board(self.spectra_board)
         super().showEvent(event)
 
-    def _add_board_item(self, plot, item, bounds: bool = False) -> None:
-        # A tangent spans the view and a τ row shares its panel with the window's own: neither
-        # sets the extent. The D(h) points and bars do (see _widen_to_board).
-        plot.addItem(item, ignoreBounds=not bounds)
+    def _add_board_item(self, plot, item) -> None:
+        plot.addItem(item, ignoreBounds=True)
         self._board_items.append((plot, item))
 
     def _draw_board(self) -> None:
@@ -478,7 +463,7 @@ class BoardComparison:
         for plot, item in self._board_items:
             plot.removeItem(item)
         self._board_items, self._board_legend, self._board_tangents = [], [], []
-        before, drawn = self._board_drawn, []
+        drawn = []
         for entry in self.spectra_board.entries() if self._board_connected else []:
             if not entry.visible:
                 continue
@@ -487,14 +472,14 @@ class BoardComparison:
             pen = None if entry.kind in ("histogram", "boxcount") else pg.mkPen(colour, width=1.4)
             curve = pg.PlotDataItem(entry.h, entry.D, pen=pen, connect="finite", symbol="o",
                                     symbolSize=4, symbolPen=None, symbolBrush=colour)
-            self._add_board_item(d_plot, curve, bounds=True)
+            self._add_board_item(d_plot, curve)
             finite = np.isfinite(entry.h) & np.isfinite(entry.D)
             if entry.show_errors and entry.has_errors and finite.any():
                 bars = {"x": entry.h[finite], "y": entry.D[finite]}
                 for key, err in (("height", entry.dD), ("width", entry.dh)):
                     if err is not None:
                         bars[key] = np.where(np.isfinite(err[finite]), 2.0 * err[finite], 0.0)
-                self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars), bounds=True)
+                self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars))
             if entry.show_tangent and entry.tangent is not None:
                 line = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.2, style=QtCore.Qt.DashLine))
                 self._add_board_item(d_plot, line)
@@ -505,25 +490,10 @@ class BoardComparison:
                                                                symbolBrush=colour))
             self._board_legend.append((curve, entry.name, entry.full_name))
         self._board_drawn = tuple(drawn)
-        self._widen_to_board([e for e in drawn if not any(e is old for old in before)])
         self._update_board_tangents()
         self._on_board_drawn()
         self.board_inspector.setVisible(self._board_connected and len(self.spectra_board) > 0)
         self.board_inspector.refresh()
-
-    def _widen_to_board(self, new) -> None:
-        """When an entry drawn anew (sent, sent again or shown again) lies outside the D(h) view,
-        the panel ranges again over the window's own drawing and the board's points and bars;
-        a rename, a colour or an entry already in view leaves the view as it is."""
-        boxes = [b for b in map(_extent, new) if b is not None]
-        if not boxes:
-            return
-        view = self._board_plots[0].getViewBox()
-        (x0, x1), (y0, y1) = view.viewRange()
-        if all(x0 <= b[0] and b[1] <= x1 and y0 <= b[2] and b[3] <= y1 for b in boxes):
-            return
-        view.enableAutoRange()
-        view.updateAutoRange()
 
     def _update_board_tangents(self) -> None:
         """The carried tangents across the D(h) view."""

@@ -520,37 +520,32 @@ def test_the_construction_s_own_tangent_can_be_switched_off(qtbot, host):
     assert window._tangent_line.isVisible()
 
 
-def test_a_sent_entry_outside_the_view_widens_it_and_the_construction_stays_in_view(qtbot, host):
-    """An entry drawn anew outside the D(h) view widens it to the construction and the board's
-    points and bars, the opening view (the construction's own range) the least it shows; a rename
-    leaves a zoomed view alone; with the far entries gone the view returns to the construction."""
+def test_a_send_leaves_the_d_h_view_where_it_is(qtbot, host):
+    """The D(h) view keeps the construction's own range when an entry is sent, even one far
+    outside it, and when it is removed again; the user zooms to reach it."""
     from dynamix.model.spectra_board import SentSpectrum
 
     window = _construction(qtbot, host)
     window.show()
     qtbot.waitExposed(window)
     view = window._plot.getViewBox()
-    QtWidgets.QApplication.processEvents()
-    (x0, x1), (y0, y1) = opening = view.viewRange()
-    assert x1 < 2.5 and y1 < 4.0                                 # the high entry starts out of view
+    qtbot.wait(100)
+    opening = view.viewRange()
+    qtbot.wait(100)
+    np.testing.assert_allclose(view.viewRange(), opening)        # settled before the send
     h = np.linspace(2.5, 3.5, 9)
     far = host.spectra_board.add(SentSpectrum(name="far", full_name="far", kind="canonical", h=h,
                                               D=6.0 - (h - 3.0) ** 2, dD=np.full(9, 0.2), identity={"n": "far"}))
-    (a0, a1), (b0, b1) = view.viewRange()
-    assert a0 <= x0 and a1 >= 3.5 and b0 <= y0 and b1 >= 6.2   # the entry with its bars, and the construction
-    window._plot.setXRange(0.3, 0.6, padding=0.0)                # the user zooms in
-    window._plot.setYRange(1.0, 2.0, padding=0.0)
-    host.spectra_board.rename(far, "renamed")                    # nothing new drawn: the zoom stays
-    host.spectra_board.set_colour(far, "#123456")
-    assert view.viewRange()[0] == pytest.approx([0.3, 0.6])
-    low = host.spectra_board.add(_entry("low", shift=-6.0))      # D around −4: out of the zoomed view
-    (a0, a1), (b0, b1) = view.viewRange()
-    assert a0 <= x0 and a1 >= 3.5 and b0 <= -4.0 and b1 >= 6.2
-    host.spectra_board.remove(far)
-    host.spectra_board.remove(low)
     QtWidgets.QApplication.processEvents()
-    # the peak's text label spans a few pixels, a width in h and D that follows the zoom
-    np.testing.assert_allclose(view.viewRange(), opening, atol=5e-3)
+    # The inspector appearing under the panels shortens the plot, and the peak's text label,
+    # a few pixels high, spans a little more of D: the range moves by that, never to the entry.
+    np.testing.assert_allclose(view.viewRange(), opening, atol=0.03)
+    assert opening[0][1] < 2.5 and view.viewRange()[0][1] < 2.5 and view.viewRange()[1][1] < 5.0
+    host.spectra_board.add(_entry("low", shift=-6.0))
+    host.spectra_board.remove(far)
+    QtWidgets.QApplication.processEvents()
+    np.testing.assert_allclose(view.viewRange(), opening, atol=0.03)
+    assert view.viewRange()[1][0] > -3.0                         # nor to the low one
 
 
 def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
