@@ -8,7 +8,7 @@ third and fourth cumulant of ln ℓ per level), each with its own draggable fit 
 regression against ln a: c_m is that slope, in the leaders literature's sign (c₂ < 0 for a
 multifractal, the variance of ln ℓ growing towards fine scales), shown with its standard error, R²
 and the number of levels fitted (Wendt, Abry and Jaffard 2007, eq. 8; Castaing, Gagne and
-Hopfinger 1990). The
+Hopfinger 1990). The readout states that convention and prints Arneodo's c₂ = −c₂ beside it. The
 ranges move together while "sync ranges" is on. In the original frame c₁ loses the
 pseudo-fractional integration γ. Every change publishes the cumulant expansion (``fitChanged``)
 for the construction window: τ(q) = −d + c₁ q + c₂ q²/2 + c₃ q³/6 + c₄ q⁴/24 and its h(q),
@@ -223,10 +223,11 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._fit = {"name": name, "kind": "log-cumulants",
                      "set": label, "cumulants": cums, "frame": frame, "gamma": self._gamma,
                      "q": q, "tau": tau, "h": h, "D": q * h - tau, "cq": spectra.cumulant_heat(cums, q)}
-        parts = [f"{label} · " + " · ".join(f"c{_SUB[m]} = {cums[f'c{m}']:+.4f}" for m in ORDERS)]
+        parts = [f"{label} · " + " · ".join(f"c{_SUB[m]} = {cums[f'c{m}']:+.4f}" for m in ORDERS),
+                 f"c₂ (Arneodo) = −c₂ = {spectra.arneodo_cumulants(cums)['c2']:+.4f}"]
         if self._gamma:
             parts.append(f"γ = {self._gamma:g}, {frame} frame")
-        self.readout.setText(" · ".join(parts))
+        self.readout.setText(" · ".join(parts) + f"\n{spectra.CUMULANT_CONVENTION}, c₀ = {self._d:g}")
         self.fitChanged.emit(self._fit)
 
     def send_to_board(self, replace: bool = False) -> bool:

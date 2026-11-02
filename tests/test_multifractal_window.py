@@ -341,6 +341,8 @@ def test_the_specific_heat_panel_follows_the_fit_and_the_cascade_cumulants(qtbot
     xc, yc = window._cq_cum_curve.getData()
     np.testing.assert_allclose(yc, spectra.cumulant_heat(c, xc))
     assert "c₂" in window._cq_label.text()
+    assert f"c₂ (Arneodo) = −c₂ = {-c['c2']:.3f}" in window._cq_label.text()
+    assert window._cq_label.text().count(spectra.CUMULANT_CONVENTION) == 1
     window._region.setRegion((0.0, 0.5))                       # one scale inside: no fit
     assert np.isnan(window.current_cumulants()["c2"])
     bare = MultifractalWindow(hd, hd)

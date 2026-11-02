@@ -54,6 +54,17 @@ def test_four_panels_each_regress_their_cumulant_over_the_seeded_range(qtbot):
     assert "c₁ = +0.5" in window.readout.text() or "c₁ = +0.4" in window.readout.text()
 
 
+def test_the_readout_states_the_sign_and_prints_arneodos_c2(qtbot):
+    """c₂ < 0 for the cascade in the cumulant expansion; the readout says so once and prints
+    Arneodo's c₂ = −c₂ beside it, positive."""
+    window = LogCumulantsWindow(_samples(), levels=(1, 5))
+    qtbot.addWidget(window)
+    c2 = window.current_fit()["cumulants"]["c2"]
+    text = window.readout.text()
+    assert c2 < 0 and f"c₂ (Arneodo) = −c₂ = {-c2:+.4f}" in text
+    assert text.count(spectra.CUMULANT_CONVENTION) == 1 and "c₀ = 2" in text
+
+
 def test_ranges_move_together_when_synced_and_alone_when_not_and_every_change_publishes(qtbot):
     s = _samples()
     window = LogCumulantsWindow(s, levels=(1, 5))

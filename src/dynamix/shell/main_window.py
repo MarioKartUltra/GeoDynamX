@@ -3853,7 +3853,8 @@ both ``Canvas`` signals report the
         needs = "Needs a result with per-level sample sets: a WTMM's maxima or a Wavelet leaders result"
         self._cumulants_button.setEnabled(sets)
         self._cumulants_button.setToolTip(
-            "c₁..c₄: one regression per cumulant of ln ℓ, each on its own range, over a per-level sample set"
+            "c₁..c₄: one regression per cumulant of ln ℓ, each on its own range, over a per-level sample set "
+            "(cumulant expansion τ(q) = −c₀ + Σ cₚ qᵖ/p!, c₂ < 0 intermittent)"
             if sets else needs)
         self._ld_button.setEnabled(sets)
         self._generalized_button.setEnabled(sets)

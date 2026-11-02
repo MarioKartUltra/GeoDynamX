@@ -1449,8 +1449,10 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._cq_ln_curve.setData(grid, -c["c2"] * grid ** 2)          # the log-normal's c(q) = −c₂ q², c₂ < 0
         self._cq_label.setText(
             f"c₁={c['c1']:.3f}  c₂={c['c2']:.3f}  c₃={c['c3']:.3f}  c₄={c['c4']:.3f}"
+            f"  ·  c₂ (Arneodo) = −c₂ = {-c['c2']:.3f}"
             f"  ·  R²min={c['r2']:.2f}"
-            + (f"  ·  log₂ a {lo:.2f}–{hi:.2f}" if own else ""))
+            + (f"  ·  log₂ a {lo:.2f}–{hi:.2f}" if own else "")
+            + f"  ·  {spectra.CUMULANT_CONVENTION}")
 
     def _on_cumulant_requested(self, _checked):
         self._update_specific_heat()
