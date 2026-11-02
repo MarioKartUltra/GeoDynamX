@@ -63,7 +63,8 @@ class SentSpectrum:
     partition-side ``q`` and ``tau`` when the producer has them, the phase-transition tangent
     when it was sent with one, the identity an exactly identical send matches, the producer (the
     sending window, the producing tool and the table, without the scale window) a replace matches, and the
-    display state: ``renamed`` once a rename gave it a name of its own."""
+    display state: ``renamed`` once a rename gave it a name of its own. Every bar spans ±1σ;
+    ``err_kind`` names which σ in a few words and ``err_method`` says how it was computed."""
 
     name: str
     full_name: str
@@ -75,6 +76,8 @@ class SentSpectrum:
     q: "np.ndarray | None" = None
     tau: "np.ndarray | None" = None
     tangent: "dict | None" = None
+    err_kind: str = ""
+    err_method: str = ""
     identity: dict = field(default_factory=dict)
     producer: dict = field(default_factory=dict)
     colour: str = ""
@@ -109,14 +112,22 @@ class SentSpectrum:
     def has_errors(self) -> bool:
         return self.dD is not None or self.dh is not None
 
+    def tooltip(self) -> str:
+        """The full name, then for an entry with bars their kind and how they were computed."""
+        if not self.has_errors:
+            return self.full_name
+        kind = f": {self.err_kind}" if self.err_kind else ""
+        method = f"\n{self.err_method}" if self.err_method else ""
+        return f"{self.full_name}\nbars ±1σ{kind}{method}"
+
     def same_as(self, other: "SentSpectrum") -> bool:
         """Whether ``other`` is this spectrum sent again: one kind, one identity."""
         return self.kind == other.kind and _identity_text(self.identity) == _identity_text(other.identity)
 
     def record(self) -> dict:
         """The entry as a figure record lists it: the names, the kind, the identity, the scale
-        window, the fit mode and the table, whether its error bars were drawn and the tangent
-        drawn with it."""
+        window, the fit mode and the table, whether its error bars were drawn (each ±1σ, its kind
+        and method named) and the tangent drawn with it."""
         ident = dict(self.identity)
         return plain({"name": self.name, "full_name": self.full_name, "kind": self.kind,
                       "identity": {k: v for k, v in ident.items()
@@ -124,6 +135,8 @@ class SentSpectrum:
                       "scale_window": ident.get("scale_window"), "fit_mode": ident.get("fit_mode"),
                       "table": ident.get("table"),
                       "errors": bool(self.show_errors and self.has_errors),
+                      "bars": "±1σ" if self.has_errors else None,
+                      "err_kind": self.err_kind or None, "err_method": self.err_method or None,
                       "tangent": self.tangent if self.show_tangent else None,
                       "colour": self.colour})
 

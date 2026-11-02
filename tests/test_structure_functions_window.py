@@ -252,7 +252,7 @@ def test_a_gamma_sweep_replaces_the_one_published_fit_and_keeps_the_table_cache_
     [entry] = board.entries()
     assert entry.key == before.key and entry is not before
     np.testing.assert_allclose(entry.tau, expect["tau"], equal_nan=True)
-    fulls = [full for _c, _n, full in cw._board_legend]
+    fulls = [tip.splitlines()[0] for _c, _n, tip in cw._board_legend]      # the full name, then its bars
     assert fulls == [f"{name}, γ = 5 δ = 0{window}"] and not any("γ = 4.95" in text for text in fulls)
     assert [n for _c, n, _f in cw._board_legend] == ["WLSF · WL (dwt) · a 2–5"]
     sf.send_button.click()                                       # identical: updated in place
@@ -264,7 +264,7 @@ def test_a_gamma_sweep_replaces_the_one_published_fit_and_keeps_the_table_cache_
     assert len(board) == 1
     sf.send_button.click()                                       # a new δ and q grid: a second entry
     assert len(board) == 2
-    assert [full for _c, _n, full in cw._board_legend][-1] == f"{name}, γ = 5 δ = 0.5{window}"
+    assert [tip.splitlines()[0] for _c, _n, tip in cw._board_legend][-1] == f"{name}, γ = 5 δ = 0.5{window}"
 
 
 def test_another_set_publishes_its_own_fit_beside_the_first(qtbot, clean_registry):

@@ -996,17 +996,22 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
 
     def _sync_legend(self) -> None:
         """The legend lists exactly the items that are drawn, under their current names, then
-        every spectrum drawn from the D(h) comparison by its display name, its full name the
-        tooltip."""
+        every spectrum drawn from the D(h) comparison by its display name, its full name and its
+        bars' kind the tooltip, after one "bars: ±1σ" row while any of them draws bars."""
         if not hasattr(self, "_legend"):
             return
         entries = list(self._legend_entries) + [
             (curve, lambda r=r_rel: f"histogram at r = {r:.3g} L")
             for curve, (r_rel, _h, _D) in zip(self._scale_curves, self._dh_curves)]
         wanted = [(item, name_of()) for item, name_of in entries if self._drawn(item)]
-        wanted += [(curve, name) for curve, name, _full in self._board_legend if self._drawn(curve)]
+        board = [(curve, name) for curve, name, _tip in self._board_legend if self._drawn(curve)]
+        tips = {curve: tip for curve, _name, tip in self._board_legend}
+        if board and self._board_bars:
+            wanted.append((self._board_bars_note, "bars: ±1σ"))
+            tips[self._board_bars_note] = ("Every error bar drawn from the D(h) comparison spans ±1σ; "
+                                           "each entry's tooltip names its kind")
+        wanted += board
         if wanted != self._in_legend.get("order"):
-            tips = {curve: full for curve, _name, full in self._board_legend}
             self._legend.clear()
             for item, name in wanted:
                 self._legend.addItem(item, name)

@@ -138,12 +138,14 @@ def test_each_click_opens_the_tool_on_the_active_result_and_a_sent_fit_reaches_t
         [("LC · WL (dwt) · a 2–5", lc_name + window), ("LC · wse-L (dwt) · a 2–5", new_name + window)]
     np.testing.assert_allclose(win.spectra_board.entries()[-1].tau, lc.current_fit()["tau"])
     sf.send_button.click()                                                   # another tool's Send: a third entry
-    assert [full for _c, _n, full in cw._board_legend][-1] == sf_name + window
+    sf_tip = [tip for _c, _n, tip in cw._board_legend][-1]                  # the full name, then its bars
+    assert sf_tip.splitlines()[:2] == [sf_name + window, "bars ±1σ: fit SE (propagated)"]
     win._on_dh_button_clicked()                                              # opened again: the board as it stands
     fresh = win._spectrum_construction_window
     qtbot.addWidget(fresh)
     assert fresh._fit_items == {}
-    assert [full for _c, _n, full in fresh._board_legend] == [lc_name + window, new_name + window, sf_name + window]
+    assert [tip.splitlines()[0] for _c, _n, tip in fresh._board_legend] == \
+        [lc_name + window, new_name + window, sf_name + window]
     win._on_structure_button_clicked()                                       # a fresh window replaces the old
     assert win._structure_window is not sf
 

@@ -225,3 +225,18 @@ def test_the_record_is_plain_json_and_says_what_was_drawn():
     entry.show_errors = entry.show_tangent = False
     assert entry.record()["errors"] is False and entry.record()["tangent"] is None
     assert _entry().record()["errors"] is False                 # a producer without bars
+
+
+def test_an_entry_with_bars_names_their_kind_in_its_record_and_tooltip():
+    """Every bar spans ±1σ: the record says so and carries the entry's ``err_kind`` and
+    ``err_method``; the tooltip adds them under the full name; an entry without bars says
+    nothing of them."""
+    entry = _entry(dD=np.full(7, 0.05), err_kind="fit SE", err_method="The slope's standard error.")
+    record = entry.record()
+    assert (record["bars"], record["err_kind"], record["err_method"]) == ("±1σ", "fit SE", "The slope's standard error.")
+    assert entry.tooltip() == "canonical (Arneodo WTMM) · A\nbars ±1σ: fit SE\nThe slope's standard error."
+    entry.show_errors = False                                   # hidden bars keep their kind on record
+    assert entry.record()["errors"] is False and entry.record()["err_kind"] == "fit SE"
+    bare = _entry()
+    assert bare.tooltip() == bare.full_name
+    assert (bare.record()["bars"], bare.record()["err_kind"], bare.record()["err_method"]) == (None, None, None)

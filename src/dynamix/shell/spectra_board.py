@@ -24,9 +24,9 @@ from dynamix.core import spectra
 from dynamix.model.samples import CHAINS, CHAINS_SUP, H_CHAINS, RAW
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
-__all__ = ["BOARD_HUES", "BoardComparison", "ReplaceButton", "SpectraBoardInspector", "SpectraBoardModel",
-           "ancestor_with", "board_of", "dh_view_range", "from_fit", "generalized_entry", "kind_of_method",
-           "landed_dialog", "method_of", "producer_of", "say", "send", "send_button", "send_landed", "short_name",
+__all__ = ["BOARD_HUES", "BoardComparison", "EQ39_SIGMAS", "ERROR_BARS", "ReplaceButton", "SpectraBoardInspector",
+           "SpectraBoardModel", "ancestor_with", "board_of", "dh_view_range", "from_fit", "generalized_entry",
+           "jackknife_se", "kind_of_method", "landed_dialog", "method_of", "producer_of", "say", "send", "send_button", "send_landed", "short_name",
            "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
@@ -259,6 +259,27 @@ def producer_of(window, origin=None, curve=None, table=None) -> dict:
 #: How many characters of the layer's name a display name carries as its tag.
 LAYER_TAG = 12
 
+#: How many binomial σ Turiel 2006 eq. 39's histogram band spans: 3 / (√N_h |ln r₀|), quoted at
+#: 99 %, is three times one bin count's binomial σ, 1 / (√N_h |ln r₀|).
+EQ39_SIGMAS = 3.0
+
+#: Every bar on the board spans ±1σ; per kind, which σ (``err_kind``) and how it was computed
+#: (``err_method``). Large deviations, the log-cumulant expansion and the generalized window's
+#: Legendre curve send no bars.
+_FIT_SE = "The standard error of the least-squares slope over the scale window, each {} σ propagated through the slope."
+ERROR_BARS = {
+    "canonical": ("fit SE (propagated per-scale σ over the fitted window)", _FIT_SE.format("scale's sample-variance")),
+    "dwt_leaders": ("fit SE (propagated)", _FIT_SE.format("level's sample-variance")),
+    "cwt_leaders": ("fit SE (propagated)", _FIT_SE.format("scale's sample-variance")),
+    "structure_functions": ("fit SE (propagated)", _FIT_SE.format("level's")),
+    "histogram": ("binomial 1σ (from the 99 % band)",
+                  "Turiel 2006 eq. 39's band 3 / (√N_h |ln r₀|), quoted at 99 %, divided by 3: one binomial σ "
+                  "of the bin's count, 1 / (√N_h |ln r₀|)."),
+    "boxcount": ("fit SE", "The standard error of the slope of log N_r on log r over the box sizes (eq. 20)."),
+    "generalized": ("jackknife SE over scales (leave-one-out)",
+                    "σ = √((n − 1)/n · Σᵢ (Dᵢ − D̄)²) over the n refits that each leave one scale of the "
+                    "window out, c₁,₀ held.")}
+
 
 def _log2_text(value: float) -> str:
     """log2 a as a name shows it: an integer, else one decimal."""
@@ -272,7 +293,8 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
     ", tangent" when a tangent is carried; the display name the method's :func:`short_name`, the
     layer's tag (its name's first :data:`LAYER_TAG` characters) and the scale window
     (``WTMM (sup) · layer · a lo–hi``), the full name for a method without a short name; ``h`` and ``D`` with
-    ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
+    ``h_err`` and ``D_err`` as the bars when the fit has them (a histogram's eq. 39 band as one σ,
+    divided by :data:`EQ39_SIGMAS`; the kind's :data:`ERROR_BARS` naming them), ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
     the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
     the table and the settings; the producer :func:`producer_of` the window, the origin, the table
@@ -291,6 +313,10 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
             return None
         return np.asarray(value, dtype=np.float64)[keep]
 
+    dh, dD = column("h_err"), column("D_err")
+    if kind == "histogram" and dD is not None:
+        dD = dD / EQ39_SIGMAS
+    err_kind, err_method = ERROR_BARS.get(kind, ("", "")) if dh is not None or dD is not None else ("", "")
     q = column("q") if fit.get("q") is not None else column("q_list")
     tau = column("tau")
     if q is None or tau is None:
@@ -312,7 +338,7 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
         lo, hi = sorted(float(v) for v in scale_window)
         short += f" · a {_log2_text(lo)}–{_log2_text(hi)}"
     return SentSpectrum(name=short or full_name, full_name=full_name, kind=kind, h=h[keep], D=column("D"),
-                        dh=column("h_err"), dD=column("D_err"), q=q, tau=tau, tangent=tangent,
+                        dh=dh, dD=dD, q=q, tau=tau, tangent=tangent, err_kind=err_kind, err_method=err_method,
                         identity=identity, producer=producer_of(window, origin, (settings or {}).get("curve"), table))
 
 
@@ -324,11 +350,23 @@ def _grid(value):
     return value
 
 
+def jackknife_se(rows) -> np.ndarray:
+    """The jackknife standard error per column of ``rows`` (one row per leave-one-out refit):
+    σ = √((n − 1)/n · Σᵢ (Dᵢ − D̄)²) over a column's n finite rows, NaN below two."""
+    rows = np.asarray(rows, dtype=np.float64)
+    ok = np.isfinite(rows)
+    n = ok.sum(axis=0)
+    mean = np.where(ok, rows, 0.0).sum(axis=0) / np.maximum(n, 1)
+    ss = np.where(ok, (rows - mean) ** 2, 0.0).sum(axis=0)
+    return np.where(n >= 2, np.sqrt((n - 1) / np.maximum(n, 1) * ss), np.nan)
+
+
 def generalized_entry(window, fit: dict, curve: str) -> "SentSpectrum | None":
     """The generalized spectrum window's ``curve`` from its fit: ``converged``, the estimate on
     the points the curve draws (the converged minima when the fit marks them, else the minima off
-    the grid's boundary) with the leave-one-scale-out half-width as bars when the fit carries the
-    band; ``legendre``, the Legendre spectrum of the same τ table at γ = 0, without bars. The
+    the grid's boundary) with the jackknife standard error over the leave-one-scale-out refits
+    (:func:`jackknife_se`) as bars when the fit carries the band (its own window draws the
+    band's min–max); ``legendre``, the Legendre spectrum of the same τ table at γ = 0, without bars. The
     table is the sample set the fit ran over, so a Replace never swaps another set's curve. None
     when the fit holds no such curve."""
     h, D = np.asarray(fit["h"], dtype=np.float64), np.asarray(fit["D"], dtype=np.float64)
@@ -342,7 +380,7 @@ def generalized_entry(window, fit: dict, curve: str) -> "SentSpectrum | None":
                  else ~np.asarray(fit["boundary"], bool) & np.isfinite(D))
         D, name = np.where(drawn, D, np.nan), f"{fit['name']}, converged"
         band = fit.get("band")
-        dD = None if band is None else band["half_width"]
+        dD = None if band is None else jackknife_se(band["D"])
     settings = {"curve": curve, **{k: _grid(v) for k, v in (fit.get("settings") or {}).items()
                                    if k not in ("lo", "hi")}}
     return from_fit(window, {"name": name, "h": h, "D": D, "D_err": dD}, "generalized",
@@ -515,8 +553,10 @@ class BoardComparison:
 
     The window calls :meth:`_build_board` with its D(h) and τ(q) plots once they exist (and lays
     out the inspector it returns), :meth:`attach_board` once built, and redraws its legend in
-    ``_on_board_drawn`` (``_board_legend`` lists ``(curve, display name, full name)``). Mixed in
-    before the Qt base class; no ``__init__`` of its own."""
+    ``_on_board_drawn`` (``_board_legend`` lists ``(curve, display name, tooltip)``, the tooltip
+    the full name and the bars' kind; ``_board_bars`` says whether any entry draws bars, which
+    the legend's one ``bars: ±1σ`` row, ``_board_bars_note``, states). Mixed in before the Qt
+    base class; no ``__init__`` of its own."""
 
     spectra_board: "SpectraBoardModel | None" = None
     _board_connected: bool = False
@@ -525,6 +565,7 @@ class BoardComparison:
     _board_legend: tuple = ()
     _board_tangents: tuple = ()
     _board_drawn: tuple = ()
+    _board_bars: bool = False
 
     def _build_board(self, d_plot, tau_plot) -> "SpectraBoardInspector":
         """The plots the comparison draws on and its inspector, hidden while the board is empty;
@@ -534,6 +575,7 @@ class BoardComparison:
         self._board_plots = (d_plot, tau_plot)
         for plot in self._board_plots:
             take_in_outside_items(plot)
+        self._board_bars_note = pg.PlotDataItem(pen=None)  # the legend's label-only row: no sample drawn
         self.board_inspector = SpectraBoardInspector(self)
         self.board_inspector.setVisible(False)
         d_plot.getViewBox().sigXRangeChanged.connect(lambda *_a: self._update_board_tangents())
@@ -580,7 +622,7 @@ class BoardComparison:
         for plot, item in self._board_items:
             plot.removeItem(item)
         self._board_items, self._board_view_all, self._board_legend, self._board_tangents = [], [], [], []
-        drawn = []
+        drawn, self._board_bars = [], False
         for entry in self.spectra_board.entries() if self._board_connected else []:
             if not entry.visible:
                 continue
@@ -597,6 +639,7 @@ class BoardComparison:
                     if err is not None:
                         bars[key] = np.where(np.isfinite(err[finite]), 2.0 * err[finite], 0.0)
                 self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars), view_all=True)
+                self._board_bars = True
             if entry.show_tangent and entry.tangent is not None:
                 line = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.2, style=QtCore.Qt.DashLine))
                 self._add_board_item(d_plot, line)
@@ -605,7 +648,7 @@ class BoardComparison:
                 self._add_board_item(tau_plot, pg.PlotDataItem(entry.q, entry.tau, pen=pen, connect="finite",
                                                                symbol="o", symbolSize=3, symbolPen=None,
                                                                symbolBrush=colour), view_all=True)
-            self._board_legend.append((curve, entry.name, entry.full_name))
+            self._board_legend.append((curve, entry.name, entry.tooltip()))
         self._board_drawn = tuple(drawn)
         for plot in self._board_plots:
             plot.getViewBox().outside_bounds = tuple(i for p, i in self._board_view_all if p is plot)
@@ -631,7 +674,8 @@ class SpectraBoardInspector(QtWidgets.QWidget):
     context menu "Rename…" edits it, Enter commits, Esc reverts, an empty name restores the
     producer's display name), its error bars and its tangent where it has them,
     Up, Down and Remove (×; Delete or Backspace on the selected row and the context menu's
-    "Remove" as well). Every cell's tooltip is the full name. The owner sets ``board`` and
+    "Remove" as well). Every cell's tooltip is the full name, with the bars' kind and method for
+    an entry that has bars (every bar ±1σ). The owner sets ``board`` and
     calls :meth:`refresh` when the board changes; the rows are rebuilt on the event loop's next
     turn, so an edit or a button that changed the board never has its own cell replaced while
     its signal is being delivered."""
@@ -699,7 +743,7 @@ class SpectraBoardInspector(QtWidgets.QWidget):
             items = (self._check(e.visible), swatch, name, self._check(e.show_errors, e.has_errors),
                      self._check(e.show_tangent, e.tangent is not None))
             for col, item in enumerate(items):
-                item.setToolTip(e.full_name)
+                item.setToolTip(e.tooltip())
                 self.table.setItem(row, col, item)
             for col, (text, tip, step) in enumerate((("↑", "Up", -1), ("↓", "Down", 1), ("×", "Remove", 0)), 5):
                 button = QtWidgets.QToolButton()

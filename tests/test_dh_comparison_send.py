@@ -13,7 +13,7 @@ from PySide6 import QtWidgets
 
 from dynamix.core import spectra
 from dynamix.shell.multifractal_window import MultifractalWindow
-from dynamix.shell.spectra_board import SpectraBoardModel, landed_dialog
+from dynamix.shell.spectra_board import EQ39_SIGMAS, SpectraBoardModel, jackknife_se, landed_dialog
 from dynamix.shell.spectrum_window import SpectrumWindow
 from tests.test_multifractal_window import _broken_pair, _pair
 from tests.test_shell_window import stub_devices, window  # noqa: F401
@@ -270,7 +270,9 @@ def test_the_histogram_and_box_counting_constructions_send_with_their_bars(qtbot
     hist, box = host.spectra_board.entries()
     assert (hist.kind, box.kind) == ("histogram", "boxcount")
     np.testing.assert_allclose(hist.D, D)
-    np.testing.assert_allclose(hist.dD, dD)
+    np.testing.assert_allclose(hist.dD, dD / 3.0)                   # eq. 39's band is three binomial σ
+    np.testing.assert_allclose(window._dh_hist[2], dD)              # the window's own bars as they were
+    assert hist.err_kind == "binomial 1σ (from the 99 % band)" and box.err_kind == "fit SE"
     assert hist.full_name == "microcanonical histogram" and hist.identity["scale_window"] is None
     assert box.h.shape == box.D.shape == box.dD.shape and np.isfinite(box.D).any()
     window.pin_check.setChecked(True)                              # pinned: drawn shifted, a new entry
@@ -318,6 +320,29 @@ def test_send_landed_results_lists_the_other_layers_and_sends_the_chosen(qtbot, 
     assert entry.dD is not None and entry.tau is not None
 
 
+def test_the_jackknife_standard_error_on_a_hand_case():
+    """σ = √((n − 1)/n · Σᵢ (Dᵢ − D̄)²) per column over its finite refits; NaN below two."""
+    rows = np.array([[1.0, 1.0, 2.0, np.nan],
+                     [1.0, 2.0, np.nan, np.nan],
+                     [4.0, 3.0, np.nan, 5.0]])
+    # Column 0: D̄ = 2, Σ = 1 + 1 + 4 = 6, √(2/3 · 6) = 2; column 1: D̄ = 2, Σ = 2, √(4/3);
+    # column 2 and 3: one finite refit each.
+    got = jackknife_se(rows)
+    np.testing.assert_allclose(got[:2], [2.0, np.sqrt(4.0 / 3.0)])
+    assert np.isnan(got[2:]).all()
+
+
+def test_the_landed_histograms_send_one_sigma(qtbot, host):
+    """A landed result's histogram goes to the board at one binomial σ, its eq. 39 band divided by
+    three, and its fit with the propagated standard error, each naming its kind."""
+    window = _fitter(qtbot, host, sources=[{**_landed()[0], "dh_hist": _hist()}])
+    window.send_landed_results(["moments · B"])
+    fit, hist = host.spectra_board.entries()
+    np.testing.assert_allclose(hist.dD, _hist()[2] / 3.0)
+    assert hist.err_kind == "binomial 1σ (from the 99 % band)" and "divided by 3" in hist.err_method
+    assert fit.err_kind == "fit SE (propagated per-scale σ over the fitted window)"
+
+
 def test_the_other_windows_send_their_spectra(qtbot, host):
     from dynamix.shell.large_deviations_window import LargeDeviationsWindow
     from dynamix.shell.log_cumulants_window import LogCumulantsWindow
@@ -337,6 +362,9 @@ def test_the_other_windows_send_their_spectra(qtbot, host):
     for entry in got.values():
         assert entry.h.shape == entry.D.shape and np.isfinite(entry.D).any()
     assert got["large_deviations"].dD is None and got["large_deviations"].tau is None   # no bars
+    assert got["large_deviations"].err_kind == got["cumulant"].err_kind == ""
+    assert got["structure_functions"].err_kind == "fit SE (propagated)"
+    assert "propagated" in got["structure_functions"].err_method
     assert got["large_deviations"].identity["table"] == "synthetic"
     assert got["cumulant"].dD is None and got["cumulant"].tau is not None
     assert got["cumulant"].identity["scale_window"] == [1.0, 5.0]
@@ -379,16 +407,19 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     assert entry.identity["settings"]["delta"] == {"min": -1.0, "max": 2.0, "n": 13}
     buttons["Send Legendre (γ = 0)"].click()
     assert len(host.spectra_board) == 1 and "no legendre" in host.status[-1]
-    half = np.full(21, 0.03)
+    rows = fit["D"] + np.array([[0.0], [0.0], [0.06]])               # three leave-one-out refits
     w._fit = {**fit, "legendre": fit["D"] + 0.1, "solid": ~fit["boundary"],
-              "band": {"half_width": half}}                          # what the diagnostics add
+              "band": {"D": rows, "half_width": np.full(21, 0.03)}}  # what the diagnostics add
     w.send_to_board("legendre")
     w.send_to_board("converged")
     converged, legendre = host.spectra_board.entries()
     assert legendre.name == "WL (dwt) (Legendre) · a 1–5" and legendre.dD is None
     assert legendre.full_name.startswith("L1 · synthetic, generalized spectrum, Legendre (γ = 0)")
     np.testing.assert_allclose(legendre.D, fit["D"] + 0.1)
-    np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
+    # Sent again: replaced in place, its bars the jackknife SE √(2/3 · (0.02² + 0.02² + 0.04²)) = 0.04, never
+    # the band's half-width 0.03.
+    np.testing.assert_allclose(converged.dD, np.full(21, 0.04))
+    assert converged.err_kind == "jackknife SE over scales (leave-one-out)" and legendre.err_kind == ""
 
 
 def test_the_generalized_replace_matches_the_sample_set(qtbot, host):
@@ -444,7 +475,8 @@ def test_a_computed_generalized_spectrum_sends_its_converged_points_with_their_b
     solid = np.asarray(fit["solid"], bool)
     assert solid.sum() > 3 and np.isfinite(entry.D[solid]).all() and np.isnan(entry.D[~solid]).all()
     np.testing.assert_allclose(entry.D[solid], fit["D"][solid])
-    np.testing.assert_allclose(entry.dD, fit["band"]["half_width"])
+    np.testing.assert_allclose(entry.dD, jackknife_se(fit["band"]["D"]))
+    assert not np.allclose(entry.dD, fit["band"]["half_width"], equal_nan=True)  # the window draws min–max
 
 
 def test_the_kink_readout_reads_the_converged_estimate_never_the_legendre_reference(qtbot, host):
@@ -682,6 +714,34 @@ def test_view_all_and_the_auto_range_button_take_in_the_board_s_entries(qtbot, h
     assert all(view.autoRangeEnabled()) and _settled(view)[0][1] < 2.5
 
 
+def test_the_legend_says_bars_one_sigma_once_and_each_entry_names_its_kind(qtbot, host):
+    """While any entry draws bars the legend carries one "bars: ±1σ" row ahead of the entries;
+    an entry's tooltip, in the legend and in the inspector, adds its bars' kind and method."""
+    window = _construction(qtbot, host)
+    board = host.spectra_board
+    a = board.add(_entry("A", kind="histogram", dD=np.full(9, 0.05), err_kind="binomial 1σ (from the 99 % band)",
+                         err_method="eq. 39 over three."))
+    board.add(_entry("B", kind="canonical", dD=np.full(9, 0.02), err_kind="fit SE", err_method="slope SE."))
+    board.add(_entry("C"))
+    names = [name for name, _tip in _legend(window)]
+    assert names.count("bars: ±1σ") == 1 and names[-4:] == ["bars: ±1σ", "A", "B", "C"]
+    note = window._plot.legend.items[names.index("bars: ±1σ")][0].item
+    assert note.opts["pen"] is None and note.opts["symbol"] is None              # a label alone, no sample
+    tips = dict(_legend(window))
+    assert tips["A"] == "A · a long provenance name\nbars ±1σ: binomial 1σ (from the 99 % band)\neq. 39 over three."
+    assert tips["C"] == "C · a long provenance name"
+    table = _rows(window, qtbot)
+    assert table.item(0, window.board_inspector.NAME).toolTip() == tips["A"]
+    record = window.drawn_spectra()[0]
+    assert (record["bars"], record["err_kind"], record["err_method"]) == (
+        "±1σ", "binomial 1σ (from the 99 % band)", "eq. 39 over three.")
+    for key in [e.key for e in board.entries()][:2]:
+        board.set_show_errors(key, False)
+    assert "bars: ±1σ" not in [name for name, _tip in _legend(window)]
+    board.set_show_errors(a, True)
+    assert [name for name, _tip in _legend(window)].count("bars: ±1σ") == 1
+
+
 def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
     window = _construction(qtbot, host)
     key = host.spectra_board.add(_entry("A"))
@@ -727,7 +787,10 @@ def test_the_construction_sends_its_own_points_histogram_and_box_counting(qtbot,
     h, D = window._hist_curve.getData()
     np.testing.assert_allclose(hist.h, h)
     np.testing.assert_allclose(hist.D, D)
-    np.testing.assert_allclose(hist.dD, window._hist_dD)
+    np.testing.assert_allclose(hist.dD, window._hist_dD / EQ39_SIGMAS)
+    assert EQ39_SIGMAS == 3.0
+    assert (canon.err_kind, hist.err_kind, box.err_kind) == (
+        "fit SE (propagated per-scale σ over the fitted window)", "binomial 1σ (from the 99 % band)", "fit SE")
     expect = box_counting_spectrum(window._h_map, n_bins=max(8, window._bins // 4))
     for got, want in zip((box.h, box.D, box.dD), expect):
         np.testing.assert_allclose(got, want)
