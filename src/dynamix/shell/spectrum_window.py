@@ -412,14 +412,14 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
 
     def send_histogram(self) -> bool:
         """The histogram construction as D(h) draws it (pinned to the fit's D₀ when the pin is
-        on), with its eq. 39 bars."""
+        on), with its eq. 39 bars, under its legend name."""
         if self._hist is None:
             return send(self, None, "no histogram construction to send")
         h, D = (np.asarray(a, dtype=np.float64) for a in self._hist_curve.getData())
         pinned = self.pin_check.isChecked()
         settings = {"pin_to_D0": pinned, "bins": self._bins, "r0": self._r0_choice,
                     **(self._fit_settings() if pinned else {})}
-        entry = from_fit(self, {"name": self._hist_label, "h": h, "D": D, "D_err": self._hist_dD}, "histogram",
+        entry = from_fit(self, {"name": self._hist_curve_name(), "h": h, "D": D, "D_err": self._hist_dD}, "histogram",
                          scale_window=self._scale_window() if pinned else None,
                          fit_mode=self.fit_mode() if pinned else None,
                          table=self._table_key() if pinned else None, settings=settings)
@@ -675,6 +675,10 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             self.pin_check.setEnabled(has_hd)
             self.pin_check.toggled.connect(lambda _c: self._update_hist_items())
             controls.addWidget(self.pin_check)
+            # A gap keeps the histogram's Send from reading as part of the pin's label.
+            gap = QtWidgets.QWidget()
+            gap.setFixedWidth(12)
+            controls.addWidget(gap)
             self.send_hist_button = send_button("histogram construction", self.send_histogram)
             self.send_hist_button.setEnabled(self._hist is not None)
             controls.addWidget(self.send_hist_button)
@@ -1006,6 +1010,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         self._r0_choice = self.r0_combo.currentText()
         self._compute_hist()
         self._update_hist_items()
+        self.send_hist_button.setEnabled(self._hist is not None)
         if self.gh_check is not None and self.gh_check.isChecked():
             self._on_gh_toggled(True)
         if self.boxcount_check is not None and self.boxcount_check.isChecked():

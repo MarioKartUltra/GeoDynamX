@@ -620,6 +620,36 @@ def test_the_construction_sends_its_own_points_histogram_and_box_counting(qtbot,
     np.testing.assert_allclose(second.D, window.current_fit()["D"])
 
 
+def test_the_pinned_histogram_goes_under_its_legend_name_and_its_send_follows_the_controls(qtbot, host,
+                                                                                         monkeypatch):
+    """Pinned, the histogram is sent under the name its legend shows (with "pinned to D₀"); its
+    Send greys out when a bins or r₀ change leaves no histogram and comes back with one; a gap
+    stands between the pin box and the Send."""
+    import dynamix.core.microcanonical as micro
+
+    rng = np.random.default_rng(3)
+    window = _construction(qtbot, host, *_pair(), h_map=rng.normal(0.4, 0.1, (64, 64)))
+    window.pin_check.setChecked(True)
+    assert "pinned to D₀" in window._hist_curve_name()
+    window.send_hist_button.click()
+    [hist] = host.spectra_board.entries()
+    lo, hi = (round(v, 1) for v in window._scale_window())
+    assert hist.full_name.startswith(window._hist_curve_name() + " · log2 a ")
+    assert hist.name == f"WTMM (histogram) · a {lo:g}–{hi:g}"
+    order = [window.layout().itemAt(0).layout().itemAt(i).widget()
+             for i in range(window.layout().itemAt(0).layout().count())]
+    pin, send = order.index(window.pin_check), order.index(window.send_hist_button)
+    assert send == pin + 2 and order[pin + 1].width() == 12 and not order[pin + 1].children()
+    real = micro.dh_histogram_errors
+    monkeypatch.setattr(micro, "dh_histogram_errors", lambda *a, **k: tuple(np.zeros(0) for _ in range(4)))
+    window.bins_spin.setValue(window.bins_spin.value() + 10)
+    assert not window.send_hist_button.isEnabled()
+    monkeypatch.setattr(micro, "dh_histogram_errors", real)
+    window.r0_combo.setCurrentIndex(window.r0_combo.count() - 1)
+    window.bins_spin.setValue(window.bins_spin.value() - 10)
+    assert window.send_hist_button.isEnabled()
+
+
 def test_a_construction_without_tables_or_an_h_map_has_nothing_of_that_to_send(qtbot, host):
     tables_only = _construction(qtbot, host)
     assert tables_only.send_hist_button is None and tables_only.send_box_button is None
