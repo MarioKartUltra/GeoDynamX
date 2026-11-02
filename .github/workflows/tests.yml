@@ -10,6 +10,13 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      full:
+        description: "run every test instead of the tests the changed code reaches"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "0 9 * * 1"       # a full run every Monday, 09:00 UTC, so the selection never drifts for long
 
 permissions:
   contents: read
@@ -59,8 +66,28 @@ jobs:
           python -m pip install -e ".[fast,io,app,dev]"
       - name: Engine in use
         run: python -c "from dynamix.core import fft_policy as p; print(p.resolve())"
-      # A file is Qt when it mentions QtWidgets or qtbot. The pyvista scene tests are excluded by their
-      # marker, never by a text match: a test that only mentions pyvista belongs in a required gate.
+      # Selective runs: pytest-testmon records which source lines each test executed in .testmondata
+      # and reruns only the tests whose code changed since. The database is cached per platform
+      # across runs (restore the latest, save under this commit); without one the run is full and
+      # records. A manual run with "full" ticked and the Monday schedule run everything. A numba
+      # kernel's body and a golden data file are outside testmon's view, which the weekly run covers.
+      - name: Restore the test selection database (testmon)
+        if: ${{ github.event_name != 'schedule' && inputs.full != true }}
+        uses: actions/cache/restore@v4
+        with:
+          path: .testmondata
+          key: testmon-${{ runner.os }}-${{ github.sha }}
+          restore-keys: testmon-${{ runner.os }}-
+      - name: Choose the selection
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ inputs.full }}" = "true" ]; then
+            echo "SELECT=" >> "$GITHUB_ENV"; echo "full run"
+          else
+            echo "SELECT=--testmon" >> "$GITHUB_ENV"; echo "testmon selection"
+          fi
+      # A file is Qt when it mentions QtWidgets or qtbot. The pyvista scene tests are left out by
+      # tests/conftest.py (they run only under DYNAMIX_PYVISTA=1), never by a text match or a -m
+      # expression, which would switch testmon's selection off.
       - name: Select the gates' files (each list must be non-empty)
         run: |
           grep -L "QtWidgets\|qtbot" tests/test_*.py > headless.txt || true
@@ -73,18 +100,26 @@ jobs:
           python tools/lint_markers.py --all
           python -m pip install -q "ruff>=0.6"
           echo "## ruff" >> "$GITHUB_STEP_SUMMARY"
-          ruff check --exit-zero --output-format concise src tools | tee -a "$GITHUB_STEP_SUMMARY" | tail -3
-          ruff format --check src tools >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          # the summary takes 1 MB at most: the first 150 findings and the format check's count
+          ruff check --exit-zero --output-format concise src tools > ruff.txt
+          head -150 ruff.txt >> "$GITHUB_STEP_SUMMARY"; tail -3 ruff.txt
+          ruff format --check src tools 2>&1 | tail -3 >> "$GITHUB_STEP_SUMMARY" || true
       # Each gate reports whatever the other did, within its own time limit, so the job's limit never
       # swallows a log; a test that hangs past faulthandler_timeout prints its stack, naming it.
       - name: Headless gate
         timeout-minutes: 20
-        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat headless.txt)
+        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat headless.txt)
       - name: Qt-only gate (offscreen)
         if: ${{ !cancelled() }}
         timeout-minutes: 25
         # verbose on Windows, where a native crash ended the gate with no traceback: the last name printed is it
-        run: python -m pytest ${{ runner.os == 'Windows' && '-v' || '-q' }} -rfE -o faulthandler_timeout=300 -p no:cacheprovider -m "not pyvista" $(cat qtonly.txt)
+        run: python -m pytest ${{ runner.os == 'Windows' && '-v' || '-q' }} -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat qtonly.txt)
+      - name: Save the test selection database
+        if: ${{ always() && github.event_name != 'schedule' && inputs.full != true }}
+        uses: actions/cache/save@v4
+        with:
+          path: .testmondata
+          key: testmon-${{ runner.os }}-${{ github.sha }}
 
   lint-imports:
     name: layering gate
