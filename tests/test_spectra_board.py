@@ -154,6 +154,25 @@ def test_replace_swaps_an_entry_keeping_its_display_state_and_a_given_name():
         board.replace("nowhere", _entry())
 
 
+def test_a_replace_identical_to_another_entry_drops_the_later_of_the_two():
+    """Replacing an entry by a spectrum exactly identical to another entry would leave two of a
+    kind: the earlier of the two in board order takes the spectrum, with its own key, colour and
+    name, and the later goes, whichever of them was replaced."""
+    board = SpectraBoard()
+    a = board.add(_entry(window=(1.0, 5.0), producer=PRODUCER))
+    h = board.add(_entry(kind="histogram"))
+    b = board.add(_entry(window=(2.0, 5.0), producer=PRODUCER))
+    board.set_colour(a, "#00ff00")
+    twin = _entry(window=(1.0, 5.0), name="again", producer=PRODUCER)
+    assert board.replace(b, twin) == a                       # b replaced by a's twin: a holds it, b goes
+    assert [e.key for e in board.entries()] == [a, h] and board.get(a) is twin
+    assert twin.colour == "#00ff00" and board.latest_of("canonical", PRODUCER) == a
+    c = board.add(_entry(window=(3.0, 5.0), producer=PRODUCER))
+    board.move(c, -2)                                        # c before a
+    assert board.replace(a, _entry(window=(3.0, 5.0), producer=PRODUCER)) == c
+    assert [e.key for e in board.entries()] == [c, h]
+
+
 def test_latest_of_names_the_most_recently_sent_entry_of_a_kind_and_producer():
     """The most recent send or replace of one kind from one producer, whatever the legend order;
     another kind or producer is never it; None when there is none."""

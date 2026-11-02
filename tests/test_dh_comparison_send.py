@@ -789,6 +789,69 @@ def test_send_adds_an_entry_per_window_updates_an_identical_one_and_replace_swap
     assert not window.replace_hist_button.isEnabled()
 
 
+def test_replace_matches_the_table_and_reads_the_kind_when_judged(qtbot, host):
+    """The producer a Replace matches holds the table: with the board holding a no-sup fit,
+    Replace under the sup table is greyed and swaps nothing, a sup fit sent is an entry of its
+    own and a Replace under either table swaps only that table's entry. The kind is read when
+    the button is judged: a window whose tool identity names the leaders after its build replaces
+    its leaders' entry."""
+    window = _construction(qtbot, host, *_broken_pair())
+    window.show()
+    qtbot.waitExposed(window)
+    board = host.spectra_board
+    window._table_combo.setCurrentText("no-sup (std)")
+    window.send_button.click()
+    [std] = board.entries()
+    window._table_combo.setCurrentText("sup (cmax)")
+    assert not window.replace_button.isEnabled()                  # nothing of the sup table's
+    assert not window.send_primary(replace=True) and board.entries() == [std]
+    window.send_button.click()
+    std, cmax = board.entries()
+    assert (std.identity["table"], cmax.identity["table"]) == ("std", "cmax")
+    assert window.replace_button.isEnabled()
+    window._lo_spin.setValue(window._lo_spin.value() + 0.5)
+    window.replace_button.click()                                 # the sup entry, swapped
+    assert [e.key for e in board.entries()] == [std.key, cmax.key] and board.get(std.key) is std
+    window._table_combo.setCurrentText("no-sup (std)")
+    assert window.replace_button.isEnabled()
+    window.replace_button.click()                                 # the no-sup entry, swapped
+    assert board.get(std.key) is not std and board.get(std.key).identity["table"] == "std"
+    assert board.get(cmax.key).identity["table"] == "cmax"
+
+    window._h_map_method = "wavelet_leaders"                      # the kind changes after the build
+    window.replace_button.sync()
+    assert not window.replace_button.isEnabled()                  # no leaders' entry yet
+    window.send_button.click()
+    assert board.entries()[-1].kind == "dwt_leaders"
+    assert window.replace_button.isEnabled()                      # judged on the kind of now
+    leaders = board.entries()[-1].key
+    window._lo_spin.setValue(window._lo_spin.value() - 0.25)
+    window.replace_button.click()
+    assert board.entries()[-1].key == leaders and len(board) == 3
+
+
+def test_a_replace_that_would_duplicate_an_entry_keeps_the_earlier(qtbot, host):
+    """Send under one scale window, then another; back at the first, Replace swaps the second
+    entry for a fit identical to the first: the first keeps its place and takes the fit, the
+    second goes, and the status line says so."""
+    window = _construction(qtbot, host, *_broken_pair())
+    window.show()
+    qtbot.waitExposed(window)
+    board = host.spectra_board
+    lo = window._lo_spin.value()
+    window.send_button.click()
+    window._lo_spin.setValue(lo + 1.0)
+    window.send_button.click()
+    first, second = board.entries()
+    board.set_colour(first.key, "#123456")
+    window._lo_spin.setValue(lo)
+    window.replace_button.click()
+    [kept] = board.entries()
+    assert kept.key == first.key and kept is not first and kept.colour == "#123456"
+    assert kept.identity == first.identity
+    assert host.status[-1].endswith(f"(its duplicate {second.name} removed)")
+
+
 def test_every_producer_has_a_replace_beside_its_send(qtbot, host):
     """The Partition functions window (fit, histogram, box-counting), the Generalized window
     (converged, Legendre), Large deviations, Log-cumulants and Structure functions: each Send has a

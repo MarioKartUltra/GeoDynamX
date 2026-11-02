@@ -8,9 +8,10 @@ one method two entries side by side; a send exactly identical to an entry (one k
 identity: the producing result's tool identity, the scale window, the fit mode, the table and
 the producer's settings) updates that entry in place instead, keeping its display state (its
 display name when renamed, its colour, its legend position, its visibility, its bars and tangent
-switches). A replace swaps the most recently sent entry of one producer (the window and the
-producing tool, without the scale window) and kind for a new fit, keeping the same display
-state. ``name`` is the
+switches). A replace swaps the most recently sent entry of one producer (the window, the
+producing tool, the table and the generalized window's curve, without the scale window) and kind
+for a new fit, keeping the same display state; a replace that makes two entries identical keeps
+the earlier. ``name`` is the
 display name and the only name a rename touches; ``default_name`` is the display name the
 producer gave, which an empty rename restores; ``full_name`` is the producer's own name, with
 the scale window and the tangent it was sent under."""
@@ -61,7 +62,7 @@ class SentSpectrum:
     """One spectrum on the board: ``h`` and ``D`` with their error bars (None without), the
     partition-side ``q`` and ``tau`` when the producer has them, the phase-transition tangent
     when it was sent with one, the identity an exactly identical send matches, the producer (the
-    sending window and the producing tool, without the scale window) a replace matches, and the
+    sending window, the producing tool and the table, without the scale window) a replace matches, and the
     display state: ``renamed`` once a rename gave it a name of its own."""
 
     name: str
@@ -179,8 +180,16 @@ class SpectraBoard:
 
     def replace(self, key: str, spectrum: SentSpectrum) -> str:
         """``spectrum`` in place of the entry ``key``, keeping its key, legend position, colour,
-        visibility, switches and a name a rename gave. Returns the key."""
-        return self._take_over(self._entries.index(self.get(key)), spectrum)
+        visibility, switches and a name a rename gave. When another entry is exactly identical
+        to ``spectrum`` the two would be duplicates: the earlier of them in board order takes
+        ``spectrum`` (with its own key and display state) and the later goes. Returns the key
+        that holds ``spectrum``."""
+        i = self._entries.index(self.get(key))
+        twin = next((j for j, e in enumerate(self._entries) if j != i and e.same_as(spectrum)), None)
+        if twin is not None:
+            i, later = min(i, twin), max(i, twin)
+            self._sent.pop(self._entries.pop(later).key, None)
+        return self._take_over(i, spectrum)
 
     def latest_of(self, kind: str, producer: dict) -> "str | None":
         """The key of the most recently sent or replaced entry of ``kind`` from ``producer``,

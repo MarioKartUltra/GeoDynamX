@@ -385,7 +385,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.send_hist_button.setEnabled(self._dh_hist is not None)
         controls.addWidget(self.send_hist_button)
         self.replace_hist_button = ReplaceButton(self, "histogram", self.send_histogram, "histogram construction",
-                                                 self.send_hist_button)
+                                                 self.send_hist_button, table=MultifractalWindow._pinned_table)
+        self.replace_hist_button.watch(self.pin_check.toggled)
         controls.addWidget(self.replace_hist_button)
         self.boxcount_check = QtWidgets.QCheckBox("box-counting")
         self.boxcount_check.setEnabled(self._h_map is not None)
@@ -474,7 +475,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                                     "errors over the scale window), to the D(h) comparison")
         self.send_button.clicked.connect(lambda _c=False: self.send_primary())
         compare.addWidget(self.send_button)
-        self.replace_button = ReplaceButton(self, self._primary_kind(), self.send_primary, "fit", self.send_button)
+        self.replace_button = ReplaceButton(self, MultifractalWindow._primary_kind, self.send_primary, "fit", self.send_button,
+                                            table=MultifractalWindow._table_key)
         compare.addWidget(self.replace_button)
         self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
         self.with_tangent_check.setToolTip("Send the phase-transition tangent drawn on D(h) with the fit")
@@ -761,6 +763,10 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         text = self._table_combo.currentText()
         return {"no-sup (std)": "std", "sup (cmax)": "cmax"}.get(text, text)
 
+    def _pinned_table(self) -> "str | None":
+        """The table the histogram is pinned to, None while it is not."""
+        return self._table_key() if self.pin_check.isChecked() else None
+
     def _primary_kind(self) -> str:
         """What the primary fit is on the board: the leaders' table read by this fitter, or the
         canonical fit."""
@@ -820,7 +826,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         fit = {"name": self._hist_name(), "h": h, "D": D, "D_err": self._dh_hist[2]}
         entry = from_fit(self, fit, "histogram", scale_window=(lo, hi) if pinned else None,
                          fit_mode=self.fit_mode() if pinned else None,
-                         table=self._table_key() if pinned else None, settings={"pin_to_D0": pinned})
+                         table=self._pinned_table(), settings={"pin_to_D0": pinned})
         return send(self, entry, "the histogram construction has no finite D(h)", replace=replace)
 
     def send_boxcount(self, replace: bool = False) -> bool:

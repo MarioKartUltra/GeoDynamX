@@ -190,7 +190,8 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
 
         self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
         self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
-        self.replace_button = ReplaceButton(self, "large_deviations", self.send_to_board, "large-deviation spectrum", self.send_button)
+        self.replace_button = ReplaceButton(self, "large_deviations", self.send_to_board, "large-deviation spectrum", self.send_button,
+                                            table=lambda w: w.source_combo.currentText())
         sending = QtWidgets.QHBoxLayout()
         sending.addStretch(1)
         sending.addWidget(self.send_button)

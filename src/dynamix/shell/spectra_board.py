@@ -78,9 +78,12 @@ class SpectraBoardModel(QtCore.QObject):
         return key
 
     def replace(self, key: str, spectrum: SentSpectrum) -> str:
-        old = self.board.get(key).name
-        self.board.replace(key, spectrum)
-        self.sent.emit(f"replaced {old} on the D(h) comparison by {spectrum.full_name}")
+        old, before = self.board.get(key).name, self.board.entries()
+        key = self.board.replace(key, spectrum)
+        kept = {e.key for e in self.board.entries()}
+        dropped = [e.name for e in before if e.key not in kept]
+        twin = "".join(f" (its duplicate {name} removed)" for name in dropped)
+        self.sent.emit(f"replaced {old} on the D(h) comparison by {spectrum.full_name}{twin}")
         self.boardChanged.emit()
         return key
 
@@ -241,11 +244,13 @@ def short_name(kind: str, identity: dict) -> "str | None":
     return prefix if base is None and not table else f"{prefix} · {base or table}"
 
 
-def producer_of(window, origin=None, curve=None) -> dict:
+def producer_of(window, origin=None, curve=None, table=None) -> dict:
     """What a Replace from ``window`` matches: the window's class, the producing result's tool
-    identity (``origin``, else the window's) and, for the generalized window, the ``curve``; the
-    scale window and the settings are left out, so a Replace swaps a fit sent under any of them."""
-    out = {"window": type(window).__name__, "tool": dict(origin) if origin is not None else tool_identity(window)}
+    identity (``origin``, else the window's), the ``table`` (std or cmax, a sample set; so a sup
+    fit never replaces a no-sup one) and, for the generalized window, the ``curve``; the scale
+    window and the settings are left out, so a Replace swaps a fit sent under any of them."""
+    out = {"window": type(window).__name__, "tool": dict(origin) if origin is not None else tool_identity(window),
+           "table": table}
     if curve is not None:
         out["curve"] = curve
     return out
@@ -270,8 +275,8 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
     ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
     the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
-    the table and the settings; the producer :func:`producer_of` the window, the origin and the
-    settings' ``curve`` (the generalized window's)."""
+    the table and the settings; the producer :func:`producer_of` the window, the origin, the table
+    and the settings' ``curve`` (the generalized window's)."""
     origin = dict(origin) if origin is not None else tool_identity(window)
     name = str(fit.get("name") or kind)
     layer = origin.get("layer")
@@ -308,7 +313,7 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
         short += f" · a {_log2_text(lo)}–{_log2_text(hi)}"
     return SentSpectrum(name=short or full_name, full_name=full_name, kind=kind, h=h[keep], D=column("D"),
                         dh=column("h_err"), dD=column("D_err"), q=q, tau=tau, tangent=tangent,
-                        identity=identity, producer=producer_of(window, origin, (settings or {}).get("curve")))
+                        identity=identity, producer=producer_of(window, origin, (settings or {}).get("curve"), table))
 
 
 def _grid(value):
@@ -376,15 +381,20 @@ def send_button(what: str, slot) -> QtWidgets.QToolButton:
 
 class ReplaceButton(QtWidgets.QToolButton):
     """Replace beside a Send: ``slot(replace=True)`` swaps the most recent entry of ``kind``
-    from ``window`` (:func:`producer_of`, with ``curve``)
-    for the current fit. Enabled only while the board holds such an entry and ``send``, the
-    Send beside it, is enabled."""
+    from ``window`` (:func:`producer_of`, with ``curve`` and ``table``) for the current fit.
+    ``kind`` and ``table`` are values or functions of the window read when the button is judged,
+    never kept from its build (functions of the window, not bound to it: a bound one would hold
+    the window in a cycle through its own button). Enabled only while the board holds such an entry and ``send``, the Send
+    beside it, is enabled; judged again on every board change, on the window's ``fitChanged``
+    and on any signal handed to :meth:`watch`."""
 
-    def __init__(self, window, kind, slot, what: str, send: QtWidgets.QAbstractButton, curve=None) -> None:
+    def __init__(self, window, kind, slot, what: str, send: QtWidgets.QAbstractButton, curve=None,
+                 table=None) -> None:
         super().__init__()
         # A weak reference: the window holds this button, and a strong one back would keep the
         # window's wrapper alive in a cycle after Qt has deleted the window.
         self._window, self._kind, self._send, self._curve = weakref.ref(window), kind, send, curve
+        self._table = table
         self.setText("Replace")
         self.setToolTip(f"Replace the {what} this window sent last to the D(h) comparison by the current one, "
                         "keeping its colour, place, switches and a name you gave it")
@@ -393,14 +403,25 @@ class ReplaceButton(QtWidgets.QToolButton):
         board = board_of(window)
         if board is not None:
             board.boardChanged.connect(self.sync)
+        if isinstance(getattr(type(window), "fitChanged", None), QtCore.Signal):
+            window.fitChanged.connect(self.sync)
         self.sync()
 
-    @QtCore.Slot()
-    def sync(self) -> None:
+    def watch(self, *signals) -> None:
+        """Judge the button again on each of ``signals`` (a table or a pin the producer reads)."""
+        for signal in signals:
+            signal.connect(self.sync)
+
+    @staticmethod
+    def _now(value, window):
+        return value(window) if callable(value) else value
+
+    def sync(self, *_args) -> None:
         window = self._window()
         board = None if window is None else board_of(window)
-        self.setEnabled(board is not None and self._send.isEnabled()
-                        and board.latest_of(self._kind, producer_of(window, curve=self._curve)) is not None)
+        self.setEnabled(board is not None and self._send.isEnabled() and board.latest_of(
+            self._now(self._kind, window),
+            producer_of(window, curve=self._curve, table=self._now(self._table, window))) is not None)
 
     def eventFilter(self, watched, event) -> bool:
         if watched is self._send and event.type() == QtCore.QEvent.Type.EnabledChange:

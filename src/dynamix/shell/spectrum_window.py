@@ -383,6 +383,10 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         text = self._table_combo.currentText()
         return {"no-sup (std)": "std", "sup (cmax)": "cmax"}.get(text, text)
 
+    def _pinned_table(self) -> "str | None":
+        """The table the histogram is pinned to, None while it is not."""
+        return self._table_key() if self.pin_check.isChecked() else None
+
     def _fit_settings(self) -> dict:
         return {"eta": float(self._eta_spin.value()), "frame": self._frame_combo.currentText(),
                 "all_chains": bool(self.all_chains_check is not None and self.all_chains_check.isChecked())}
@@ -423,7 +427,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         entry = from_fit(self, {"name": self._hist_curve_name(), "h": h, "D": D, "D_err": self._hist_dD}, "histogram",
                          scale_window=self._scale_window() if pinned else None,
                          fit_mode=self.fit_mode() if pinned else None,
-                         table=self._table_key() if pinned else None, settings=settings)
+                         table=self._pinned_table(), settings=settings)
         return send(self, entry, "the histogram construction has no finite D(h)", replace=replace)
 
     def _boxcount(self) -> tuple:
@@ -607,8 +611,9 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         self.send_button.setEnabled(has_hd)
         self.send_button.clicked.connect(lambda _c=False: self.send_primary())
         controls.addWidget(self.send_button)
-        self.replace_button = ReplaceButton(self, kind_of_method(self._h_map_method), self.send_primary,
-                                            "canonical points", self.send_button)
+        self.replace_button = ReplaceButton(self, lambda w: kind_of_method(w._h_map_method), self.send_primary,
+                                            "canonical points", self.send_button, table=SpectrumWindow._table_key)
+        self.replace_button.watch(self._table_combo.currentTextChanged)
         controls.addWidget(self.replace_button)
         self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
         self.with_tangent_check.setToolTip("Send the tangent at q_c drawn on D(h) with the points")
@@ -691,7 +696,9 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             self.send_hist_button.setEnabled(self._hist is not None)
             controls.addWidget(self.send_hist_button)
             self.replace_hist_button = ReplaceButton(self, "histogram", self.send_histogram,
-                                                     "histogram construction", self.send_hist_button)
+                                                     "histogram construction", self.send_hist_button,
+                                                     table=SpectrumWindow._pinned_table)
+            self.replace_hist_button.watch(self._table_combo.currentTextChanged, self.pin_check.toggled)
             controls.addWidget(self.replace_hist_button)
 
         for w in (self._table_combo, self._lo_spin, self._hi_spin, self._eta_spin,
