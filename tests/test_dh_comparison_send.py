@@ -125,9 +125,11 @@ def test_each_method_has_its_short_name(kind, method, table, settings, short):
 
 
 def test_the_display_name_is_the_short_name_with_the_scale_window():
-    """The short name and `· a lo–hi` (log2 a as an integer or one decimal); the full name keeps
-    the producer's name and `log2 a lo–hi`; a method without a short name shows its full name;
-    a spectrum sent without a scale window shows the short name alone."""
+    """The short name, the layer's tag (its name's first 12 characters) and `· a lo–hi` (log2 a as
+    an integer or one decimal); the full name keeps the producer's name, the whole layer name and
+    `log2 a lo–hi`; a method without a short name shows its full name; a spectrum sent without a
+    scale window shows the short name and the tag alone, and one from no layer the short name
+    and the scale window."""
     from types import SimpleNamespace
 
     from dynamix.shell.spectra_board import from_fit
@@ -145,6 +147,15 @@ def test_the_display_name_is_the_short_name_with_the_scale_window():
     assert e.name == e.full_name == "canonical (Arneodo WTMM) · sup (cmax) · log2 a 2–5"
     plain = SimpleNamespace(parentWidget=lambda: None, _h_map_method="cwt_leaders")
     assert from_fit(plain, fit, "cwt_leaders", scale_window=(2, 5)).name == "WL (cwt) · a 2–5"
+    tagged = {"layer": "Bathymetry 2026 survey", "method": {"device": "wtmm2d"}}
+    e = from_fit(window, fit, "canonical", scale_window=(2.0, 5.0), table="cmax", origin=tagged)
+    assert e.name == "WTMM (sup) · Bathymetry 2 · a 2–5"                     # the layer's first 12 characters
+    assert e.full_name == "canonical (Arneodo WTMM) · sup (cmax) · Bathymetry 2026 survey · log2 a 2–5"
+    assert from_fit(window, {**fit, "name": "hist"}, "histogram", origin={**tagged, "layer": "B"}).name == \
+        "WTMM (histogram) · B"
+    odd_tagged = {**tagged, "method": {"device": "mz_edges"}}
+    assert from_fit(window, fit, "canonical", scale_window=(2, 5), table="std", origin=odd_tagged).name == \
+        "canonical (Arneodo WTMM) · sup (cmax) · Bathymetry 2026 survey · log2 a 2–5"   # no short name: the full one
 
 
 def test_the_method_is_read_off_the_result():
@@ -301,7 +312,7 @@ def test_send_landed_results_lists_the_other_layers_and_sends_the_chosen(qtbot, 
     window._region.setRegion((2.0, 5.0))
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
-    assert entry.kind == "dwt_leaders" and entry.name == "WL (dwt) · a 2–5"
+    assert entry.kind == "dwt_leaders" and entry.name == "WL (dwt) · C · a 2–5"
     assert entry.full_name == "dyadic leaders · C · log2 a 2–5"
     assert entry.identity["tool"] == sources[1]["identity"]
     assert entry.dD is not None and entry.tau is not None
@@ -716,12 +727,12 @@ def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbo
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
     fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
-    assert entry.kind == "canonical" and entry.name == "GMWP – measure (Moments) · a 1–5"
+    assert entry.kind == "canonical" and entry.name == "GMWP – measure (Moments) · B · a 1–5"
     assert entry.full_name == "moments · B · log2 a 1–5"
     np.testing.assert_allclose(entry.D, fit["D"])
     np.testing.assert_allclose(entry.dD, fit["D_err"])
     assert entry.identity["tool"] == sources[0]["identity"] and entry.identity["scale_window"] == [1.0, 5.0]
-    assert [n for _c, n, _f in window._board_legend] == ["GMWP – measure (Moments) · a 1–5"]
+    assert [n for _c, n, _f in window._board_legend] == ["GMWP – measure (Moments) · B · a 1–5"]
     assert window.send_landed_results(["dyadic leaders · C"]) == 1
     assert host.spectra_board.entries()[-1].kind == "dwt_leaders"
 

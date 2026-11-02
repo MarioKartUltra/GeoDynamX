@@ -761,7 +761,7 @@ def test_the_fitter_lists_the_other_layers_landed_methods_to_send(geo_window, qt
     lo, hi = (round(v, 2) for v in fitter._region.getRegion())
     assert sources[0]["identity"]["method"] == {"device": "holder_measure"}
     lo1, hi1 = (round(v, 1) for v in fitter._region.getRegion())
-    assert sent.name == f"GMWP – measure (Moments) · a {lo1:g}–{hi1:g}"
+    assert sent.name == f"GMWP – measure (Moments) · B · holder_m · a {lo1:g}–{hi1:g}"
     assert sent.full_name == f"{sources[0]['name']} · log2 a {lo:g}–{hi:g}"
     win._on_dh_button_clicked()
     construction = win._spectrum_construction_window

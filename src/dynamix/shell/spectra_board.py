@@ -251,6 +251,10 @@ def producer_of(window, origin=None, curve=None) -> dict:
     return out
 
 
+#: How many characters of the layer's name a display name carries as its tag.
+LAYER_TAG = 12
+
+
 def _log2_text(value: float) -> str:
     """log2 a as a name shows it: an integer, else one decimal."""
     return f"{round(float(value), 1) + 0.0:g}"
@@ -260,8 +264,9 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
              settings=None, tangent=None, keep=None, origin=None) -> SentSpectrum:
     """A :class:`SentSpectrum` from a producer's fit dict: the full name its ``name`` (the layer's
     name after it when the name lacks it) with the scale window (``log2 a lo–hi``) and
-    ", tangent" when a tangent is carried; the display name the method's :func:`short_name` with
-    the scale window (``· a lo–hi``), the full name for a method without one; ``h`` and ``D`` with
+    ", tangent" when a tangent is carried; the display name the method's :func:`short_name`, the
+    layer's tag (its name's first :data:`LAYER_TAG` characters) and the scale window
+    (``WTMM (sup) · layer · a lo–hi``), the full name for a method without a short name; ``h`` and ``D`` with
     ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
     the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
@@ -295,6 +300,9 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
                 "scale_window": None if scale_window is None else [float(v) for v in scale_window],
                 "fit_mode": fit_mode, "table": table, "settings": dict(settings or {})}
     short = short_name(kind, identity)
+    tag = str(layer or "")[:LAYER_TAG].strip()
+    if short is not None and tag:
+        short += f" · {tag}"
     if short is not None and scale_window is not None:
         lo, hi = sorted(float(v) for v in scale_window)
         short += f" · a {_log2_text(lo)}–{_log2_text(hi)}"
