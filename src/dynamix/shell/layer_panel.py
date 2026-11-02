@@ -378,6 +378,12 @@ class LayerPanel(QtWidgets.QTreeWidget):
         self.header().setStretchLastSection(False)
         self.header().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
         self.header().setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
+        # The button column takes the widest row, the parent dataset's four, so the name column pays for
+        # every pixel: a shallow indent, names elided in the middle so the suffix that tells rows apart
+        # ("", "ROI A") survives, and a width floor that keeps a 20-character name at level 1.
+        self.setIndentation(14)
+        self.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
+        self.setMinimumWidth(300)
         self.setHeaderHidden(True)
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         # Shift = a range, cmd = individual rows; Delete acts on all of them.
