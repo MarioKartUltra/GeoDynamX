@@ -712,7 +712,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._update_dh_hist()
 
         # Row 3: the specific heat c(q) = -q² τ'' off the fit (points), the cumulant expansion's
-        # curve from the maxima moduli, and the log-normal reference c₂ q² (the workbook's
+        # curve from the maxima moduli, and the log-normal reference −c₂ q² (the workbook's
         # specific-heat figure).
         self._cq_plot = self._glw.addPlot(*_SPECTRUM_CELLS["cq"], colspan=3, viewBox=WheelAxisViewBox())
         self._cq_plot.setLabel("bottom", "q")
