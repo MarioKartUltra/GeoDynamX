@@ -36,6 +36,10 @@ jobs:
     env:
       PYTHONNOUSERSITE: "1"
       QT_QPA_PLATFORM: offscreen
+      # FFTW plans by estimate on the runners: pyfftw's default FFTW_MEASURE timed one M-Z reconstruction
+      # test's plans for over five minutes on Windows and the headless gate past its limit. The engine
+      # records the planner in every result, and the backends agree to float32 tolerance either way.
+      PYFFTW_PLANNER_EFFORT: FFTW_ESTIMATE
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -107,7 +111,7 @@ jobs:
       # Each gate reports whatever the other did, within its own time limit, so the job's limit never
       # swallows a log; a test that hangs past faulthandler_timeout prints its stack, naming it.
       - name: Headless gate
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat headless.txt)
       - name: Qt-only gate (offscreen)
         if: ${{ !cancelled() }}
@@ -155,6 +159,10 @@ jobs:
     env:
       PYTHONNOUSERSITE: "1"
       QT_QPA_PLATFORM: offscreen
+      # FFTW plans by estimate on the runners: pyfftw's default FFTW_MEASURE timed one M-Z reconstruction
+      # test's plans for over five minutes on Windows and the headless gate past its limit. The engine
+      # records the planner in every result, and the backends agree to float32 tolerance either way.
+      PYFFTW_PLANNER_EFFORT: FFTW_ESTIMATE
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
