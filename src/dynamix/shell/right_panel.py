@@ -30,7 +30,7 @@ import numpy as np
 from dynamix.core.stretch import BAND_MODES, CENTER_MODES, STRETCHES
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from dynamix.shell.canvas import EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, VTRAIL_COLOR
+from dynamix.shell.canvas import ARROW_COLOR, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, VTRAIL_COLOR
 from dynamix.shell.knob_widgets import make_control
 from dynamix.shell.knobs import control_spec
 
@@ -67,6 +67,7 @@ _SWATCH_SPECS = (
     ("color_hchain_neg", "H-chains (−)", HCHAIN_NEG_COLOR),
     ("color_vtrail", "V-chains", VTRAIL_COLOR),
     ("color_extrema", "Maxima", EXTREMA_COLOR),
+    ("color_arrows", "Arrows", ARROW_COLOR),
 )
 
 #: What each swatch colours, in WTMM terms.
@@ -80,6 +81,8 @@ _SWATCH_TIPS = {
                     "from scale to scale",
     "color_extrema": "Maxima: the modulus-maxima pixels at the current scale; the isolated ones "
                      "(on no H-chain) show with Isolated maxima",
+    "color_arrows": "Arrows: the gradient arrows along each maximum's argument at the current scale "
+                    "(the Gradient arrows choice below)",
 }
 
 
@@ -332,11 +335,13 @@ class RightPanel(QtWidgets.QScrollArea):
         self.cascade_check.toggled.connect(
             lambda checked: self.styleChanged.emit("wavelet_cascade", checked))
         column.addWidget(self.cascade_check)
+        self._relevant_items["wavelet_cascade"] = self.cascade_check
         # The isolated maxima (no H-line): off by default, they clutter the picture.
         self.isolated_check = QtWidgets.QCheckBox("Isolated maxima")
         self.isolated_check.toggled.connect(
             lambda checked: self.styleChanged.emit("show_isolated", checked))
         column.addWidget(self.isolated_check)
+        self._relevant_items["isolated"] = self.isolated_check
         # Gradient arrows along each maximum's argument, at the current scale.
         arrows_row = QtWidgets.QWidget()
         arrows_lay = QtWidgets.QHBoxLayout(arrows_row)
@@ -531,7 +536,9 @@ class RightPanel(QtWidgets.QScrollArea):
         self.cmap_combo.setCurrentText(style["colormap"])
         self.cmap_combo.blockSignals(False)
         for key, button in self._swatch_buttons.items():
-            hex_value = style[key]
+            hex_value = style.get(key)
+            if hex_value is None:                 # a style without this swatch's key leaves its colour
+                continue
             button.setStyleSheet(f"background-color: {hex_value}")
             self._swatch_colors[key] = hex_value
         self.trails_check.blockSignals(True)

@@ -109,7 +109,7 @@ from dynamix.shell.arrangement.mask_row import MaskRow
 from dynamix.shell.browser import DeviceBrowser
 from dynamix.shell.shared_range import SharedScaleRange
 from dynamix.shell.spectra_board import SpectraBoardModel, method_of
-from dynamix.shell.canvas import (Canvas, DEFAULT_COLORMAP, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
+from dynamix.shell.canvas import (ARROW_COLOR, Canvas, DEFAULT_COLORMAP, EXTREMA_COLOR, HCHAIN_COLOR, HCHAIN_NEG_COLOR, POINTS_COLOR,
                                   VTRAIL_COLOR,
                                   display_offset, nice_round_scalebar, window_offset)
 from dynamix.shell.components_window import ComponentsWindow
@@ -336,6 +336,7 @@ _DEFAULT_COLOR_HCHAIN = _hex(HCHAIN_COLOR)
 _DEFAULT_COLOR_HCHAIN_NEG = _hex(HCHAIN_NEG_COLOR)
 _DEFAULT_COLOR_VTRAIL = _hex(VTRAIL_COLOR)
 _DEFAULT_COLOR_EXTREMA = _hex(EXTREMA_COLOR)
+_DEFAULT_COLOR_ARROWS = _hex(ARROW_COLOR)
 #: The point-layer scatter's own preference key, riding the identical
 #: ``ui.color_points`` tag scheme as the three above -- see ``canvas.py``'s ``POINTS_COLOR`` for
 #: why the default is a distinct cool hue rather than a reuse of any existing overlay color. A
@@ -363,6 +364,7 @@ def _display_style_of(layer) -> dict:
                           ("color_hchain_neg", _DEFAULT_COLOR_HCHAIN_NEG),
                           ("color_vtrail", _DEFAULT_COLOR_VTRAIL),
                           ("color_extrema", _DEFAULT_COLOR_EXTREMA),
+                          ("color_arrows", _DEFAULT_COLOR_ARROWS),
                           ("color_points", _DEFAULT_COLOR_POINTS)):
         raw = tags.get(f"ui.{name}")
         out[name] = raw if isinstance(raw, str) and _HEX_RE.match(raw) else default
@@ -1551,9 +1553,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._composite_frame = self.composite_panel.parentWidget()
         self._composite_frame.setVisible(False)
         self._mask_row = MaskRow()
+        self._mask_row.setToolTip("Hides the maxima and chains below the modulus percentile or outside the span of "
+                                  "scales; nothing is removed from the result")
         self._mask_row.maskChanged.connect(self._on_mask_row_changed)
         self.right_panel.add_section(
-            "Display mask — hides, never removes", self._mask_row, view_scoped=True)
+            "Display mask", self._mask_row, view_scoped=True)
         # The arrangement's group palette + its Commit button
         # (``arrangement/group_palette.py`` -- widget itself unchanged), relocated out of
         # ``ArrangementView`` into a second view-scoped section here -- built and hosted
@@ -2527,7 +2531,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.set_colormap(self._known_colormap(style["colormap"]))
             self.canvas.set_overlay_colors(style["color_hchain"], style["color_vtrail"],
                                            style["color_extrema"],
-                                           hchain_neg=style["color_hchain_neg"])
+                                           hchain_neg=style["color_hchain_neg"], arrows=style["color_arrows"])
             self.canvas.set_show_trails(style["show_trails"])
             self.canvas.set_show_isolated(style["show_isolated"])
             self.canvas.set_arrow_mode(style["arrows"])
@@ -3608,6 +3612,7 @@ both ``Canvas`` signals report the
         arrangement = getattr(self, "_center_view", "raster") in ("vector", "geo")
         stacked = getattr(self, "_center_view", "raster") != "raster"
         tables = res.get("hd_std") is not None and res.get("hd_cmax") is not None
+        cascade = any(n in _CASCADE_DEVICES and not b for n, b in zip(self._names, self._bypassed))
         self.right_panel.apply_relevance({
             "knob:opacity": overlays,
             "knob:point_size": has_ext or points,
@@ -3626,16 +3631,18 @@ both ``Canvas`` signals report the
             "swatch:color_hchain": has_lines, "swatch:color_vtrail": has_chains,
             "swatch:color_hchain_neg": has_lines and any("sign" in e for e in ext),
             "swatch:color_extrema": has_ext,
+            "swatch:color_arrows": has_ext and "arg" in ext[0] and style["arrows"] != "off",
             "trails": has_chains,
             "arrows": has_ext and "arg" in ext[0],
+            "wavelet_cascade": cascade, "isolated": has_ext,
             "hillshade": single, "surface": single,
             "depth": single and style["surface"],
-            "Display mask — hides, never removes": arrangement,
+            "Display mask": arrangement and (has_chains or has_ext),
             "Groups": arrangement and has_chains,
             "Topology": has_chains or bool(self._topology_rows_shown),
             "Skeleton": has_chains,
             "Spectrum": tables or res.get("h_map") is not None or has_ext or self._directional_params() is not None or res.get("_directional") is not None,
-            "Figures": single or has_ext,
+            "Figures": has_ext,
             "Decomposition": self._decomposition_of(res) is not None,
             "Inpainting": bool(res.get("_hists")),
             "Transect": raster,
@@ -7958,7 +7965,7 @@ both ``Canvas`` signals report the
                   "rows": None if raster else self.map_view.display_mappings(),
                   "overlays": {"arrows": style["arrows"], "isolated": style["show_isolated"],
                                "colors": {k: style[k] for k in ("color_hchain", "color_hchain_neg",
-                                                                "color_vtrail", "color_extrema",
+                                                                "color_vtrail", "color_extrema", "color_arrows",
                                                                 "color_points")}},
                   "theme": load_settings().theme}
         return self._figure_written(path, figure)

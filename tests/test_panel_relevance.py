@@ -42,7 +42,7 @@ def test_a_raw_raster_shows_raster_controls_and_nothing_analysis_specific(window
     for key in ("swatches", "trails", "arrows", "knob:opacity", "knob:point_size",
                 "knob:line_width", "reconstruct", "knob:sun_azimuth", "depth",
                 "Skeleton", "Spectrum", "Decomposition", "Topology", "Groups",
-                "Display mask — hides, never removes"):
+                "Display mask", "Figures", "wavelet_cascade", "isolated"):
         assert not _shown(win, key), key
 
 
@@ -101,3 +101,13 @@ def test_a_stack_hands_its_tone_to_the_composite(window):
     win._refresh_panel_relevance()
     assert not _shown(win, "colormap") and not _shown(win, "stretch")
     assert not _shown(win, "hillshade") and _shown(win, "Composite")
+
+
+def test_maxima_reveal_the_isolated_box_and_the_figures_the_cascade_only_with_a_ladder_device(window):
+    win = window
+    _load(win, np.random.default_rng(0).normal(size=(20, 24)))
+    win._active_result = {"extrema": [_ext()]}
+    win._refresh_panel_relevance()
+    assert _shown(win, "isolated") and _shown(win, "Figures") and _shown(win, "arrows")
+    assert not _shown(win, "wavelet_cascade")           # no microcanonical ladder in the rack
+    assert not _shown(win, "Display mask")   # the Raster tab: no mask here

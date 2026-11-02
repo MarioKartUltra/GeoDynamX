@@ -1916,7 +1916,7 @@ a bounded gather of at most :attr:`draw_cap` chains per
         item.setImage(rgba.astype(np.uint8).transpose(1, 0, 2), levels=None)
 
     def set_overlay_colors(self, hchain: str, vtrail: str, extrema: str,
-                           hchain_neg: "str | None" = None) -> None:
+                           hchain_neg: "str | None" = None, arrows: "str | None" = None) -> None:
         """Per-layer overlay palette (``ui.color_hchain``/``ui.color_vtrail``/``ui.color_extrema``), each a hex color string -- rebuilds ``hchain_item``'s and ``vtrail_item``'s
         pens and ``extrema_item``'s brush, preserving whatever line width
         ``set_display_style`` last recorded (``self._overlay_line_width``) exactly the way a
@@ -1941,6 +1941,10 @@ a bounded gather of at most :attr:`draw_cap` chains per
         self.vtrail_item.setPen(pen)
         self.extrema_item.setBrush(pg.mkBrush(extrema))
         self._color_extrema = tuple(pg.mkColor(extrema).getRgb()[:3])
+        if arrows is not None:                 # the gradient arrows keep their own width
+            pen = pg.mkPen(arrows)
+            pen.setWidthF(1.2)
+            self.arrow_item.setPen(pen)
         self._paint_maxima_rasters()           # every maximum pixel takes the extrema colour
 
     def set_show_isolated(self, visible: bool) -> None:
