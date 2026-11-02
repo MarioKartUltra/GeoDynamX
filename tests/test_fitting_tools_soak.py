@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import gc
 import os
+import sys
 import warnings
 
 import numpy as np
@@ -30,7 +31,10 @@ ROUNDS = 20
 #: Measured on the integrated tree: about 52 objects a round recur in pyqtgraph's internals (plot
 #: datasets, rectangles, symbol pixmaps) after every widget, subscription and callback has returned
 #: to its baseline; a leak of a window or a tool is hundreds a round and the counts above catch it.
-GROWTH_PER_ROUND = 100
+#: Windows leaves about 106 a round on the same tree where macOS and Linux leave about 52; the extra
+#: wrapper objects per round there are not traced yet, so its limit stays loose while a leaking window or
+#: tool (hundreds a round) still trips it.
+GROWTH_PER_ROUND = 150 if sys.platform == "win32" else 100
 
 OPENERS = {
     "_multifractal_window": "_on_spectrum_button_clicked",

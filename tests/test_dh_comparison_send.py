@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from PySide6 import QtWidgets
+from PySide6 import QtTest, QtWidgets
 
 from dynamix.core import spectra
 from dynamix.shell.multifractal_window import MultifractalWindow
@@ -649,10 +649,21 @@ def _shown(qtbot, window):
     qtbot.wait(100)
 
 
-def _settled(view):
-    QtWidgets.QApplication.processEvents()
-    view.prepareForPaint()
-    return view.viewRange()
+def _settled(view, tries: int = 25):
+    """The view range once pyqtgraph's deferred auto-range and the window's late layout have run:
+    two readings 20 ms apart agree. One pass of the event loop was enough on macOS and Linux;
+    Windows delivered a resize after it, and the range read before that resize differed from the
+    settled one."""
+    last = None
+    for _ in range(tries):
+        QtWidgets.QApplication.processEvents()
+        view.prepareForPaint()
+        now = view.viewRange()
+        if last is not None and np.allclose(now, last, rtol=0, atol=1e-9):
+            return now
+        last = now
+        QtTest.QTest.qWait(20)
+    return last
 
 
 def test_an_own_refit_re_ranges_to_the_construction_and_a_send_does_not(qtbot, host):
