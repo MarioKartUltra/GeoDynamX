@@ -565,38 +565,86 @@ def test_a_send_leaves_the_d_h_view_where_it_is(qtbot, host):
     assert view.viewRange()[1][0] > -3.0                         # nor to the low one
 
 
-def test_view_all_and_the_auto_range_button_take_in_the_board_s_entries(qtbot, host):
-    """A send leaves the view where it is; View All (``autoRange``) then covers a far entry with
-    its bars, and so does the auto-range button; a send after that leaves the view again."""
+def _far(host):
+    """An entry far outside the construction's own D(h) range, with bars and a τ(q) row."""
     from dynamix.model.spectra_board import SentSpectrum
 
-    window = _construction(qtbot, host)
+    h = np.linspace(2.5, 3.5, 9)
+    q = np.linspace(-2.0, 2.0, 9)
+    return host.spectra_board.add(SentSpectrum(name="far", full_name="far", kind="canonical", h=h,
+                                               D=6.0 - (h - 3.0) ** 2, dD=np.full(9, 0.2), q=q,
+                                               tau=40.0 + 10.0 * q, identity={"n": "far"}))
+
+
+def _shown(qtbot, window):
     window.show()
     qtbot.waitExposed(window)
-    plot, view = window._plot, window._plot.getViewBox()
     qtbot.wait(100)
-    opening = view.viewRange()
-    h = np.linspace(2.5, 3.5, 9)
-    host.spectra_board.add(SentSpectrum(name="far", full_name="far", kind="canonical", h=h,
-                                        D=6.0 - (h - 3.0) ** 2, dD=np.full(9, 0.2), identity={"n": "far"}))
+
+
+def _settled(view):
     QtWidgets.QApplication.processEvents()
-    np.testing.assert_allclose(view.viewRange(), opening, atol=0.03)       # unchanged by the send
+    view.prepareForPaint()
+    return view.viewRange()
+
+
+def test_an_own_refit_re_ranges_to_the_construction_and_a_send_does_not(qtbot, host):
+    """The construction's own refits keep their auto-range over its own items with the board
+    holding an entry far outside them; a send never moves the view, and auto-range stays on."""
+    window = _construction(qtbot, host, *_broken_pair())
+    _shown(qtbot, window)
+    view = window._plot.getViewBox()
+    window._table_combo.setCurrentText("no-sup (std)")
+    opening = _settled(view)
+    _far(host)
+    np.testing.assert_allclose(_settled(view), opening, atol=0.03)          # the send: the view stays
+    assert all(view.autoRangeEnabled())
+    window._table_combo.setCurrentText("sup (cmax)")                        # an own refit
+    (x0, x1), (y0, y1) = _settled(view)
+    (bx0, bx1), (by0, by1) = view.childrenBounds()                          # the construction's own items
+    assert x0 <= bx0 and x1 >= bx1 and y0 <= by0 and y1 >= by1
+    assert (x1 - x0) <= 1.3 * (bx1 - bx0) and (y1 - y0) <= 1.3 * (by1 - by0)  # its range, padded
+    assert x1 < 2.5 and y1 < 5.0                                             # never the far entry
+    assert not np.allclose(view.viewRange(), opening, atol=0.03)            # it moved to the refit
+
+
+def test_view_all_and_the_auto_range_button_take_in_the_board_s_entries(qtbot, host):
+    """A send leaves the view where it is; View All (``autoRange``) then covers a far entry with
+    its bars on D(h) and its τ(q) on the τ panel, and so does the auto-range button, as View All
+    (an auto-range keeps to the construction's own items); a send after that leaves the view
+    again. With the board empty the button turns auto-range on, as pyqtgraph's own."""
+    window = _construction(qtbot, host)
+    _shown(qtbot, window)
+    plot, view = window._plot, window._plot.getViewBox()
+    tau_view = window.method_plots["tau"].getViewBox()
+    opening, tau_opening = _settled(view), _settled(tau_view)
+    _far(host)
+    np.testing.assert_allclose(_settled(view), opening, atol=0.03)          # unchanged by the send
+    np.testing.assert_allclose(_settled(tau_view), tau_opening, atol=0.03)
+    assert tau_opening[1][1] < 20.0
     view.autoRange()                                                        # View All
     (x0, x1), (y0, y1) = view.viewRange()
     assert x0 <= opening[0][0] + 0.03 and x1 >= 3.5 and y1 >= 6.2          # the far entry and its bar
+    tau_view.autoRange()                                                    # View All on τ(q)
+    assert tau_view.viewRange()[1][1] >= 60.0                               # the sent τ(q) reached
     plot.setRange(xRange=opening[0], yRange=opening[1], padding=0)
-    plot.autoBtn.mode = "auto"
-    plot.autoBtnClicked()                                                   # the auto-range button
-    QtWidgets.QApplication.processEvents()
-    view.prepareForPaint()
-    (x0, x1), (y0, y1) = view.viewRange()
+    assert not any(view.autoRangeEnabled())
+    plot.autoBtn.clicked.emit(plot.autoBtn)                                 # the auto-range button
+    (x0, x1), (y0, y1) = _settled(view)
     assert x1 >= 3.5 and y1 >= 6.2
     before = view.viewRange()
     host.spectra_board.add(_entry("low", shift=-6.0))
-    QtWidgets.QApplication.processEvents()
-    view.prepareForPaint()
-    np.testing.assert_allclose(view.viewRange(), before, atol=0.03)        # a later send: still put
+    np.testing.assert_allclose(_settled(view), before, atol=0.03)          # a later send: still put
     assert view.viewRange()[1][0] > -3.0
+    tau_plot = window.method_plots["tau"]
+    tau_plot.setRange(yRange=tau_opening[1], padding=0)
+    tau_plot.autoBtn.clicked.emit(tau_plot.autoBtn)                         # τ(q)'s auto-range button
+    assert _settled(tau_view)[1][1] >= 60.0
+    for key in [e.key for e in host.spectra_board.entries()]:
+        host.spectra_board.remove(key)
+    plot.setRange(xRange=(5.0, 6.0), padding=0)
+    plot.autoBtn.clicked.emit(plot.autoBtn)                                 # the board empty
+    assert all(view.autoRangeEnabled()) and _settled(view)[0][1] < 2.5
 
 
 def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
