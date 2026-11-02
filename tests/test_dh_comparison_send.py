@@ -391,6 +391,41 @@ def test_the_generalized_window_sends_the_converged_estimate_and_the_legendre_re
     np.testing.assert_allclose(converged.dD, half)                   # sent again: replaced in place
 
 
+def test_the_generalized_replace_matches_the_sample_set(qtbot, host):
+    """Replace in the Generalized window reads the set the last Compute ran over: a converged
+    curve sent over set A is never replaced by a fit over set B, and the Replace stays greyed
+    until a fit over B is on the board."""
+    from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
+    from tests.test_spectrum_window import _per_scale_set
+
+    one = _per_scale_set()[0]["synthetic"]
+    w = GeneralizedSpectrumWindow({"A": one, "B": one}, log2_L=7., source="L1", parent=host)
+    qtbot.addWidget(w)
+    board, replace = host.spectra_board, w.replace_buttons["converged"]
+
+    def computed(name):
+        fit = _generalized_fit(f"L1 · {name}, generalized spectrum")
+        w._fit, w._last_name = {**fit, "settings": {**fit["settings"], "set": name}}, fit["name"]
+        w.fitChanged.emit(w._fit)
+
+    computed("A")
+    w.send_buttons["converged"].click()
+    [a] = board.entries()
+    assert a.producer["table"] == "A" and a.identity["table"] == "A" and replace.isEnabled()
+    w.source_combo.setCurrentText("B")                       # the controls changed: no fit on show
+    assert w._fit is None and not replace.isEnabled()
+    computed("B")
+    assert not replace.isEnabled()                           # nothing over B on the board
+    assert not w.send_to_board("converged", replace=True)
+    assert board.entries() == [a] and "nothing of this window's" in host.status[-1]
+    w.send_buttons["converged"].click()
+    _a, b = board.entries()
+    assert _a is a and b.producer["table"] == "B" and replace.isEnabled()
+    replace.click()
+    assert board.entries()[0] is a and board.entries()[1] is not b      # B's entry swapped, A's kept
+    assert board.entries()[1].key == b.key
+
+
 def test_a_computed_generalized_spectrum_sends_its_converged_points_with_their_bars(qtbot, host):
     """After a Compute the converged estimate is sent as the solid curve draws it, with the
     leave-one-scale-out half-width as its bars."""

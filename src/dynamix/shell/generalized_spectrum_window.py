@@ -179,9 +179,11 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
             button = QtWidgets.QPushButton(text)
             button.setToolTip("Send this spectrum to the D(h) comparison")
             button.clicked.connect(lambda _c=False, curve=curve: self.send_to_board(curve))
+            # The table is the sample set the last Compute ran over.
             replace = ReplaceButton(self, "generalized",
                                     lambda replace, curve=curve: self.send_to_board(curve, replace=replace),
-                                    f"{curve} spectrum", button, curve=curve)
+                                    f"{curve} spectrum", button, curve=curve,
+                                    table=lambda w: ((w._fit or {}).get("settings") or {}).get("set"))
             self.send_buttons[curve], self.replace_buttons[curve] = button, replace
             pick.addWidget(button)
             pick.addWidget(replace)
@@ -405,9 +407,9 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.readout.setText("Controls changed — Compute to apply; upstream samples are reused.")
 
     def _retract(self):
+        self._fit = None                  # gone before the retraction is heard: a Replace reads it
         if self._last_name:
             self.fitChanged.emit({"name": self._last_name, "valid": False})
-        self._fit = None
         for item in (self.curve, self.open_points, self.boundary_points, self.legendre_curve, self.band_lo, self.band_hi):
             item.setData([], [])
         self._show_band_entry(False)

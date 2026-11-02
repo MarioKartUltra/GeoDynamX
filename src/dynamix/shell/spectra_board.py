@@ -328,7 +328,8 @@ def generalized_entry(window, fit: dict, curve: str) -> "SentSpectrum | None":
     """The generalized spectrum window's ``curve`` from its fit: ``converged``, the estimate on
     the points the curve draws (the converged minima when the fit marks them, else the minima off
     the grid's boundary) with the leave-one-scale-out half-width as bars when the fit carries the
-    band; ``legendre``, the Legendre spectrum of the same τ table at γ = 0, without bars. None
+    band; ``legendre``, the Legendre spectrum of the same τ table at γ = 0, without bars. The
+    table is the sample set the fit ran over, so a Replace never swaps another set's curve. None
     when the fit holds no such curve."""
     h, D = np.asarray(fit["h"], dtype=np.float64), np.asarray(fit["D"], dtype=np.float64)
     dD = None
@@ -345,7 +346,8 @@ def generalized_entry(window, fit: dict, curve: str) -> "SentSpectrum | None":
     settings = {"curve": curve, **{k: _grid(v) for k, v in (fit.get("settings") or {}).items()
                                    if k not in ("lo", "hi")}}
     return from_fit(window, {"name": name, "h": h, "D": D, "D_err": dD}, "generalized",
-                    scale_window=fit.get("window"), settings=settings)
+                    scale_window=fit.get("window"), table=(fit.get("settings") or {}).get("set"),
+                    settings=settings)
 
 
 def send(window, spectrum: "SentSpectrum | None", nothing: str = "nothing to send", *,
