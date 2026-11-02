@@ -87,5 +87,5 @@ def test_the_negative_h_chain_colour_is_a_layer_style_with_its_own_swatch():
 
     assert _display_style_of(None)["color_hchain_neg"] == _hex(HCHAIN_NEG_COLOR)
     keys = [k for k, _label, _rgb in _SWATCH_SPECS]
-    assert keys == ["color_hchain", "color_hchain_neg", "color_vtrail", "color_extrema"]
+    assert keys == ["color_hchain", "color_hchain_neg", "color_vtrail", "color_extrema", "color_arrows"]
     assert "color_hchain_neg" in _SWATCH_TIPS
