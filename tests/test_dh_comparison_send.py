@@ -904,6 +904,38 @@ def test_r_and_the_context_menu_rename_the_selected_row_and_the_legend_follows(q
     assert _legend(window)[-1] == ("B", "B · a long provenance name")
 
 
+def test_delete_backspace_and_the_context_menu_remove_the_selected_row(qtbot, host):
+    """Beside the row's ×, Delete and Backspace on the selected row remove its entry, as the
+    row's context-menu "Remove" does; with no row selected the keys remove nothing."""
+    from PySide6 import QtCore
+
+    window = _construction(qtbot, host)
+    window.show()
+    qtbot.waitExposed(window)
+    board = host.spectra_board
+    a, b, c = board.add(_entry("A")), board.add(_entry("B")), board.add(_entry("C"))
+    table = _rows(window, qtbot)
+    I = window.board_inspector
+    table.setFocus()
+    table.setCurrentCell(-1, -1)
+    qtbot.keyClick(table, QtCore.Qt.Key.Key_Delete)
+    assert len(board) == 3                                        # nothing selected: nothing removed
+    table.selectRow(1)
+    qtbot.keyClick(table, QtCore.Qt.Key.Key_Delete)
+    assert [e.key for e in board.entries()] == [a, c]
+    table = _rows(window, qtbot)
+    table.selectRow(1)
+    qtbot.keyClick(table, QtCore.Qt.Key.Key_Backspace)
+    assert [e.key for e in board.entries()] == [a]
+    table = _rows(window, qtbot)
+    menu = I.row_menu(0)
+    assert [x.text() for x in menu.actions()] == ["Rename…", "Remove"]
+    [remove] = [x for x in menu.actions() if x.text() == "Remove"]
+    remove.trigger()
+    assert len(board) == 0 and not window._board_legend and not I.isVisibleTo(window)
+    assert b not in [e.key for e in board.entries()]
+
+
 def test_the_main_window_owns_the_board_and_names_a_send_on_its_status_line(qtbot, window):
     main = window
     assert isinstance(main.spectra_board, SpectraBoardModel)

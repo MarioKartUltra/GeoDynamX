@@ -584,7 +584,8 @@ class SpectraBoardInspector(QtWidgets.QWidget):
     the colour dialog), its display name (a double click, R on the selected row or the row's
     context menu "Rename…" edits it, Enter commits, Esc reverts, an empty name restores the
     producer's display name), its error bars and its tangent where it has them,
-    Up, Down and Remove. Every cell's tooltip is the full name. The owner sets ``board`` and
+    Up, Down and Remove (×; Delete or Backspace on the selected row and the context menu's
+    "Remove" as well). Every cell's tooltip is the full name. The owner sets ``board`` and
     calls :meth:`refresh` when the board changes; the rows are rebuilt on the event loop's next
     turn, so an edit or a button that changed the board never has its own cell replaced while
     its signal is being delivered."""
@@ -673,20 +674,29 @@ class SpectraBoardInspector(QtWidgets.QWidget):
             self.table.setCurrentItem(item)
             self.table.editItem(item)
 
+    def remove_row(self, row: int) -> None:
+        """Take row ``row``'s entry off the board."""
+        self.board.remove(self._key(row))
+
     def eventFilter(self, watched, event) -> bool:
-        # R renames the selected row; while a name is edited the editor has the keys.
+        # R renames the selected row, Delete or Backspace removes it; while a name is edited the
+        # editor has the keys.
         if (watched is self.table and event.type() == QtCore.QEvent.Type.KeyPress
-                and event.key() == QtCore.Qt.Key.Key_R and not event.modifiers()
-                and self.table.state() != QtWidgets.QAbstractItemView.State.EditingState
-                and self.table.currentRow() >= 0):
-            self.rename_row(self.table.currentRow())
-            return True
+                and not event.modifiers() and self.table.currentRow() >= 0
+                and self.table.state() != QtWidgets.QAbstractItemView.State.EditingState):
+            if event.key() == QtCore.Qt.Key.Key_R:
+                self.rename_row(self.table.currentRow())
+                return True
+            if event.key() in (QtCore.Qt.Key.Key_Delete, QtCore.Qt.Key.Key_Backspace):
+                self.remove_row(self.table.currentRow())
+                return True
         return super().eventFilter(watched, event)
 
     def row_menu(self, row: int) -> QtWidgets.QMenu:
-        """Row ``row``'s context menu: Rename…."""
+        """Row ``row``'s context menu: Rename… and Remove."""
         menu = QtWidgets.QMenu(self)
         menu.addAction("Rename…", lambda: self.rename_row(row))
+        menu.addAction("Remove", lambda: self.remove_row(row))
         return menu
 
     def _context_menu(self, pos) -> None:
