@@ -67,7 +67,7 @@ from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_
 from dynamix.shell.spectra_board import (BoardComparison, ReplaceButton, ancestor_with, board_of, dh_view_range,
                                          from_fit, kind_of_method, send, send_button, send_landed)
 from dynamix.shell.theme import current
-from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
+from dynamix.shell.window_fit import WrappingLayout, TOOL_WINDOW, show_while_inactive
 
 __all__ = ["SpectrumWindow"]
 
@@ -83,67 +83,7 @@ def _tangent_html(intercept: float, q_c: float) -> str:
 MODE_LABELS = ("Top percentile", "log|M|^q at scale", "log|M|^q on sup (all scales)")
 
 
-class _WrappingLayout(QtWidgets.QLayout):
-    """Control rows wrap rather than imposing their combined width on the window."""
-
-    def __init__(self):
-        super().__init__()
-        self._items = []
-        self.setContentsMargins(0, 0, 0, 0)
-        self.setSpacing(6)
-
-    def addItem(self, item):
-        self._items.append(item)
-
-    def count(self):
-        return len(self._items)
-
-    def itemAt(self, index):
-        return self._items[index] if 0 <= index < len(self._items) else None
-
-    def takeAt(self, index):
-        return self._items.pop(index) if 0 <= index < len(self._items) else None
-
-    def expandingDirections(self):
-        return QtCore.Qt.Orientation(0)
-
-    def hasHeightForWidth(self):
-        return True
-
-    def heightForWidth(self, width):
-        return self._arrange(QtCore.QRect(0, 0, width, 0), dry=True)
-
-    def minimumSize(self):
-        size = QtCore.QSize()
-        for item in self._items:
-            if not item.isEmpty():
-                size = size.expandedTo(item.minimumSize())
-        return size
-
-    def sizeHint(self):
-        return self.minimumSize()
-
-    def setGeometry(self, rect):
-        super().setGeometry(rect)
-        self._arrange(rect)
-
-    def _arrange(self, rect, dry=False):
-        x, y, height = rect.x(), rect.y(), 0
-        for item in self._items:
-            if item.isEmpty():
-                continue
-            size = item.sizeHint()
-            width = min(size.width(), rect.width())
-            if x > rect.x() and x + width > rect.x() + rect.width():
-                x, y, height = rect.x(), y + height + self.spacing(), 0
-            item_height = (item.heightForWidth(width) if item.hasHeightForWidth()
-                           else size.height())
-            if not dry:
-                item.setGeometry(QtCore.QRect(x, y, width, item_height))
-            x += width + self.spacing()
-            height = max(height, item_height)
-        return y + height - rect.y()
-
+_WrappingLayout = WrappingLayout      # the construction window's rows, from window_fit
 
 def _row(*widgets) -> QtWidgets.QWidget:
     """``widgets`` side by side as one item of a wrapping strip."""

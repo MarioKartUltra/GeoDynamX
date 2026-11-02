@@ -93,3 +93,66 @@ def remember_geometry(widget: QtWidgets.QWidget, key: str) -> None:
             size = clamp_size(rect.size(), screen.availableGeometry(), fraction=1.0)
             widget.setGeometry(QtCore.QRect(rect.topLeft(), size))
     widget._geometry_memory = _GeometryMemory(widget, key, path)
+
+
+class WrappingLayout(QtWidgets.QLayout):
+    """A row of controls that wraps rather than imposing its combined width on the window: a
+    tool window stays inside an 800-pixel screen whatever the platform's font metrics."""
+
+    def __init__(self):
+        super().__init__()
+        self._items = []
+        self.setContentsMargins(0, 0, 0, 0)
+        self.setSpacing(6)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return QtCore.Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._arrange(QtCore.QRect(0, 0, width, 0), dry=True)
+
+    def minimumSize(self):
+        size = QtCore.QSize()
+        for item in self._items:
+            if not item.isEmpty():
+                size = size.expandedTo(item.minimumSize())
+        return size
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._arrange(rect)
+
+    def _arrange(self, rect, dry=False):
+        x, y, height = rect.x(), rect.y(), 0
+        for item in self._items:
+            if item.isEmpty():
+                continue
+            size = item.sizeHint()
+            width = min(size.width(), rect.width())
+            if x > rect.x() and x + width > rect.x() + rect.width():
+                x, y, height = rect.x(), y + height + self.spacing(), 0
+            item_height = (item.heightForWidth(width) if item.hasHeightForWidth()
+                           else size.height())
+            if not dry:
+                item.setGeometry(QtCore.QRect(x, y, width, item_height))
+            x += width + self.spacing()
+            height = max(height, item_height)
+        return y + height - rect.y()

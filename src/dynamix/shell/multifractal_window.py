@@ -64,7 +64,7 @@ from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported
 from dynamix.shell.shared_range import SharedRangeFollower
 from dynamix.shell.spectra_board import (ReplaceButton, ancestor_with, dh_view_range, from_fit, kind_of_method,
                                          send, send_button, send_landed)
-from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
+from dynamix.shell.window_fit import TOOL_WINDOW, WrappingLayout, show_while_inactive
 
 __all__ = ["MultifractalWindow"]
 
@@ -481,7 +481,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         layout.addLayout(controls)
 
         # The D(h) comparison: what this window sends to the board, the tangent it draws.
-        compare = QtWidgets.QHBoxLayout()
+        compare = WrappingLayout()          # wraps under a wide font (DejaVu Sans on Linux)
         self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
         self.send_button.setToolTip("The fit on show, with the error bars D(h) draws (the fit's standard "
                                     "errors over the scale window), to the D(h) comparison")
@@ -507,7 +507,6 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.send_landed_button.setEnabled(bool(self._landed))
         self.send_landed_button.clicked.connect(lambda _c=False: self.send_landed_results())
         compare.addWidget(self.send_landed_button)
-        compare.addStretch(1)
         self.export_button = QtWidgets.QPushButton("Export figure…")
         self.export_button.setToolTip("These plots as a PNG, with a record naming the fit")
         self.export_button.clicked.connect(lambda _c=False: self._export_figure())
