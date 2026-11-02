@@ -63,7 +63,7 @@ from dynamix.core import chain_groups, spectra
 from dynamix.model.spectra_board import plain
 from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
-                                                WheelAxisViewBox, add_zero_lines)
+                                                WheelAxisViewBox, add_zero_lines, tip_sample_sets)
 from dynamix.shell.spectra_board import (BoardComparison, ReplaceButton, ancestor_with, board_of, dh_view_range,
                                          from_fit, kind_of_method, send, send_button, send_landed)
 from dynamix.shell.theme import current
@@ -779,6 +779,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
                 self.ld_source_combo = QtWidgets.QComboBox(self)
                 self.ld_source_combo.hide()
                 self.ld_source_combo.addItems(list(self._per_scale))
+                tip_sample_sets(self.ld_source_combo)
                 self.ld_source_combo.currentTextChanged.connect(lambda _t: self._recompute())
                 self.gaussian_check = QtWidgets.QCheckBox("Ensemble candidates γ")
                 self.gaussian_check.setToolTip("Weighted-mean candidates can include mixed populations. Use the separate Generalized spectrum tool for Touchette–Beck inversion.")

@@ -74,6 +74,14 @@ def _modulus_matrix(chains: list, n_sc: int) -> np.ndarray:
     return M
 
 
+def _sup_matrix(M: np.ndarray) -> np.ndarray:
+    """The chain-max (sup) rule on a :func:`_modulus_matrix`: each modulus replaced by the running
+    maximum along its chain from the finest scale, NaN where the chain is absent."""
+    alive = np.isfinite(M)
+    S = np.maximum.accumulate(np.where(alive, M, -np.inf), axis=1)
+    return np.where(alive & (S > 0), S, np.nan)
+
+
 def _accumulate(M: np.ndarray, q: np.ndarray) -> tuple:
     n_q, n_sc = len(q), M.shape[1]
     sums = tuple(np.zeros((n_q, n_sc), dtype=np.float64) for _ in range(4))
@@ -124,10 +132,7 @@ def build_hd_from_chains(chains: list, scales, q_list=None, *, min_chain_len: in
     scales_arr = np.asarray(scales, dtype=np.float64)
     log2_scales = np.log2(scales_arr)
     M = _modulus_matrix(chains, len(scales_arr))
-    alive = np.isfinite(M)
-    M_cmax = np.maximum.accumulate(np.where(alive, M, -np.inf), axis=1)
-    M_cmax = np.where(alive & (M_cmax > 0), M_cmax, np.nan)
-    Na = alive.sum(axis=0).astype(np.int64)
+    Na = np.isfinite(M).sum(axis=0).astype(np.int64)
     std = _derive(*_accumulate(M, q), Na, q, scales_arr, log2_scales)
-    cmax = _derive(*_accumulate(M_cmax, q), Na, q, scales_arr, log2_scales)
+    cmax = _derive(*_accumulate(_sup_matrix(M), q), Na, q, scales_arr, log2_scales)
     return std, cmax

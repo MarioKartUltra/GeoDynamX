@@ -84,8 +84,8 @@ def _choose(row):
     ("canonical", {"device": "wtmm2d"}, "std", {}, "WTMM (no sup)"),
     ("canonical", {"device": None}, "cmax", {}, "WTMM (sup)"),
     ("canonical", {"device": "wtmm2d_roi"}, "std", {}, "WTMM (no sup)"),
-    ("canonical", {"device": "holder_measure"}, None, {}, "GMWP – measure (moments)"),
-    ("canonical", {"device": "holder_multiaffine"}, None, {}, "GMWP – multiaffine (moments)"),
+    ("canonical", {"device": "holder_measure"}, None, {}, "GMWP – measure (Moments)"),
+    ("canonical", {"device": "holder_multiaffine"}, None, {}, "GMWP – multiaffine (Moments)"),
     ("canonical", {"device": "mz_edges"}, "std", {}, None),
     ("histogram", {"device": "wtmm2d"}, None, {}, "WTMM (histogram)"),
     ("boxcount", {"device": "wtmm2d"}, None, {}, "WTMM (box)"),
@@ -104,7 +104,11 @@ def _choose(row):
     ("generalized", {"device": "wavelet_leaders"}, None, {"set": "p-leaders", "curve": "converged"}, "p-L (dwt) (gen)"),
     ("generalized", {"device": "cwt_leaders", "measure": "leaders"}, None, {"set": "CWT p-leaders", "curve": "converged"},
      "p-L (cwt) (gen)"),
-    ("generalized", {"device": "wtmm2d"}, None, {"set": "maxima lines", "curve": "legendre"}, "WTMM (lines) (Legendre)"),
+    ("generalized", {"device": "wtmm2d"}, None, {"set": "WTMMM (chains w/ sup)", "curve": "legendre"},
+     "WTMMM (chains w/ sup) (Legendre)"),
+    ("large_deviations", {"device": "wtmm2d"}, "WTMMM (chains; no sup)", {}, "LD · WTMMM (chains; no sup)"),
+    ("large_deviations", {"device": "wtmm2d"}, "WTMMM (raw; no chains)", {}, "LD · WTMMM (raw; no chains)"),
+    ("cumulant", {"device": "wtmm2d"}, "WTMMM (chains w/ sup)", {}, "LC · WTMMM (chains w/ sup)"),
     ("large_deviations", {"device": "wavelet_leaders"}, "WSE leaders", {}, "LD · wse-L (dwt)"),
     ("large_deviations", {"device": "cwt_leaders", "measure": "wtmm"}, "CWT leaders", {}, "LD · WL (wtmm)"),
     ("cumulant", {"device": "wavelet_leaders"}, "leaders", {}, "LC · WL (dwt)"),
@@ -710,12 +714,12 @@ def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbo
     window.send_landed_button.click()
     [entry] = host.spectra_board.entries()
     fit = spectra.fit_spectra(hd_b, 1.0, 5.0)
-    assert entry.kind == "canonical" and entry.name == "GMWP – measure (moments) · a 1–5"
+    assert entry.kind == "canonical" and entry.name == "GMWP – measure (Moments) · a 1–5"
     assert entry.full_name == "moments · B · log2 a 1–5"
     np.testing.assert_allclose(entry.D, fit["D"])
     np.testing.assert_allclose(entry.dD, fit["D_err"])
     assert entry.identity["tool"] == sources[0]["identity"] and entry.identity["scale_window"] == [1.0, 5.0]
-    assert [n for _c, n, _f in window._board_legend] == ["GMWP – measure (moments) · a 1–5"]
+    assert [n for _c, n, _f in window._board_legend] == ["GMWP – measure (Moments) · a 1–5"]
     assert window.send_landed_results(["dyadic leaders · C"]) == 1
     assert host.spectra_board.entries()[-1].kind == "dwt_leaders"
 

@@ -108,6 +108,20 @@ def add_zero_lines(plot) -> tuple:
     return lines
 
 
+def tip_sample_sets(combo) -> None:
+    """Each item of a sample-set chooser says what its set holds (by the item's text), and so
+    does the chooser for the set on show."""
+    from dynamix.model.samples import DESCRIPTIONS
+
+    for i in range(combo.count()):
+        combo.setItemData(i, DESCRIPTIONS.get(combo.itemText(i), ""), QtCore.Qt.ItemDataRole.ToolTipRole)
+
+    def follow(_i=None):
+        combo.setToolTip(DESCRIPTIONS.get(combo.currentText(), ""))
+    combo.currentIndexChanged.connect(follow)
+    follow()
+
+
 #: The grid has twelve columns: the three families span four each, the four spectra three each.
 _SPECTRUM_CELLS = {"tau": (1, 0), "D": (1, 3), "h": (1, 6), "cq": (1, 9)}
 #: D(h)'s opening view: h from −2 to 2, D from −½ to 1½, the same on every dataset until zoomed.

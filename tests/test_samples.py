@@ -23,19 +23,67 @@ def _chains(scales):
             chain([2.0, 1.5]), chain([3.0, 2.5, 2.0, 1.5])]
 
 
-def test_a_wtmm_result_offers_its_maxima_lines_and_every_maximum():
+def _line(mods, row=0):
+    """One scale's extrema: a straight maxima line along ``row`` with the moduli ``mods``."""
+    n = len(mods)
+    return {"x": np.arange(n, dtype=np.int64), "y": np.full(n, row, dtype=np.int64),
+            "mod": np.asarray(mods, dtype=np.float64), "arg": np.zeros(n), "line_id": np.zeros(n, dtype=np.int64)}
+
+
+def test_a_wtmm_result_offers_its_chains_without_and_with_the_sup_rule_its_raw_wtmmm_and_every_maximum():
+    """The chains as the two partition tables count them (no sup: the modulus along each chain;
+    sup: the running maximum from the finest scale), the WTMMM of each scale unchained (the
+    maxima along each maxima line, interior points only), every maximum."""
+    from dynamix.core.partition_tables import _modulus_matrix, _sup_matrix
+    from dynamix.model.samples import CHAINS, CHAINS_SUP, DESCRIPTIONS, RAW
+
     scales = np.array([2.0, 4.0, 8.0, 16.0])
-    extrema = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]
+    extrema = [_line([1.0, 3.0, 2.0, 2.5, 1.0, 0.5]) for _ in scales]
     sets = sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema, "params": {}})
-    assert list(sets) == ["maxima lines", "every maximum"]
-    assert [len(m) for m in sets["maxima lines"]["mods"]] == [4, 4, 3, 3]       # chains alive per scale
-    assert sets["maxima lines"]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
-    assert [len(m) for m in sets["every maximum"]["mods"]] == [3, 3, 3, 3]
-    assert sets["every maximum"]["weights"] is None
+    assert list(sets) == [CHAINS, CHAINS_SUP, RAW, "every maximum"]
+    assert (CHAINS, CHAINS_SUP, RAW) == ("WTMMM (chains; no sup)", "WTMMM (chains w/ sup)", "WTMMM (raw; no chains)")
+    assert [len(m) for m in sets[CHAINS]["mods"]] == [4, 4, 3, 3]              # chains alive per scale
+    assert sets[CHAINS]["mods"][0].tolist() == [8.0, 0.5, 2.0, 3.0]
+    assert sets[CHAINS]["mods"][2].tolist() == [9.0, 0.3, 2.0]
+    assert [len(m) for m in sets[CHAINS_SUP]["mods"]] == [4, 4, 3, 3]          # the same chains
+    assert sets[CHAINS_SUP]["mods"][1].tolist() == [8.0, 0.5, 2.0, 3.0]        # the sup from the finest scale
+    assert sets[CHAINS_SUP]["mods"][2].tolist() == [9.0, 0.5, 3.0]
+    M = _modulus_matrix(_chains(scales), 4)                                     # what the cmax table counts
+    np.testing.assert_array_equal(np.sort(sets[CHAINS_SUP]["mods"][3]), np.sort(_sup_matrix(M)[:, 3][np.isfinite(M[:, 3])]))
+    assert [m.tolist() for m in sets[RAW]["mods"]] == [[3.0, 2.5]] * 4          # the line's two interior maxima
+    assert [len(m) for m in sets["every maximum"]["mods"]] == [6, 6, 6, 6]
+    assert all(sets[k]["weights"] is None for k in sets)
+    assert all(DESCRIPTIONS[k] for k in sets)
     assert has_sample_sets({"scales": scales, "chains": _chains(scales), "extrema": extrema})
+    no_lines = [{"mod": np.array([1.0, 2.0, 3.0])} for _ in scales]             # moduli without positions
+    assert list(sample_sets({"scales": scales, "chains": _chains(scales), "extrema": no_lines})) == \
+        [CHAINS, CHAINS_SUP, "every maximum"]
     bare = [{"x": np.zeros(2), "y": np.zeros(2)}]                                # a stub's chains: no modulus
     assert sample_sets({"scales": scales, "chains": bare, "extrema": []}) == {}
     assert not has_sample_sets({"scales": scales, "chains": bare}) and not has_sample_sets({"h_map": None})
+
+
+def test_the_raw_wtmmm_are_the_points_the_chainer_links(clean_registry):
+    """On a real WTMM result the raw set holds, per scale, the moduli of xsmurf's single maxima
+    of the result's own extrema, the set every chain is drawn from."""
+    from dynamix.core.frames import LocalFrame
+    from dynamix.core.rasterfield import RasterField
+    from dynamix.core.wtmm_backend import get_backend
+    from dynamix.devices import register_builtin_devices
+    from dynamix.model.device import defaults_for, get_device
+    from dynamix.model.samples import CHAINS, RAW
+    from tests.conftest import FIXED_EDGES, fbm2d
+
+    register_builtin_devices()
+    dev = get_device("wtmm2d")
+    field = RasterField(name="f", values=fbm2d(64, 0.6, seed=2), frame=LocalFrame(units="px"),
+                        x_axis=np.arange(64.0), y_axis=np.arange(64.0))
+    res = dev.compute(field, {**defaults_for(dev), **FIXED_EDGES, "n_oct": 3})
+    sets = sample_sets(res)
+    single = get_backend("python").single_maxima2d(res["extrema"], smooth=bool(res["params"]["smooth"]))
+    assert [m.tolist() for m in sets[RAW]["mods"]] == [s["mod"].tolist() for s in single]
+    assert all(len(r) <= len(e["mod"]) for r, e in zip(sets[RAW]["mods"], res["extrema"]))
+    assert len(sets[CHAINS]["mods"][0]) <= len(sets[RAW]["mods"][0])           # the chains start at single maxima
 
 
 def test_the_samples_contract_flattens_over_the_valid_cells_with_the_count_factor():

@@ -21,6 +21,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from dynamix.core import spectra
+from dynamix.model.samples import CHAINS, CHAINS_SUP, RAW
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
 __all__ = ["BOARD_HUES", "BoardComparison", "ReplaceButton", "SpectraBoardInspector", "SpectraBoardModel",
@@ -177,12 +178,13 @@ def method_of(result) -> dict:
 def _set_short(name, method: dict) -> "str | None":
     """A leaders or WTMM sample set's short name, by its name in the ``Samples`` contract or its
     label on a menu: WL, p-L and wse-L for the leaders, p-leaders and weak-scaling leaders, the
-    dyadic ones (dwt), the CWT ones over every pixel (cwt) or over the WTMM maxima (wtmm)."""
+    dyadic ones (dwt), the CWT ones over every pixel (cwt) or over the WTMM maxima (wtmm); a WTMM
+    set's menu name is its short name."""
     cwt = "wtmm" if method.get("measure") == "wtmm" else "cwt"
     return {"leaders": "WL (dwt)", "p-leaders": "p-L (dwt)", "wse": "wse-L (dwt)", "WSE leaders": "wse-L (dwt)",
             "coefficients": "coef (dwt)", "cwt-leaders": f"WL ({cwt})", "CWT leaders": f"WL ({cwt})",
             "cwt-p-leaders": f"p-L ({cwt})", "CWT p-leaders": f"p-L ({cwt})",
-            "maxima lines": "WTMM (lines)", "every maximum": "WTMM (maxima)"}.get(str(name))
+            CHAINS: CHAINS, CHAINS_SUP: CHAINS_SUP, RAW: RAW, "every maximum": "WTMM (maxima)"}.get(str(name))
 
 
 def short_name(kind: str, identity: dict) -> "str | None":
@@ -191,7 +193,7 @@ def short_name(kind: str, identity: dict) -> "str | None":
 
     ============================  ==================================================================
     canonical (WTMM tables)       WTMM (sup) for the cmax table, WTMM (no sup) for std
-    canonical (moment route)      GMWP – measure (moments), GMWP – multiaffine (moments)
+    canonical (moment route)      GMWP – measure (Moments), GMWP – multiaffine (Moments)
     dwt_leaders                   WL (dwt), p-L (dwt), wse-L (dwt) by the table's set
     cwt_leaders                   WL (cwt) over every pixel, WL (wtmm) over the maxima
     histogram                     WTMM (histogram); GMWLP over leaders (Cardo & Corvalán 2009),
@@ -215,7 +217,7 @@ def short_name(kind: str, identity: dict) -> "str | None":
     if kind == "canonical":
         if wtmm:
             return {"cmax": "WTMM (sup)", "std": "WTMM (no sup)"}.get(table)
-        return f"{by_map[device]} (moments)" if device in ("holder_measure", "holder_multiaffine") else None
+        return f"{by_map[device]} (Moments)" if device in ("holder_measure", "holder_multiaffine") else None
     if kind == "dwt_leaders":
         return _set_short(method.get("set") or "leaders", method)
     if kind == "cwt_leaders":

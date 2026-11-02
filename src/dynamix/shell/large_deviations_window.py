@@ -2,8 +2,8 @@
 # Copyright (C) 2026 Abraham Joseph Okayli Masaryk
 """The Large deviations window: the microcanonical route's own tool.
 
-One per-level sample set at a time (:mod:`dynamix.model.samples`: the WTMM's maxima lines or
-every maximum, the wavelet leaders' sets): every sample's local exponent h_λ = log₂ M / log₂(a/L)
+One per-level sample set at a time (:mod:`dynamix.model.samples`: the WTMM's WTMMM, chained with
+or without the sup rule or unchained, and every maximum; the wavelet leaders' sets): every sample's local exponent h_λ = log₂ M / log₂(a/L)
 per scale (the left panel, their histograms), and the large-deviation spectrum counted on them
 over the chosen scales (:mod:`dynamix.core.large_deviation`): the adaptive bins' (h(q), D(q))
 curve, or the fixed-ε sweep's three curves whose spread is the convergence check. No Legendre
@@ -18,7 +18,7 @@ import pyqtgraph as pg
 from PySide6 import QtCore, QtWidgets
 
 from dynamix.core import large_deviation as ld
-from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color
+from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color, tip_sample_sets
 from dynamix.shell.theme import current
 from dynamix.shell.shared_range import SharedRangeFollower
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
@@ -79,6 +79,7 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         controls.addWidget(QtWidgets.QLabel("Source"))
         self.source_combo = QtWidgets.QComboBox()
         self.source_combo.addItems(list(self._sets))
+        tip_sample_sets(self.source_combo)
         self.source_combo.currentIndexChanged.connect(lambda _i: self._on_source_changed())
         controls.addWidget(self.source_combo)
         controls.addWidget(QtWidgets.QLabel("Bins"))

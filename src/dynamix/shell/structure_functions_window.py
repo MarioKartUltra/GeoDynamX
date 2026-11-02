@@ -25,7 +25,7 @@ from PySide6 import QtCore, QtWidgets
 from dynamix.core import leaders, spectra
 from dynamix.model.samples import LABELS
 from dynamix.shell.multifractal_window import (PhysicalAxis, PhysicalLog2Axis, WheelAxisViewBox, _q_color,
-                                               add_zero_lines)
+                                               add_zero_lines, tip_sample_sets)
 from dynamix.shell.theme import current
 from dynamix.shell.shared_range import SharedRangeFollower
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
@@ -104,6 +104,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.set_combo = QtWidgets.QComboBox()
         for name in self._samples["sets"]:
             self.set_combo.addItem(LABELS.get(name, name), name)
+        tip_sample_sets(self.set_combo)
         self.set_combo.currentIndexChanged.connect(lambda _i: self._refit(rebuild=True))
         controls.addWidget(self.set_combo)
         controls.addWidget(QtWidgets.QLabel("q"))

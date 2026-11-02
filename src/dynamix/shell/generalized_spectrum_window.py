@@ -14,7 +14,7 @@ from dynamix.core.nonconcave import (gamma_convergence, gaussian_ensemble, gener
                                      scale_jackknife)
 from dynamix.core.partition_tables import moment_grid
 from dynamix.shell.theme import current
-from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color, add_zero_lines
+from dynamix.shell.multifractal_window import WheelAxisViewBox, _q_color, add_zero_lines, tip_sample_sets
 from dynamix.shell.plot_zoom import zoom_plot  # noqa: F401  (the source scan's marker; the panels take WheelAxisViewBox)
 from dynamix.shell.shared_range import SharedRangeFollower
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
@@ -111,6 +111,7 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         row = QtWidgets.QHBoxLayout()
         self.source_combo = QtWidgets.QComboBox()
         self.source_combo.addItems(list(sets))
+        tip_sample_sets(self.source_combo)
         row.addWidget(QtWidgets.QLabel("Samples"))
         row.addWidget(self.source_combo)
         self.apply_button = QtWidgets.QPushButton("Compute generalized spectrum")
