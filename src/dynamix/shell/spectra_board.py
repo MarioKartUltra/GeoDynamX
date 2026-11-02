@@ -474,8 +474,11 @@ class BoardComparison:
     through its points), its error bars while shown, its tangent dashed across the view while
     shown, its τ(q) on the τ panel when it carries one; the board's inspector under the panels
     while the board holds entries. The window redraws on every board change while shown and
-    catches up when shown again. The board's items never set the D(h) view's extent: the view
-    keeps the window's own range, and an entry outside it is reached by zooming.
+    catches up when shown again. A board change never moves the D(h) view: while the board
+    draws anything, the view's auto-range is switched off before the drawing changes, so the
+    view keeps the range it shows; the entries' points and bars count in the view's bounds, so
+    the auto-range button and View All take them in (the tangents, drawn across the view, and
+    the τ(q) panel's curves do not).
 
     The window calls :meth:`_build_board` with its D(h) and τ(q) plots once they exist (and lays
     out the inspector it returns), :meth:`attach_board` once built, and redraws its legend in
@@ -527,12 +530,17 @@ class BoardComparison:
             self.attach_board(self.spectra_board)
         super().showEvent(event)
 
-    def _add_board_item(self, plot, item) -> None:
-        plot.addItem(item, ignoreBounds=True)
+    def _add_board_item(self, plot, item, counted: bool = False) -> None:
+        """``item`` on ``plot``, in the view's bounds when ``counted``."""
+        plot.addItem(item, ignoreBounds=not counted)
         self._board_items.append((plot, item))
 
     def _draw_board(self) -> None:
         d_plot, tau_plot = self._board_plots
+        if self._board_items or (self._board_connected and len(self.spectra_board)):
+            # Auto-range off at the range on show (a pending update of the window's own curves
+            # is applied first), so the counted entries never move the view.
+            d_plot.getViewBox().disableAutoRange()
         for plot, item in self._board_items:
             plot.removeItem(item)
         self._board_items, self._board_legend, self._board_tangents = [], [], []
@@ -545,14 +553,14 @@ class BoardComparison:
             pen = None if entry.kind in ("histogram", "boxcount") else pg.mkPen(colour, width=1.4)
             curve = pg.PlotDataItem(entry.h, entry.D, pen=pen, connect="finite", symbol="o",
                                     symbolSize=4, symbolPen=None, symbolBrush=colour)
-            self._add_board_item(d_plot, curve)
+            self._add_board_item(d_plot, curve, counted=True)
             finite = np.isfinite(entry.h) & np.isfinite(entry.D)
             if entry.show_errors and entry.has_errors and finite.any():
                 bars = {"x": entry.h[finite], "y": entry.D[finite]}
                 for key, err in (("height", entry.dD), ("width", entry.dh)):
                     if err is not None:
                         bars[key] = np.where(np.isfinite(err[finite]), 2.0 * err[finite], 0.0)
-                self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars))
+                self._add_board_item(d_plot, pg.ErrorBarItem(pen=pg.mkPen(colour), beam=0.0, **bars), counted=True)
             if entry.show_tangent and entry.tangent is not None:
                 line = pg.PlotDataItem(pen=pg.mkPen(colour, width=1.2, style=QtCore.Qt.DashLine))
                 self._add_board_item(d_plot, line)

@@ -548,6 +548,40 @@ def test_a_send_leaves_the_d_h_view_where_it_is(qtbot, host):
     assert view.viewRange()[1][0] > -3.0                         # nor to the low one
 
 
+def test_view_all_and_the_auto_range_button_take_in_the_board_s_entries(qtbot, host):
+    """A send leaves the view where it is; View All (``autoRange``) then covers a far entry with
+    its bars, and so does the auto-range button; a send after that leaves the view again."""
+    from dynamix.model.spectra_board import SentSpectrum
+
+    window = _construction(qtbot, host)
+    window.show()
+    qtbot.waitExposed(window)
+    plot, view = window._plot, window._plot.getViewBox()
+    qtbot.wait(100)
+    opening = view.viewRange()
+    h = np.linspace(2.5, 3.5, 9)
+    host.spectra_board.add(SentSpectrum(name="far", full_name="far", kind="canonical", h=h,
+                                        D=6.0 - (h - 3.0) ** 2, dD=np.full(9, 0.2), identity={"n": "far"}))
+    QtWidgets.QApplication.processEvents()
+    np.testing.assert_allclose(view.viewRange(), opening, atol=0.03)       # unchanged by the send
+    view.autoRange()                                                        # View All
+    (x0, x1), (y0, y1) = view.viewRange()
+    assert x0 <= opening[0][0] + 0.03 and x1 >= 3.5 and y1 >= 6.2          # the far entry and its bar
+    plot.setRange(xRange=opening[0], yRange=opening[1], padding=0)
+    plot.autoBtn.mode = "auto"
+    plot.autoBtnClicked()                                                   # the auto-range button
+    QtWidgets.QApplication.processEvents()
+    view.prepareForPaint()
+    (x0, x1), (y0, y1) = view.viewRange()
+    assert x1 >= 3.5 and y1 >= 6.2
+    before = view.viewRange()
+    host.spectra_board.add(_entry("low", shift=-6.0))
+    QtWidgets.QApplication.processEvents()
+    view.prepareForPaint()
+    np.testing.assert_allclose(view.viewRange(), before, atol=0.03)        # a later send: still put
+    assert view.viewRange()[1][0] > -3.0
+
+
 def test_the_legend_shows_the_display_names_with_the_full_names_as_tooltips(qtbot, host):
     window = _construction(qtbot, host)
     key = host.spectra_board.add(_entry("A"))
