@@ -112,12 +112,18 @@ jobs:
       # swallows a log; a test that hangs past faulthandler_timeout prints its stack, naming it.
       - name: Headless gate
         timeout-minutes: 30
-        run: python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat headless.txt)
+        # pytest exits 5 when the selection is empty: with testmon that means no headless test reaches the
+        # changed code, which is a pass, not a failure.
+        run: |
+          rc=0; python -m pytest -q -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat headless.txt) || rc=$?
+          if [ "$rc" -eq 5 ]; then echo "no test reaches the changed code"; exit 0; fi; exit $rc
       - name: Qt-only gate (offscreen)
         if: ${{ !cancelled() }}
         timeout-minutes: 25
         # verbose on Windows, where a native crash ended the gate with no traceback: the last name printed is it
-        run: python -m pytest ${{ runner.os == 'Windows' && '-v' || '-q' }} -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat qtonly.txt)
+        run: |
+          rc=0; python -m pytest ${{ runner.os == 'Windows' && '-v' || '-q' }} -rfE -o faulthandler_timeout=300 -p no:cacheprovider $SELECT $(cat qtonly.txt) || rc=$?
+          if [ "$rc" -eq 5 ]; then echo "no test reaches the changed code"; exit 0; fi; exit $rc
       - name: Save the test selection database
         if: ${{ always() && github.event_name != 'schedule' && inputs.full != true }}
         uses: actions/cache/save@v4
