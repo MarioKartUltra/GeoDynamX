@@ -686,6 +686,101 @@ def test_the_construction_window_sends_the_landed_results_under_its_own_fit(qtbo
     assert host.spectra_board.entries()[-1].kind == "dwt_leaders"
 
 
+def test_send_adds_an_entry_per_window_updates_an_identical_one_and_replace_swaps_the_latest(qtbot, host):
+    """Send twice under two scale windows: two entries side by side; twice identical: one.
+    Replace is greyed while the board holds nothing of this window's kind, enabled after a Send,
+    and swaps the most recent such entry for the current fit, keeping its key, place, colour and
+    a given name; the status line names what it replaced. Each kind replaces its own."""
+    rng = np.random.default_rng(3)
+    window = _construction(qtbot, host, *_broken_pair(), h_map=rng.normal(0.4, 0.1, (64, 64)))
+    window.show()
+    qtbot.waitExposed(window)
+    board = host.spectra_board
+    assert window.replace_button.text() == "Replace"
+    assert not window.replace_button.isEnabled() and not window.replace_hist_button.isEnabled()
+    window.send_button.click()
+    window.send_button.click()                                    # exactly identical: updated in place
+    assert len(board) == 1
+    assert window.replace_button.isEnabled()
+    assert not window.replace_hist_button.isEnabled() and not window.replace_box_button.isEnabled()
+    lo = window._lo_spin.value()
+    window._lo_spin.setValue(lo + 1.0)
+    window.send_button.click()                                    # a second window: a second entry
+    first, second = board.entries()
+    assert first.identity["scale_window"] != second.identity["scale_window"]
+    board.rename(second.key, "mine")
+    board.set_colour(second.key, "#123456")
+    board.move(second.key, -1)
+    window._lo_spin.setValue(lo + 0.5)
+    window.replace_button.click()
+    assert len(board) == 2 and [e.key for e in board.entries()] == [second.key, first.key]
+    swapped = board.get(second.key)
+    assert swapped.identity["scale_window"] == list(window._scale_window())
+    assert (swapped.name, swapped.colour) == ("mine", "#123456")
+    np.testing.assert_allclose(swapped.D, window.current_fit()["D"])
+    assert board.get(first.key) is first                          # the older one is untouched
+    assert host.status[-1].startswith("replaced mine on the D(h) comparison by ")
+    board.rename(second.key, "")
+    window._lo_spin.setValue(lo + 0.2)
+    window.replace_button.click()
+    lo_text = f"{round(lo + 0.2, 1):g}"
+    assert board.get(second.key).name.startswith(f"WTMM (no sup) · a {lo_text}–")   # a default name recomputed
+
+    window.send_hist_button.click()
+    assert window.replace_hist_button.isEnabled() and not window.replace_box_button.isEnabled()
+    hist = board.entries()[-1].key
+    window.bins_spin.setValue(window.bins_spin.value() + 10)
+    window.replace_hist_button.click()
+    assert len(board) == 3 and board.entries()[-1].key == hist
+    assert board.get(hist).identity["settings"]["bins"] == window.bins_spin.value()
+    assert [e.kind for e in board.entries()] == ["canonical", "canonical", "histogram"]
+    board.remove(hist)
+    assert not window.replace_hist_button.isEnabled()
+
+
+def test_every_producer_has_a_replace_beside_its_send(qtbot, host):
+    """The Partition functions window (fit, histogram, box-counting), the Generalized window
+    (converged, Legendre), Large deviations, Log-cumulants and Structure functions: each Send has a
+    Replace beside it, greyed until that Send has put something on the board, and the Replace
+    swaps that entry, never another kind's or another window's."""
+    from dynamix.shell.generalized_spectrum_window import GeneralizedSpectrumWindow
+    from dynamix.shell.large_deviations_window import LargeDeviationsWindow
+    from dynamix.shell.log_cumulants_window import LogCumulantsWindow
+    from dynamix.shell.structure_functions_window import StructureFunctionsWindow
+    from tests.test_log_cumulants_window import _samples as cascade
+    from tests.test_spectrum_window import _per_scale_set
+    from tests.test_structure_functions_window import _samples as power_laws
+
+    board = host.spectra_board
+    rng = np.random.default_rng(5)
+    fitter = _fitter(qtbot, host, *_pair(), dh_hist=_hist(), h_map=rng.normal(0.4, 0.1, (64, 64)))
+    gen = GeneralizedSpectrumWindow(_per_scale_set()[0], log2_L=7., source="L1", parent=host)
+    gen._fit = {**_generalized_fit(), "legendre": _generalized_fit()["D"] + 0.1}
+    ld = LargeDeviationsWindow(_per_scale_set()[0], log2_L=7.0, source="L1", parent=host)
+    lc = LogCumulantsWindow(cascade(), levels=(1, 5), source="L1 · sym4", parent=host)
+    sf = StructureFunctionsWindow(power_laws(), levels=(2, 5), source="L1 · sym4", parent=host)
+    pairs = [(fitter.send_button, fitter.replace_button), (fitter.send_hist_button, fitter.replace_hist_button),
+             (fitter.send_box_button, fitter.replace_box_button),
+             *((gen.send_buttons[c], gen.replace_buttons[c]) for c in ("converged", "legendre")),
+             *((w.send_button, w.replace_button) for w in (ld, lc, sf))]
+    for w in (fitter, gen, ld, lc, sf):
+        qtbot.addWidget(w)
+    for send, replace in pairs:
+        assert send.parentWidget() is replace.parentWidget() and replace.text() == "Replace"
+    for i, (send, replace) in enumerate(pairs):
+        assert not replace.isEnabled(), i
+        assert all(r.isEnabled() for _s, r in pairs[:i])
+        send.click()
+        assert replace.isEnabled() and len(board) == i + 1, i
+        before = board.entries()
+        latest = before[-1]
+        replace.click()
+        assert [e.key for e in board.entries()] == [e.key for e in before], i
+        assert board.get(latest.key) is not latest, i                       # this window's entry, swapped
+        assert all(board.get(e.key) is e for e in before[:-1]), i           # no other kind's or window's
+        assert host.status[-1].startswith(f"replaced {latest.name} on the D(h) comparison"), i
+
+
 # ---------------------------------------------------------------------------- the inspector
 
 def _rows(window, qtbot):

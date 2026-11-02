@@ -235,9 +235,16 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.readout.setWordWrap(True)
         layout.addWidget(self.readout)
         # Below the readout, on a row of its own: it adds no width to the controls row.
+        from dynamix.shell.spectra_board import ReplaceButton
+
         self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
         self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
-        layout.addWidget(self.send_button, 0, QtCore.Qt.AlignmentFlag.AlignRight)
+        self.replace_button = ReplaceButton(self, "structure_functions", self.send_to_board, "structure-function spectrum", self.send_button)
+        sending = QtWidgets.QHBoxLayout()
+        sending.addStretch(1)
+        sending.addWidget(self.send_button)
+        sending.addWidget(self.replace_button)
+        layout.addLayout(sending)
         fit_to_screen(self, 1100, 760)
         remember_geometry(self, "structure_functions")
 
@@ -361,7 +368,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._read(fit, lo, hi)
         self.fitChanged.emit(fit)
 
-    def send_to_board(self) -> bool:
+    def send_to_board(self, replace: bool = False) -> bool:
         """The structure functions' spectrum to the D(h) comparison, with the fit's standard
         errors over the scale window and its τ(q)."""
         from dynamix.shell.spectra_board import from_fit, send
@@ -376,7 +383,7 @@ class StructureFunctionsWindow(SharedRangeFollower, QtWidgets.QDialog):
         entry = from_fit(self, {**fit, "name": fit.get("label", fit["name"])}, "structure_functions",
                          scale_window=(lo, hi), fit_mode=FIT_MODES[self.fit_combo.currentText()],
                          table=self.set_combo.currentData(), settings=settings)
-        return send(self, entry, "the structure functions give no finite D(h)")
+        return send(self, entry, "the structure functions give no finite D(h)", replace=replace)
 
     def _rebuild_family(self, table: dict) -> None:
         for item in self._family_items:

@@ -127,6 +127,54 @@ def test_a_new_scale_window_fit_mode_or_kind_makes_a_new_entry():
     assert len(board) == 4
 
 
+PRODUCER = {"window": "SpectrumWindow", "tool": {"recipe": "k1", "layer_id": "L1", "layer": "A"}}
+
+
+def test_replace_swaps_an_entry_keeping_its_display_state_and_a_given_name():
+    """A replace puts a new fit in place of an entry: its key, its legend position, colour,
+    visibility, bars and tangent switches and a name the user gave stay; a producer's name is
+    the new fit's."""
+    board = SpectraBoard()
+    first = board.add(_entry(window=(1.0, 5.0), name="WTMM (sup) · a 1–5", producer=PRODUCER))
+    other = board.add(_entry(kind="histogram"))
+    board.set_colour(first, "#00ff00")
+    board.set_visible(first, False)
+    board.set_show_errors(first, False)
+    new = _entry(window=(2.0, 6.0), name="WTMM (sup) · a 2–6", producer=PRODUCER)
+    assert board.replace(first, new) == first
+    assert [e.key for e in board.entries()] == [first, other] and board.get(first) is new
+    assert (new.colour, new.visible, new.show_errors) == ("#00ff00", False, False)
+    assert new.name == "WTMM (sup) · a 2–6" and not new.renamed       # the default name recomputed
+    board.rename(first, "mine")
+    board.replace(first, _entry(window=(3.0, 6.0), name="WTMM (sup) · a 3–6", producer=PRODUCER))
+    entry = board.get(first)
+    assert (entry.name, entry.renamed, entry.default_name) == ("mine", True, "WTMM (sup) · a 3–6")
+    assert entry.identity["scale_window"] == (3.0, 6.0)
+    with pytest.raises(KeyError):
+        board.replace("nowhere", _entry())
+
+
+def test_latest_of_names_the_most_recently_sent_entry_of_a_kind_and_producer():
+    """The most recent send or replace of one kind from one producer, whatever the legend order;
+    another kind or producer is never it; None when there is none."""
+    board = SpectraBoard()
+    assert board.latest_of("canonical", PRODUCER) is None
+    a = board.add(_entry(window=(1.0, 5.0), producer=PRODUCER))
+    b = board.add(_entry(window=(2.0, 5.0), producer=PRODUCER))
+    board.add(_entry(kind="histogram", producer=PRODUCER))
+    board.add(_entry(window=(3.0, 5.0), producer={**PRODUCER, "window": "MultifractalWindow"}))
+    assert board.latest_of("canonical", PRODUCER) == b
+    board.move(b, -1)                                   # the legend order is not the sending order
+    assert board.latest_of("canonical", PRODUCER) == b
+    board.add(_entry(window=(1.0, 5.0), producer=PRODUCER))   # identical to a: a updated, now latest
+    assert board.latest_of("canonical", PRODUCER) == a and len(board) == 4
+    board.replace(b, _entry(window=(2.5, 5.0), producer=PRODUCER))
+    assert board.latest_of("canonical", PRODUCER) == b
+    board.remove(b)
+    assert board.latest_of("canonical", PRODUCER) == a
+    assert board.latest_of("boxcount", PRODUCER) is None
+
+
 def test_the_entry_checks_its_arrays_and_tangent():
     with pytest.raises(ValueError, match="kind"):
         _entry(kind="microcanonical")

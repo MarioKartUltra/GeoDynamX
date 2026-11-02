@@ -185,9 +185,16 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.readout.setWordWrap(True)
         layout.addWidget(self.readout)
         # Below the readout, on a row of its own: it adds no width to the controls row.
+        from dynamix.shell.spectra_board import ReplaceButton
+
         self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
         self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
-        layout.addWidget(self.send_button, 0, QtCore.Qt.AlignmentFlag.AlignRight)
+        self.replace_button = ReplaceButton(self, "large_deviations", self.send_to_board, "large-deviation spectrum", self.send_button)
+        sending = QtWidgets.QHBoxLayout()
+        sending.addStretch(1)
+        sending.addWidget(self.send_button)
+        sending.addWidget(self.replace_button)
+        layout.addLayout(sending)
         fit_to_screen(self, 1100, 640)
         remember_geometry(self, "large_deviations")
 
@@ -310,7 +317,7 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._sync_legend(rule)
         self.fitChanged.emit(self._fit)
 
-    def send_to_board(self) -> bool:
+    def send_to_board(self, replace: bool = False) -> bool:
         """The spectrum on show to the D(h) comparison (the narrowest ε's under the fixed sweep);
         large deviations carry no error bars."""
         from dynamix.shell.spectra_board import from_fit, send
@@ -327,7 +334,7 @@ class LargeDeviationsWindow(SharedRangeFollower, QtWidgets.QDialog):
             settings["eps"] = [float(e) for e in fit["eps"]]
         entry = from_fit(self, fit, "large_deviations", scale_window=fit["window"], table=fit["set"],
                          settings=settings)
-        return send(self, entry, "no finite large-deviation spectrum to send")
+        return send(self, entry, "no finite large-deviation spectrum to send", replace=replace)
 
     def _sync_legend(self, rule: str) -> None:
         self._legend.clear()

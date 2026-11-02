@@ -7,10 +7,14 @@ board's inspector.
 The main window owns one :class:`SpectraBoardModel` (``MainWindow.spectra_board``); a window
 finds it through its parents (:func:`board_of`). A sender builds a
 :class:`~dynamix.model.spectra_board.SentSpectrum` from its fit (:func:`from_fit`) and hands it to
-:func:`send`; the board's ``sent`` signal carries the status line naming what was sent and
+:func:`send`, which adds it, or with ``replace`` swaps the most recent entry of its kind from the
+same window and producing tool (the :class:`ReplaceButton` beside each Send); the board's
+``sent`` signal carries the status line naming what was sent or replaced and
 ``boardChanged`` redraws the comparison (:class:`BoardComparison`, the D(h) construction
 window's)."""
 from __future__ import annotations
+
+import weakref
 
 import numpy as np
 import pyqtgraph as pg
@@ -19,9 +23,10 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from dynamix.core import spectra
 from dynamix.model.spectra_board import SentSpectrum, SpectraBoard
 
-__all__ = ["BOARD_HUES", "BoardComparison", "SpectraBoardInspector", "SpectraBoardModel", "ancestor_with",
-           "board_of", "dh_view_range", "from_fit", "generalized_entry", "kind_of_method", "landed_dialog",
-           "method_of", "say", "send", "send_button", "send_landed", "short_name", "tool_identity"]
+__all__ = ["BOARD_HUES", "BoardComparison", "ReplaceButton", "SpectraBoardInspector", "SpectraBoardModel",
+           "ancestor_with", "board_of", "dh_view_range", "from_fit", "generalized_entry", "kind_of_method",
+           "landed_dialog", "method_of", "producer_of", "say", "send", "send_button", "send_landed", "short_name",
+           "tool_identity"]
 
 #: One hue per sent spectrum, in sending order: DATA identity (which spectrum a curve is), the
 #: Theme-Rule carve-out the partition fitter's source hues document, as numeric RGB.
@@ -70,6 +75,16 @@ class SpectraBoardModel(QtCore.QObject):
                        f"{spectrum.full_name}")
         self.boardChanged.emit()
         return key
+
+    def replace(self, key: str, spectrum: SentSpectrum) -> str:
+        old = self.board.get(key).name
+        self.board.replace(key, spectrum)
+        self.sent.emit(f"replaced {old} on the D(h) comparison by {spectrum.full_name}")
+        self.boardChanged.emit()
+        return key
+
+    def latest_of(self, kind: str, producer: dict) -> "str | None":
+        return self.board.latest_of(kind, producer)
 
     def _changed(self, method, key, *args) -> None:
         method(key, *args)
@@ -224,6 +239,16 @@ def short_name(kind: str, identity: dict) -> "str | None":
     return prefix if base is None and not table else f"{prefix} · {base or table}"
 
 
+def producer_of(window, origin=None, curve=None) -> dict:
+    """What a Replace from ``window`` matches: the window's class, the producing result's tool
+    identity (``origin``, else the window's) and, for the generalized window, the ``curve``; the
+    scale window and the settings are left out, so a Replace swaps a fit sent under any of them."""
+    out = {"window": type(window).__name__, "tool": dict(origin) if origin is not None else tool_identity(window)}
+    if curve is not None:
+        out["curve"] = curve
+    return out
+
+
 def _log2_text(value: float) -> str:
     """log2 a as a name shows it: an integer, else one decimal."""
     return f"{round(float(value), 1) + 0.0:g}"
@@ -238,7 +263,8 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
     ``h_err`` and ``D_err`` as the bars when the fit has them, ``q`` (or ``q_list``) and ``tau``
     when the fit carries a τ(q) row per point; ``keep`` selects the points sent. The identity is
     the window's tool identity (or ``origin``, another result's), the scale window, the fit mode,
-    the table and the settings."""
+    the table and the settings; the producer :func:`producer_of` the window, the origin and the
+    settings' ``curve`` (the generalized window's)."""
     origin = dict(origin) if origin is not None else tool_identity(window)
     name = str(fit.get("name") or kind)
     layer = origin.get("layer")
@@ -272,7 +298,7 @@ def from_fit(window, fit: dict, kind: str, *, scale_window=None, fit_mode=None, 
         short += f" · a {_log2_text(lo)}–{_log2_text(hi)}"
     return SentSpectrum(name=short or full_name, full_name=full_name, kind=kind, h=h[keep], D=column("D"),
                         dh=column("h_err"), dD=column("D_err"), q=q, tau=tau, tangent=tangent,
-                        identity=identity)
+                        identity=identity, producer=producer_of(window, origin, (settings or {}).get("curve")))
 
 
 def _grid(value):
@@ -307,16 +333,25 @@ def generalized_entry(window, fit: dict, curve: str) -> "SentSpectrum | None":
                     scale_window=fit.get("window"), settings=settings)
 
 
-def send(window, spectrum: "SentSpectrum | None", nothing: str = "nothing to send") -> bool:
+def send(window, spectrum: "SentSpectrum | None", nothing: str = "nothing to send", *,
+         replace: bool = False) -> bool:
     """Put ``spectrum`` on the board ``window`` sends to (the board's ``sent`` names it on the
-    status line); ``nothing`` goes to the status line instead when there is no spectrum."""
+    status line); with ``replace``, in place of the most recent entry of its kind and producer;
+    ``nothing`` goes to the status line instead when there is no spectrum."""
     board = board_of(window)
     if spectrum is None or not np.isfinite(spectrum.D).any():
         say(window, nothing)
         return False
     if board is None:
         return False
-    board.add(spectrum)
+    if not replace:
+        board.add(spectrum)
+        return True
+    key = board.latest_of(spectrum.kind, spectrum.producer)
+    if key is None:
+        say(window, "nothing of this window's on the D(h) comparison to replace")
+        return False
+    board.replace(key, spectrum)
     return True
 
 
@@ -327,6 +362,44 @@ def send_button(what: str, slot) -> QtWidgets.QToolButton:
     button.setToolTip(f"Send the {what} to the D(h) comparison")
     button.clicked.connect(lambda _c=False: slot())
     return button
+
+
+class ReplaceButton(QtWidgets.QToolButton):
+    """Replace beside a Send: ``slot(replace=True)`` swaps the most recent entry of ``kind``
+    from ``window`` (:func:`producer_of`, with ``curve``)
+    for the current fit. Enabled only while the board holds such an entry and ``send``, the
+    Send beside it, is enabled."""
+
+    def __init__(self, window, kind, slot, what: str, send: QtWidgets.QAbstractButton, curve=None) -> None:
+        super().__init__()
+        # A weak reference: the window holds this button, and a strong one back would keep the
+        # window's wrapper alive in a cycle after Qt has deleted the window.
+        self._window, self._kind, self._send, self._curve = weakref.ref(window), kind, send, curve
+        self.setText("Replace")
+        self.setToolTip(f"Replace the {what} this window sent last to the D(h) comparison by the current one, "
+                        "keeping its colour, place, switches and a name you gave it")
+        self.clicked.connect(lambda _c=False: slot(replace=True))
+        send.installEventFilter(self)
+        board = board_of(window)
+        if board is not None:
+            board.boardChanged.connect(self.sync)
+        self.sync()
+
+    @QtCore.Slot()
+    def sync(self) -> None:
+        window = self._window()
+        board = None if window is None else board_of(window)
+        self.setEnabled(board is not None and self._send.isEnabled()
+                        and board.latest_of(self._kind, producer_of(window, curve=self._curve)) is not None)
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self._send and event.type() == QtCore.QEvent.Type.EnabledChange:
+            self.sync()
+        return super().eventFilter(watched, event)
+
+    def showEvent(self, event) -> None:
+        self.sync()                    # the window's tool identity is stamped after it is built
+        super().showEvent(event)
 
 
 def kind_of_method(method: str) -> str:

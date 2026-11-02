@@ -62,8 +62,8 @@ from dynamix.model.spectra_board import plain
 from dynamix.shell.theme import current
 from dynamix.shell.plot_zoom import WheelAxisViewBox  # noqa: F401  (re-exported for the fitting windows)
 from dynamix.shell.shared_range import SharedRangeFollower
-from dynamix.shell.spectra_board import (ancestor_with, dh_view_range, from_fit, kind_of_method, send,
-                                         send_button, send_landed)
+from dynamix.shell.spectra_board import (ReplaceButton, ancestor_with, dh_view_range, from_fit, kind_of_method,
+                                         send, send_button, send_landed)
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
 __all__ = ["MultifractalWindow"]
@@ -370,6 +370,9 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.send_hist_button = send_button("histogram construction", self.send_histogram)
         self.send_hist_button.setEnabled(self._dh_hist is not None)
         controls.addWidget(self.send_hist_button)
+        self.replace_hist_button = ReplaceButton(self, "histogram", self.send_histogram, "histogram construction",
+                                                 self.send_hist_button)
+        controls.addWidget(self.replace_hist_button)
         self.boxcount_check = QtWidgets.QCheckBox("box-counting")
         self.boxcount_check.setEnabled(self._h_map is not None)
         self.boxcount_check.toggled.connect(self._on_boxcount_toggled)
@@ -377,6 +380,14 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.send_box_button = send_button("box-counting construction", self.send_boxcount)
         self.send_box_button.setEnabled(self._h_map is not None or self._dh_box is not None)
         controls.addWidget(self.send_box_button)
+        self.replace_box_button = ReplaceButton(self, "boxcount", self.send_boxcount, "box-counting construction",
+                                                self.send_box_button)
+        controls.addWidget(self.replace_box_button)
+        # The constructions' Send and Replace pairs fill this row with Export figure… at its end;
+        # the cumulants take the next.
+        controls.addStretch(1)
+        layout.addLayout(controls)
+        constructions, controls = controls, QtWidgets.QHBoxLayout()
         # tau, h and D(h) from the cascade's cumulants, over the fitted ones.
         self.cumulant_check = QtWidgets.QCheckBox("cumulant spectrum")
         self.cumulant_check.toggled.connect(self._on_cumulant_requested)
@@ -449,6 +460,8 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
                                     "errors over the scale window), to the D(h) comparison")
         self.send_button.clicked.connect(lambda _c=False: self.send_primary())
         compare.addWidget(self.send_button)
+        self.replace_button = ReplaceButton(self, self._primary_kind(), self.send_primary, "fit", self.send_button)
+        compare.addWidget(self.replace_button)
         self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
         self.with_tangent_check.setToolTip("Send the phase-transition tangent drawn on D(h) with the fit")
         compare.addWidget(self.with_tangent_check)
@@ -470,7 +483,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.export_button = QtWidgets.QPushButton("Export figure…")
         self.export_button.setToolTip("These plots as a PNG, with a record naming the fit")
         self.export_button.clicked.connect(lambda _c=False: self._export_figure())
-        compare.addWidget(self.export_button)
+        constructions.addWidget(self.export_button)
         layout.addLayout(compare)
 
         #: The two-segment fit's live numbers -- slope_L / slope_R / ds + the scan's best q*.
@@ -759,10 +772,11 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         return {"q_c": got["q_c"], "h_c": got["h_c"], "D_c": got["D_c"], "slope": got["q_c"],
                 "intercept": got["intercept"]}
 
-    def send_primary(self, with_tangent: "bool | None" = None) -> bool:
+    def send_primary(self, with_tangent: "bool | None" = None, replace: bool = False) -> bool:
         """The fit on show to the D(h) comparison: its displayed q rows with the error bars D(h)
         draws (the fit's standard errors over the scale window), τ(q), and the tangent drawn on
-        D(h) when ``with_tangent`` (the "with tangent" box by default)."""
+        D(h) when ``with_tangent`` (the "with tangent" box by default); with ``replace``, in
+        place of the fit this window sent last."""
         if self._fit is None:
             return send(self, None, "no fit to send")
         if with_tangent is None:
@@ -775,13 +789,13 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         entry = from_fit(self, fit, self._primary_kind(), scale_window=(lo, hi), fit_mode=self.fit_mode(),
                          table=self._table_key(), settings=settings,
                          tangent=self._tangent_now() if with_tangent else None, keep=self._q_mask(q))
-        return send(self, entry, "no finite D(h) to send")
+        return send(self, entry, "no finite D(h) to send", replace=replace)
 
     def _hist_name(self) -> str:
         return ("GMWLP histogram (leaders)" if self._h_map_method in LEADERS_METHODS
                 else "microcanonical histogram")
 
-    def send_histogram(self) -> bool:
+    def send_histogram(self, replace: bool = False) -> bool:
         """The histogram construction as D(h) draws it (pinned to D₀ when the pin is on), with
         its eq. 39 bars."""
         if self._dh_hist is None:
@@ -793,9 +807,9 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         entry = from_fit(self, fit, "histogram", scale_window=(lo, hi) if pinned else None,
                          fit_mode=self.fit_mode() if pinned else None,
                          table=self._table_key() if pinned else None, settings={"pin_to_D0": pinned})
-        return send(self, entry, "the histogram construction has no finite D(h)")
+        return send(self, entry, "the histogram construction has no finite D(h)", replace=replace)
 
-    def send_boxcount(self) -> bool:
+    def send_boxcount(self, replace: bool = False) -> bool:
         """The box-counting construction across r (eq. 20) with its slopes' standard errors."""
         from dynamix.core.microcanonical import box_counting_spectrum
 
@@ -806,7 +820,7 @@ class MultifractalWindow(SharedRangeFollower, QtWidgets.QDialog):
         else:
             return send(self, None, "no box-counting construction to send")
         entry = from_fit(self, {"name": "box-counting across r", "h": h, "D": D, "D_err": dD}, "boxcount")
-        return send(self, entry, "the box-counting construction has no finite D(h)")
+        return send(self, entry, "the box-counting construction has no finite D(h)", replace=replace)
 
     def send_landed_results(self, names=None) -> int:
         """Send the other layers' landed results named in ``names`` (asked in a list when None):

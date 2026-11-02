@@ -171,11 +171,19 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.delta_combo = QtWidgets.QComboBox()
         pick.addWidget(self.delta_combo)
         pick.addStretch(1)
+        from dynamix.shell.spectra_board import ReplaceButton
+
+        self.send_buttons, self.replace_buttons = {}, {}
         for curve, text in (("converged", "Send converged"), ("legendre", "Send Legendre (γ = 0)")):
             button = QtWidgets.QPushButton(text)
             button.setToolTip("Send this spectrum to the D(h) comparison")
             button.clicked.connect(lambda _c=False, curve=curve: self.send_to_board(curve))
+            replace = ReplaceButton(self, "generalized",
+                                    lambda replace, curve=curve: self.send_to_board(curve, replace=replace),
+                                    f"{curve} spectrum", button, curve=curve)
+            self.send_buttons[curve], self.replace_buttons[curve] = button, replace
             pick.addWidget(button)
+            pick.addWidget(replace)
         layout.addLayout(pick)
         # Four panels: D(h) and the partition function above, τ_g(q) and the specific heat
         # c_γ(q) = −q² τ_g″ below; the partition panel carries the scale-window sliders.
@@ -578,10 +586,11 @@ class GeneralizedSpectrumWindow(SharedRangeFollower, QtWidgets.QDialog):
         self._cancel()
         super().closeEvent(event)
 
-    def send_to_board(self, curve: str = "converged") -> bool:
-        """The last Compute's ``curve`` (``converged`` or ``legendre``) to the D(h) comparison."""
+    def send_to_board(self, curve: str = "converged", replace: bool = False) -> bool:
+        """The last Compute's ``curve`` (``converged`` or ``legendre``) to the D(h) comparison;
+        with ``replace``, in place of the ``curve`` this window sent last."""
         from dynamix.shell.spectra_board import generalized_entry, send
 
         entry = generalized_entry(self, self._fit, curve) if self._fit is not None else None
         return send(self, entry, "nothing to send: Compute the generalized spectrum first"
-                    if self._fit is None else f"no {curve} spectrum in this fit")
+                    if self._fit is None else f"no {curve} spectrum in this fit", replace=replace)

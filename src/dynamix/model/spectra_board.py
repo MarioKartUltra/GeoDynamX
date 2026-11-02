@@ -3,11 +3,14 @@
 """The D(h) comparison board: the spectra sent from the fitting windows, in legend order.
 
 Session state the main window holds; nothing here is written to the project file. An entry is a
-snapshot of its producer's spectrum when it was sent. Its kind and identity (the producing
-result's tool identity, the scale window, the fit mode, the table and the producer's settings)
-decide replacement: a spectrum sent again under the same kind and identity replaces the earlier
-entry in place, keeping its display state (its display name when renamed, its colour, its
-visibility, its bars and tangent switches); a changed identity adds an entry. ``name`` is the
+snapshot of its producer's spectrum when it was sent. A send adds an entry, two scale windows of
+one method two entries side by side; a send exactly identical to an entry (one kind, one
+identity: the producing result's tool identity, the scale window, the fit mode, the table and
+the producer's settings) updates that entry in place instead, keeping its display state (its
+display name when renamed, its colour, its legend position, its visibility, its bars and tangent
+switches). A replace swaps the most recently sent entry of one producer (the window and the
+producing tool, without the scale window) and kind for a new fit, keeping the same display
+state. ``name`` is the
 display name and the only name a rename touches; ``default_name`` is the display name the
 producer gave, which an empty rename restores; ``full_name`` is the producer's own name, with
 the scale window and the tangent it was sent under."""
@@ -57,8 +60,9 @@ def plain(value):
 class SentSpectrum:
     """One spectrum on the board: ``h`` and ``D`` with their error bars (None without), the
     partition-side ``q`` and ``tau`` when the producer has them, the phase-transition tangent
-    when it was sent with one, the identity that decides replacement, and the display state:
-    ``renamed`` once a rename gave it a name of its own."""
+    when it was sent with one, the identity an exactly identical send matches, the producer (the
+    sending window and the producing tool, without the scale window) a replace matches, and the
+    display state: ``renamed`` once a rename gave it a name of its own."""
 
     name: str
     full_name: str
@@ -71,6 +75,7 @@ class SentSpectrum:
     tau: "np.ndarray | None" = None
     tangent: "dict | None" = None
     identity: dict = field(default_factory=dict)
+    producer: dict = field(default_factory=dict)
     colour: str = ""
     visible: bool = True
     show_errors: bool = True
@@ -131,6 +136,8 @@ class SpectraBoard:
 
     def __init__(self) -> None:
         self._entries: list[SentSpectrum] = []
+        self._sent: dict[str, int] = {}             # key -> when last sent or replaced
+        self._clock = 0
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -144,24 +151,47 @@ class SpectraBoard:
                 return entry
         raise KeyError(key)
 
+    def _stamp(self, key: str) -> str:
+        self._clock += 1
+        self._sent[key] = self._clock
+        return key
+
+    def _take_over(self, i: int, spectrum: SentSpectrum) -> str:
+        """``spectrum`` in place of entry ``i``: the data and the producer's display name are the
+        new ones; the key, the legend position, the name a rename gave, the colour, the
+        visibility and the bars and tangent switches the old entry's."""
+        old = self._entries[i]
+        spectrum.key, spectrum.colour, spectrum.visible = old.key, old.colour, old.visible
+        spectrum.show_errors, spectrum.show_tangent = old.show_errors, old.show_tangent
+        if old.renamed:
+            spectrum.name, spectrum.renamed = old.name, True
+        self._entries[i] = spectrum
+        return self._stamp(spectrum.key)
+
     def add(self, spectrum: SentSpectrum) -> str:
-        """Append ``spectrum``, or replace in place the entry it is sent again as (one kind, one
-        identity): the data and the producer's display name are the new ones; the key, the name
-        a rename gave, the colour, the visibility and the bars and tangent switches the old
-        entry's. Returns the entry's key."""
+        """Append ``spectrum``, or update in place the entry it is exactly identical to (one
+        kind, one identity). Returns the entry's key."""
         for i, old in enumerate(self._entries):
             if old.same_as(spectrum):
-                spectrum.key, spectrum.colour, spectrum.visible = old.key, old.colour, old.visible
-                spectrum.show_errors, spectrum.show_tangent = old.show_errors, old.show_tangent
-                if old.renamed:
-                    spectrum.name, spectrum.renamed = old.name, True
-                self._entries[i] = spectrum
-                return spectrum.key
+                return self._take_over(i, spectrum)
         self._entries.append(spectrum)
-        return spectrum.key
+        return self._stamp(spectrum.key)
+
+    def replace(self, key: str, spectrum: SentSpectrum) -> str:
+        """``spectrum`` in place of the entry ``key``, keeping its key, legend position, colour,
+        visibility, switches and a name a rename gave. Returns the key."""
+        return self._take_over(self._entries.index(self.get(key)), spectrum)
+
+    def latest_of(self, kind: str, producer: dict) -> "str | None":
+        """The key of the most recently sent or replaced entry of ``kind`` from ``producer``,
+        else None."""
+        text = _identity_text(producer)
+        keys = [e.key for e in self._entries if e.kind == kind and _identity_text(e.producer) == text]
+        return max(keys, key=self._sent.__getitem__, default=None)
 
     def remove(self, key: str) -> None:
         self._entries.remove(self.get(key))
+        self._sent.pop(key, None)
 
     def rename(self, key: str, name: str) -> None:
         """The display name; an empty one restores the producer's display name."""

@@ -64,8 +64,8 @@ from dynamix.model.spectra_board import plain
 from dynamix.shell.gc_guard import weak_method
 from dynamix.shell.multifractal_window import (LEADERS_METHODS, _SOURCE_HUES, Q_COLD, Q_WARM, TABLE_CHOICES,
                                                 WheelAxisViewBox, add_zero_lines)
-from dynamix.shell.spectra_board import (BoardComparison, ancestor_with, board_of, dh_view_range, from_fit,
-                                         kind_of_method, send, send_button, send_landed)
+from dynamix.shell.spectra_board import (BoardComparison, ReplaceButton, ancestor_with, board_of, dh_view_range,
+                                         from_fit, kind_of_method, send, send_button, send_landed)
 from dynamix.shell.theme import current
 from dynamix.shell.window_fit import TOOL_WINDOW, show_while_inactive
 
@@ -396,10 +396,11 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
                            eta=float(self._eta_spin.value()), frame=self._frame_combo.currentText(),
                            log2_L=self._log2_L, table=self._table_key(), settings=self._fit_settings())
 
-    def send_primary(self, with_tangent: "bool | None" = None) -> bool:
+    def send_primary(self, with_tangent: "bool | None" = None, replace: bool = False) -> bool:
         """The canonical points to the D(h) comparison: every q row with the error bars D(h)
         draws (the fit's standard errors over the scale window), τ(q), and the tangent at q_c
-        drawn on D(h) when ``with_tangent`` (the "with tangent" box by default)."""
+        drawn on D(h) when ``with_tangent`` (the "with tangent" box by default); with ``replace``,
+        in place of the canonical points this window sent last."""
         if self._fit is None:
             return send(self, None, "no canonical points to send")
         if with_tangent is None:
@@ -408,9 +409,9 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         entry = from_fit(self, {**self._fit, "name": name}, kind_of_method(self._h_map_method),
                          scale_window=self._scale_window(), fit_mode=self.fit_mode(), table=self._table_key(),
                          settings=self._fit_settings(), tangent=self._tangent_now() if with_tangent else None)
-        return send(self, entry, "no finite D(h) to send")
+        return send(self, entry, "no finite D(h) to send", replace=replace)
 
-    def send_histogram(self) -> bool:
+    def send_histogram(self, replace: bool = False) -> bool:
         """The histogram construction as D(h) draws it (pinned to the fit's D₀ when the pin is
         on), with its eq. 39 bars, under its legend name."""
         if self._hist is None:
@@ -423,7 +424,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
                          scale_window=self._scale_window() if pinned else None,
                          fit_mode=self.fit_mode() if pinned else None,
                          table=self._table_key() if pinned else None, settings=settings)
-        return send(self, entry, "the histogram construction has no finite D(h)")
+        return send(self, entry, "the histogram construction has no finite D(h)", replace=replace)
 
     def _boxcount(self) -> tuple:
         """Eq. 20 across r over the h-map, on coarser bins than the histogram's: a thin bin is
@@ -432,14 +433,14 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
 
         return box_counting_spectrum(self._h_map, n_bins=max(8, self._bins // 4))
 
-    def send_boxcount(self) -> bool:
+    def send_boxcount(self, replace: bool = False) -> bool:
         """The box-counting construction across r (eq. 20) with its slopes' standard errors."""
         if self._h_map is None:
             return send(self, None, "no box-counting construction to send")
         h, D, dD = self._boxcount()
         entry = from_fit(self, {"name": "box-counting across r (eq. 20)", "h": h, "D": D, "D_err": dD},
                          "boxcount", settings={"bins": max(8, self._bins // 4)})
-        return send(self, entry, "the box-counting construction has no finite D(h)")
+        return send(self, entry, "the box-counting construction has no finite D(h)", replace=replace)
 
     def _export_figure(self) -> None:
         main = ancestor_with(self.parentWidget(), "_export_comparison_figure")
@@ -606,6 +607,9 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         self.send_button.setEnabled(has_hd)
         self.send_button.clicked.connect(lambda _c=False: self.send_primary())
         controls.addWidget(self.send_button)
+        self.replace_button = ReplaceButton(self, kind_of_method(self._h_map_method), self.send_primary,
+                                            "canonical points", self.send_button)
+        controls.addWidget(self.replace_button)
         self.with_tangent_check = QtWidgets.QCheckBox("with tangent")
         self.with_tangent_check.setToolTip("Send the tangent at q_c drawn on D(h) with the points")
         self.with_tangent_check.setEnabled(has_hd)
@@ -642,6 +646,7 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
         # The histogram construction's own controls, with an h-map to build it from.
         self.bins_spin = self.r0_combo = self.per_scale_check = self.gh_check = None
         self.boxcount_check = self.pin_check = self.send_hist_button = self.send_box_button = None
+        self.replace_hist_button = self.replace_box_button = None
         if self._h_map is not None:
             controls.addWidget(QtWidgets.QLabel("bins"))
             self.bins_spin = QtWidgets.QSpinBox()
@@ -670,6 +675,9 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             controls.addWidget(self.boxcount_check)
             self.send_box_button = send_button("box-counting construction", self.send_boxcount)
             controls.addWidget(self.send_box_button)
+            self.replace_box_button = ReplaceButton(self, "boxcount", self.send_boxcount, "box-counting construction",
+                                                    self.send_box_button)
+            controls.addWidget(self.replace_box_button)
             # Eq. 21 with the fit's own D₀ = -tau(0) in place of d, to compare shapes.
             self.pin_check = QtWidgets.QCheckBox("pin peak to D₀ of the fit")
             self.pin_check.setEnabled(has_hd)
@@ -682,6 +690,9 @@ class SpectrumWindow(BoardComparison, QtWidgets.QDialog):
             self.send_hist_button = send_button("histogram construction", self.send_histogram)
             self.send_hist_button.setEnabled(self._hist is not None)
             controls.addWidget(self.send_hist_button)
+            self.replace_hist_button = ReplaceButton(self, "histogram", self.send_histogram,
+                                                     "histogram construction", self.send_hist_button)
+            controls.addWidget(self.replace_hist_button)
 
         for w in (self._table_combo, self._lo_spin, self._hi_spin, self._eta_spin,
                   self._hull_check):

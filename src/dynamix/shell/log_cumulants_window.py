@@ -155,9 +155,16 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.readout.setWordWrap(True)
         layout.addWidget(self.readout)
         # Below the readout, on a row of its own: it adds no width to the controls row.
+        from dynamix.shell.spectra_board import ReplaceButton
+
         self.send_button = QtWidgets.QPushButton("Send to D(h) comparison")
         self.send_button.clicked.connect(lambda _c=False: self.send_to_board())
-        layout.addWidget(self.send_button, 0, QtCore.Qt.AlignmentFlag.AlignRight)
+        self.replace_button = ReplaceButton(self, "cumulant", self.send_to_board, "cumulant spectrum", self.send_button)
+        sending = QtWidgets.QHBoxLayout()
+        sending.addStretch(1)
+        sending.addWidget(self.send_button)
+        sending.addWidget(self.replace_button)
+        layout.addLayout(sending)
         fit_to_screen(self, 1000, 760)
         remember_geometry(self, "log_cumulants")
 
@@ -220,7 +227,7 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
         self.readout.setText(" · ".join(parts))
         self.fitChanged.emit(self._fit)
 
-    def send_to_board(self) -> bool:
+    def send_to_board(self, replace: bool = False) -> bool:
         """The cumulant-expansion spectrum to the D(h) comparison, with its τ(q); the scale window
         is the orders' common range when they share one, every order's in the settings."""
         from dynamix.shell.spectra_board import from_fit, send
@@ -232,7 +239,7 @@ class LogCumulantsWindow(SharedRangeFollower, QtWidgets.QDialog):
         window = ranges[1] if len(set(ranges.values())) == 1 else None
         settings = {"frame": fit["frame"], "gamma": fit["gamma"], "ranges": {str(m): r for m, r in ranges.items()}}
         entry = from_fit(self, fit, "cumulant", scale_window=window, table=fit["set"], settings=settings)
-        return send(self, entry, "the cumulant expansion has no finite D(h)")
+        return send(self, entry, "the cumulant expansion has no finite D(h)", replace=replace)
 
     @staticmethod
     def _label(m: int, c: float, reg: dict) -> str:
