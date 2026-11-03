@@ -587,7 +587,17 @@ def stub_devices(clean_registry):
 
     register_builtin_devices()
     register_device(_StubStack())
-    return clean_registry
+    yield clean_registry
+    # A worker still finishing, or a queued call, would look the stub up after the registry
+    # empties and raise in the event loop at teardown: let the pool drain and the posted events
+    # run while the stub is still registered.
+    from PySide6 import QtCore, QtWidgets
+
+    if QtWidgets.QApplication.instance() is not None:
+        QtCore.QThreadPool.globalInstance().waitForDone(10000)
+        for _ in range(3):
+            QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+            QtCore.QCoreApplication.processEvents()
 
 
 @pytest.fixture
